@@ -9,3 +9,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-02-10T14:30:00
 - Document API authentication and rate limits
+
+### 2026-02-17T09:15:00
+- Plan Vue + Tauri + C++ FFI boundary
