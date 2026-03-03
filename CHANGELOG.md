@@ -15,3 +15,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-02-24T16:45:00
 - Configure VS Code, Rust toolchain, vcpkg
+
+### 2026-03-03T11:20:00
+- Setup Vue 3 + Vite frontend scaffold
