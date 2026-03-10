@@ -18,3 +18,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-03-03T11:20:00
 - Setup Vue 3 + Vite frontend scaffold
+
+### 2026-03-10T13:00:00
+- CMake + MSVC configuration for EchoCAPI
