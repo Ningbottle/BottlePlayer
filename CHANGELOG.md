@@ -21,3 +21,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-03-10T13:00:00
 - CMake + MSVC configuration for EchoCAPI
+
+### 2026-03-17T10:30:00
+- WinHTTP wrapper with connection pooling
