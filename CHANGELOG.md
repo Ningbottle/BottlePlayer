@@ -24,3 +24,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-03-17T10:30:00
 - WinHTTP wrapper with connection pooling
+
+### 2026-03-24T15:15:00
+- Database schema for playlists and cache
