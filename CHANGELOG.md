@@ -27,3 +27,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-03-24T15:15:00
 - Database schema for playlists and cache
+
+### 2026-04-01T09:45:00
+- Search, song detail, playlist endpoints
