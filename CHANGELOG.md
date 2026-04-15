@@ -33,3 +33,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-04-08T14:00:00
 - Thread pool with per-kind deadlines
+
+### 2026-04-15T11:30:00
+- Navigation and playlist display
