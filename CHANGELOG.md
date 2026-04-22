@@ -36,3 +36,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-04-15T11:30:00
 - Navigation and playlist display
+
+### 2026-04-22T16:20:00
+- Search input and navigation arrows
