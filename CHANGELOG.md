@@ -39,3 +39,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-04-22T16:20:00
 - Search input and navigation arrows
+
+### 2026-05-01T10:00:00
+- Transport controls and progress bar
