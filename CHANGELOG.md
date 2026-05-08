@@ -42,3 +42,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-05-01T10:00:00
 - Transport controls and progress bar
+
+### 2026-05-08T13:45:00
+- Basic play/pause/seek functionality
