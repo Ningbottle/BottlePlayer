@@ -1,0 +1,11 @@
+{
+  "name": "bottlemusic-native",
+  "version-string": "0.1.0",
+  "dependencies": [
+    "cpp-httplib",
+    "nlohmann-json",
+    "sqlite3",
+    "spdlog",
+    "wil"
+  ]
+}
