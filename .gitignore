@@ -7,7 +7,7 @@ yarn-error.log*
 pnpm-debug.log*
 lerna-debug.log*
 
-# Diagnostic reports (https://nodejs.org/api/report.html)
+# Diagnostic reports
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 
 # Dependency directories
@@ -18,13 +18,48 @@ node_modules
 dist
 dist-electron
 build
+Build
+build-*/
 out
 release
+*.d
+*.slo
+*.lo
+*.o
+*.obj
+*.gch
+*.pch
+*.ilk
+*.pdb
+*.so
+*.dylib
+*.dll
+*.so.*
+*.mod
+*.smod
+*.lai
+*.la
+*.a
+*.lib
 *.dmg
 *.exe
 *.deb
 *.rpm
 *.AppImage
+*.out
+*.app
+
+# CMake generated files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+install_manifest.txt
+compile_commands.json
+Testing/
+
+# vcpkg
+vcpkg_installed/
 
 # IDEs and editors
 .vscode/*
@@ -52,4 +87,9 @@ Thumbs.db
 
 # TypeScript
 *.tsbuildinfo
+
+# Temporary files
+*.tmp
+*.bak
+.cache/
 .ace-tool/
