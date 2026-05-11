@@ -45,6 +45,10 @@ class IBackendFacade {
   virtual std::future<nlohmann::json> SearchSongs(std::string keywords, int page, int pageSize) = 0;
   virtual std::future<nlohmann::json> GetPlaylistDetail(std::string id) = 0;
   virtual std::future<nlohmann::json> ResolveSongUrl(std::string hash, std::string quality) = 0;
+  virtual std::future<nlohmann::json> SearchLyrics(std::string hash) = 0;
+  virtual std::future<nlohmann::json> GetLyricDetail(std::string id, std::string accessKey) = 0;
+  virtual std::future<AppSettings> LoadSettings() = 0;
+  virtual std::future<void> SaveSettings(AppSettings settings) = 0;
 };
 
 std::unique_ptr<IBackendFacade> CreateBackendFacade();

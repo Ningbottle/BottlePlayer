@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstddef>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,12 @@ struct SessionInfo {
   std::string token;
   std::string userId;
   std::string t1;
+};
+
+struct AppSettings {
+  double volume = 0.48;
+  std::string startupPage = "home";
+  std::size_t imageMemoryCacheMb = 32;
 };
 
 struct SongArtist {
@@ -113,4 +120,3 @@ struct PlaybackState {
 };
 
 }  // namespace echo::core
-

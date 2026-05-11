@@ -1,0 +1,15 @@
+{
+  "_meta": {
+    "route": "/song/url",
+    "params": { "hash": "abc123", "quality": "sq" },
+    "volatile_paths": ["/url", "/data/play_url", "/data/backup_url"],
+    "description": "Song URL route: status must be 1, hash echo must match, url and play_url are volatile (signed CDN URLs)."
+  },
+  "status": 1,
+  "url": "__volatile__",
+  "data": {
+    "hash": "abc123",
+    "play_url": "__volatile__",
+    "backup_url": []
+  }
+}

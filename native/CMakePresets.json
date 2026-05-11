@@ -1,0 +1,56 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 24,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "bottlemusic-check",
+      "displayName": "BottleMusic Debug check build",
+      "description": "Debug build used for fast local smoke tests.",
+      "generator": "NMake Makefiles",
+      "binaryDir": "${sourceDir}/out/bottlemusic-check",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug"
+      }
+    },
+    {
+      "name": "bottlemusic-release",
+      "displayName": "BottleMusic Release build",
+      "description": "Release build used for local memory and packaging checks.",
+      "generator": "NMake Makefiles",
+      "binaryDir": "${sourceDir}/out/bottlemusic-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "bottlemusic-check",
+      "configurePreset": "bottlemusic-check"
+    },
+    {
+      "name": "bottlemusic-release",
+      "configurePreset": "bottlemusic-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "bottlemusic-check",
+      "configurePreset": "bottlemusic-check",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "bottlemusic-release",
+      "configurePreset": "bottlemusic-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

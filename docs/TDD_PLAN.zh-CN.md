@@ -92,6 +92,22 @@ REFACTOR: 保持测试通过，整理模块和命名
 - 大歌单滚动。
 - UI 截图和视觉对齐。
 
+## 当前稳定验证命令
+
+在 PowerShell 中建议用 `cmd.exe /d /s /c` 包住 Visual Studio Developer Command，避免 `VsDevCmd.bat` 初始化的 MSVC 环境丢失。
+
+Debug 快速验证：
+
+```powershell
+cmd.exe /d /s /c '"C:\Program Files\Microsoft Visual Studio\18\Insiders\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && "D:\QT\Tools\CMake_64\bin\cmake.exe" -S native --preset bottlemusic-check && "D:\QT\Tools\CMake_64\bin\cmake.exe" --build native\out\bottlemusic-check --target EchoNativeSmokeTests EchoWin32 EchoCompatServer && "D:\QT\Tools\CMake_64\bin\ctest.exe" --test-dir native\out\bottlemusic-check --output-on-failure --timeout 30'
+```
+
+Release 验证：
+
+```powershell
+cmd.exe /d /s /c '"C:\Program Files\Microsoft Visual Studio\18\Insiders\Common7\Tools\VsDevCmd.bat" -arch=x64 -host_arch=x64 && "D:\QT\Tools\CMake_64\bin\cmake.exe" -S native --preset bottlemusic-release && "D:\QT\Tools\CMake_64\bin\cmake.exe" --build native\out\bottlemusic-release --target EchoNativeSmokeTests EchoWin32 EchoCompatServer && "D:\QT\Tools\CMake_64\bin\ctest.exe" --test-dir native\out\bottlemusic-release --output-on-failure --timeout 30'
+```
+
 ## 禁止测试方式
 
 - 不要测试私有函数。

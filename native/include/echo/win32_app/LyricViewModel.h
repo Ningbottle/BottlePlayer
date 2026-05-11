@@ -3,6 +3,8 @@
 #include <string>
 #include <vector>
 
+#include <nlohmann/json.hpp>
+
 #include "echo/core/Dto.h"
 
 namespace echo::win32_app {
@@ -25,5 +27,6 @@ struct LyricViewModel {
 };
 
 LyricViewModel BuildLyricViewModel(const core::LyricDocument& document, std::int64_t currentMs);
+core::LyricDocument BuildLyricDocumentFromDetail(const nlohmann::json& response);
 
 }  // namespace echo::win32_app

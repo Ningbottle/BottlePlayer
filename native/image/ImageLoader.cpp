@@ -280,4 +280,57 @@ DecodedImage ImageLoader::LoadFile(const std::string& key,
   return decoded;
 }
 
+DecodedImage ImageLoader::LoadRemote(const std::string& key,
+                                     const std::string& url,
+                                     RemoteFetch fetch,
+                                     async::CancellationToken token) {
+  if (token.IsCancellationRequested()) {
+    auto image = WicImageDecoder::Placeholder("cancelled");
+    image.cancelled = true;
+    return image;
+  }
+
+  if (const auto cached = memoryCache_.Get(key)) {
+    DecodedImage image;
+    image.width = cached->width;
+    image.height = cached->height;
+    image.bgra = cached->bytes;
+    image.fromMemoryCache = true;
+    return image;
+  }
+
+  if (diskCache_.Get(key).has_value()) {
+    auto decoded = decoder_.DecodeFile(diskCache_.PathForKey(key));
+    if (!decoded.placeholder) {
+      memoryCache_.Put(key, decoded.width, decoded.height, decoded.bgra);
+    }
+    return decoded;
+  }
+
+  if (url.empty() || !fetch) {
+    return WicImageDecoder::Placeholder("remote_image_missing_fetch");
+  }
+
+  const auto fetched = fetch(url);
+  if (token.IsCancellationRequested()) {
+    auto image = WicImageDecoder::Placeholder("cancelled");
+    image.cancelled = true;
+    return image;
+  }
+
+  if (!fetched.error.empty() || fetched.statusCode < 200 || fetched.statusCode >= 300 || fetched.bytes.empty()) {
+    return WicImageDecoder::Placeholder(
+        fetched.error.empty() ? "remote_image_fetch_failed" : fetched.error);
+  }
+
+  diskCache_.Put(key, fetched.bytes);
+  auto decoded = decoder_.DecodeFile(diskCache_.PathForKey(key));
+  if (decoded.placeholder) {
+    return decoded;
+  }
+
+  memoryCache_.Put(key, decoded.width, decoded.height, decoded.bgra);
+  return decoded;
+}
+
 }  // namespace echo::image

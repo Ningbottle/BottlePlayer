@@ -32,12 +32,15 @@ class Database {
   void PruneExpiredApiCache(std::int64_t now);
 
  private:
+  std::filesystem::path path_;
+
 #if defined(ECHO_NATIVE_HAS_SQLITE)
+  void InitializeSchema();
+
   sqlite3* db_ = nullptr;
 #else
   void FlushFallback() const;
 
-  std::filesystem::path path_;
   nlohmann::json fallback_;
 #endif
 };

@@ -29,7 +29,7 @@ BottleMusic.exe
   └─ EchoDiagnostics
 ```
 
-`EchoCompatServer` 是开发期工具，用于让旧 Electron 前端继续连接 `127.0.0.1:6609` 做接口对照。正式客户端默认不启动它。
+`EchoCompatServer` 是开发期工具，用于在 `127.0.0.1:6609` 暴露旧接口形态，便于和 `server/` 中的 KuGouMusicApi 参考实现做 contract 对照。正式客户端默认不启动它。
 
 ## 依赖方向
 
@@ -114,9 +114,9 @@ public:
 
 `EchoCompatServer` 只负责 HTTP 形态兼容：
 
-- 复刻旧前端当前使用的路径和响应形状。
-- 用于对照 Node `KuGouMusicApi`。
-- 用于旧 Electron 前端过渡期联调。
+- 复刻已冻结的旧接口路径和响应形状。
+- 用于对照 `server/` 中的 KuGouMusicApi 参考实现。
+- 用于迁移期 contract 验证和接口回归测试。
 - 不作为最终 UI 的内部通信方式。
 
 所有最终客户端能力都应通过 typed Interface 暴露，而不是让 Win32 UI 调本地 HTTP。

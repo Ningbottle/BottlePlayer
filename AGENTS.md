@@ -6,7 +6,7 @@
 
 BottleMusic 是一个面向 Windows 10/11 x64 的原生音乐客户端。目标是用 C++20、Win32、Direct2D、DirectWrite、WIC、Media Foundation 和 SQLite 重写现有 Electron/Vue/Node 形态，降低常驻内存并提升响应速度。
 
-最终客户端不应依赖 Electron、Chromium、WebView2 或 Node。旧 Electron 前端和兼容 HTTP 服务只用于迁移期验证。
+最终客户端不应依赖 Electron、Chromium、WebView2 或 Node。旧 Electron/Vue 前端已经删除；兼容 HTTP 服务只用于迁移期接口契约验证。
 
 ## 当前产品目标
 
@@ -37,7 +37,7 @@ BottleMusic
 - `EchoImage` 是图片解码、缩放、磁盘缓存和内存 LRU 的唯一归口。
 - `EchoAsync` 是后台任务、取消和 UI 事件投递的唯一归口。
 - `EchoDiagnostics` 是日志、trace、内存快照和缓存统计的唯一归口。
-- `EchoCompatServer` 只用于开发期兼容旧 Electron 前端，最终默认不启动。
+- `EchoCompatServer` 只用于开发期兼容旧接口形态和 contract 验证，最终默认不启动。
 
 ## 工作方式
 
@@ -47,6 +47,7 @@ BottleMusic
 - 架构变动先用 `improve-codebase-architecture` 语言说明 Module、Interface、Adapter、Depth、Locality。
 - 大计划拆任务时使用 `to-issues` 的纵向切片，不写只有单层工作的横向任务。
 - 所有面向用户和项目决策的文档默认使用中文。
+- 长时间任务优先按 `docs/WORKLIST.zh-CN.md` 自动推进；上下文压缩时只保留项目相关事实，丢弃与项目无关的 GitHub 凭据、账号登录、网络证书等临时排障信息。
 
 ## 禁止事项
 
@@ -67,3 +68,4 @@ BottleMusic
 - `docs/TDD_PLAN.zh-CN.md`
 - `docs/SKILL_USAGE.zh-CN.md`
 - `docs/IMPLEMENTATION_RULES.zh-CN.md`
+- `docs/WORKLIST.zh-CN.md`

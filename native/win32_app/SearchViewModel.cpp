@@ -59,6 +59,15 @@ std::wstring FormatDuration(int seconds) {
   return stream.str();
 }
 
+std::string FirstNonEmpty(std::initializer_list<std::string> values) {
+  for (auto& value : values) {
+    if (!value.empty()) {
+      return value;
+    }
+  }
+  return {};
+}
+
 const nlohmann::json* FindRows(const nlohmann::json& response) {
   if (!response.contains("data") || !response["data"].is_object()) {
     return nullptr;
@@ -104,6 +113,16 @@ SearchViewModel BuildSearchViewModel(const std::string& keyword, const nlohmann:
     item.album = Utf8ToWide(JsonString(row, "AlbumName").empty() ? JsonString(row, "album_name") : JsonString(row, "AlbumName"));
     item.duration = FormatDuration(JsonInt(row, "Duration") == 0 ? JsonInt(row, "duration") : JsonInt(row, "Duration"));
     item.hash = JsonString(row, "FileHash").empty() ? JsonString(row, "hash") : JsonString(row, "FileHash");
+    item.coverUrl = FirstNonEmpty({
+        JsonString(row, "Image"),
+        JsonString(row, "imgurl"),
+        JsonString(row, "cover"),
+        JsonString(row, "pic_url"),
+        JsonString(row, "sizable_cover"),
+    });
+    if (!item.coverUrl.empty()) {
+      item.imageKey = "remote-cover:" + item.coverUrl;
+    }
     viewModel.rows.push_back(std::move(item));
   }
 
