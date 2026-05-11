@@ -1,8 +1,10 @@
 #include "echo/storage/Database.h"
 
+#include <algorithm>
 #include <chrono>
 #include <fstream>
 #include <stdexcept>
+#include <string>
 
 namespace echo::storage {
 namespace {
@@ -14,6 +16,45 @@ std::int64_t NowSeconds() {
 }
 
 #if defined(ECHO_NATIVE_HAS_SQLITE)
+void QuarantineInvalidSqliteFile(const std::filesystem::path& path) {
+  if (path.empty() || !std::filesystem::exists(path) || std::filesystem::is_directory(path)) {
+    return;
+  }
+
+  const auto size = std::filesystem::file_size(path);
+  if (size == 0) {
+    return;
+  }
+
+  char header[16] = {};
+  {
+    std::ifstream file(path, std::ios::binary);
+    file.read(header, sizeof(header));
+  }
+
+  constexpr char sqliteHeader[16] = {
+      'S', 'Q', 'L', 'i', 't', 'e', ' ', 'f', 'o', 'r', 'm', 'a', 't', ' ', '3', '\0'};
+  if (std::equal(std::begin(header), std::end(header), std::begin(sqliteHeader))) {
+    return;
+  }
+
+  const auto invalidPath = path.wstring() + L".invalid-" +
+                           std::to_wstring(
+                               std::chrono::duration_cast<std::chrono::seconds>(
+                                   std::chrono::system_clock::now().time_since_epoch())
+                                   .count());
+  std::error_code fsError;
+  std::filesystem::rename(path, invalidPath, fsError);
+  if (fsError) {
+    fsError.clear();
+    std::filesystem::remove(path, fsError);
+  }
+  fsError.clear();
+  std::filesystem::remove(path.wstring() + L"-wal", fsError);
+  fsError.clear();
+  std::filesystem::remove(path.wstring() + L"-shm", fsError);
+}
+
 void ThrowSqlite(sqlite3* db, const std::string& context) {
   throw std::runtime_error(context + ": " + sqlite3_errmsg(db));
 }
@@ -35,8 +76,10 @@ Database::~Database() {
 
 void Database::Open(const std::filesystem::path& path) {
   Close();
+  path_ = path;
   std::filesystem::create_directories(path.parent_path());
-  if (sqlite3_open16(path.c_str(), &db_) != SQLITE_OK) {
+  QuarantineInvalidSqliteFile(path_);
+  if (sqlite3_open16(path_.c_str(), &db_) != SQLITE_OK) {
     ThrowSqlite(db_, "sqlite3_open16");
   }
 }
@@ -49,6 +92,36 @@ void Database::Close() {
 }
 
 void Database::Initialize() {
+  try {
+    InitializeSchema();
+  } catch (const std::runtime_error& error) {
+    const std::string message = error.what();
+    if (path_.empty() || message.find("file is not a database") == std::string::npos) {
+      throw;
+    }
+
+    Close();
+    const auto invalidPath = path_.wstring() + L".invalid-" +
+                             std::to_wstring(
+                                 std::chrono::duration_cast<std::chrono::seconds>(
+                                     std::chrono::system_clock::now().time_since_epoch())
+                                     .count());
+    std::error_code fsError;
+    std::filesystem::rename(path_, invalidPath, fsError);
+    if (fsError) {
+      std::filesystem::remove(path_, fsError);
+    }
+    std::filesystem::remove(path_.wstring() + L"-wal", fsError);
+    std::filesystem::remove(path_.wstring() + L"-shm", fsError);
+
+    if (sqlite3_open16(path_.c_str(), &db_) != SQLITE_OK) {
+      ThrowSqlite(db_, "sqlite3_open16 recover");
+    }
+    InitializeSchema();
+  }
+}
+
+void Database::InitializeSchema() {
   Execute("PRAGMA journal_mode=WAL;");
   Execute("PRAGMA synchronous=NORMAL;");
   Execute("CREATE TABLE IF NOT EXISTS kv_store ("
@@ -270,4 +343,3 @@ void Database::PruneExpiredApiCache(std::int64_t now) {
 #endif
 
 }  // namespace echo::storage
-

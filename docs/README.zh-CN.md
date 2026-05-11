@@ -14,6 +14,7 @@
 - `SKILL_USAGE.zh-CN.md`：指定 skills 的使用规则。
 - `IMPLEMENTATION_RULES.zh-CN.md`：实现约束和禁止事项。
 - `ISSUES_BACKLOG.zh-CN.md`：纵向切片任务池。
+- `WORKLIST.zh-CN.md`：长期自动推进工作队列、上下文压缩规则和验证命令。
 
 ## Agent 辅助文档
 
@@ -22,9 +23,9 @@
 - `agents/context.zh-CN.md`：项目上下文和领域词汇。
 - `agents/issue-tracker.zh-CN.md`：任务管理约定。
 - `agents/skill-policy.zh-CN.md`：技能调用策略。
+- `agents/ANTIGRAVITY_WORKLIST.zh-CN.md`：分配给 Antigravity 的较复杂任务清单。
+- `agents/CLAUDE_CODE_WORKLIST.zh-CN.md`：分配给 Claude Code 的轻量任务清单。
 
 ## 当前状态
 
-当前仓库仍保留旧 Electron/Vue/Node 项目和此前新增的 `native/` C++ 骨架。新的 BottleMusic 设计以本文档为准，后续实现应逐步把已有原生代码调整到新模块结构。
-
-旧文档仍保留在 `native/docs/`，它们记录了早期 EchoMusic Native 迁移状态。若与本目录冲突，以本目录为准。
+当前仓库已删除旧 Electron/Vue 前端和旧 Flutter 跨平台桌面工程残留，并以 `native/` C++ 工程作为 BottleMusic 原生客户端实现。`server/` 子模块保留为 KuGouMusicApi 行为参考和未完成接口迁移来源；新的 BottleMusic 设计以本文档为准。

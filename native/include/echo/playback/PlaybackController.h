@@ -5,7 +5,12 @@
 
 #include "echo/core/Dto.h"
 
+struct IMFPMediaPlayer;
+struct MFP_EVENT_HEADER;
+
 namespace echo::playback {
+
+class MediaPlayerCallback;
 
 class PlaybackController {
  public:
@@ -27,10 +32,18 @@ class PlaybackController {
   echo::core::PlaybackState GetState() const;
 
  private:
+  friend class MediaPlayerCallback;
+
+  void ReleasePlayerLocked();
+  bool EnsurePlayerLocked();
+  void HandleMediaEvent(MFP_EVENT_HEADER* event);
+
   mutable std::mutex mutex_;
   echo::core::PlaybackState state_;
   bool mediaFoundationStarted_ = false;
+  bool comInitialized_ = false;
+  IMFPMediaPlayer* player_ = nullptr;
+  MediaPlayerCallback* callback_ = nullptr;
 };
 
 }  // namespace echo::playback
-

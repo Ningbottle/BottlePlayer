@@ -56,6 +56,7 @@ struct PlayerBarLayout {
   bool compact = false;
   bool showSecondaryControls = true;
   bool showVolume = true;
+  bool showFavorite = true;
 };
 
 struct MelodyLayout {
@@ -88,18 +89,68 @@ enum class PlayerBarAction {
   TogglePlay,
   Previous,
   Next,
+  Seek,
+  SetVolume,
+};
+
+struct HeaderControlsLayout {
+  Rect back;
+  Rect forward;
+  Rect search;
+  Rect avatar;
+};
+
+enum class HeaderAction {
+  None,
+  Back,
+  Forward,
+  Search,
+};
+
+enum class SidebarAction {
+  None,
+  Home,
+  NowPlaying,
+  Settings,
+};
+
+enum class HomeAction {
+  None,
+  PlayHero,
+  OpenRecommendation,
+  OpenRecent,
+};
+
+enum class NowPlayingAction {
+  None,
+  OverviewTab,
+  LyricsTab,
 };
 
 float DevicePixelsToDips(float pixels, float dpi);
 MelodyLayout CalculateMelodyLayout(float width, float height);
 PlayerBarLayout CalculatePlayerBarLayout(float width, float height);
 CardStripLayout CalculateCardStripLayout(float availableWidth, int requestedCount, float availableHeight);
+HeaderControlsLayout CalculateHeaderControlsLayout(float width, float sidebarRight = 178.0f);
 PlayerBarAction HitTestPlayerBar(const PlayerBarLayout& layout, float x, float y);
+HeaderAction HitTestHeader(const HeaderControlsLayout& layout, float x, float y);
+SidebarAction HitTestSidebar(float x, float y, float sidebarBottom);
+HomeAction HitTestHome(const HomeLayout& layout, float x, float y);
+NowPlayingAction HitTestNowPlaying(const NowPlayingLayout& layout, float x, float y);
+float TrackValueFromPoint(const Rect& track, float x);
+Rect CalculateAspectFitRect(const Rect& container, float sourceWidth, float sourceHeight);
+Rect CalculateAspectFillRect(const Rect& container, float sourceWidth, float sourceHeight);
 VisibleRows CalculateVisibleRows(std::size_t totalRows,
                                  float rowHeight,
                                  float listTop,
                                  float scrollOffset,
                                  float viewportHeight,
                                  std::size_t overscan);
+float ClampScrollOffset(std::size_t totalRows, float rowHeight, float viewportHeight, float scrollOffset);
+float ApplyWheelScroll(std::size_t totalRows,
+                       float rowHeight,
+                       float viewportHeight,
+                       float currentOffset,
+                       int wheelDelta);
 
 }  // namespace echo::win32_app

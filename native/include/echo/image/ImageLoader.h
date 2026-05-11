@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -51,6 +52,18 @@ class ImageLoader {
   DecodedImage LoadFile(const std::string& key,
                         const std::filesystem::path& path,
                         async::CancellationToken token);
+  struct RemoteFetchResult {
+    long statusCode = 0;
+    std::vector<std::uint8_t> bytes;
+    std::string error;
+  };
+
+  using RemoteFetch = std::function<RemoteFetchResult(const std::string& url)>;
+
+  DecodedImage LoadRemote(const std::string& key,
+                          const std::string& url,
+                          RemoteFetch fetch,
+                          async::CancellationToken token);
 
  private:
   MemoryImageCache& memoryCache_;

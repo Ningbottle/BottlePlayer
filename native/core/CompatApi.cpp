@@ -132,6 +132,9 @@ int QueryInt(const QueryMap& query, const std::string& key, int fallback) {
 
 CompatApi::CompatApi(storage::Database& database) : database_(database) {}
 
+CompatApi::CompatApi(storage::Database& database, CompatApiHandlers handlers)
+    : database_(database), handlers_(std::move(handlers)) {}
+
 CompatResponse CompatApi::Handle(
     const std::string& method,
     const std::string& path,
@@ -212,20 +215,26 @@ CompatResponse CompatApi::HandleKnownRoute(
   }
 
   if (path == "/search") {
+    const auto keywords = QueryValue(query, "keywords", QueryValue(query, "keyword"));
+    const auto type = QueryValue(query, "type", "song");
+    const auto page = QueryInt(query, "page", 1);
+    const auto pageSize = QueryInt(query, "pagesize", QueryInt(query, "pageSize", 30));
+    if (handlers_.search) {
+      return JsonResponse(handlers_.search(keywords, type, page, pageSize));
+    }
     SearchService search;
-    return JsonResponse(search.Search(
-        QueryValue(query, "keywords"),
-        QueryValue(query, "type", "song"),
-        QueryInt(query, "page", 1),
-        QueryInt(query, "pagesize", 30)));
+    return JsonResponse(search.Search(keywords, type, page, pageSize));
   }
 
   if (path == "/song/url") {
+    const auto hash = QueryValue(query, "hash");
+    const auto quality = QueryValue(query, "quality");
+    const auto ppageId = QueryValue(query, "ppage_id", QueryValue(query, "ppageId"));
+    if (handlers_.songUrl) {
+      return JsonResponse(handlers_.songUrl(hash, quality, ppageId));
+    }
     SongUrlService songUrl;
-    return JsonResponse(songUrl.Resolve(
-        QueryValue(query, "hash"),
-        QueryValue(query, "quality"),
-        QueryValue(query, "ppage_id")));
+    return JsonResponse(songUrl.Resolve(hash, quality, ppageId));
   }
 
   if (path == "/privilege/lite") {
@@ -236,31 +245,47 @@ CompatResponse CompatApi::HandleKnownRoute(
   }
 
   if (path == "/search/lyric") {
+    const auto hash = QueryValue(query, "hash");
+    if (handlers_.lyricSearch) {
+      return JsonResponse(handlers_.lyricSearch(hash));
+    }
     LyricService lyric;
-    return JsonResponse(lyric.Search(QueryValue(query, "hash")));
+    return JsonResponse(lyric.Search(hash));
   }
 
   if (path == "/lyric") {
+    const auto id = QueryValue(query, "id");
+    const auto accessKey = QueryValue(
+        query,
+        "accesskey",
+        QueryValue(query, "accessKey", QueryValue(query, "access_key")));
+    if (handlers_.lyricDetail) {
+      return JsonResponse(handlers_.lyricDetail(id, accessKey));
+    }
     LyricService lyric;
-    return JsonResponse(lyric.GetDetail(
-        QueryValue(query, "id"),
-        QueryValue(query, "accesskey")));
+    return JsonResponse(lyric.GetDetail(id, accessKey));
   }
 
   if (path == "/playlist/track/all") {
+    const auto id = QueryValue(query, "id", QueryValue(query, "listid"));
+    const auto page = QueryInt(query, "page", 1);
+    const auto pageSize = QueryInt(query, "pagesize", QueryInt(query, "pageSize", 30));
+    if (handlers_.playlistTracks) {
+      return JsonResponse(handlers_.playlistTracks(id, page, pageSize));
+    }
     PlaylistService playlist;
-    return JsonResponse(playlist.GetTracks(
-        QueryValue(query, "id"),
-        QueryInt(query, "page", 1),
-        QueryInt(query, "pagesize", 30)));
+    return JsonResponse(playlist.GetTracks(id, page, pageSize));
   }
 
   if (path == "/playlist/track/all/new") {
+    const auto id = QueryValue(query, "listid", QueryValue(query, "id"));
+    const auto page = QueryInt(query, "page", 1);
+    const auto pageSize = QueryInt(query, "pagesize", QueryInt(query, "pageSize", 30));
+    if (handlers_.playlistTracks) {
+      return JsonResponse(handlers_.playlistTracks(id, page, pageSize));
+    }
     PlaylistService playlist;
-    return JsonResponse(playlist.GetTracks(
-        QueryValue(query, "listid"),
-        QueryInt(query, "page", 1),
-        QueryInt(query, "pagesize", 30)));
+    return JsonResponse(playlist.GetTracks(id, page, pageSize));
   }
 
   if (path == "/playlist/tags") {

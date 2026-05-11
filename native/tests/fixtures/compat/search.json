@@ -1,0 +1,22 @@
+{
+  "_meta": {
+    "route": "/search",
+    "params": { "keyword": "晴天", "type": "song", "page": "1", "pageSize": "30" },
+    "volatile_paths": [],
+    "description": "Search route: status, keyword echo, pagesize, SongName and FileHash of first result must be stable."
+  },
+  "status": 1,
+  "data": {
+    "keywords": "晴天",
+    "total": 1,
+    "pagesize": 30,
+    "lists": [
+      {
+        "SongName": "晴天",
+        "FileHash": "abc123",
+        "SingerName": "周杰伦",
+        "AlbumName": "叶惠美"
+      }
+    ]
+  }
+}

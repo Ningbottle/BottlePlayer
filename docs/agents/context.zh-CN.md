@@ -28,8 +28,9 @@
 
 ## 当前事实
 
-- 旧项目仍包含 Electron/Vue/Node 结构。
-- `native/` 已有早期 C++ 骨架。
+- 旧 Electron/Vue 前端和旧 Flutter 跨平台残留已经删除。
+- `server/` 子模块保留为 KuGouMusicApi 行为参考和未完成接口迁移来源。
+- `native/` 是当前 BottleMusic 原生客户端主工程。
 - 新方向以 BottleMusic 文档为准。
 - `EchoCompatServer` 是过渡工具，不是最终架构核心。
 - 原生 UI 应按 Melody 截图重新设计。

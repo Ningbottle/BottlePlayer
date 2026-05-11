@@ -10,6 +10,14 @@ float RectWidth(const Rect& rect) {
   return rect.right - rect.left;
 }
 
+float RectHeight(const Rect& rect) {
+  return rect.bottom - rect.top;
+}
+
+bool IsUsable(const Rect& rect, float minWidth, float minHeight) {
+  return RectWidth(rect) >= minWidth && RectHeight(rect) >= minHeight;
+}
+
 Rect EmptyRect(float x, float y) {
   return {x, y, x, y};
 }
@@ -84,9 +92,11 @@ MelodyLayout CalculateMelodyLayout(float width, float height) {
         leftColumnRight,
         std::min(contentTop + 560.0f, contentBottom)};
     layout.home.recentList = {rightColumnLeft, contentTop + 76.0f, contentRight, contentTop + 422.0f};
-    layout.home.playlistPanel = showLowerPanels ? Rect{contentLeft - 14.0f, contentBottom - 228.0f, rightColumnLeft - 30.0f, contentBottom}
+    const float lowerPanelTop = std::min(contentTop + 584.0f, contentBottom - 228.0f);
+    const float lowerPanelBottom = std::min(lowerPanelTop + 228.0f, contentBottom);
+    layout.home.playlistPanel = showLowerPanels ? Rect{contentLeft - 14.0f, lowerPanelTop, rightColumnLeft - 30.0f, lowerPanelBottom}
                                                 : EmptyRect(contentLeft, contentBottom);
-    layout.home.artistPanel = showLowerPanels ? Rect{rightColumnLeft, contentBottom - 228.0f, contentRight, contentBottom}
+    layout.home.artistPanel = showLowerPanels ? Rect{rightColumnLeft, lowerPanelTop, contentRight, lowerPanelBottom}
                                               : EmptyRect(contentRight, contentBottom);
   }
 
@@ -113,6 +123,46 @@ PlayerBarLayout CalculatePlayerBarLayout(float width, float height) {
   layout.compact = width < 1180.0f;
   layout.showVolume = width >= 1180.0f;
   layout.showSecondaryControls = width >= 1120.0f;
+  const bool tiny = width < 760.0f;
+  if (tiny) {
+    layout.showVolume = false;
+    layout.showSecondaryControls = false;
+    layout.showFavorite = false;
+    layout.bar = {8.0f, height - 88.0f, width - 8.0f, height - 8.0f};
+    layout.albumArt = {24.0f, layout.bar.top + 16.0f, 76.0f, layout.bar.top + 68.0f};
+
+    const float center = width * 0.5f;
+    layout.previous = {center - 66.0f, layout.bar.top + 23.0f, center - 36.0f, layout.bar.top + 53.0f};
+    layout.playPause = {center - 22.0f, layout.bar.top + 14.0f, center + 22.0f, layout.bar.top + 58.0f};
+    layout.next = {center + 36.0f, layout.bar.top + 23.0f, center + 66.0f, layout.bar.top + 53.0f};
+    layout.shuffle = EmptyRect(center - 96.0f, layout.bar.top + 36.0f);
+    layout.repeat = EmptyRect(center + 96.0f, layout.bar.top + 36.0f);
+
+    layout.lyric = {width - 50.0f, layout.bar.top + 22.0f, width - 18.0f, layout.bar.top + 56.0f};
+    layout.queue = {layout.lyric.left - 44.0f, layout.bar.top + 23.0f, layout.lyric.left - 14.0f,
+                    layout.bar.top + 53.0f};
+    layout.volumeIcon = EmptyRect(width - 140.0f, layout.bar.top + 36.0f);
+    layout.volume = EmptyRect(width - 120.0f, layout.bar.top + 49.0f);
+
+    const float titleRight = std::max(150.0f, layout.previous.left - 14.0f);
+    layout.title = {92.0f, layout.bar.top + 15.0f, titleRight, layout.bar.top + 39.0f};
+    layout.artist = {92.0f, layout.bar.top + 40.0f, titleRight, layout.bar.top + 63.0f};
+    layout.favorite = EmptyRect(titleRight + 8.0f, layout.bar.top + 29.0f);
+
+    const float progressLeft = center - 118.0f;
+    const float progressRight = std::min(layout.queue.left - 62.0f, center + 118.0f);
+    layout.progress = {progressLeft, layout.bar.top + 69.0f, std::max(progressLeft + 120.0f, progressRight),
+                       layout.bar.top + 69.0f};
+    if (layout.progress.right > layout.queue.left - 62.0f) {
+      layout.progress.right = layout.queue.left - 62.0f;
+    }
+    layout.currentTime = {layout.progress.left - 54.0f, layout.bar.top + 58.0f, layout.progress.left - 8.0f,
+                          layout.bar.top + 78.0f};
+    layout.duration = {layout.progress.right + 8.0f, layout.bar.top + 58.0f, layout.progress.right + 54.0f,
+                       layout.bar.top + 78.0f};
+    return layout;
+  }
+
   layout.bar = {12.0f, height - 96.0f, width - 12.0f, height - 12.0f};
   layout.albumArt = {36.0f, layout.bar.top + 18.0f, 92.0f, layout.bar.top + 74.0f};
 
@@ -175,6 +225,20 @@ CardStripLayout CalculateCardStripLayout(float availableWidth, int requestedCoun
   return layout;
 }
 
+HeaderControlsLayout CalculateHeaderControlsLayout(float width, float sidebarRight) {
+  const bool compact = width < 1120.0f;
+  const float navLeft = sidebarRight + 34.0f;
+  const float searchLeft = navLeft + 100.0f;
+  const float searchRight = std::max(searchLeft + 240.0f, width - (compact ? 110.0f : 360.0f));
+
+  HeaderControlsLayout layout;
+  layout.back = {navLeft - 6.0f, 22.0f, navLeft + 30.0f, 66.0f};
+  layout.forward = {navLeft + 38.0f, 22.0f, navLeft + 74.0f, 66.0f};
+  layout.search = {searchLeft, 26.0f, std::min(searchRight, width - 92.0f), 66.0f};
+  layout.avatar = {width - 68.0f, 44.0f, width - 30.0f, 82.0f};
+  return layout;
+}
+
 PlayerBarAction HitTestPlayerBar(const PlayerBarLayout& layout, float x, float y) {
   if (!Contains(layout.bar, x, y)) return PlayerBarAction::None;
   if (Contains(layout.lyric, x, y)) return PlayerBarAction::OpenLyrics;
@@ -182,7 +246,99 @@ PlayerBarAction HitTestPlayerBar(const PlayerBarLayout& layout, float x, float y
   if (Contains(layout.playPause, x, y)) return PlayerBarAction::TogglePlay;
   if (Contains(layout.previous, x, y)) return PlayerBarAction::Previous;
   if (Contains(layout.next, x, y)) return PlayerBarAction::Next;
+  const Rect progressHit{layout.progress.left, layout.progress.top - 10.0f, layout.progress.right,
+                         layout.progress.top + 10.0f};
+  if (Contains(progressHit, x, y)) return PlayerBarAction::Seek;
+  const Rect volumeHit{layout.volume.left, layout.volume.top - 10.0f, layout.volume.right, layout.volume.top + 10.0f};
+  if (layout.showVolume && Contains(volumeHit, x, y)) return PlayerBarAction::SetVolume;
   return PlayerBarAction::OpenNowPlaying;
+}
+
+HeaderAction HitTestHeader(const HeaderControlsLayout& layout, float x, float y) {
+  if (Contains(layout.back, x, y)) return HeaderAction::Back;
+  if (Contains(layout.forward, x, y)) return HeaderAction::Forward;
+  if (Contains(layout.search, x, y)) return HeaderAction::Search;
+  return HeaderAction::None;
+}
+
+SidebarAction HitTestSidebar(float x, float y, float sidebarBottom) {
+  if (x < 0.0f || x > 178.0f || y < 0.0f || y > sidebarBottom) {
+    return SidebarAction::None;
+  }
+
+  if (y >= 90.0f && y <= 136.0f) {
+    return SidebarAction::Home;
+  }
+  if (y >= 430.0f && y <= 476.0f) {
+    return SidebarAction::NowPlaying;
+  }
+  if (sidebarBottom >= 620.0f && y >= sidebarBottom - 62.0f && y <= sidebarBottom - 16.0f) {
+    return SidebarAction::Settings;
+  }
+  return SidebarAction::None;
+}
+
+HomeAction HitTestHome(const HomeLayout& layout, float x, float y) {
+  if (IsUsable(layout.hero, 260.0f, 120.0f)) {
+    const float buttonTop = std::min(layout.hero.top + 154.0f, layout.hero.bottom - 54.0f);
+    const Rect playButton{layout.hero.left + 28.0f, buttonTop, layout.hero.left + 118.0f, buttonTop + 40.0f};
+    if (Contains(playButton, x, y)) {
+      return HomeAction::PlayHero;
+    }
+  }
+
+  if (layout.showRecommendationRow && IsUsable(layout.recommendationRow, 260.0f, 156.0f) &&
+      Contains(layout.recommendationRow, x, y)) {
+    return HomeAction::OpenRecommendation;
+  }
+
+  if (layout.showRecentList && IsUsable(layout.recentList, 300.0f, 160.0f) && Contains(layout.recentList, x, y)) {
+    return HomeAction::OpenRecent;
+  }
+
+  return HomeAction::None;
+}
+
+NowPlayingAction HitTestNowPlaying(const NowPlayingLayout& layout, float x, float y) {
+  const Rect overview{layout.tabs.left, layout.tabs.top, layout.tabs.left + 96.0f, layout.tabs.bottom};
+  const Rect lyrics{layout.tabs.left + 112.0f, layout.tabs.top, layout.tabs.left + 184.0f, layout.tabs.bottom};
+  if (Contains(overview, x, y)) return NowPlayingAction::OverviewTab;
+  if (Contains(lyrics, x, y)) return NowPlayingAction::LyricsTab;
+  return NowPlayingAction::None;
+}
+
+float TrackValueFromPoint(const Rect& track, float x) {
+  const float width = RectWidth(track);
+  if (width <= 0.0f) {
+    return 0.0f;
+  }
+  return std::clamp((x - track.left) / width, 0.0f, 1.0f);
+}
+
+Rect CalculateAspectFitRect(const Rect& container, float sourceWidth, float sourceHeight) {
+  if (sourceWidth <= 0.0f || sourceHeight <= 0.0f || RectWidth(container) <= 0.0f || RectHeight(container) <= 0.0f) {
+    return container;
+  }
+
+  const float scale = std::min(RectWidth(container) / sourceWidth, RectHeight(container) / sourceHeight);
+  const float width = sourceWidth * scale;
+  const float height = sourceHeight * scale;
+  const float left = container.left + (RectWidth(container) - width) * 0.5f;
+  const float top = container.top + (RectHeight(container) - height) * 0.5f;
+  return {left, top, left + width, top + height};
+}
+
+Rect CalculateAspectFillRect(const Rect& container, float sourceWidth, float sourceHeight) {
+  if (sourceWidth <= 0.0f || sourceHeight <= 0.0f || RectWidth(container) <= 0.0f || RectHeight(container) <= 0.0f) {
+    return container;
+  }
+
+  const float scale = std::max(RectWidth(container) / sourceWidth, RectHeight(container) / sourceHeight);
+  const float width = sourceWidth * scale;
+  const float height = sourceHeight * scale;
+  const float left = container.left + (RectWidth(container) - width) * 0.5f;
+  const float top = container.top + (RectHeight(container) - height) * 0.5f;
+  return {left, top, left + width, top + height};
 }
 
 VisibleRows CalculateVisibleRows(std::size_t totalRows,
@@ -202,6 +358,26 @@ VisibleRows CalculateVisibleRows(std::size_t totalRows,
   const auto visibleCount = static_cast<std::size_t>(std::ceil(viewportHeight / rowHeight)) + overscan * 2;
   const auto lastExclusive = std::min(totalRows, first + visibleCount);
   return VisibleRows{first, lastExclusive - first, lastExclusive};
+}
+
+float ClampScrollOffset(std::size_t totalRows, float rowHeight, float viewportHeight, float scrollOffset) {
+  if (totalRows == 0 || rowHeight <= 0.0f || viewportHeight <= 0.0f) {
+    return 0.0f;
+  }
+
+  const float contentHeight = static_cast<float>(totalRows) * rowHeight;
+  const float maxOffset = std::max(0.0f, contentHeight - viewportHeight);
+  return std::clamp(scrollOffset, 0.0f, maxOffset);
+}
+
+float ApplyWheelScroll(std::size_t totalRows,
+                       float rowHeight,
+                       float viewportHeight,
+                       float currentOffset,
+                       int wheelDelta) {
+  constexpr float rowsPerWheel = 3.0f;
+  const float deltaRows = -static_cast<float>(wheelDelta) / 120.0f * rowsPerWheel;
+  return ClampScrollOffset(totalRows, rowHeight, viewportHeight, currentOffset + deltaRows * rowHeight);
 }
 
 }  // namespace echo::win32_app

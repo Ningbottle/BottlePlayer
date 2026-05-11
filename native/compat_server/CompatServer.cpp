@@ -152,8 +152,12 @@ int RunCompatServer(const char* host, int port) {
 
   std::cout << "Opening native storage\n" << std::flush;
   echo::storage::Database database;
-  database.Open(echo::storage::GetDefaultDatabasePath());
+  const auto databasePath = echo::storage::GetDefaultDatabasePath();
+  std::cout << "Native storage path: " << databasePath.string() << '\n' << std::flush;
+  database.Open(databasePath);
+  std::cout << "Native storage opened\n" << std::flush;
   database.Initialize();
+  std::cout << "Native storage initialized\n" << std::flush;
   echo::core::CompatApi api(database);
   std::cout << "Native storage ready\n" << std::flush;
   std::cout << echo::diagnostics::FormatMemorySnapshot(

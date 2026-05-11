@@ -114,3 +114,42 @@
 - 新增缓存类型和上限。
 - 是否增加长期驻留对象。
 - 是否存在取消和释放路径。
+
+## 当前实测记录
+
+2026-05-11，`EchoWin32.exe`，隐藏窗口启动 3 秒，未播放音频，未进行真实网络图片加载：
+
+- Debug：Working Set 约 19.9MB，Private Bytes 约 6.6MB。
+- Release：Working Set 约 19.0MB，Private Bytes 约 6.6MB。
+- 该记录只代表空闲启动口径，不代表播放中、长时间播放或大量图片加载口径。
+
+2026-05-10，Debug 构建，`native/out/bottlemusic-check/EchoWin32.exe`，隐藏窗口启动 3 秒：
+
+- List 04 完成后：Working Set 约 18.7MB，Private Bytes 约 6.5MB。
+- List 05 完成后：Working Set 约 18.7MB，Private Bytes 约 6.5MB。
+- List 06 启用 SQLite 和设置持久化后：Working Set 约 19.0MB，Private Bytes 约 6.7MB。
+
+List 07 追加的回归口径：
+
+- 10,000 项列表滚动只计算可见行范围，单次可见行数量保持在 14 行以内。
+- 10,000 次封面写入后，`MemoryImageCache` 仍按 byte budget 淘汰，不随历史写入无限增长。
+- 图片加载支持取消 token，取消后不进入内存缓存。
+- `EchoDiagnostics::MemorySnapshotProvider` 记录 Working Set、Private Bytes、图片缓存字节数、待执行任务数和播放状态。
+
+A3（2026-05-11）追加的回归口径和实测数据：
+
+搜索/队列 ViewModel 绘制切片：
+
+- `CalculateVisibleRows`：对 10,000 项列表做 1,001 步等间距滚动模拟，每步可见行数量 ≤14，`lastExclusive` 不超过总行数。经 `EchoNativeSmokeTests` 自动验证。
+- `SearchViewModel`：10,000 条搜索结果的 JSON 构建 ViewModel，数据层保存全部 10,000 行；`CalculateVisibleRows` 在 200 步滚动模拟中每步绘制切片 ≤14 行。经自动验证。
+- `PlaybackQueueState`：10,000 条队列项在 200 步滚动模拟中每步绘制切片 ≤12 行。经自动验证。
+
+图片缓存 LRU 淘汰：
+
+- 紧缩预算（64 KB）下写入 10,000 条 256B 封面（共约 2.5MB >> 64KB），LRU 淘汰后 `byteCount` ≤ 64KB，`itemCount` < 10,000 且 ≤ 理论上限（256 + 1 项）。最近写入的 `cover:9999` 仍可命中缓存。经自动验证。
+- 默认预算（16MB）下同样写入 10,000 条，`byteCount` ≤ `byteBudget`，最近写入项可命中。经自动验证。
+
+EchoWin32 进程启动内存（2026-05-11，Debug 构建，隐藏窗口启动 3 秒，未播放音频）：
+
+- Working Set：19.9 MB，Private Bytes：6.6 MB。
+- 离空闲目标（≤120 MB）有大量余量；播放中目标（≤180 MB）待播放管线接入真实 Media Foundation 后补充实测。

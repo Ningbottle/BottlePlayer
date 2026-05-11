@@ -1,5 +1,7 @@
 #include "echo/win32_app/PlaybackViewModel.h"
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 #include <windows.h>
 
@@ -32,6 +34,27 @@ std::string FirstString(const nlohmann::json& response, const char* topLevel, co
   return {};
 }
 
+int DurationToSeconds(const std::wstring& value) {
+  const auto colon = value.find(L':');
+  if (colon == std::wstring::npos) {
+    return 0;
+  }
+  try {
+    const int minutes = std::stoi(value.substr(0, colon));
+    const int seconds = std::stoi(value.substr(colon + 1));
+    return std::max(0, minutes * 60 + seconds);
+  } catch (...) {
+    return 0;
+  }
+}
+
+std::wstring FormatDuration(int seconds) {
+  seconds = std::max(0, seconds);
+  const int minutes = seconds / 60;
+  const int remainder = seconds % 60;
+  return std::to_wstring(minutes) + L":" + (remainder < 10 ? L"0" : L"") + std::to_wstring(remainder);
+}
+
 }  // namespace
 
 PlaybackViewModel BuildPlaybackViewModel(const SearchResultRow& row, const nlohmann::json& response) {
@@ -40,6 +63,8 @@ PlaybackViewModel BuildPlaybackViewModel(const SearchResultRow& row, const nlohm
   viewModel.artist = row.artist;
   viewModel.album = row.album;
   viewModel.duration = row.duration;
+  viewModel.coverUrl = row.coverUrl;
+  viewModel.imageKey = row.imageKey;
 
   if (response.value("status", 0) != 1) {
     viewModel.state = PlayerUiState::Error;
@@ -56,6 +81,26 @@ PlaybackViewModel BuildPlaybackViewModel(const SearchResultRow& row, const nlohm
 
   viewModel.state = PlayerUiState::Ready;
   return viewModel;
+}
+
+std::wstring PlaybackSubtitle(const PlaybackViewModel& viewModel) {
+  if (viewModel.state == PlayerUiState::Error && !viewModel.error.empty()) {
+    return viewModel.error;
+  }
+  return viewModel.artist;
+}
+
+void ApplyPlaybackProgress(
+    PlaybackViewModel& playback,
+    LyricViewModel& lyric,
+    const core::LyricDocument& document,
+    double progress) {
+  playback.progress = std::clamp(progress, 0.0, 1.0);
+  const int durationSeconds = DurationToSeconds(playback.duration);
+  const auto currentMs = static_cast<std::int64_t>(
+      std::llround(static_cast<double>(durationSeconds) * 1000.0 * playback.progress));
+  playback.current = FormatDuration(static_cast<int>(currentMs / 1000));
+  lyric = BuildLyricViewModel(document, currentMs);
 }
 
 }  // namespace echo::win32_app

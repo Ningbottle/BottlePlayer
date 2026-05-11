@@ -1,0 +1,14 @@
+{
+  "_meta": {
+    "route": "/lyric",
+    "params": { "id": "lyric-1", "accessKey": "ak" },
+    "volatile_paths": [],
+    "description": "Lyric detail route: status must be 200, decodeContent must begin with an LRC timestamp, id echo must match."
+  },
+  "status": 200,
+  "decodeContent": "[00:01.00]晴天",
+  "data": {
+    "id": "lyric-1",
+    "accesskey": "ak"
+  }
+}

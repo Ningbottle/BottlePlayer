@@ -21,6 +21,8 @@ struct SearchResultRow {
   std::wstring album;
   std::wstring duration;
   std::string hash;
+  std::string coverUrl;
+  std::string imageKey;
 };
 
 struct SearchViewModel {

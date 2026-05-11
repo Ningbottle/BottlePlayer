@@ -22,6 +22,11 @@ std::wstring Utf8ToWide(const std::string& value) {
   return wide;
 }
 
+std::string JsonString(const nlohmann::json& value, const char* key) {
+  const auto found = value.find(key);
+  return found != value.end() && found->is_string() ? found->get<std::string>() : "";
+}
+
 }  // namespace
 
 LyricViewModel BuildLyricViewModel(const core::LyricDocument& document, std::int64_t currentMs) {
@@ -40,6 +45,25 @@ LyricViewModel BuildLyricViewModel(const core::LyricDocument& document, std::int
         static_cast<int>(index) == viewModel.activeIndex});
   }
   return viewModel;
+}
+
+core::LyricDocument BuildLyricDocumentFromDetail(const nlohmann::json& response) {
+  if (response.value("status", 0) == 0) {
+    return {};
+  }
+
+  auto content = JsonString(response, "decodeContent");
+  if (content.empty()) {
+    content = JsonString(response, "lyric");
+  }
+  if (content.empty() && response.contains("data") && response["data"].is_object()) {
+    content = JsonString(response["data"], "decodeContent");
+  }
+  if (content.empty() && response.contains("data") && response["data"].is_object()) {
+    content = JsonString(response["data"], "lyric");
+  }
+
+  return content.empty() ? core::LyricDocument{} : core::ParseLrc(content);
 }
 
 }  // namespace echo::win32_app

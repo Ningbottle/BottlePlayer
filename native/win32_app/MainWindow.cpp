@@ -7,17 +7,24 @@
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <filesystem>
 #include <future>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "echo/core/BackendFacade.h"
 #include "echo/core/LyricParser.h"
+#include "echo/image/ImageLoader.h"
 #include "echo/playback/PlaybackController.h"
+#include "echo/win32_app/ImageSlot.h"
 #include "echo/win32_app/Layout.h"
 #include "echo/win32_app/LyricViewModel.h"
+#include "echo/win32_app/Navigation.h"
+#include "echo/win32_app/PlaybackQueue.h"
 #include "echo/win32_app/PlaybackViewModel.h"
+#include "echo/win32_app/SearchInput.h"
 #include "echo/win32_app/SearchViewModel.h"
 
 namespace echo::win32_app {
@@ -61,6 +68,35 @@ std::wstring DeviceTail(const std::string& value) {
   return ToWideAscii(value.substr(start));
 }
 
+std::string WideToUtf8(const std::wstring& value) {
+  if (value.empty()) {
+    return {};
+  }
+  const int size = WideCharToMultiByte(
+      CP_UTF8,
+      0,
+      value.data(),
+      static_cast<int>(value.size()),
+      nullptr,
+      0,
+      nullptr,
+      nullptr);
+  if (size <= 0) {
+    return {};
+  }
+  std::string result(static_cast<std::size_t>(size), '\0');
+  WideCharToMultiByte(
+      CP_UTF8,
+      0,
+      value.data(),
+      static_cast<int>(value.size()),
+      result.data(),
+      size,
+      nullptr,
+      nullptr);
+  return result;
+}
+
 D2D1_RECT_F ToD2DRect(const Rect& rect) {
   return D2D1::RectF(std::round(rect.left), std::round(rect.top), std::round(rect.right), std::round(rect.bottom));
 }
@@ -77,6 +113,44 @@ bool Contains(D2D1_RECT_F rect, float x, float y) {
   return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
+std::string JsonString(const nlohmann::json& value, const char* key) {
+  const auto found = value.find(key);
+  if (found == value.end()) {
+    return {};
+  }
+  if (found->is_string()) {
+    return found->get<std::string>();
+  }
+  if (found->is_number_integer()) {
+    return std::to_string(found->get<std::int64_t>());
+  }
+  if (found->is_number_unsigned()) {
+    return std::to_string(found->get<std::uint64_t>());
+  }
+  return {};
+}
+
+std::pair<std::string, std::string> FirstLyricCandidate(const nlohmann::json& response) {
+  const nlohmann::json* candidates = nullptr;
+  if (response.contains("candidates") && response["candidates"].is_array()) {
+    candidates = &response["candidates"];
+  } else if (response.contains("data") && response["data"].is_object()) {
+    const auto& data = response["data"];
+    if (data.contains("candidates") && data["candidates"].is_array()) {
+      candidates = &data["candidates"];
+    } else if (data.contains("info") && data["info"].is_array()) {
+      candidates = &data["info"];
+    }
+  }
+
+  if (!candidates || candidates->empty() || !(*candidates)[0].is_object()) {
+    return {};
+  }
+
+  const auto& first = (*candidates)[0];
+  return {JsonString(first, "id"), JsonString(first, "accesskey")};
+}
+
 void EnableDpiAwareness() {
   using SetProcessDpiAwarenessContextFn = BOOL(WINAPI*)(DPI_AWARENESS_CONTEXT);
   auto* user32 = GetModuleHandleW(L"user32.dll");
@@ -85,6 +159,17 @@ void EnableDpiAwareness() {
   if (setAwareness && setAwareness(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {
     return;
   }
+
+  using SetProcessDpiAwarenessFn = HRESULT(WINAPI*)(int);
+  auto* shcore = LoadLibraryW(L"shcore.dll");
+  auto* setProcessDpiAwareness = reinterpret_cast<SetProcessDpiAwarenessFn>(
+      shcore ? GetProcAddress(shcore, "SetProcessDpiAwareness") : nullptr);
+  if (setProcessDpiAwareness && SUCCEEDED(setProcessDpiAwareness(2))) {
+    if (shcore) FreeLibrary(shcore);
+    return;
+  }
+  if (shcore) FreeLibrary(shcore);
+
   SetProcessDPIAware();
 }
 
@@ -108,6 +193,7 @@ class MainWindow {
  public:
   MainWindow() : lyricDocument_(DemoLyricDocument()) {
     lyricView_ = BuildLyricViewModel(lyricDocument_, playbackPositionMs_);
+    ApplyQueueTrack(queueState_.Current(), PlayerUiState::Idle);
   }
 
   ~MainWindow() {
@@ -146,7 +232,7 @@ class MainWindow {
   }
 
  private:
-  enum class Surface { Home, NowPlaying, Search };
+  enum class NowPlayingTab { Overview, Lyrics };
   static constexpr UINT_PTR kBackendPollTimer = 1;
   static constexpr UINT_PTR kStartupTimer = 2;
 
@@ -169,6 +255,7 @@ class MainWindow {
     switch (message) {
       case WM_CREATE:
         if (!InitializeGraphics()) return -1;
+        RequestAppIcon();
         SetTimer(hwnd_, kStartupTimer, 10, nullptr);
         return 0;
       case WM_SIZE:
@@ -188,12 +275,11 @@ class MainWindow {
       }
       case WM_GETMINMAXINFO: {
         auto* info = reinterpret_cast<MINMAXINFO*>(lParam);
-        const float dpiScale = WindowDpi() / 96.0f;
         RECT minClient{
             0,
             0,
-            static_cast<LONG>(std::round(900.0f * dpiScale)),
-            static_cast<LONG>(std::round(640.0f * dpiScale))};
+            900,
+            640};
         const auto style = static_cast<DWORD>(GetWindowLongPtrW(hwnd_, GWL_STYLE));
         const auto exStyle = static_cast<DWORD>(GetWindowLongPtrW(hwnd_, GWL_EXSTYLE));
         AdjustWindowRectEx(&minClient, style, FALSE, exStyle);
@@ -210,14 +296,27 @@ class MainWindow {
         }
         return 0;
       case WM_KEYDOWN:
-        if (wParam == '1') surface_ = Surface::Home;
-        if (wParam == '2') surface_ = Surface::NowPlaying;
-        if (wParam == 'L') surface_ = Surface::NowPlaying;
+        if (searchInput_.IsFocused()) {
+          if (wParam == VK_ESCAPE) {
+            searchInput_.Blur();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+          }
+          return 0;
+        }
+        if (wParam == '1') NavigateTo(PageId::Home);
+        if (wParam == '2') NavigateTo(PageId::NowPlaying);
+        if (wParam == 'L') NavigateTo(PageId::NowPlaying);
         if (wParam == 'S') BeginSearch(L"晴天", "晴天");
         InvalidateRect(hwnd_, nullptr, FALSE);
         return 0;
+      case WM_CHAR:
+        HandleCharacter(static_cast<wchar_t>(wParam));
+        return 0;
       case WM_LBUTTONUP:
         HandleClick(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        return 0;
+      case WM_MOUSEWHEEL:
+        HandleMouseWheel(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), GET_WHEEL_DELTA_WPARAM(wParam));
         return 0;
       case WM_PAINT:
         Paint();
@@ -275,16 +374,8 @@ class MainWindow {
     MoveWindow(hwnd_, x, y, width, height, FALSE);
   }
 
-  float WindowDpi() const {
-    if (!hwnd_) {
-      return 96.0f;
-    }
-    const UINT dpi = GetDpiForWindow(hwnd_);
-    return dpi == 0 ? 96.0f : static_cast<float>(dpi);
-  }
-
   float DevicePxToDip(float value) const {
-    return DevicePixelsToDips(value, WindowDpi());
+    return value;
   }
 
   D2D1_SIZE_F CurrentClientDipSize() const {
@@ -296,7 +387,9 @@ class MainWindow {
   }
 
   void BeginSearch(std::wstring displayKeyword, std::string keyword) {
-    surface_ = Surface::Search;
+    NavigateTo(PageId::Search);
+    searchInput_.SetText(displayKeyword);
+    searchInput_.Blur();
     searchKeyword_ = std::move(keyword);
     searchView_ = SearchViewModel{};
     searchView_.keyword = std::move(displayKeyword);
@@ -332,6 +425,9 @@ class MainWindow {
     playerView_.album = pendingPlaybackRow_.album;
     playerView_.duration = pendingPlaybackRow_.duration;
     playerView_.current = L"00:00";
+    lyricDocument_ = {};
+    lyricView_ = {};
+    lyricView_.message = L"正在获取歌词";
 
     try {
       if (!backend_) {
@@ -342,18 +438,35 @@ class MainWindow {
         return;
       }
       songUrlFuture_ = backend_->ResolveSongUrl(pendingPlaybackRow_.hash, "");
+      lyricSearchFuture_ = backend_->SearchLyrics(pendingPlaybackRow_.hash);
       SetTimer(hwnd_, kBackendPollTimer, 100, nullptr);
     } catch (...) {
       playerView_.state = PlayerUiState::Error;
       playerView_.error = L"播放启动失败";
+      lyricView_.message = L"歌词启动失败";
     }
 
-    surface_ = Surface::NowPlaying;
+    NavigateTo(PageId::NowPlaying);
     InvalidateRect(hwnd_, nullptr, FALSE);
   }
 
   void PollBackend() {
     bool hasPendingWork = false;
+
+    if (appIconFuture_.valid()) {
+      if (appIconFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        auto payload = appIconFuture_.get();
+        if (payload.bgra.empty()) {
+          appIconSlot_.Fail("app-icon");
+        } else {
+          appIconSlot_.Complete("app-icon", std::move(payload));
+        }
+        SafeRelease(appIconBitmap_);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      } else {
+        hasPendingWork = true;
+      }
+    }
 
     if (backendFuture_.valid()) {
       if (backendFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
@@ -361,6 +474,7 @@ class MainWindow {
           backend_ = backendFuture_.get();
           if (backend_) {
             deviceFuture_ = backend_->EnsureDeviceReady();
+            settingsFuture_ = backend_->LoadSettings();
             hasPendingWork = true;
           }
         } catch (...) {
@@ -381,6 +495,33 @@ class MainWindow {
           deviceStatus_ = L"设备初始化失败";
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
+      } else {
+        hasPendingWork = true;
+      }
+    }
+
+    if (settingsFuture_.valid()) {
+      if (settingsFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+          const auto settings = settingsFuture_.get();
+          volume_ = static_cast<float>(std::clamp(settings.volume, 0.0, 1.0));
+          playback_.SetVolume(volume_);
+        } catch (...) {
+          deviceStatus_ = L"设置加载失败";
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      } else {
+        hasPendingWork = true;
+      }
+    }
+
+    if (settingsSaveFuture_.valid()) {
+      if (settingsSaveFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+          settingsSaveFuture_.get();
+        } catch (...) {
+          deviceStatus_ = L"设置保存失败";
+        }
       } else {
         hasPendingWork = true;
       }
@@ -408,9 +549,7 @@ class MainWindow {
               playback_.PlayUrl(playerView_.sourceUrl)) {
             playerView_.state = PlayerUiState::Playing;
             playbackPositionMs_ = 102000;
-            playerView_.current = L"01:42";
-            playerView_.progress = 0.38;
-            lyricView_ = BuildLyricViewModel(lyricDocument_, playbackPositionMs_);
+            ApplyPlaybackProgress(playerView_, lyricView_, lyricDocument_, 0.38);
           } else if (playerView_.state == PlayerUiState::Ready) {
             playerView_.state = PlayerUiState::Error;
             playerView_.error = L"播放地址打开失败";
@@ -418,6 +557,48 @@ class MainWindow {
         } catch (...) {
           playerView_.state = PlayerUiState::Error;
           playerView_.error = L"播放请求失败";
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      } else {
+        hasPendingWork = true;
+      }
+    }
+
+    if (lyricSearchFuture_.valid()) {
+      if (lyricSearchFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+          const auto lyricSearch = lyricSearchFuture_.get();
+          const auto [id, accessKey] = FirstLyricCandidate(lyricSearch);
+          if (!id.empty() && !accessKey.empty() && backend_) {
+            lyricDetailFuture_ = backend_->GetLyricDetail(id, accessKey);
+            hasPendingWork = true;
+          } else {
+            lyricView_ = {};
+            lyricView_.message = L"暂无歌词";
+          }
+        } catch (...) {
+          lyricView_ = {};
+          lyricView_.message = L"歌词搜索失败";
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      } else {
+        hasPendingWork = true;
+      }
+    }
+
+    if (lyricDetailFuture_.valid()) {
+      if (lyricDetailFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+          lyricDocument_ = BuildLyricDocumentFromDetail(lyricDetailFuture_.get());
+          if (lyricDocument_.lines.empty()) {
+            lyricView_ = {};
+            lyricView_.message = L"暂无歌词";
+          } else {
+            ApplyPlaybackProgress(playerView_, lyricView_, lyricDocument_, playerView_.progress);
+          }
+        } catch (...) {
+          lyricView_ = {};
+          lyricView_.message = L"歌词加载失败";
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
       } else {
@@ -457,7 +638,7 @@ class MainWindow {
         D2D1::HwndRenderTargetProperties(hwnd_, size),
         &renderTarget_);
     if (SUCCEEDED(hr)) {
-      renderTarget_->SetDpi(WindowDpi(), WindowDpi());
+      renderTarget_->SetDpi(96.0f, 96.0f);
       renderTarget_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
       renderTarget_->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
     }
@@ -465,27 +646,86 @@ class MainWindow {
   }
 
   void DiscardDeviceResources() {
+    SafeRelease(appIconBitmap_);
     SafeRelease(renderTarget_);
   }
 
   void ResizeRenderTarget() {
-    if (!renderTarget_) return;
     RECT rc{};
     GetClientRect(hwnd_, &rc);
-    renderTarget_->SetDpi(WindowDpi(), WindowDpi());
-    renderTarget_->Resize(D2D1::SizeU(
-        static_cast<UINT32>(rc.right - rc.left),
-        static_cast<UINT32>(rc.bottom - rc.top)));
+    const auto size = D2D1::SizeF(
+        DevicePxToDip(static_cast<float>(rc.right - rc.left)),
+        DevicePxToDip(static_cast<float>(rc.bottom - rc.top)));
+    clientWidth_ = size.width;
+    clientHeight_ = size.height;
+    layout_ = CalculateMelodyLayout(clientWidth_, clientHeight_);
+
+    if (renderTarget_) {
+      renderTarget_->SetDpi(96.0f, 96.0f);
+      renderTarget_->Resize(D2D1::SizeU(
+          static_cast<UINT32>(rc.right - rc.left),
+          static_cast<UINT32>(rc.bottom - rc.top)));
+    }
     InvalidateRect(hwnd_, nullptr, FALSE);
+  }
+
+  void RequestAppIcon() {
+    const auto decision = appIconSlot_.Request("app-icon");
+    if (!decision.shouldStartLoad) {
+      return;
+    }
+
+    const auto path = FindAssetPath(L"assets/icons/icon.png");
+    if (path.empty()) {
+      appIconSlot_.Fail(decision.key);
+      return;
+    }
+
+    appIconFuture_ = std::async(std::launch::async, [path] {
+      const auto decoded = image::WicImageDecoder{}.DecodeFile(path);
+      if (decoded.placeholder || decoded.bgra.empty()) {
+        return ImageSlotPayload{};
+      }
+      return ImageSlotPayload{decoded.width, decoded.height, decoded.bgra};
+    });
+    SetTimer(hwnd_, kBackendPollTimer, 100, nullptr);
   }
 
   void HandleClick(int x, int y) {
     const float dipX = DevicePxToDip(static_cast<float>(x));
     const float dipY = DevicePxToDip(static_cast<float>(y));
+    const auto headerAction = HitTestHeader(CalculateHeaderControlsLayout(clientWidth_, layout_.sidebar.right), dipX, dipY);
+    if (headerAction == HeaderAction::Back) {
+      if (navigation_.GoBack()) {
+        surface_ = navigation_.Current();
+      }
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      return;
+    }
+    if (headerAction == HeaderAction::Forward) {
+      if (navigation_.GoForward()) {
+        surface_ = navigation_.Current();
+      }
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      return;
+    }
+    if (headerAction == HeaderAction::Search) {
+      searchInput_.Focus();
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      return;
+    }
+
     const auto playerAction =
         HitTestPlayerBar(CalculatePlayerBarLayout(clientWidth_, clientHeight_), dipX, dipY);
-    if (playerAction == PlayerBarAction::OpenLyrics || playerAction == PlayerBarAction::OpenNowPlaying) {
-      surface_ = Surface::NowPlaying;
+    if (playerAction == PlayerBarAction::OpenLyrics) {
+      nowPlayingTab_ = NowPlayingTab::Lyrics;
+      NavigateTo(PageId::NowPlaying);
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      return;
+    }
+    if (playerAction == PlayerBarAction::OpenNowPlaying) {
+      nowPlayingTab_ = NowPlayingTab::Overview;
+      NavigateTo(PageId::NowPlaying);
       InvalidateRect(hwnd_, nullptr, FALSE);
       return;
     }
@@ -501,21 +741,120 @@ class MainWindow {
       InvalidateRect(hwnd_, nullptr, FALSE);
       return;
     }
+    if (playerAction == PlayerBarAction::Previous) {
+      ApplyQueueTrack(queueState_.Previous(), PlayerUiState::Playing);
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      return;
+    }
+    if (playerAction == PlayerBarAction::Next) {
+      ApplyQueueTrack(queueState_.Next(), PlayerUiState::Playing);
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      return;
+    }
+    if (playerAction == PlayerBarAction::Seek) {
+      const auto bar = CalculatePlayerBarLayout(clientWidth_, clientHeight_);
+      ApplyPlaybackProgress(
+          playerView_,
+          lyricView_,
+          lyricDocument_,
+          TrackValueFromPoint(bar.progress, dipX));
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      return;
+    }
+    if (playerAction == PlayerBarAction::SetVolume) {
+      const auto bar = CalculatePlayerBarLayout(clientWidth_, clientHeight_);
+      volume_ = TrackValueFromPoint(bar.volume, dipX);
+      playback_.SetVolume(volume_);
+      SaveSettingsSnapshot();
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      return;
+    }
 
-    if (dipX < 178 && dipY > 88 && dipY < 150) {
-      surface_ = Surface::Home;
-    } else if (dipX < 178 && dipY > 390 && dipY < 610) {
-      surface_ = Surface::NowPlaying;
+    const auto sidebarAction = HitTestSidebar(dipX, dipY, layout_.sidebar.bottom);
+    if (sidebarAction == SidebarAction::Home) {
+      NavigateTo(PageId::Home);
+    } else if (sidebarAction == SidebarAction::NowPlaying) {
+      NavigateTo(PageId::NowPlaying);
+    } else if (sidebarAction == SidebarAction::Settings) {
+      NavigateTo(PageId::Settings);
     } else if (dipX > clientWidth_ - 150 && dipY > clientHeight_ - 88) {
-      surface_ = Surface::NowPlaying;
-    } else if (surface_ == Surface::Search) {
+      NavigateTo(PageId::NowPlaying);
+    } else if (surface_ == PageId::Home) {
+      const auto homeAction = HitTestHome(layout_.home, dipX, dipY);
+      if (homeAction == HomeAction::PlayHero || homeAction == HomeAction::OpenRecent ||
+          homeAction == HomeAction::OpenRecommendation) {
+        NavigateTo(PageId::NowPlaying);
+      }
+    } else if (surface_ == PageId::Search) {
       const auto row = SearchRowFromPoint(dipX, dipY);
       if (row != kNoRow) {
         BeginResolveAndPlay(row);
         return;
       }
+    } else if (surface_ == PageId::NowPlaying) {
+      const auto nowPlayingAction = HitTestNowPlaying(layout_.nowPlaying, dipX, dipY);
+      if (nowPlayingAction == NowPlayingAction::OverviewTab) {
+        nowPlayingTab_ = NowPlayingTab::Overview;
+      } else if (nowPlayingAction == NowPlayingAction::LyricsTab) {
+        nowPlayingTab_ = NowPlayingTab::Lyrics;
+      } else if (layout_.nowPlaying.showQueue) {
+        const auto row = QueueRowFromPoint(dipX, dipY);
+        if (row != kNoRow) {
+          ApplyQueueTrack(queueState_.Select(row), PlayerUiState::Playing);
+        }
+      }
     }
     InvalidateRect(hwnd_, nullptr, FALSE);
+  }
+
+  void HandleCharacter(wchar_t value) {
+    const auto result = searchInput_.HandleCharacter(value);
+    if (result.action == SearchInputAction::Submit) {
+      BeginSearch(result.submittedText, WideToUtf8(result.submittedText));
+      return;
+    }
+    if (searchInput_.IsFocused()) {
+      InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+  }
+
+  void HandleMouseWheel(int screenX, int screenY, int wheelDelta) {
+    POINT point{screenX, screenY};
+    ScreenToClient(hwnd_, &point);
+    const float dipX = DevicePxToDip(static_cast<float>(point.x));
+    const float dipY = DevicePxToDip(static_cast<float>(point.y));
+
+    if (surface_ == PageId::Search) {
+      const auto content = layout_.content;
+      const float left = content.left + 28.0f;
+      const float top = content.top + 28.0f;
+      const float right = content.right - 28.0f;
+      const float bottom = content.bottom - 24.0f;
+      const float listTop = top + 166.0f;
+      if (dipX >= left && dipX <= right && dipY >= listTop && dipY <= bottom) {
+        searchScrollOffset_ = ApplyWheelScroll(
+            searchView_.rows.size(),
+            58.0f,
+            std::max(0.0f, bottom - listTop - 20.0f),
+            searchScrollOffset_,
+            wheelDelta);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+      }
+    }
+
+    if (surface_ == PageId::NowPlaying && layout_.nowPlaying.showQueue) {
+      const auto queue = layout_.nowPlaying.queue;
+      if (dipX >= queue.left && dipX <= queue.right && dipY >= queue.top && dipY <= queue.bottom) {
+        queueScrollOffset_ = ApplyWheelScroll(
+            8,
+            68.0f,
+            std::max(0.0f, queue.bottom - queue.top - 190.0f),
+            queueScrollOffset_,
+            wheelDelta);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      }
+    }
   }
 
   static constexpr std::size_t kNoRow = static_cast<std::size_t>(-1);
@@ -541,6 +880,53 @@ class MainWindow {
     return index < searchView_.rows.size() ? index : kNoRow;
   }
 
+  std::size_t QueueRowFromPoint(float x, float y) const {
+    const auto queue = layout_.nowPlaying.queue;
+    constexpr float rowHeight = 68.0f;
+    const float listTop = queue.top + 130.0f;
+    const float listBottom = queue.bottom - 58.0f;
+    if (x < queue.left || x > queue.right || y < listTop || y > listBottom) {
+      return kNoRow;
+    }
+    const auto index = static_cast<std::size_t>((y - listTop + queueScrollOffset_) / rowHeight);
+    return index < queueState_.Tracks().size() ? index : kNoRow;
+  }
+
+  static int DurationToSeconds(const std::wstring& value) {
+    const auto colon = value.find(L':');
+    if (colon == std::wstring::npos) {
+      return 0;
+    }
+    try {
+      const int minutes = std::stoi(value.substr(0, colon));
+      const int seconds = std::stoi(value.substr(colon + 1));
+      return std::max(0, minutes * 60 + seconds);
+    } catch (...) {
+      return 0;
+    }
+  }
+
+  static std::wstring FormatDuration(int seconds) {
+    seconds = std::max(0, seconds);
+    const int minutes = seconds / 60;
+    const int remainder = seconds % 60;
+    return std::to_wstring(minutes) + L":" + (remainder < 10 ? L"0" : L"") + std::to_wstring(remainder);
+  }
+
+  void ApplyQueueTrack(const QueueTrack* track, PlayerUiState state) {
+    if (!track) {
+      return;
+    }
+    playerView_.title = track->title;
+    playerView_.artist = track->artist;
+    playerView_.album = track->album;
+    playerView_.duration = track->duration;
+    playerView_.current = L"00:00";
+    playerView_.progress = 0.0;
+    playerView_.state = state;
+    lyricView_ = BuildLyricViewModel(lyricDocument_, 0);
+  }
+
   void Paint() {
     PAINTSTRUCT ps{};
     BeginPaint(hwnd_, &ps);
@@ -557,12 +943,14 @@ class MainWindow {
       DrawSidebar();
       DrawHeader();
       renderTarget_->PushAxisAlignedClip(ToD2DRect(layout_.content), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-      if (surface_ == Surface::Home) {
+      if (surface_ == PageId::Home) {
         DrawHome();
-      } else if (surface_ == Surface::NowPlaying) {
+      } else if (surface_ == PageId::NowPlaying) {
         DrawNowPlaying();
-      } else {
+      } else if (surface_ == PageId::Search) {
         DrawSearch();
+      } else {
+        DrawSettings();
       }
       renderTarget_->PopAxisAlignedClip();
       DrawPlayerBar();
@@ -635,6 +1023,77 @@ class MainWindow {
     SafeRelease(format);
   }
 
+  std::filesystem::path FindAssetPath(const std::filesystem::path& relative) const {
+    std::vector<std::filesystem::path> roots;
+    roots.push_back(std::filesystem::current_path());
+
+    wchar_t modulePath[MAX_PATH]{};
+    if (GetModuleFileNameW(nullptr, modulePath, MAX_PATH) > 0) {
+      roots.push_back(std::filesystem::path(modulePath).parent_path());
+    }
+
+    for (auto root : roots) {
+      for (int i = 0; i < 8 && !root.empty(); ++i) {
+        const auto candidate = root / relative;
+        std::error_code error;
+        if (std::filesystem::exists(candidate, error)) {
+          return candidate;
+        }
+        root = root.parent_path();
+      }
+    }
+    return {};
+  }
+
+  bool EnsureAppIconBitmap() {
+    if (appIconBitmap_) {
+      return true;
+    }
+    const auto* payload = appIconSlot_.Payload();
+    if (!payload) {
+      return false;
+    }
+
+    const auto properties = D2D1::BitmapProperties(
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        96.0f,
+        96.0f);
+    return SUCCEEDED(renderTarget_->CreateBitmap(
+        D2D1::SizeU(payload->width, payload->height),
+        payload->bgra.data(),
+        payload->width * 4,
+        properties,
+        &appIconBitmap_));
+  }
+
+  bool DrawBitmap(ID2D1Bitmap* bitmap, D2D1_RECT_F rect, bool fill) {
+    if (!bitmap) {
+      return false;
+    }
+    const auto size = bitmap->GetSize();
+    const Rect container{rect.left, rect.top, rect.right, rect.bottom};
+    const auto target = fill ? CalculateAspectFillRect(container, size.width, size.height)
+                             : CalculateAspectFitRect(container, size.width, size.height);
+    renderTarget_->PushAxisAlignedClip(rect, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    renderTarget_->DrawBitmap(bitmap, ToD2DRect(target), 1.0f, D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    renderTarget_->PopAxisAlignedClip();
+    return true;
+  }
+
+  bool DrawAppIcon(D2D1_RECT_F rect, bool fill = true) {
+    return EnsureAppIconBitmap() && DrawBitmap(appIconBitmap_, rect, fill);
+  }
+
+  void DrawArtwork(D2D1_RECT_F rect, D2D1_COLOR_F fallback, bool fill = true) {
+    FillRound(rect, 6.0f, fallback);
+    if (!DrawAppIcon(rect, fill)) {
+      Circle((rect.left + rect.right) * 0.5f,
+             (rect.top + rect.bottom) * 0.5f,
+             std::min(rect.right - rect.left, rect.bottom - rect.top) * 0.18f,
+             D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.30f));
+    }
+  }
+
   void Circle(float cx, float cy, float radius, D2D1_COLOR_F color) {
     auto* brush = Brush(color);
     renderTarget_->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), radius, radius), brush);
@@ -690,7 +1149,10 @@ class MainWindow {
     StrokeLine(178, 0, 178, sidebarBottom, palette_.line);
     renderTarget_->PushAxisAlignedClip(D2D1::RectF(0, 0, 178, sidebarBottom), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
 
-    Text(L"♪ BottleMusic", D2D1::RectF(28, 34, 168, 66), palette_.accentDark,
+    if (!DrawAppIcon(D2D1::RectF(28, 31, 54, 57), false)) {
+      Text(L"♪", D2D1::RectF(31, 34, 54, 66), palette_.accentDark, {21, DWRITE_FONT_WEIGHT_SEMI_BOLD});
+    }
+    Text(L"BottleMusic", D2D1::RectF(62, 34, 168, 66), palette_.accentDark,
          {21, DWRITE_FONT_WEIGHT_SEMI_BOLD});
 
     struct Item {
@@ -699,14 +1161,14 @@ class MainWindow {
       bool active;
     };
     const std::array<Item, 10> nav = {{
-        {L"⌂", L"首页", surface_ == Surface::Home},
+        {L"⌂", L"首页", surface_ == PageId::Home},
         {L"◎", L"发现", false},
         {L"◌", L"电台", false},
         {L"▣", L"视频", false},
         {L"♪", L"歌曲", false},
         {L"⊙", L"专辑", false},
         {L"♙", L"歌手", false},
-        {L"≡", L"播放列表", surface_ == Surface::NowPlaying},
+        {L"≡", L"播放列表", surface_ == PageId::NowPlaying},
         {L"♡", L"收藏夹", false},
         {L"↧", L"下载管理", false},
     }};
@@ -755,17 +1217,21 @@ class MainWindow {
 
   void DrawHeader() {
     const bool compact = clientWidth_ < 1120.0f;
-    const float navLeft = layout_.sidebar.right + 34.0f;
-    Text(L"‹", D2D1::RectF(navLeft, 25, navLeft + 26, 60), palette_.text, {36});
-    Text(L"›", D2D1::RectF(navLeft + 44, 25, navLeft + 70, 60), palette_.text, {36});
+    const auto controls = CalculateHeaderControlsLayout(clientWidth_, layout_.sidebar.right);
+    Text(L"‹", ToD2DRect(controls.back), navigation_.CanGoBack() ? palette_.text : palette_.faint, {36});
+    Text(L"›", ToD2DRect(controls.forward), navigation_.CanGoForward() ? palette_.text : palette_.faint, {36});
 
-    const float searchLeft = navLeft + 100.0f;
-    const float searchRight = std::max(searchLeft + 240.0f, clientWidth_ - (compact ? 110.0f : 360.0f));
-    const auto searchRect = D2D1::RectF(searchLeft, 26, std::min(searchRight, clientWidth_ - 92.0f), 66);
+    const auto searchRect = ToD2DRect(controls.search);
     FillRound(searchRect, 8, D2D1::ColorF(0.95f, 0.94f, 0.91f, 0.78f));
-    StrokeRound(searchRect, 8, palette_.line);
-    Text(L"搜索音乐、歌手、专辑或歌词", D2D1::RectF(searchRect.left + 26, 38, searchRect.right - 58, 62),
-         palette_.faint, {13});
+    StrokeRound(searchRect, 8, searchInput_.IsFocused() ? palette_.accent : palette_.line);
+    const auto& searchText = searchInput_.Text();
+    Text(searchText.empty() ? L"搜索音乐、歌手、专辑或歌词" : searchText,
+         D2D1::RectF(searchRect.left + 26, 38, searchRect.right - 58, 62),
+         searchText.empty() ? palette_.faint : palette_.text, {13});
+    if (searchInput_.IsFocused()) {
+      const float caretLeft = std::min(searchRect.right - 60.0f, searchRect.left + 30.0f + searchText.size() * 13.0f);
+      StrokeLine(caretLeft, searchRect.top + 10.0f, caretLeft, searchRect.bottom - 10.0f, palette_.accent, 1.0f);
+    }
     Text(L"⌕", D2D1::RectF(searchRect.right - 36, 36, searchRect.right - 10, 62), palette_.text, {18});
     if (!compact) {
       Text(deviceStatus_, D2D1::RectF(clientWidth_ - 292, 38, clientWidth_ - 82, 62), palette_.muted,
@@ -873,7 +1339,7 @@ class MainWindow {
       FillRound(D2D1::RectF(x, top, x + strip.itemWidth, top + strip.itemHeight), 8, palette_.panel);
       StrokeRound(D2D1::RectF(x, top, x + strip.itemWidth, top + strip.itemHeight), 8, palette_.line);
       D2D1_COLOR_F color = D2D1::ColorF(0.48f + i * 0.04f, 0.67f - i * 0.03f, 0.72f - i * 0.02f);
-      FillRound(D2D1::RectF(x + 1, top + 1, x + strip.itemWidth - 1, top + strip.imageHeight), 8, color);
+      DrawArtwork(D2D1::RectF(x + 1, top + 1, x + strip.itemWidth - 1, top + strip.imageHeight), color, true);
       Circle(x + strip.itemWidth - 26, top + strip.imageHeight - 22.0f, 15, D2D1::ColorF(0.03f, 0.03f, 0.025f, 0.72f));
       DrawPlayTriangle(D2D1::RectF(x + strip.itemWidth - 35, top + strip.imageHeight - 34.0f,
                                    x + strip.itemWidth - 17, top + strip.imageHeight - 12.0f),
@@ -897,8 +1363,9 @@ class MainWindow {
     const std::array<const wchar_t*, 5> times = {L"02:41", L"03:29", L"08:17", L"05:36", L"03:08"};
     float y = rect.top + 18;
     for (std::size_t i = 0; i < titles.size(); ++i) {
-      FillRound(D2D1::RectF(rect.left + 22, y - 2, rect.left + 60, y + 36), 5,
-                D2D1::ColorF(0.58f + i * 0.05f, 0.52f, 0.36f));
+      DrawArtwork(D2D1::RectF(rect.left + 22, y - 2, rect.left + 60, y + 36),
+                  D2D1::ColorF(0.58f + i * 0.05f, 0.52f, 0.36f),
+                  true);
       Text(titles[i], D2D1::RectF(rect.left + 72, y + 6, rect.left + 250, y + 30), palette_.text, {13});
       Text(artists[i], D2D1::RectF(rect.left + 238, y + 6, rect.left + 420, y + 30), palette_.muted, {12});
       Text(times[i], D2D1::RectF(rect.right - 96, y + 6, rect.right - 48, y + 30), palette_.muted, {12});
@@ -937,15 +1404,29 @@ class MainWindow {
   void DrawNowPlaying() {
     const float contentLeft = layout_.nowPlaying.tabs.left;
     const float top = layout_.nowPlaying.tabs.top;
-    Text(L"正在播放", D2D1::RectF(contentLeft, top, contentLeft + 120, top + 34), palette_.text,
+    Text(L"正在播放", D2D1::RectF(contentLeft, top, contentLeft + 120, top + 34),
+         nowPlayingTab_ == NowPlayingTab::Overview ? palette_.text : palette_.muted,
          {17, DWRITE_FONT_WEIGHT_SEMI_BOLD});
-    Text(L"歌词", D2D1::RectF(contentLeft + 120, top, contentLeft + 190, top + 34), palette_.text, {16});
-    StrokeLine(contentLeft, top + 36, contentLeft + 68, top + 36, palette_.accent, 2.0f);
+    Text(L"歌词", D2D1::RectF(contentLeft + 120, top, contentLeft + 190, top + 34),
+         nowPlayingTab_ == NowPlayingTab::Lyrics ? palette_.text : palette_.muted, {16});
+    if (nowPlayingTab_ == NowPlayingTab::Overview) {
+      StrokeLine(contentLeft, top + 36, contentLeft + 68, top + 36, palette_.accent, 2.0f);
+    } else {
+      StrokeLine(contentLeft + 120.0f, top + 36, contentLeft + 158.0f, top + 36, palette_.accent, 2.0f);
+    }
 
-    DrawAlbumArea(ToD2DRect(layout_.nowPlaying.albumArea));
-    DrawLyrics(ToD2DRect(layout_.nowPlaying.lyrics));
-    if (layout_.nowPlaying.showQueue) {
-      DrawQueue(ToD2DRect(layout_.nowPlaying.queue));
+    if (nowPlayingTab_ == NowPlayingTab::Lyrics) {
+      const float right = layout_.nowPlaying.showQueue ? layout_.nowPlaying.queue.left - 28.0f : layout_.content.right - 28.0f;
+      DrawLyrics(D2D1::RectF(layout_.content.left + 36.0f, top + 62.0f, right, layout_.content.bottom - 10.0f));
+      if (layout_.nowPlaying.showQueue) {
+        DrawQueue(ToD2DRect(layout_.nowPlaying.queue));
+      }
+    } else {
+      DrawAlbumArea(ToD2DRect(layout_.nowPlaying.albumArea));
+      DrawLyrics(ToD2DRect(layout_.nowPlaying.lyrics));
+      if (layout_.nowPlaying.showQueue) {
+        DrawQueue(ToD2DRect(layout_.nowPlaying.queue));
+      }
     }
   }
 
@@ -1012,12 +1493,49 @@ class MainWindow {
     }
   }
 
+  void DrawSettings() {
+    const auto content = layout_.content;
+    const float left = content.left + 28.0f;
+    const float top = content.top + 28.0f;
+    const float right = content.right - 28.0f;
+
+    Text(L"设置", D2D1::RectF(left, top, right, top + 42.0f), palette_.text,
+         {28, DWRITE_FONT_WEIGHT_BOLD});
+    Text(L"先接入原生客户端核心开关，后续会和 EchoStorage 的配置持久化合并。",
+         D2D1::RectF(left, top + 48.0f, right, top + 76.0f), palette_.muted, {14});
+
+    const auto panel = D2D1::RectF(left, top + 104.0f, std::min(right, left + 720.0f), top + 356.0f);
+    FillRound(panel, 8, palette_.panel);
+    StrokeRound(panel, 8, palette_.line);
+    Text(L"播放", D2D1::RectF(panel.left + 24.0f, panel.top + 22.0f, panel.right, panel.top + 52.0f),
+         palette_.text, {18, DWRITE_FONT_WEIGHT_SEMI_BOLD});
+    Text(L"启动后保持上次播放页",
+         D2D1::RectF(panel.left + 24.0f, panel.top + 76.0f, panel.right - 96.0f, panel.top + 104.0f),
+         palette_.text, {14});
+    DrawButton(D2D1::RectF(panel.right - 86.0f, panel.top + 70.0f, panel.right - 24.0f, panel.top + 102.0f),
+               L"开启", false);
+
+    Text(L"音量", D2D1::RectF(panel.left + 24.0f, panel.top + 132.0f, panel.left + 120.0f, panel.top + 160.0f),
+         palette_.text, {14});
+    DrawProgress(panel.left + 120.0f, panel.top + 146.0f, panel.right - 80.0f, volume_);
+    Text(std::to_wstring(static_cast<int>(std::round(volume_ * 100.0f))) + L"%",
+         D2D1::RectF(panel.right - 62.0f, panel.top + 132.0f, panel.right - 24.0f, panel.top + 160.0f),
+         palette_.muted, {13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING});
+
+    Text(L"性能", D2D1::RectF(panel.left + 24.0f, panel.top + 188.0f, panel.right, panel.top + 218.0f),
+         palette_.text, {18, DWRITE_FONT_WEIGHT_SEMI_BOLD});
+    Text(L"目标：空闲低内存，播放中低于 180MB；图片缓存统一归 EchoImage 管理。",
+         D2D1::RectF(panel.left + 24.0f, panel.top + 232.0f, panel.right - 24.0f, panel.top + 264.0f),
+         palette_.muted, {14});
+  }
+
   void DrawAlbumArea(D2D1_RECT_F rect) {
     const float availableWidth = std::max(260.0f, rect.right - rect.left);
     const float coverSize = std::clamp(availableWidth - 28.0f, 260.0f, 400.0f);
     const bool showVinyl = availableWidth >= 390.0f;
-    FillRound(D2D1::RectF(rect.left, rect.top, rect.left + coverSize, rect.top + coverSize), 8,
-              D2D1::ColorF(0.20f, 0.15f, 0.12f));
+    DrawArtwork(D2D1::RectF(rect.left, rect.top, rect.left + coverSize, rect.top + coverSize),
+                D2D1::ColorF(0.20f, 0.15f, 0.12f),
+                true);
     if (showVinyl) {
       Circle(rect.left + coverSize + 5.0f, rect.top + coverSize * 0.5f, coverSize * 0.29f,
              D2D1::ColorF(0.04f, 0.05f, 0.055f, 0.88f));
@@ -1033,7 +1551,10 @@ class MainWindow {
     const float detailTop = rect.top + coverSize + 32.0f;
     Text(playerView_.title, D2D1::RectF(rect.left, detailTop, rect.left + availableWidth - 24.0f, detailTop + 38.0f), palette_.text,
          {coverSize < 330.0f ? 25.0f : 31.0f, DWRITE_FONT_WEIGHT_BOLD});
-    Text(playerView_.artist, D2D1::RectF(rect.left, detailTop + 56.0f, rect.left + availableWidth - 24.0f, detailTop + 86.0f), palette_.text, {20});
+    Text(PlaybackSubtitle(playerView_),
+         D2D1::RectF(rect.left, detailTop + 56.0f, rect.left + availableWidth - 24.0f, detailTop + 86.0f),
+         palette_.text,
+         {20});
     Text(L"专辑 · " + playerView_.album, D2D1::RectF(rect.left, detailTop + 96.0f, rect.left + availableWidth - 24.0f, detailTop + 122.0f), palette_.muted,
          {14});
     DrawButton(D2D1::RectF(rect.left, detailTop + 136.0f, rect.left + 92.0f, detailTop + 168.0f), L"SQ 无损音质", false);
@@ -1085,12 +1606,10 @@ class MainWindow {
     Text(L"清空    •••", D2D1::RectF(rect.right - 112, rect.top + 86, rect.right - 20, rect.top + 116), palette_.muted,
          {13});
 
-    const std::array<const wchar_t*, 8> songs = {
-        L"晴天", L"七里香", L"一路向北", L"稻香", L"夜曲", L"不能说的秘密", L"简单爱", L"轨迹"};
-    const std::array<const wchar_t*, 8> times = {L"04:29", L"04:57", L"04:55", L"03:43", L"03:48", L"04:56", L"04:30", L"04:41"};
+    const auto& tracks = queueState_.Tracks();
     constexpr float rowHeight = 68.0f;
     const auto visibleRows = CalculateVisibleRows(
-        songs.size(),
+        tracks.size(),
         rowHeight,
         0.0f,
         queueScrollOffset_,
@@ -1098,16 +1617,21 @@ class MainWindow {
         1);
     for (std::size_t i = visibleRows.first; i < visibleRows.lastExclusive; ++i) {
       const float y = rect.top + 130.0f + static_cast<float>(i) * rowHeight - queueScrollOffset_;
-      if (i == 0) FillRound(D2D1::RectF(rect.left + 12, y - 10, rect.right - 12, y + 58), 7, palette_.panelStrong);
-      Text(i == 0 ? L"▮▮" : std::to_wstring(i + 1), D2D1::RectF(rect.left + 26, y + 8, rect.left + 58, y + 34),
-           i == 0 ? palette_.accent : palette_.text, {13});
-      Text(songs[i], D2D1::RectF(rect.left + 70, y, rect.right - 90, y + 26), palette_.text,
+      const bool active = i == queueState_.CurrentIndex();
+      if (active) FillRound(D2D1::RectF(rect.left + 12, y - 10, rect.right - 12, y + 58), 7, palette_.panelStrong);
+      Text(active ? L"▮▮" : std::to_wstring(i + 1), D2D1::RectF(rect.left + 24, y + 8, rect.left + 50, y + 34),
+           active ? palette_.accent : palette_.text, {13});
+      DrawArtwork(D2D1::RectF(rect.left + 54, y - 1, rect.left + 88, y + 33),
+                  D2D1::ColorF(0.24f + static_cast<float>(i) * 0.04f, 0.34f, 0.40f),
+                  true);
+      Text(tracks[i].title, D2D1::RectF(rect.left + 98, y, rect.right - 90, y + 26), palette_.text,
            {14, DWRITE_FONT_WEIGHT_SEMI_BOLD});
-      Text(L"周杰伦", D2D1::RectF(rect.left + 70, y + 26, rect.right - 90, y + 50), palette_.muted, {12});
-      Text(times[i], D2D1::RectF(rect.right - 76, y + 8, rect.right - 20, y + 36), palette_.muted, {12});
-      if (i + 1 < songs.size()) StrokeLine(rect.left + 70, y + 62, rect.right - 24, y + 62, palette_.line);
+      Text(tracks[i].artist, D2D1::RectF(rect.left + 98, y + 26, rect.right - 90, y + 50), palette_.muted, {12});
+      Text(tracks[i].duration, D2D1::RectF(rect.right - 76, y + 8, rect.right - 20, y + 36), palette_.muted, {12});
+      if (i + 1 < tracks.size()) StrokeLine(rect.left + 98, y + 62, rect.right - 24, y + 62, palette_.line);
     }
-    Text(L"8 首歌曲 · 33 分钟", D2D1::RectF(rect.left + 24, rect.bottom - 42, rect.left + 180, rect.bottom - 16),
+    Text(std::to_wstring(tracks.size()) + L" 首歌曲 · 33 分钟",
+         D2D1::RectF(rect.left + 24, rect.bottom - 42, rect.left + 180, rect.bottom - 16),
          palette_.muted, {13});
     Text(L"保存为歌单", D2D1::RectF(rect.right - 100, rect.bottom - 42, rect.right - 20, rect.bottom - 16), palette_.accent,
          {13});
@@ -1131,16 +1655,16 @@ class MainWindow {
 
   void DrawPlayerBar() {
     const auto bar = CalculatePlayerBarLayout(clientWidth_, clientHeight_);
-    const float top = bar.bar.top;
     FillRound(ToD2DRect(bar.bar), 8, palette_.panel);
     StrokeRound(ToD2DRect(bar.bar), 8, palette_.line);
-    FillRound(ToD2DRect(bar.albumArt), 6,
-              surface_ == Surface::Home ? D2D1::ColorF(0.60f, 0.74f, 0.70f) : D2D1::ColorF(0.20f, 0.15f, 0.12f));
-    Text(surface_ == Surface::Home && playerView_.state == PlayerUiState::Idle ? L"Sunshine Acoustic" : playerView_.title,
+    DrawArtwork(ToD2DRect(bar.albumArt), D2D1::ColorF(0.20f, 0.15f, 0.12f), true);
+    Text(surface_ == PageId::Home && playerView_.state == PlayerUiState::Idle ? L"Sunshine Acoustic" : playerView_.title,
          ToD2DRect(bar.title), palette_.text, {15, DWRITE_FONT_WEIGHT_SEMI_BOLD});
-    Text(surface_ == Surface::Home && playerView_.state == PlayerUiState::Idle ? L"Leavv" : playerView_.artist,
+    Text(surface_ == PageId::Home && playerView_.state == PlayerUiState::Idle ? L"Leavv" : PlaybackSubtitle(playerView_),
          ToD2DRect(bar.artist), palette_.muted, {13});
-    Text(L"♥", ToD2DRect(bar.favorite), palette_.accent, {22});
+    if (bar.showFavorite) {
+      Text(L"♥", ToD2DRect(bar.favorite), palette_.accent, {22});
+    }
 
     if (bar.showSecondaryControls) {
       Text(L"♢", ToD2DRect(bar.shuffle), palette_.muted, {21, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
@@ -1161,12 +1685,12 @@ class MainWindow {
          ToD2DRect(bar.currentTime), palette_.muted, {12});
     DrawProgress(bar.progress.left, bar.progress.top, bar.progress.right,
                  playerView_.state == PlayerUiState::Idle ? 0.55f : static_cast<float>(playerView_.progress));
-    Text(surface_ == Surface::Home && playerView_.state == PlayerUiState::Idle ? L"03:54" : playerView_.duration,
+    Text(surface_ == PageId::Home && playerView_.state == PlayerUiState::Idle ? L"03:54" : playerView_.duration,
          ToD2DRect(bar.duration), palette_.muted, {12});
 
     if (bar.showVolume) {
       Text(L"🔊", ToD2DRect(bar.volumeIcon), palette_.muted, {17});
-      DrawProgress(bar.volume.left, bar.volume.top, bar.volume.right, 0.48f);
+      DrawProgress(bar.volume.left, bar.volume.top, bar.volume.right, volume_);
     }
     Text(L"≡", ToD2DRect(bar.queue), palette_.muted, {22, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
     DrawButton(ToD2DRect(bar.lyric), L"词", false);
@@ -1175,12 +1699,40 @@ class MainWindow {
   HWND hwnd_ = nullptr;
   ID2D1Factory* d2dFactory_ = nullptr;
   ID2D1HwndRenderTarget* renderTarget_ = nullptr;
+  ID2D1Bitmap* appIconBitmap_ = nullptr;
   IDWriteFactory* writeFactory_ = nullptr;
+  ImageSlot appIconSlot_;
+  std::future<ImageSlotPayload> appIconFuture_;
   Palette palette_;
-  Surface surface_ = Surface::Home;
+  void NavigateTo(PageId page) {
+    navigation_.NavigateTo(page);
+    surface_ = navigation_.Current();
+  }
+
+  void SaveSettingsSnapshot() {
+    if (!backend_) {
+      return;
+    }
+    core::AppSettings settings;
+    settings.volume = volume_;
+    settings.startupPage = surface_ == PageId::NowPlaying ? "now_playing" : "home";
+    settings.imageMemoryCacheMb = 32;
+    try {
+      settingsSaveFuture_ = backend_->SaveSettings(settings);
+      SetTimer(hwnd_, kBackendPollTimer, 100, nullptr);
+    } catch (...) {
+      deviceStatus_ = L"设置保存失败";
+    }
+  }
+
+  NavigationState navigation_;
+  PageId surface_ = PageId::Home;
+  NowPlayingTab nowPlayingTab_ = NowPlayingTab::Overview;
   std::unique_ptr<core::IBackendFacade> backend_;
   std::future<std::unique_ptr<core::IBackendFacade>> backendFuture_;
   std::future<core::DeviceInfo> deviceFuture_;
+  std::future<core::AppSettings> settingsFuture_;
+  std::future<void> settingsSaveFuture_;
   core::DeviceInfo device_;
   std::wstring deviceStatus_ = L"设备未初始化";
   float clientWidth_ = 1600.0f;
@@ -1190,12 +1742,26 @@ class MainWindow {
   SearchViewModel searchView_;
   std::future<nlohmann::json> searchFuture_;
   std::string searchKeyword_;
+  SearchInputState searchInput_;
   float searchScrollOffset_ = 0.0f;
   playback::PlaybackController playback_;
   bool playbackInitialized_ = false;
+  float volume_ = 0.48f;
+  PlaybackQueueState queueState_ = PlaybackQueueState({
+      {L"晴天", L"周杰伦", L"叶惠美", L"04:29"},
+      {L"七里香", L"周杰伦", L"七里香", L"04:57"},
+      {L"一路向北", L"周杰伦", L"Initial J", L"04:55"},
+      {L"稻香", L"周杰伦", L"魔杰座", L"03:43"},
+      {L"夜曲", L"周杰伦", L"十一月的萧邦", L"03:48"},
+      {L"不能说的秘密", L"周杰伦", L"不能说的秘密", L"04:56"},
+      {L"简单爱", L"周杰伦", L"范特西", L"04:30"},
+      {L"轨迹", L"周杰伦", L"寻找周杰伦", L"04:41"},
+  });
   PlaybackViewModel playerView_;
   SearchResultRow pendingPlaybackRow_;
   std::future<nlohmann::json> songUrlFuture_;
+  std::future<nlohmann::json> lyricSearchFuture_;
+  std::future<nlohmann::json> lyricDetailFuture_;
   core::LyricDocument lyricDocument_;
   LyricViewModel lyricView_;
   std::int64_t playbackPositionMs_ = 102000;
