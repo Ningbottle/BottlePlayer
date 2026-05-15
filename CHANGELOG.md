@@ -45,3 +45,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-05-08T13:45:00
 - Basic play/pause/seek functionality
+
+### 2026-05-15T09:30:00
+- Featured content and recommended songs
