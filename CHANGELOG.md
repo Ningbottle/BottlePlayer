@@ -48,3 +48,6 @@ All notable changes to BottleMusic will be documented in this file.
 
 ### 2026-05-15T09:30:00
 - Featured content and recommended songs
+
+### 2026-05-22T15:00:00
+- Frontend resilience for API calls
