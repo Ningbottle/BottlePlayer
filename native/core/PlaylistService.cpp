@@ -1,7 +1,12 @@
 #include "echo/core/PlaylistService.h"
+#include "echo/core/Crypto.h"
+
+#include <windows.h>
+#include <wincrypt.h>
 
 #include <algorithm>
 #include <cctype>
+#include <ctime>
 #include <iomanip>
 #include <sstream>
 #include <string_view>
@@ -9,6 +14,33 @@
 
 namespace echo::core {
 namespace {
+
+std::string Base64Encode(const std::vector<BYTE>& data) {
+  DWORD b64Len = 0;
+  if (!CryptBinaryToStringA(data.data(), static_cast<DWORD>(data.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &b64Len)) {
+    return {};
+  }
+  std::string b64Str(b64Len, '\0');
+  if (!CryptBinaryToStringA(data.data(), static_cast<DWORD>(data.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, &b64Str[0], &b64Len)) {
+    return {};
+  }
+  while (!b64Str.empty() && (b64Str.back() == '\0' || b64Str.back() == '\r' || b64Str.back() == '\n')) {
+    b64Str.pop_back();
+  }
+  return b64Str;
+}
+
+std::vector<BYTE> Base64Decode(const std::string& b64Str) {
+  DWORD decodedLen = 0;
+  if (!CryptStringToBinaryA(b64Str.data(), static_cast<DWORD>(b64Str.size()), CRYPT_STRING_BASE64, nullptr, &decodedLen, nullptr, nullptr)) {
+    return {};
+  }
+  std::vector<BYTE> decoded(decodedLen);
+  if (!CryptStringToBinaryA(b64Str.data(), static_cast<DWORD>(b64Str.size()), CRYPT_STRING_BASE64, decoded.data(), &decodedLen, nullptr, nullptr)) {
+    return {};
+  }
+  return decoded;
+}
 
 int Clamp(int value, int minValue, int maxValue) {
   return std::max(minValue, std::min(value, maxValue));
@@ -195,14 +227,30 @@ nlohmann::json NormalizePlaylistMeta(const nlohmann::json& raw) {
 }  // namespace
 
 PlaylistService::PlaylistService()
-    : PlaylistService([](
-          const std::string& url,
-          const std::unordered_map<std::string, std::string>& headers) {
+    : PlaylistService(
+          [](const std::string& url,
+             const std::unordered_map<std::string, std::string>& headers) {
+            HttpClient client;
+            return client.Get(url, headers);
+          },
+          [](const std::string& url,
+             const std::string& body,
+             const std::unordered_map<std::string, std::string>& headers) {
+            HttpClient client;
+            return client.Post(url, body, headers);
+          }) {}
+
+PlaylistService::PlaylistService(PlaylistHttpGet httpGet)
+    : httpGet_(std::move(httpGet)),
+      httpPost_([](const std::string& url,
+                   const std::string& body,
+                   const std::unordered_map<std::string, std::string>& headers) {
         HttpClient client;
-        return client.Get(url, headers);
+        return client.Post(url, body, headers);
       }) {}
 
-PlaylistService::PlaylistService(PlaylistHttpGet httpGet) : httpGet_(std::move(httpGet)) {}
+PlaylistService::PlaylistService(PlaylistHttpGet httpGet, PlaylistHttpPost httpPost)
+    : httpGet_(std::move(httpGet)), httpPost_(std::move(httpPost)) {}
 
 nlohmann::json PlaylistService::GetTracks(std::string id, int page, int pageSize) const {
   id = Trim(std::move(id));
@@ -385,6 +433,433 @@ nlohmann::json PlaylistService::GetTopPlaylists(int categoryId, int page, int pa
        }},
       {"raw", upstream},
   };
+}
+
+nlohmann::json PlaylistService::GetPlaylistDetail(
+    const std::string& id,
+    const std::string& userId,
+    const std::string& token) const {
+  if (id.empty()) {
+    return {{"status", 0}, {"error", "empty playlist id"}, {"data", nullptr}};
+  }
+
+  nlohmann::json dataPayload = {
+      {"data", nlohmann::json::array({{"global_collection_id", id}})},
+      {"userid", userId.empty() ? "0" : userId},
+      {"token", token}
+  };
+  const std::string body = dataPayload.dump();
+
+  const auto clienttime = std::to_string(std::time(nullptr));
+  std::unordered_map<std::string, std::string> params = {
+      {"appid", "1014"},
+      {"clientver", "20000"},
+      {"clienttime", clienttime},
+      {"plat", "1"},
+      {"userid", userId.empty() ? "0" : userId},
+      {"token", token}
+  };
+  params["signature"] = SignatureAndroidParams(params, body);
+
+  std::ostringstream urlStream;
+  urlStream << "https://pubsongs.kugou.com/v3/get_list_info?";
+  bool first = true;
+  for (const auto& [key, value] : params) {
+    if (!first) urlStream << "&";
+    urlStream << key << "=" << value;
+    first = false;
+  }
+
+  const auto result = httpPost_(
+      urlStream.str(),
+      body,
+      {
+          {"Accept", "application/json"},
+          {"Content-Type", "application/json"},
+          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
+          {"x-router", "pubsongs.kugou.com"},
+      });
+
+  if (!result.error.empty()) {
+    return {{"status", 0}, {"error", result.error}, {"data", nullptr}};
+  }
+
+  try {
+    return nlohmann::json::parse(result.body);
+  } catch (const nlohmann::json::exception& e) {
+    return {{"status", 0}, {"error", std::string("JSON parse error: ") + e.what()}, {"data", nullptr}};
+  }
+}
+
+nlohmann::json PlaylistService::GetUserPlaylists(
+    const std::string& userId,
+    const std::string& token,
+    int page,
+    int pageSize) const {
+  if (userId.empty() || userId == "0") {
+    return {{"status", 0}, {"error", "not logged in"}, {"data", {{"list", nlohmann::json::array()}, {"total", 0}}}};
+  }
+
+  page = std::max(1, page);
+  pageSize = std::max(1, std::min(pageSize, 100));
+
+  nlohmann::json dataPayload = {
+      {"userid", userId},
+      {"token", token},
+      {"total_ver", 979},
+      {"type", 2},
+      {"page", page},
+      {"pagesize", pageSize}
+  };
+  const std::string body = dataPayload.dump();
+
+  const auto clienttime = std::to_string(std::time(nullptr));
+  std::unordered_map<std::string, std::string> params = {
+      {"appid", "1014"},
+      {"clientver", "20000"},
+      {"clienttime", clienttime},
+      {"plat", "1"},
+      {"userid", userId},
+      {"token", token}
+  };
+  params["signature"] = SignatureAndroidParams(params, body);
+
+  std::ostringstream urlStream;
+  urlStream << "https://cloudlist.service.kugou.com/v7/get_all_list?";
+  bool first = true;
+  for (const auto& [key, value] : params) {
+    if (!first) urlStream << "&";
+    urlStream << key << "=" << value;
+    first = false;
+  }
+
+  const auto result = httpPost_(
+      urlStream.str(),
+      body,
+      {
+          {"Accept", "application/json"},
+          {"Content-Type", "application/json"},
+          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
+          {"x-router", "cloudlist.service.kugou.com"},
+      });
+
+  if (!result.error.empty()) {
+    return {{"status", 0}, {"error", result.error}, {"data", {{"list", nlohmann::json::array()}, {"total", 0}}}};
+  }
+
+  try {
+    return nlohmann::json::parse(result.body);
+  } catch (const nlohmann::json::exception& e) {
+    return {{"status", 0}, {"error", std::string("JSON parse error: ") + e.what()}, {"data", {{"list", nlohmann::json::array()}, {"total", 0}}}};
+  }
+}
+
+nlohmann::json PlaylistService::AddPlaylist(
+    const std::string& userId,
+    const std::string& token,
+    const std::string& name,
+    int type,
+    int source,
+    const std::string& createUserId,
+    const std::string& createListId,
+    const std::string& createGid) const {
+  
+  nlohmann::json dataPayload = {
+      {"userid", userId.empty() ? 0 : std::stoll(userId)},
+      {"token", token},
+      {"total_ver", 0},
+      {"name", name},
+      {"type", type},
+      {"source", source},
+      {"is_pri", 0},
+      {"list_create_userid", createUserId.empty() ? 0 : std::stoll(createUserId)},
+      {"list_create_listid", createListId.empty() ? 0 : std::stoll(createListId)},
+      {"list_create_gid", createGid},
+      {"from_shupinmv", 0}
+  };
+
+  if (type == 0) {
+    dataPayload["is_pri"] = 0;
+  }
+
+  const std::string body = dataPayload.dump();
+  const auto clienttime = std::to_string(std::time(nullptr));
+
+  std::unordered_map<std::string, std::string> params;
+  params["appid"] = "1005";
+  params["clientver"] = "20489";
+  params["clienttime"] = clienttime;
+  params["mid"] = "0";
+  params["uuid"] = "-";
+  params["dfid"] = "-";
+  if (!userId.empty()) params["userid"] = userId;
+  if (!token.empty()) params["token"] = token;
+
+  if (type == 0) {
+    params["last_time"] = clienttime;
+    params["last_area"] = "gztx";
+  }
+
+  params["signature"] = SignatureAndroidParams(params, body);
+
+  std::ostringstream urlStream;
+  urlStream << "https://gateway.kugou.com/cloudlist.service/v5/add_list?";
+  bool first = true;
+  for (const auto& [key, value] : params) {
+    if (!first) urlStream << "&";
+    urlStream << key << "=" << UrlEncode(value);
+    first = false;
+  }
+
+  const auto result = httpPost_(
+      urlStream.str(),
+      body,
+      {
+          {"Accept", "application/json"},
+          {"Content-Type", "application/json"},
+          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"}
+      });
+
+  if (!result.error.empty()) {
+    return {{"status", 0}, {"error", result.error}};
+  }
+
+  try {
+    return nlohmann::json::parse(result.body);
+  } catch (const nlohmann::json::exception& e) {
+    return {{"status", 0}, {"error", std::string("JSON parse error: ") + e.what()}};
+  }
+}
+
+nlohmann::json PlaylistService::DeletePlaylist(
+    const std::string& userId,
+    const std::string& token,
+    long long listId) const {
+  
+  nlohmann::json dataMap = {
+      {"listid", listId},
+      {"total_ver", 0},
+      {"type", 1}
+  };
+
+  AesKeyPair aesKeyPair = PlaylistAesEncrypt(dataMap.dump());
+  if (aesKeyPair.key.empty() || aesKeyPair.data.empty()) {
+    return {{"status", 0}, {"error", "AES encryption failed"}};
+  }
+
+  nlohmann::json rsaPayload = {
+      {"aes", aesKeyPair.key},
+      {"uid", userId.empty() ? 0 : std::stoll(userId)},
+      {"token", token}
+  };
+  std::string p = RsaPkcs1Encrypt(rsaPayload.dump());
+
+  const auto clienttime = std::to_string(std::time(nullptr));
+  std::unordered_map<std::string, std::string> paramsMap;
+  paramsMap["clienttime"] = clienttime;
+  paramsMap["mid"] = "0";
+  paramsMap["key"] = SignParamsKey(clienttime, "1005", "20489");
+  paramsMap["last_area"] = "gztx";
+  paramsMap["clientver"] = "20489";
+  paramsMap["appid"] = "1005";
+  paramsMap["last_time"] = clienttime;
+  paramsMap["p"] = p;
+
+  std::vector<std::string> keys;
+  keys.reserve(paramsMap.size());
+  for (const auto& [k, _] : paramsMap) keys.push_back(k);
+  std::sort(keys.begin(), keys.end());
+
+  std::ostringstream urlStream;
+  urlStream << "https://gateway.kugou.com/v2/delete_list?";
+  bool first = true;
+  for (const auto& key : keys) {
+    if (!first) urlStream << "&";
+    urlStream << key << "=" << UrlEncode(paramsMap[key]);
+    first = false;
+  }
+
+  const auto result = httpPost_(
+      urlStream.str(),
+      aesKeyPair.data,
+      {
+          {"Accept", "application/json"},
+          {"Content-Type", "text/plain"},
+          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
+          {"x-router", "cloudlist.service.kugou.com"}
+      });
+
+  if (!result.error.empty()) {
+    return {{"status", 0}, {"error", result.error}};
+  }
+
+  std::string base64Resp = Base64Encode(std::vector<BYTE>(result.body.begin(), result.body.end()));
+  std::string decryptedBody = PlaylistAesDecrypt(base64Resp, aesKeyPair.key);
+
+  if (decryptedBody.empty()) {
+    return {{"status", 0}, {"error", "AES decryption of response failed"}};
+  }
+
+  try {
+    return nlohmann::json::parse(decryptedBody);
+  } catch (const nlohmann::json::exception& e) {
+    return {{"status", 0}, {"error", std::string("JSON parse error of decrypted response: ") + e.what()}};
+  }
+}
+
+nlohmann::json PlaylistService::AddPlaylistTracks(
+    const std::string& userId,
+    const std::string& token,
+    const std::string& listId,
+    const std::string& commaSeparatedTracks) const {
+  
+  nlohmann::json resource = nlohmann::json::array();
+  std::stringstream ss(commaSeparatedTracks);
+  std::string track;
+  while (std::getline(ss, track, ',')) {
+    if (track.empty()) continue;
+    std::vector<std::string> parts;
+    std::stringstream tss(track);
+    std::string part;
+    while (std::getline(tss, part, '|')) {
+      parts.push_back(part);
+    }
+    nlohmann::json item = {
+        {"number", 1},
+        {"name", parts.size() > 0 ? parts[0] : ""},
+        {"hash", parts.size() > 1 ? parts[1] : ""},
+        {"size", 0},
+        {"sort", 0},
+        {"timelen", 0},
+        {"bitrate", 0},
+        {"album_id", (parts.size() > 2 && !parts[2].empty()) ? std::stoll(parts[2]) : 0},
+        {"mixsongid", (parts.size() > 3 && !parts[3].empty()) ? std::stoll(parts[3]) : 0}
+    };
+    resource.push_back(item);
+  }
+
+  nlohmann::json dataPayload = {
+      {"userid", userId.empty() ? 0 : std::stoll(userId)},
+      {"token", token},
+      {"listid", listId.empty() ? 0 : std::stoll(listId)},
+      {"list_ver", 0},
+      {"type", 0},
+      {"slow_upload", 1},
+      {"scene", "false;null"},
+      {"data", resource}
+  };
+  const std::string body = dataPayload.dump();
+  const auto clienttime = std::to_string(std::time(nullptr));
+
+  std::unordered_map<std::string, std::string> params;
+  params["appid"] = "1005";
+  params["clientver"] = "20489";
+  params["clienttime"] = clienttime;
+  params["mid"] = "0";
+  params["uuid"] = "-";
+  params["dfid"] = "-";
+  if (!userId.empty()) params["userid"] = userId;
+  if (!token.empty()) params["token"] = token;
+  params["last_time"] = clienttime;
+  params["last_area"] = "gztx";
+
+  params["signature"] = SignatureAndroidParams(params, body);
+
+  std::ostringstream urlStream;
+  urlStream << "https://gateway.kugou.com/cloudlist.service/v6/add_song?";
+  bool first = true;
+  for (const auto& [key, value] : params) {
+    if (!first) urlStream << "&";
+    urlStream << key << "=" << UrlEncode(value);
+    first = false;
+  }
+
+  const auto result = httpPost_(
+      urlStream.str(),
+      body,
+      {
+          {"Accept", "application/json"},
+          {"Content-Type", "application/json"},
+          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"}
+      });
+
+  if (!result.error.empty()) {
+    return {{"status", 0}, {"error", result.error}};
+  }
+
+  try {
+    return nlohmann::json::parse(result.body);
+  } catch (const nlohmann::json::exception& e) {
+    return {{"status", 0}, {"error", std::string("JSON parse error: ") + e.what()}};
+  }
+}
+
+nlohmann::json PlaylistService::DeletePlaylistTracks(
+    const std::string& userId,
+    const std::string& token,
+    const std::string& listId,
+    const std::string& commaSeparatedFileIds) const {
+  
+  nlohmann::json resource = nlohmann::json::array();
+  std::stringstream ss(commaSeparatedFileIds);
+  std::string idStr;
+  while (std::getline(ss, idStr, ',')) {
+    if (!idStr.empty()) {
+      resource.push_back({{"fileid", std::stoll(idStr)}});
+    }
+  }
+
+  nlohmann::json dataPayload = {
+      {"listid", listId.empty() ? 0 : std::stoll(listId)},
+      {"userid", userId.empty() ? 0 : std::stoll(userId)},
+      {"data", resource},
+      {"type", 0},
+      {"token", token},
+      {"list_ver", 0}
+  };
+  const std::string body = dataPayload.dump();
+  const auto clienttime = std::to_string(std::time(nullptr));
+
+  std::unordered_map<std::string, std::string> params;
+  params["appid"] = "1005";
+  params["clientver"] = "20489";
+  params["clienttime"] = clienttime;
+  params["mid"] = "0";
+  params["uuid"] = "-";
+  params["dfid"] = "-";
+  if (!userId.empty()) params["userid"] = userId;
+  if (!token.empty()) params["token"] = token;
+
+  params["signature"] = SignatureAndroidParams(params, body);
+
+  std::ostringstream urlStream;
+  urlStream << "https://gateway.kugou.com/v4/delete_songs?";
+  bool first = true;
+  for (const auto& [key, value] : params) {
+    if (!first) urlStream << "&";
+    urlStream << key << "=" << UrlEncode(value);
+    first = false;
+  }
+
+  const auto result = httpPost_(
+      urlStream.str(),
+      body,
+      {
+          {"Accept", "application/json"},
+          {"Content-Type", "application/json"},
+          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
+          {"x-router", "cloudlist.service.kugou.com"}
+      });
+
+  if (!result.error.empty()) {
+    return {{"status", 0}, {"error", result.error}};
+  }
+
+  try {
+    return nlohmann::json::parse(result.body);
+  } catch (const nlohmann::json::exception& e) {
+    return {{"status", 0}, {"error", std::string("JSON parse error: ") + e.what()}};
+  }
 }
 
 }  // namespace echo::core

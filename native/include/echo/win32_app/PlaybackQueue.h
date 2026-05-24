@@ -11,6 +11,7 @@ struct QueueTrack {
   std::wstring artist;
   std::wstring album;
   std::wstring duration;
+  std::string coverUrl;
 };
 
 class PlaybackQueueState {

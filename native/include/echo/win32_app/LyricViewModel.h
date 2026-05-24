@@ -27,6 +27,7 @@ struct LyricViewModel {
 };
 
 LyricViewModel BuildLyricViewModel(const core::LyricDocument& document, std::int64_t currentMs);
+std::size_t FirstVisibleLyricLine(std::size_t totalLines, int activeIndex, std::size_t visibleCount);
 core::LyricDocument BuildLyricDocumentFromDetail(const nlohmann::json& response);
 
 }  // namespace echo::win32_app

@@ -52,7 +52,10 @@ add_library(EchoCore STATIC
   core/CatalogService.cpp
   core/CompatApi.cpp
   core/DeviceService.cpp
+  core/HomeService.cpp
   core/HttpClient.cpp
+  core/Crypto.cpp
+  core/LoginService.cpp
   core/JsonHelpers.cpp
   core/LyricParser.cpp
   core/LyricService.cpp
@@ -61,11 +64,15 @@ add_library(EchoCore STATIC
   core/RankService.cpp
   core/SearchService.cpp
   core/SongUrlService.cpp
+  core/UserService.cpp
+  core/SongService.cpp
+  core/PlayHistoryService.cpp
+  core/UserCloudService.cpp
 )
 target_include_directories(EchoCore PUBLIC include)
 target_link_libraries(EchoCore
   PUBLIC EchoStorage nlohmann_json::nlohmann_json
-  PRIVATE winhttp
+  PRIVATE winhttp bcrypt crypt32
 )
 
 add_library(EchoPlayback STATIC playback/PlaybackController.cpp)
@@ -93,16 +100,25 @@ target_include_directories(EchoDiagnostics PUBLIC include)
 target_link_libraries(EchoDiagnostics PRIVATE psapi)
 
 add_library(EchoWin32Layout STATIC
+  win32_app/GlassPanel.cpp
   win32_app/ImageSlot.cpp
   win32_app/Layout.cpp
   win32_app/LyricViewModel.cpp
   win32_app/Navigation.cpp
+  win32_app/PaperTexture.cpp
+  win32_app/Painter.cpp
   win32_app/PlaybackQueue.cpp
   win32_app/PlaybackViewModel.cpp
+  win32_app/RenderPipeline.cpp
   win32_app/SearchInput.cpp
   win32_app/SearchViewModel.cpp
+  win32_app/Theme.cpp
 )
-target_link_libraries(EchoWin32Layout PUBLIC EchoCore nlohmann_json::nlohmann_json)
+# d2d1/d3d11/dxgi/dxguid 通过 EchoWin32Layout 公开链接，使 EchoWin32 与 EchoNativeSmokeTests
+# 共享同一套 D2D/D3D11 互操作设置。dxguid 提供 IID_IDXGIDevice / IID_IDXGIFactory2 等接口 GUID。
+# d2d1/d3d11/dxgi/dxguid/dwrite 通过 EchoWin32Layout 公开链接，使 EchoWin32 与 EchoNativeSmokeTests
+# 共享同一套 D2D/D3D11/DWrite 互操作设置。dxguid 提供 IID 接口 GUID；dwrite 是 Painter 字体排版基础。
+target_link_libraries(EchoWin32Layout PUBLIC EchoCore nlohmann_json::nlohmann_json d2d1 d3d11 dxgi dxguid dwrite)
 target_include_directories(EchoWin32Layout PUBLIC include)
 
 add_executable(EchoCompatServer
@@ -119,7 +135,7 @@ if(ECHO_NATIVE_BUILD_WIN32_APP)
   )
   target_include_directories(EchoWin32 PRIVATE include)
   target_link_libraries(EchoWin32
-      PRIVATE EchoCore EchoPlayback EchoAsync EchoImage EchoDiagnostics EchoWin32Layout d2d1 dwrite windowscodecs comctl32 shell32
+      PRIVATE EchoCore EchoPlayback EchoAsync EchoImage EchoDiagnostics EchoWin32Layout d2d1 dwrite windowscodecs comctl32 shell32 dwmapi
   )
   if(MSVC)
     add_custom_command(TARGET EchoWin32 POST_BUILD

@@ -105,12 +105,21 @@ enum class HeaderAction {
   Back,
   Forward,
   Search,
+  Avatar,
 };
 
 enum class SidebarAction {
   None,
   Home,
+  Discover,
+  Radio,
+  Video,
+  Songs,
+  Albums,
+  Artists,
   NowPlaying,
+  Favorites,
+  Downloads,
   Settings,
 };
 
@@ -136,6 +145,9 @@ PlayerBarAction HitTestPlayerBar(const PlayerBarLayout& layout, float x, float y
 HeaderAction HitTestHeader(const HeaderControlsLayout& layout, float x, float y);
 SidebarAction HitTestSidebar(float x, float y, float sidebarBottom);
 HomeAction HitTestHome(const HomeLayout& layout, float x, float y);
+int HomeRecommendationIndexFromPoint(const HomeLayout& layout, float x, float y);
+int HomeRecentIndexFromPoint(const HomeLayout& layout, float x, float y);
+int HomePlaylistIndexFromPoint(const HomeLayout& layout, float x, float y);
 NowPlayingAction HitTestNowPlaying(const NowPlayingLayout& layout, float x, float y);
 float TrackValueFromPoint(const Rect& track, float x);
 Rect CalculateAspectFitRect(const Rect& container, float sourceWidth, float sourceHeight);

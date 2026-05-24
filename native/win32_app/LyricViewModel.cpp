@@ -47,6 +47,20 @@ LyricViewModel BuildLyricViewModel(const core::LyricDocument& document, std::int
   return viewModel;
 }
 
+std::size_t FirstVisibleLyricLine(std::size_t totalLines, int activeIndex, std::size_t visibleCount) {
+  if (totalLines == 0 || visibleCount == 0 || visibleCount >= totalLines) {
+    return 0;
+  }
+  if (activeIndex < 0) {
+    return 0;
+  }
+
+  const auto active = static_cast<std::size_t>(activeIndex);
+  const auto halfWindow = visibleCount / 2;
+  const auto desiredFirst = active > halfWindow ? active - halfWindow : 0;
+  return std::min(desiredFirst, totalLines - visibleCount);
+}
+
 core::LyricDocument BuildLyricDocumentFromDetail(const nlohmann::json& response) {
   if (response.value("status", 0) == 0) {
     return {};

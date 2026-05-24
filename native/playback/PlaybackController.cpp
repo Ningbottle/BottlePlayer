@@ -34,6 +34,16 @@ std::string HResultMessage(const char* prefix, HRESULT hr) {
   return stream.str();
 }
 
+double PropVariant100NsToSeconds(const PROPVARIANT& value) {
+  if (value.vt == VT_I8) {
+    return static_cast<double>(value.hVal.QuadPart) / 10000000.0;
+  }
+  if (value.vt == VT_UI8) {
+    return static_cast<double>(value.uhVal.QuadPart) / 10000000.0;
+  }
+  return 0.0;
+}
+
 }  // namespace
 
 class MediaPlayerCallback final : public IMFPMediaPlayerCallback {
@@ -224,7 +234,31 @@ void PlaybackController::SetRate(double rate) {
 
 echo::core::PlaybackState PlaybackController::GetState() const {
   std::lock_guard lock(mutex_);
-  return state_;
+  auto snapshot = state_;
+  if (player_ && (state_.kind == echo::core::PlaybackStateKind::Opening ||
+                  state_.kind == echo::core::PlaybackStateKind::Playing ||
+                  state_.kind == echo::core::PlaybackStateKind::Paused)) {
+    PROPVARIANT position;
+    PropVariantInit(&position);
+    if (SUCCEEDED(player_->GetPosition(MFP_POSITIONTYPE_100NS, &position))) {
+      const double seconds = PropVariant100NsToSeconds(position);
+      if (seconds >= 0.0) {
+        snapshot.currentSeconds = seconds;
+      }
+    }
+    PropVariantClear(&position);
+
+    PROPVARIANT duration;
+    PropVariantInit(&duration);
+    if (SUCCEEDED(player_->GetDuration(MFP_POSITIONTYPE_100NS, &duration))) {
+      const double seconds = PropVariant100NsToSeconds(duration);
+      if (seconds > 0.0) {
+        snapshot.durationSeconds = seconds;
+      }
+    }
+    PropVariantClear(&duration);
+  }
+  return snapshot;
 }
 
 void PlaybackController::ReleasePlayerLocked() {

@@ -4,12 +4,16 @@
 #include <future>
 
 #include "echo/core/DeviceService.h"
+#include "echo/core/LoginService.h"
+#include "echo/core/UserService.h"
 #include "echo/core/LyricService.h"
+#include "echo/core/PlaylistService.h"
 #include "echo/core/SearchService.h"
 #include "echo/core/SongUrlService.h"
 #include "echo/storage/AppPaths.h"
 #include "echo/storage/Database.h"
 #include "echo/storage/DeviceRepository.h"
+#include "echo/storage/SessionRepository.h"
 #include "echo/storage/SettingsRepository.h"
 
 namespace echo::core {
@@ -61,12 +65,52 @@ class BackendFacade final : public IBackendFacade {
   }
 
   std::future<nlohmann::json> BeginQrLogin() override {
-    return NativeAsyncNotImplemented("BeginQrLogin");
+    return std::async(std::launch::async, [databasePath = databasePath_] {
+      storage::Database database;
+      database.Open(databasePath);
+      database.Initialize();
+      storage::DeviceRepository deviceRepo(database);
+      DeviceService devices(deviceRepo);
+      const auto device = devices.EnsureDeviceReady();
+      LoginService login;
+      return login.BeginQrLogin(device);
+    });
   }
 
   std::future<nlohmann::json> PollQrLogin(std::string key) override {
-    (void)key;
-    return NativeAsyncNotImplemented("PollQrLogin");
+    return std::async(std::launch::async, [databasePath = databasePath_, key = std::move(key)] {
+      storage::Database database;
+      database.Open(databasePath);
+      database.Initialize();
+      storage::DeviceRepository deviceRepo(database);
+      DeviceService devices(deviceRepo);
+      const auto device = devices.EnsureDeviceReady();
+      LoginService login;
+      auto result = login.PollQrLogin(device, key);
+
+      // If login succeeded (status == 4), persist session credentials.
+      if (result.contains("data") && result["data"].is_object()) {
+        const auto& data = result["data"];
+        if (data.value("status", 0) == 4) {
+          SessionInfo session;
+          session.token = data.value("token", "");
+          session.userId = data.contains("userid")
+              ? (data["userid"].is_string()
+                     ? data["userid"].get<std::string>()
+                     : std::to_string(data["userid"].get<std::int64_t>()))
+              : "";
+          if (!session.token.empty() && !session.userId.empty()) {
+            storage::SessionRepository sessionRepo(database);
+            sessionRepo.Save(session);
+            
+            // Claim VIP automatically on login
+            UserService userSvc;
+            userSvc.ClaimVip(session.userId, session.token);
+          }
+        }
+      }
+      return result;
+    });
   }
 
   std::future<nlohmann::json> SearchSongs(std::string keywords, int page, int pageSize) override {
@@ -79,8 +123,20 @@ class BackendFacade final : public IBackendFacade {
   }
 
   std::future<nlohmann::json> GetPlaylistDetail(std::string id) override {
-    (void)id;
-    return NativeAsyncNotImplemented("GetPlaylistDetail");
+    return std::async(std::launch::async, [databasePath = databasePath_, id = std::move(id)] {
+      storage::Database database;
+      database.Open(databasePath);
+      database.Initialize();
+
+      // Load session for authenticated requests.
+      storage::SessionRepository sessionRepo(database);
+      const auto session = sessionRepo.Load();
+      const std::string userId = session ? session->userId : "0";
+      const std::string token = session ? session->token : "";
+
+      PlaylistService playlist;
+      return playlist.GetPlaylistDetail(id, userId, token);
+    });
   }
 
   std::future<nlohmann::json> ResolveSongUrl(std::string hash, std::string quality) override {

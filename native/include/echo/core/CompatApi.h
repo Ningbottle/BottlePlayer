@@ -8,6 +8,8 @@
 #include "echo/core/Authorization.h"
 #include "echo/storage/Database.h"
 
+#include "echo/core/Dto.h"
+
 namespace echo::core {
 
 struct CompatResponse {
@@ -22,6 +24,14 @@ struct CompatApiHandlers {
   std::function<nlohmann::json(std::string hash)> lyricSearch;
   std::function<nlohmann::json(std::string id, std::string accessKey)> lyricDetail;
   std::function<nlohmann::json(std::string id, int page, int pageSize)> playlistTracks;
+  std::function<nlohmann::json(const DeviceInfo& device)> loginQrKey;
+  std::function<nlohmann::json(const DeviceInfo& device, std::string key)> loginQrCheck;
+  std::function<nlohmann::json(std::string id, std::string userId, std::string token)> playlistDetail;
+  std::function<nlohmann::json(std::string userId, std::string token, int page, int pageSize)> userPlaylist;
+  // New: user profile, VIP, and home discovery handlers.
+  std::function<nlohmann::json(std::string userId, std::string token)> userDetail;
+  std::function<nlohmann::json(std::string userId, std::string token)> userVip;
+  std::function<nlohmann::json(std::string userId, std::string token)> everydayRecommend;
 };
 
 class CompatApi {

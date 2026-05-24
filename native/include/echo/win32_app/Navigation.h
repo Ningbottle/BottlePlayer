@@ -6,8 +6,17 @@ namespace echo::win32_app {
 
 enum class PageId {
   Home,
+  Discover,
+  Radio,
+  Video,
+  Songs,
+  Albums,
+  Artists,
   NowPlaying,
+  Favorites,
+  Downloads,
   Search,
+  Login,
   Settings,
 };
 

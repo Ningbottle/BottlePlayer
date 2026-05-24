@@ -16,6 +16,11 @@ class HttpClient {
   HttpResult Get(
       const std::string& url,
       const std::unordered_map<std::string, std::string>& headers = {}) const;
+
+  HttpResult Post(
+      const std::string& url,
+      const std::string& body,
+      const std::unordered_map<std::string, std::string>& headers = {}) const;
 };
 
 }  // namespace echo::core
