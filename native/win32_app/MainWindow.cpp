@@ -1,6 +1,8 @@
 #include <windows.h>
 #include <windowsx.h>
+#include <dwmapi.h>
 #include <d2d1.h>
+#include <d2d1_1.h>
 #include <dwrite.h>
 #include <cmath>
 
@@ -11,21 +13,30 @@
 #include <future>
 #include <memory>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
 #include "echo/core/BackendFacade.h"
+#include "echo/core/HttpClient.h"
 #include "echo/core/LyricParser.h"
+#include "echo/image/ImageCache.h"
 #include "echo/image/ImageLoader.h"
 #include "echo/playback/PlaybackController.h"
+#include "echo/storage/AppPaths.h"
 #include "echo/win32_app/ImageSlot.h"
 #include "echo/win32_app/Layout.h"
 #include "echo/win32_app/LyricViewModel.h"
 #include "echo/win32_app/Navigation.h"
 #include "echo/win32_app/PlaybackQueue.h"
 #include "echo/win32_app/PlaybackViewModel.h"
+#include "echo/win32_app/GlassPanel.h"
+#include "echo/win32_app/PaperTexture.h"
+#include "echo/win32_app/Painter.h"
+#include "echo/win32_app/RenderPipeline.h"
 #include "echo/win32_app/SearchInput.h"
 #include "echo/win32_app/SearchViewModel.h"
+#include "echo/win32_app/Theme.h"
 
 namespace echo::win32_app {
 namespace {
@@ -38,24 +49,16 @@ void SafeRelease(T*& value) {
   }
 }
 
-struct Palette {
-  D2D1_COLOR_F bg = D2D1::ColorF(0.965f, 0.952f, 0.925f);
-  D2D1_COLOR_F panel = D2D1::ColorF(0.985f, 0.976f, 0.955f, 0.88f);
-  D2D1_COLOR_F panelStrong = D2D1::ColorF(0.93f, 0.90f, 0.85f, 0.72f);
-  D2D1_COLOR_F line = D2D1::ColorF(0.70f, 0.67f, 0.60f, 0.28f);
-  D2D1_COLOR_F text = D2D1::ColorF(0.08f, 0.08f, 0.075f);
-  D2D1_COLOR_F muted = D2D1::ColorF(0.34f, 0.34f, 0.32f);
-  D2D1_COLOR_F faint = D2D1::ColorF(0.50f, 0.50f, 0.46f);
-  D2D1_COLOR_F accent = D2D1::ColorF(0.10f, 0.37f, 0.72f);
-  D2D1_COLOR_F accentDark = D2D1::ColorF(0.13f, 0.30f, 0.45f);
-  D2D1_COLOR_F white = D2D1::ColorF(1.0f, 1.0f, 1.0f);
-};
+// Palette 已迁移到 echo/win32_app/Theme.h；MainWindow 通过 MakeNewsprintPalette() 初始化 palette_。
+// 字段名（bg/panel/line/text/...）保持与现有 ~160 处 palette_.X 调用兼容；色值已换为 Newsprint。
 
 struct TextStyle {
   float size = 14.0f;
   DWRITE_FONT_WEIGHT weight = DWRITE_FONT_WEIGHT_NORMAL;
   DWRITE_TEXT_ALIGNMENT align = DWRITE_TEXT_ALIGNMENT_LEADING;
   DWRITE_PARAGRAPH_ALIGNMENT paragraph = DWRITE_PARAGRAPH_ALIGNMENT_NEAR;
+  DWRITE_WORD_WRAPPING wrapping = DWRITE_WORD_WRAPPING_WRAP;
+  DWRITE_TRIMMING_GRANULARITY trimming = DWRITE_TRIMMING_GRANULARITY_NONE;
 };
 
 std::wstring ToWideAscii(const std::string& value) {
@@ -198,8 +201,11 @@ class MainWindow {
 
   ~MainWindow() {
     DiscardDeviceResources();
+    SafeRelease(dashStrokeStyle_);
+    SafeRelease(transientBrush_);
     SafeRelease(writeFactory_);
-    SafeRelease(d2dFactory_);
+    // d2dFactory_ 是 renderPipeline_ 的非拥有指针；renderPipeline_ 析构时统一释放。
+    d2dFactory_ = nullptr;
   }
 
   bool Create(HINSTANCE instance, int showCommand) {
@@ -225,6 +231,28 @@ class MainWindow {
         this);
 
     if (!hwnd_) return false;
+
+    // Newsprint 标题栏融合：把系统 caption 染成 Paper 色，文字 Ink 色，边框 Rule 色。
+    // DWMWA_CAPTION_COLOR / TEXT_COLOR / BORDER_COLOR 需 Windows 11 22000+；旧系统会被忽略，无副作用。
+    {
+      COLORREF caption = RGB(0xf1, 0xea, 0xd8);  // Paper
+      COLORREF inkText = RGB(0x22, 0x1b, 0x12);  // Ink
+      COLORREF border  = RGB(0xd8, 0xcd, 0xb1);  // PaperEdge（Rule 是半透明，DWM 需要不透明色）
+      DwmSetWindowAttribute(hwnd_, DWMWA_CAPTION_COLOR, &caption, sizeof(caption));
+      DwmSetWindowAttribute(hwnd_, DWMWA_TEXT_COLOR,    &inkText, sizeof(inkText));
+      DwmSetWindowAttribute(hwnd_, DWMWA_BORDER_COLOR,  &border,  sizeof(border));
+    }
+
+    // 隐藏标题栏图标和文字（窗口拖动仍可工作）。
+    // WS_EX_DLGMODALFRAME 移除系统图标占位；SendMessage WM_SETICON 清掉应用图标。
+    SetWindowLongPtrW(hwnd_, GWL_EXSTYLE,
+                      GetWindowLongPtrW(hwnd_, GWL_EXSTYLE) | WS_EX_DLGMODALFRAME);
+    SendMessageW(hwnd_, WM_SETICON, ICON_SMALL, 0);
+    SendMessageW(hwnd_, WM_SETICON, ICON_BIG,   0);
+    SetWindowTextW(hwnd_, L"");  // 清空标题栏文字
+    SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+
     ShowWindow(hwnd_, showCommand);
     FitToWorkArea();
     UpdateWindow(hwnd_);
@@ -315,6 +343,11 @@ class MainWindow {
       case WM_LBUTTONUP:
         HandleClick(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
         return 0;
+      case WM_MOUSEMOVE:
+        if (wParam & MK_LBUTTON) {
+          HandleDrag(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam));
+        }
+        return 0;
       case WM_MOUSEWHEEL:
         HandleMouseWheel(GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam), GET_WHEEL_DELTA_WPARAM(wParam));
         return 0;
@@ -332,13 +365,26 @@ class MainWindow {
   }
 
   bool InitializeGraphics() {
-    if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &d2dFactory_))) {
+    // 在 WM_CREATE 阶段先创建工厂与设备链路（无 swap chain），
+    // swap chain 与后台缓冲在首次 WM_PAINT 经 CreateDeviceResources -> Initialize(hwnd) 路径完成。
+    if (!renderPipeline_.InitializeHeadless()) {
       return false;
     }
-    return SUCCEEDED(DWriteCreateFactory(
-        DWRITE_FACTORY_TYPE_SHARED,
-        __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(&writeFactory_)));
+    d2dFactory_ = renderPipeline_.factory();
+    if (!SUCCEEDED(DWriteCreateFactory(
+            DWRITE_FACTORY_TYPE_SHARED,
+            __uuidof(IDWriteFactory),
+            reinterpret_cast<IUnknown**>(&writeFactory_))))
+      return false;
+    // Painter TextFormat 缓存（设备无关，一次创建后跨设备重建复用）。
+    painter_.InitializeFonts(writeFactory_);
+    // 虚线笔刷样式（factory 级别，跨设备复用）。
+    if (d2dFactory_) {
+      D2D1_STROKE_STYLE_PROPERTIES props = D2D1::StrokeStyleProperties();
+      props.dashStyle = D2D1_DASH_STYLE_DASH;
+      d2dFactory_->CreateStrokeStyle(props, nullptr, 0, &dashStrokeStyle_);
+    }
+    return true;
   }
 
   void StartBackend() {
@@ -375,7 +421,15 @@ class MainWindow {
   }
 
   float DevicePxToDip(float value) const {
-    return value;
+    return value * 96.0f / WindowDpi();
+  }
+
+  float WindowDpi() const {
+    if (!hwnd_) {
+      return 96.0f;
+    }
+    const auto dpi = GetDpiForWindow(hwnd_);
+    return dpi == 0 ? 96.0f : static_cast<float>(dpi);
   }
 
   D2D1_SIZE_F CurrentClientDipSize() const {
@@ -417,17 +471,23 @@ class MainWindow {
       return;
     }
 
-    pendingPlaybackRow_ = searchView_.rows[rowIndex];
+    const auto requestedRow = searchView_.rows[rowIndex];
+    playbackCandidates_ = RankQueuePlaybackCandidates(requestedRow, searchView_);
+    if (playbackCandidates_.empty()) {
+      playbackCandidates_.push_back(requestedRow);
+    }
+    playbackCandidateIndex_ = 0;
+    pendingPlaybackRow_ = playbackCandidates_[playbackCandidateIndex_];
     playerView_ = PlaybackViewModel{};
     playerView_.state = PlayerUiState::Resolving;
-    playerView_.title = pendingPlaybackRow_.title;
-    playerView_.artist = pendingPlaybackRow_.artist;
-    playerView_.album = pendingPlaybackRow_.album;
-    playerView_.duration = pendingPlaybackRow_.duration;
+    playerView_.title = requestedRow.title;
+    playerView_.artist = requestedRow.artist;
+    playerView_.album = requestedRow.album;
+    playerView_.duration = requestedRow.duration;
     playerView_.current = L"00:00";
     lyricDocument_ = {};
     lyricView_ = {};
-    lyricView_.message = L"正在获取歌词";
+    lyricView_.message = L"正在解析播放地址";
 
     try {
       if (!backend_) {
@@ -438,7 +498,6 @@ class MainWindow {
         return;
       }
       songUrlFuture_ = backend_->ResolveSongUrl(pendingPlaybackRow_.hash, "");
-      lyricSearchFuture_ = backend_->SearchLyrics(pendingPlaybackRow_.hash);
       SetTimer(hwnd_, kBackendPollTimer, 100, nullptr);
     } catch (...) {
       playerView_.state = PlayerUiState::Error;
@@ -447,6 +506,55 @@ class MainWindow {
     }
 
     NavigateTo(PageId::NowPlaying);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+  }
+
+  void BeginResolveAndPlay(const SearchResultRow& row) {
+    searchView_.state = SearchState::Ready;
+    searchView_.rows = {row};
+    BeginResolveAndPlay(0);
+  }
+
+  void BeginResolveAndPlayQueueTrack(const QueueTrack& track) {
+    auto row = BuildSearchRowFromQueueTrack(track);
+    playerView_ = PlaybackViewModel{};
+    playerView_.state = PlayerUiState::Resolving;
+    playerView_.title = row.title;
+    playerView_.artist = row.artist;
+    playerView_.album = row.album;
+    playerView_.duration = row.duration;
+    playerView_.current = L"00:00";
+    lyricDocument_ = {};
+    lyricView_ = {};
+    lyricView_.message = L"正在匹配歌曲";
+    nowPlayingTab_ = NowPlayingTab::Overview;
+    NavigateTo(PageId::NowPlaying);
+
+    if (!row.hash.empty()) {
+      BeginResolveAndPlay(row);
+      return;
+    }
+
+    try {
+      if (!backend_) {
+        StartBackend();
+        playerView_.state = PlayerUiState::Error;
+        playerView_.error = L"后端初始化中，请稍后再试";
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+      }
+
+      pendingQueuePlaybackRow_ = std::move(row);
+      const auto query = BuildQueueTrackSearchText(track);
+      queuePlaybackSearchKeyword_ = WideToUtf8(query);
+      queuePlaybackSearchFuture_ = backend_->SearchSongs(queuePlaybackSearchKeyword_, 1, 30);
+      SetTimer(hwnd_, kBackendPollTimer, 100, nullptr);
+    } catch (...) {
+      playerView_.state = PlayerUiState::Error;
+      playerView_.error = L"播放匹配启动失败";
+      lyricView_.message = L"歌词启动失败";
+    }
+
     InvalidateRect(hwnd_, nullptr, FALSE);
   }
 
@@ -468,6 +576,24 @@ class MainWindow {
       }
     }
 
+    for (auto& [key, state] : artworkStates_) {
+      if (!state.future.valid()) {
+        continue;
+      }
+      if (state.future.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        auto payload = state.future.get();
+        if (payload.bgra.empty()) {
+          state.slot.Fail(key);
+        } else {
+          state.slot.Complete(key, std::move(payload));
+        }
+        SafeRelease(state.bitmap);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      } else {
+        hasPendingWork = true;
+      }
+    }
+
     if (backendFuture_.valid()) {
       if (backendFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         try {
@@ -479,6 +605,67 @@ class MainWindow {
           }
         } catch (...) {
           deviceStatus_ = L"设备初始化失败";
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      } else {
+        hasPendingWork = true;
+      }
+    }
+
+    if (loginQrFuture_.valid()) {
+      if (loginQrFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+          const auto result = loginQrFuture_.get();
+          if (result.contains("data") && result["data"].is_object()) {
+            loginQrKey_ = result["data"].value("qrcode", "");
+            loginQrUrl_ = result["data"].value("qrcodeurl", "");
+            if (loginQrUrl_.empty()) {
+              loginQrUrl_ = result["data"].value("url", "");
+            }
+          }
+        } catch (...) {}
+        
+        if (loginQrKey_.empty()) {
+          loginQrKey_ = "error"; // Prevent infinite retry loop
+        }
+        
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      } else {
+        hasPendingWork = true;
+      }
+    }
+
+    if (!loginQrKey_.empty() && loginQrKey_ != "error" && !loginPollFuture_.valid() && backend_) {
+      loginPollFuture_ = backend_->PollQrLogin(loginQrKey_);
+      hasPendingWork = true;
+    }
+
+    if (loginPollFuture_.valid()) {
+      if (loginPollFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+          const auto result = loginPollFuture_.get();
+          if (result.contains("data") && result["data"].is_object()) {
+            const int status = result["data"].value("status", 0);
+            if (status == 4) {
+              // Success
+              loginQrKey_.clear();
+              loginQrUrl_.clear();
+              isRequestingQr_ = false;
+              NavigateTo(PageId::Home);
+            } else if (status == 2 || status == 3) {
+              // Waiting or scanning, do nothing, just allow polling again
+            } else if (status == 5 || status == 0) {
+              // Expired or error, reset and request new QR
+              loginQrKey_.clear();
+              loginQrUrl_.clear();
+              isRequestingQr_ = false;
+            }
+          }
+        } catch (...) {
+          // Error, reset
+          loginQrKey_.clear();
+          loginQrUrl_.clear();
+          isRequestingQr_ = false;
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
       } else {
@@ -541,18 +728,60 @@ class MainWindow {
       }
     }
 
+    if (queuePlaybackSearchFuture_.valid()) {
+      if (queuePlaybackSearchFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try {
+          const auto lookup = BuildSearchViewModel(queuePlaybackSearchKeyword_, queuePlaybackSearchFuture_.get());
+          playbackCandidates_ = RankQueuePlaybackCandidates(pendingQueuePlaybackRow_, lookup);
+          if (playbackCandidates_.empty()) {
+            playerView_.state = PlayerUiState::Error;
+            playerView_.error = L"没有找到可播放的歌曲";
+            lyricView_.message = L"暂无歌词";
+          } else {
+            searchView_.state = SearchState::Ready;
+            searchView_.rows = playbackCandidates_;
+            BeginResolveAndPlay(0);
+            hasPendingWork = true;
+          }
+        } catch (...) {
+          playerView_.state = PlayerUiState::Error;
+          playerView_.error = L"播放匹配失败";
+          lyricView_.message = L"歌词启动失败";
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      } else {
+        hasPendingWork = true;
+      }
+    }
+
     if (songUrlFuture_.valid()) {
       if (songUrlFuture_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         try {
-          playerView_ = BuildPlaybackViewModel(pendingPlaybackRow_, songUrlFuture_.get());
+          const auto response = songUrlFuture_.get();
+          playerView_ = BuildPlaybackViewModel(pendingPlaybackRow_, response);
           if (playerView_.state == PlayerUiState::Ready && EnsurePlaybackReady() &&
               playback_.PlayUrl(playerView_.sourceUrl)) {
             playerView_.state = PlayerUiState::Playing;
-            playbackPositionMs_ = 102000;
-            ApplyPlaybackProgress(playerView_, lyricView_, lyricDocument_, 0.38);
+            playerView_.current = L"00:00";
+            playerView_.progress = 0.0;
+            playbackPositionMs_ = 0;
+            lyricView_ = {};
+            lyricView_.message = L"正在获取歌词";
+            if (backend_) {
+              lyricSearchFuture_ = backend_->SearchLyrics(pendingPlaybackRow_.hash);
+            }
+            hasPendingWork = true;
           } else if (playerView_.state == PlayerUiState::Ready) {
-            playerView_.state = PlayerUiState::Error;
-            playerView_.error = L"播放地址打开失败";
+            if (TryResolveNextPlaybackCandidate(L"播放地址打开失败")) {
+              hasPendingWork = true;
+            } else {
+              playerView_.state = PlayerUiState::Error;
+              playerView_.error = L"播放地址打开失败";
+            }
+          } else if (playerView_.state == PlayerUiState::Error) {
+            if (TryResolveNextPlaybackCandidate(playerView_.error)) {
+              hasPendingWork = true;
+            }
           }
         } catch (...) {
           playerView_.state = PlayerUiState::Error;
@@ -606,6 +835,36 @@ class MainWindow {
       }
     }
 
+    if (playbackInitialized_) {
+      const auto playbackState = playback_.GetState();
+      if (playbackState.kind == core::PlaybackStateKind::Opening ||
+          playbackState.kind == core::PlaybackStateKind::Playing ||
+          playbackState.kind == core::PlaybackStateKind::Paused) {
+        if (playbackState.kind == core::PlaybackStateKind::Paused) {
+          playerView_.state = PlayerUiState::Paused;
+        } else if (playbackState.kind == core::PlaybackStateKind::Playing) {
+          playerView_.state = PlayerUiState::Playing;
+        }
+        ApplyPlaybackStateSnapshot(playerView_, lyricView_, lyricDocument_, playbackState);
+        playbackPositionMs_ = static_cast<std::int64_t>(std::llround(playbackState.currentSeconds * 1000.0));
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        hasPendingWork = true;
+      } else if (playbackState.kind == core::PlaybackStateKind::Stopped) {
+        playerView_.state = PlayerUiState::Paused;
+        ApplyPlaybackStateSnapshot(playerView_, lyricView_, lyricDocument_, playbackState);
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      } else if (playbackState.kind == core::PlaybackStateKind::Failed && !playbackState.error.empty()) {
+        const auto playbackError = ToWideAscii(playbackState.error);
+        if (TryResolveNextPlaybackCandidate(playbackError)) {
+          hasPendingWork = true;
+        } else {
+          playerView_.state = PlayerUiState::Error;
+          playerView_.error = playbackError;
+        }
+        InvalidateRect(hwnd_, nullptr, FALSE);
+      }
+    }
+
     if (!hasPendingWork) {
       KillTimer(hwnd_, kBackendPollTimer);
     }
@@ -624,47 +883,73 @@ class MainWindow {
 
     RECT rc{};
     GetClientRect(hwnd_, &rc);
-    const auto size = D2D1::SizeU(
-        static_cast<UINT32>(rc.right - rc.left),
-        static_cast<UINT32>(rc.bottom - rc.top));
-    const HRESULT hr = d2dFactory_->CreateHwndRenderTarget(
-        D2D1::RenderTargetProperties(
-            D2D1_RENDER_TARGET_TYPE_DEFAULT,
-            D2D1::PixelFormat(DXGI_FORMAT_UNKNOWN, D2D1_ALPHA_MODE_IGNORE),
-            0.0f,
-            0.0f,
-            D2D1_RENDER_TARGET_USAGE_NONE,
-            D2D1_FEATURE_LEVEL_DEFAULT),
-        D2D1::HwndRenderTargetProperties(hwnd_, size),
-        &renderTarget_);
-    if (SUCCEEDED(hr)) {
-      renderTarget_->SetDpi(96.0f, 96.0f);
-      renderTarget_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
-      renderTarget_->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    const UINT width = static_cast<UINT>(rc.right - rc.left);
+    const UINT height = static_cast<UINT>(rc.bottom - rc.top);
+    if (!renderPipeline_.Initialize(hwnd_, width, height)) {
+      return E_FAIL;
     }
-    return hr;
+    renderTarget_ = renderPipeline_.device_context();
+    d2dFactory_ = renderPipeline_.factory();
+    const auto dpi = WindowDpi();
+    renderPipeline_.SetDpi(dpi);
+    // 抗锯齿 / ClearType 模式由 RenderPipeline 在 DeviceContext 创建后默认设置；
+    // 这里冗余设置以保留旧路径语义，便于后续切片再单独抽出。
+    renderTarget_->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_CLEARTYPE);
+    renderTarget_->SetAntialiasMode(D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    // Painter 笔刷（设备相关；设备丢失后 DetachContext 释放，重建时重新 Attach）。
+    painter_.AttachContext(renderTarget_);
+
+    // List 19：玻璃面板 + 纸纹。GlassPanel 需要 backbuffer 尺寸；
+    // 失败不致命（player bar 退回普通纯色），仅记 OutputDebugString。
+    paperTex_.Initialize(renderTarget_);
+    if (!glass_.Initialize(renderTarget_, width, height)) {
+      OutputDebugStringW(L"[List19] GlassPanel::Initialize failed; player bar will use solid fallback.\n");
+    }
+    return S_OK;
   }
 
   void DiscardDeviceResources() {
     SafeRelease(appIconBitmap_);
-    SafeRelease(renderTarget_);
+    for (auto& [key, state] : artworkStates_) {
+      (void)key;
+      SafeRelease(state.bitmap);
+    }
+    // Painter 笔刷先于 DeviceContext 释放（brushes hold device ref）。
+    painter_.DetachContext();
+    // List 19 资源先于 DeviceContext 释放（持有 effect / bitmap / brush 引用）。
+    glass_.OnDeviceLost();
+    paperTex_.OnDeviceLost();
+    SafeRelease(transientBrush_);
+    // renderTarget_ 是 renderPipeline_ 的非拥有指针；Shutdown 释放真正的 DeviceContext。
+    // d2dFactory_ 同理（factory 跨设备保留），但 Shutdown 不释放工厂，仅释放设备链路。
+    renderTarget_ = nullptr;
+    renderPipeline_.Shutdown();
+    d2dFactory_ = nullptr;
   }
 
   void ResizeRenderTarget() {
     RECT rc{};
     GetClientRect(hwnd_, &rc);
+    const UINT pxWidth = static_cast<UINT>(rc.right - rc.left);
+    const UINT pxHeight = static_cast<UINT>(rc.bottom - rc.top);
     const auto size = D2D1::SizeF(
-        DevicePxToDip(static_cast<float>(rc.right - rc.left)),
-        DevicePxToDip(static_cast<float>(rc.bottom - rc.top)));
+        DevicePxToDip(static_cast<float>(pxWidth)),
+        DevicePxToDip(static_cast<float>(pxHeight)));
     clientWidth_ = size.width;
     clientHeight_ = size.height;
     layout_ = CalculateMelodyLayout(clientWidth_, clientHeight_);
 
     if (renderTarget_) {
-      renderTarget_->SetDpi(96.0f, 96.0f);
-      renderTarget_->Resize(D2D1::SizeU(
-          static_cast<UINT32>(rc.right - rc.left),
-          static_cast<UINT32>(rc.bottom - rc.top)));
+      const auto dpi = WindowDpi();
+      renderPipeline_.SetDpi(dpi);
+      // 设备像素 swap chain resize；DPI 缩放仅影响 D2D 坐标变换，不改变 swap chain 尺寸。
+      const HRESULT hr = renderPipeline_.Resize(pxWidth, pxHeight);
+      if (RenderPipeline::IsDeviceLossHResult(hr)) {
+        DiscardDeviceResources();
+      } else {
+        // List 19：swap chain 尺寸变更 → GlassPanel 内部 bitmap 需重建并标记 blur 脏。
+        glass_.EnsureSceneSize(pxWidth, pxHeight);
+      }
     }
     InvalidateRect(hwnd_, nullptr, FALSE);
   }
@@ -691,6 +976,30 @@ class MainWindow {
     SetTimer(hwnd_, kBackendPollTimer, 100, nullptr);
   }
 
+  void HandleDrag(int x, int y) {
+    const float dipX = DevicePxToDip(static_cast<float>(x));
+    const float dipY = DevicePxToDip(static_cast<float>(y));
+    const auto playerAction =
+        HitTestPlayerBar(CalculatePlayerBarLayout(clientWidth_, clientHeight_), dipX, dipY);
+    
+    if (playerAction == PlayerBarAction::Seek) {
+      const auto bar = CalculatePlayerBarLayout(clientWidth_, clientHeight_);
+      ApplyPlaybackProgress(
+          playerView_,
+          lyricView_,
+          lyricDocument_,
+          TrackValueFromPoint(bar.progress, dipX));
+      playback_.Seek(DurationToSeconds(playerView_.duration) * playerView_.progress);
+      InvalidateRect(hwnd_, nullptr, FALSE);
+    } else if (playerAction == PlayerBarAction::SetVolume) {
+      const auto bar = CalculatePlayerBarLayout(clientWidth_, clientHeight_);
+      volume_ = TrackValueFromPoint(bar.volume, dipX);
+      playback_.SetVolume(volume_);
+      SaveSettingsSnapshot();
+      InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+  }
+
   void HandleClick(int x, int y) {
     const float dipX = DevicePxToDip(static_cast<float>(x));
     const float dipY = DevicePxToDip(static_cast<float>(y));
@@ -714,6 +1023,11 @@ class MainWindow {
       InvalidateRect(hwnd_, nullptr, FALSE);
       return;
     }
+    if (headerAction == HeaderAction::Avatar) {
+      NavigateTo(PageId::Login);
+      InvalidateRect(hwnd_, nullptr, FALSE);
+      return;
+    }
 
     const auto playerAction =
         HitTestPlayerBar(CalculatePlayerBarLayout(clientWidth_, clientHeight_), dipX, dipY);
@@ -733,8 +1047,11 @@ class MainWindow {
       if (playerView_.state == PlayerUiState::Playing) {
         playback_.Pause();
         playerView_.state = PlayerUiState::Paused;
-      } else if (playerView_.state == PlayerUiState::Ready || playerView_.state == PlayerUiState::Paused ||
-                 playerView_.state == PlayerUiState::Idle) {
+      } else if (playerView_.state == PlayerUiState::Idle) {
+        if (const auto* track = queueState_.Current()) {
+          BeginResolveAndPlayQueueTrack(*track);
+        }
+      } else if (playerView_.state == PlayerUiState::Ready || playerView_.state == PlayerUiState::Paused) {
         playback_.Resume();
         playerView_.state = PlayerUiState::Playing;
       }
@@ -742,12 +1059,16 @@ class MainWindow {
       return;
     }
     if (playerAction == PlayerBarAction::Previous) {
-      ApplyQueueTrack(queueState_.Previous(), PlayerUiState::Playing);
+      if (const auto* track = queueState_.Previous()) {
+        BeginResolveAndPlayQueueTrack(*track);
+      }
       InvalidateRect(hwnd_, nullptr, FALSE);
       return;
     }
     if (playerAction == PlayerBarAction::Next) {
-      ApplyQueueTrack(queueState_.Next(), PlayerUiState::Playing);
+      if (const auto* track = queueState_.Next()) {
+        BeginResolveAndPlayQueueTrack(*track);
+      }
       InvalidateRect(hwnd_, nullptr, FALSE);
       return;
     }
@@ -758,6 +1079,7 @@ class MainWindow {
           lyricView_,
           lyricDocument_,
           TrackValueFromPoint(bar.progress, dipX));
+      playback_.Seek(DurationToSeconds(playerView_.duration) * playerView_.progress);
       InvalidateRect(hwnd_, nullptr, FALSE);
       return;
     }
@@ -773,17 +1095,52 @@ class MainWindow {
     const auto sidebarAction = HitTestSidebar(dipX, dipY, layout_.sidebar.bottom);
     if (sidebarAction == SidebarAction::Home) {
       NavigateTo(PageId::Home);
+    } else if (sidebarAction == SidebarAction::Discover) {
+      NavigateTo(PageId::Discover);
+    } else if (sidebarAction == SidebarAction::Radio) {
+      NavigateTo(PageId::Radio);
+    } else if (sidebarAction == SidebarAction::Video) {
+      NavigateTo(PageId::Video);
+    } else if (sidebarAction == SidebarAction::Songs) {
+      NavigateTo(PageId::Songs);
+    } else if (sidebarAction == SidebarAction::Albums) {
+      NavigateTo(PageId::Albums);
+    } else if (sidebarAction == SidebarAction::Artists) {
+      NavigateTo(PageId::Artists);
     } else if (sidebarAction == SidebarAction::NowPlaying) {
       NavigateTo(PageId::NowPlaying);
+    } else if (sidebarAction == SidebarAction::Favorites) {
+      NavigateTo(PageId::Favorites);
+    } else if (sidebarAction == SidebarAction::Downloads) {
+      NavigateTo(PageId::Downloads);
     } else if (sidebarAction == SidebarAction::Settings) {
       NavigateTo(PageId::Settings);
     } else if (dipX > clientWidth_ - 150 && dipY > clientHeight_ - 88) {
       NavigateTo(PageId::NowPlaying);
     } else if (surface_ == PageId::Home) {
       const auto homeAction = HitTestHome(layout_.home, dipX, dipY);
-      if (homeAction == HomeAction::PlayHero || homeAction == HomeAction::OpenRecent ||
-          homeAction == HomeAction::OpenRecommendation) {
-        NavigateTo(PageId::NowPlaying);
+      if (homeAction == HomeAction::PlayHero) {
+        SelectHomeTrack(queueState_.CurrentIndex());
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+      }
+      const int recommendationIndex = HomeRecommendationIndexFromPoint(layout_.home, dipX, dipY);
+      if (recommendationIndex >= 0) {
+        SelectHomeTrack(QueueIndexWithOffset(static_cast<std::size_t>(recommendationIndex)));
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+      }
+      const int recentIndex = HomeRecentIndexFromPoint(layout_.home, dipX, dipY);
+      if (recentIndex >= 0) {
+        SelectHomeTrack(QueueIndexWithOffset(static_cast<std::size_t>(recentIndex)));
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
+      }
+      const int playlistIndex = HomePlaylistIndexFromPoint(layout_.home, dipX, dipY);
+      if (playlistIndex >= 0) {
+        SelectHomeTrack(QueueIndexWithOffset(static_cast<std::size_t>(playlistIndex + 2)));
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return;
       }
     } else if (surface_ == PageId::Search) {
       const auto row = SearchRowFromPoint(dipX, dipY);
@@ -800,8 +1157,18 @@ class MainWindow {
       } else if (layout_.nowPlaying.showQueue) {
         const auto row = QueueRowFromPoint(dipX, dipY);
         if (row != kNoRow) {
-          ApplyQueueTrack(queueState_.Select(row), PlayerUiState::Playing);
+          SelectQueueTrack(row);
         }
+      }
+    } else if (IsFeaturePage(surface_)) {
+      const auto content = layout_.content;
+      const float left = content.left + 36.0f;
+      const float top = content.top + 36.0f;
+      const Rect quickSearch{left + 28.0f, top + 292.0f, left + 156.0f, top + 330.0f};
+      if (dipX >= quickSearch.left && dipX <= quickSearch.right && dipY >= quickSearch.top && dipY <= quickSearch.bottom) {
+        const auto hint = PageSearchHint(surface_);
+        BeginSearch(hint, WideToUtf8(hint));
+        return;
       }
     }
     InvalidateRect(hwnd_, nullptr, FALSE);
@@ -834,7 +1201,7 @@ class MainWindow {
       if (dipX >= left && dipX <= right && dipY >= listTop && dipY <= bottom) {
         searchScrollOffset_ = ApplyWheelScroll(
             searchView_.rows.size(),
-            58.0f,
+            68.0f,
             std::max(0.0f, bottom - listTop - 20.0f),
             searchScrollOffset_,
             wheelDelta);
@@ -870,7 +1237,7 @@ class MainWindow {
     const float right = content.right - 28.0f;
     const float bottom = content.bottom - 24.0f;
     const float listTop = top + 166.0f;
-    constexpr float rowHeight = 58.0f;
+    constexpr float rowHeight = 68.0f;
 
     if (x < left || x > right || y < listTop || y > bottom) {
       return kNoRow;
@@ -913,6 +1280,47 @@ class MainWindow {
     return std::to_wstring(minutes) + L":" + (remainder < 10 ? L"0" : L"") + std::to_wstring(remainder);
   }
 
+  std::size_t QueueIndexWithOffset(std::size_t offset) const {
+    const auto& tracks = queueState_.Tracks();
+    if (tracks.empty()) {
+      return 0;
+    }
+    return (queueState_.CurrentIndex() + offset) % tracks.size();
+  }
+
+  void SelectQueueTrack(std::size_t index) {
+    const auto* track = queueState_.Select(index);
+    if (!track) {
+      return;
+    }
+    BeginResolveAndPlayQueueTrack(*track);
+  }
+
+  void SelectHomeTrack(std::size_t index) {
+    SelectQueueTrack(index);
+  }
+
+  bool TryResolveNextPlaybackCandidate(const std::wstring& lastError) {
+    if (!backend_) {
+      return false;
+    }
+
+    if (!TryAdvancePlaybackCandidate(
+            playbackCandidates_,
+            playbackCandidateIndex_,
+            pendingPlaybackRow_,
+            playerView_,
+            lyricView_,
+            lastError)) {
+      return false;
+    }
+
+    lyricDocument_ = {};
+    songUrlFuture_ = backend_->ResolveSongUrl(pendingPlaybackRow_.hash, "");
+    SetTimer(hwnd_, kBackendPollTimer, 100, nullptr);
+    return true;
+  }
+
   void ApplyQueueTrack(const QueueTrack* track, PlayerUiState state) {
     if (!track) {
       return;
@@ -924,6 +1332,8 @@ class MainWindow {
     playerView_.current = L"00:00";
     playerView_.progress = 0.0;
     playerView_.state = state;
+    playerView_.coverUrl = track->coverUrl;
+    playerView_.imageKey = track->coverUrl.empty() ? std::string{} : "remote-cover:" + track->coverUrl;
     lyricView_ = BuildLyricViewModel(lyricDocument_, 0);
   }
 
@@ -937,27 +1347,35 @@ class MainWindow {
       clientHeight_ = size.height;
       layout_ = CalculateMelodyLayout(clientWidth_, clientHeight_);
 
-      renderTarget_->BeginDraw();
-      renderTarget_->Clear(palette_.bg);
+      if (renderPipeline_.BeginFrame()) {
+        renderTarget_->Clear(palette_.bg);
 
-      DrawSidebar();
-      DrawHeader();
-      renderTarget_->PushAxisAlignedClip(ToD2DRect(layout_.content), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
-      if (surface_ == PageId::Home) {
-        DrawHome();
-      } else if (surface_ == PageId::NowPlaying) {
-        DrawNowPlaying();
-      } else if (surface_ == PageId::Search) {
-        DrawSearch();
-      } else {
-        DrawSettings();
-      }
-      renderTarget_->PopAxisAlignedClip();
-      DrawPlayerBar();
+        DrawSidebar();
+        DrawHeader();
+        renderTarget_->PushAxisAlignedClip(ToD2DRect(layout_.content), D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+        if (surface_ == PageId::Home) {
+          DrawHome();
+        } else if (surface_ == PageId::NowPlaying) {
+          DrawNowPlaying();
+        } else if (surface_ == PageId::Search) {
+          DrawSearch();
+        } else if (surface_ == PageId::Settings) {
+          DrawSettings();
+        } else if (surface_ == PageId::Login) {
+          DrawLogin();
+        } else {
+          DrawFeaturePage();
+        }
+        renderTarget_->PopAxisAlignedClip();
+        // List 19：每帧都让 GlassPanel 重新模糊（CopyFromRenderTarget 抓取此刻 backbuffer，
+        // 即 player bar 上方所有已绘内容；¼ 分辨率 GaussianBlur 22px 单次 < 1ms）。
+        glass_.MarkBlurDirty();
+        DrawPlayerBar();
 
-      const HRESULT hr = renderTarget_->EndDraw();
-      if (hr == D2DERR_RECREATE_TARGET) {
-        DiscardDeviceResources();
+        const HRESULT hr = renderPipeline_.EndFrame();
+        if (RenderPipeline::IsDeviceLossHResult(hr)) {
+          DiscardDeviceResources();
+        }
       }
     }
 
@@ -1011,6 +1429,12 @@ class MainWindow {
         &format);
     format->SetTextAlignment(style.align);
     format->SetParagraphAlignment(style.paragraph);
+    format->SetWordWrapping(style.wrapping);
+    if (style.trimming != DWRITE_TRIMMING_GRANULARITY_NONE) {
+      DWRITE_TRIMMING trimming{};
+      trimming.granularity = style.trimming;
+      format->SetTrimming(&trimming, nullptr);
+    }
     auto* brush = Brush(color);
     renderTarget_->DrawTextW(
         value.c_str(),
@@ -1056,8 +1480,8 @@ class MainWindow {
 
     const auto properties = D2D1::BitmapProperties(
         D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
-        96.0f,
-        96.0f);
+        WindowDpi(),
+        WindowDpi());
     return SUCCEEDED(renderTarget_->CreateBitmap(
         D2D1::SizeU(payload->width, payload->height),
         payload->bgra.data(),
@@ -1084,9 +1508,92 @@ class MainWindow {
     return EnsureAppIconBitmap() && DrawBitmap(appIconBitmap_, rect, fill);
   }
 
-  void DrawArtwork(D2D1_RECT_F rect, D2D1_COLOR_F fallback, bool fill = true) {
+  struct ArtworkState {
+    ImageSlot slot;
+    std::future<ImageSlotPayload> future;
+    ID2D1Bitmap* bitmap = nullptr;
+  };
+
+  image::ImageLoader::RemoteFetchResult FetchRemoteImage(const std::string& url) const {
+    image::ImageLoader::RemoteFetchResult fetchResult;
+    const auto result = imageHttpClient_.Get(url);
+    fetchResult.statusCode = result.statusCode;
+    fetchResult.error = result.error;
+    if (result.error.empty()) {
+      fetchResult.bytes.assign(result.body.begin(), result.body.end());
+    }
+    return fetchResult;
+  }
+
+  void EnsureArtworkRequested(const std::string& imageKey, const std::string& imageUrl) {
+    if (imageKey.empty() || imageUrl.empty()) {
+      return;
+    }
+
+    auto& state = artworkStates_[imageKey];
+    const auto decision = state.slot.Request(imageKey);
+    if (!decision.shouldStartLoad) {
+      return;
+    }
+
+    state.future = std::async(std::launch::async, [this, imageKey, imageUrl] {
+      async::CancellationSource cancellation;
+      auto decoded = imageLoader_.LoadRemote(
+          imageKey,
+          imageUrl,
+          [this](const std::string& remoteUrl) { return FetchRemoteImage(remoteUrl); },
+          cancellation.Token());
+      if (decoded.placeholder || decoded.bgra.empty()) {
+        return ImageSlotPayload{};
+      }
+      return ImageSlotPayload{decoded.width, decoded.height, std::move(decoded.bgra)};
+    });
+    SetTimer(hwnd_, kBackendPollTimer, 100, nullptr);
+  }
+
+  bool EnsureArtworkBitmap(ArtworkState& state) {
+    if (state.bitmap) {
+      return true;
+    }
+
+    const auto* payload = state.slot.Payload();
+    if (!payload || payload->bgra.empty()) {
+      return false;
+    }
+
+    const auto properties = D2D1::BitmapProperties(
+        D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+        WindowDpi(),
+        WindowDpi());
+    return SUCCEEDED(renderTarget_->CreateBitmap(
+        D2D1::SizeU(payload->width, payload->height),
+        payload->bgra.data(),
+        payload->width * 4,
+        properties,
+        &state.bitmap));
+  }
+
+  bool DrawArtworkBitmap(const std::string& imageKey, D2D1_RECT_F rect, bool fill) {
+    const auto found = artworkStates_.find(imageKey);
+    if (found == artworkStates_.end()) {
+      return false;
+    }
+    return EnsureArtworkBitmap(found->second) && DrawBitmap(found->second.bitmap, rect, fill);
+  }
+
+  void DrawArtwork(D2D1_RECT_F rect,
+                   D2D1_COLOR_F fallback,
+                   bool fill = true,
+                   const std::string& imageKey = {},
+                   const std::string& imageUrl = {}) {
     FillRound(rect, 6.0f, fallback);
-    if (!DrawAppIcon(rect, fill)) {
+    if (!imageKey.empty() && !imageUrl.empty()) {
+      EnsureArtworkRequested(imageKey, imageUrl);
+      if (DrawArtworkBitmap(imageKey, rect, fill)) {
+        return;
+      }
+    }
+    if (!DrawAppIcon(rect, false)) {
       Circle((rect.left + rect.right) * 0.5f,
              (rect.top + rect.bottom) * 0.5f,
              std::min(rect.right - rect.left, rect.bottom - rect.top) * 0.18f,
@@ -1137,10 +1644,11 @@ class MainWindow {
   void DrawPauseIcon(D2D1_RECT_F rect, D2D1_COLOR_F color) {
     const float cx = (rect.left + rect.right) * 0.5f;
     const float cy = (rect.top + rect.bottom) * 0.5f;
-    const float h = (rect.bottom - rect.top) * 0.40f;
-    const float barW = 4.0f;
-    FillRound(D2D1::RectF(cx - 8.0f, cy - h, cx - 8.0f + barW, cy + h), 1.5f, color);
-    FillRound(D2D1::RectF(cx + 4.0f, cy - h, cx + 4.0f + barW, cy + h), 1.5f, color);
+    const float h = (rect.bottom - rect.top) * 0.35f;
+    const float barW = (rect.right - rect.left) * 0.12f;
+    const float gap = barW * 2.2f;
+    FillRound(D2D1::RectF(cx - gap * 0.5f - barW, cy - h, cx - gap * 0.5f, cy + h), 3.0f, color);
+    FillRound(D2D1::RectF(cx + gap * 0.5f, cy - h, cx + gap * 0.5f + barW, cy + h), 3.0f, color);
   }
 
   void DrawSidebar() {
@@ -1152,8 +1660,9 @@ class MainWindow {
     if (!DrawAppIcon(D2D1::RectF(28, 31, 54, 57), false)) {
       Text(L"♪", D2D1::RectF(31, 34, 54, 66), palette_.accentDark, {21, DWRITE_FONT_WEIGHT_SEMI_BOLD});
     }
-    Text(L"BottleMusic", D2D1::RectF(62, 34, 168, 66), palette_.accentDark,
-         {21, DWRITE_FONT_WEIGHT_SEMI_BOLD});
+    Text(L"BottleMusic", D2D1::RectF(62, 35, 176, 64), palette_.accentDark,
+         {17, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
+          DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_TRIMMING_GRANULARITY_CHARACTER});
 
     struct Item {
       const wchar_t* icon;
@@ -1162,15 +1671,15 @@ class MainWindow {
     };
     const std::array<Item, 10> nav = {{
         {L"⌂", L"首页", surface_ == PageId::Home},
-        {L"◎", L"发现", false},
-        {L"◌", L"电台", false},
-        {L"▣", L"视频", false},
-        {L"♪", L"歌曲", false},
-        {L"⊙", L"专辑", false},
-        {L"♙", L"歌手", false},
+        {L"◎", L"发现", surface_ == PageId::Discover},
+        {L"◌", L"电台", surface_ == PageId::Radio},
+        {L"▣", L"视频", surface_ == PageId::Video},
+        {L"♪", L"歌曲", surface_ == PageId::Songs},
+        {L"⊙", L"专辑", surface_ == PageId::Albums},
+        {L"♙", L"歌手", surface_ == PageId::Artists},
         {L"≡", L"播放列表", surface_ == PageId::NowPlaying},
-        {L"♡", L"收藏夹", false},
-        {L"↧", L"下载管理", false},
+        {L"♡", L"收藏夹", surface_ == PageId::Favorites},
+        {L"↧", L"下载管理", surface_ == PageId::Downloads},
     }};
 
     float y = 98;
@@ -1181,36 +1690,52 @@ class MainWindow {
         y += 42;
       }
       if (nav[i].active) {
-        FillRound(D2D1::RectF(14, y - 8, 164, y + 30), 8, palette_.panelStrong);
+        // 弱化背景（HTML 6% 在 D2D 平铺中几乎看不见，提升到 12% 增强对比）
+        FillRect(D2D1::RectF(14, y - 8, 164, y + 30), D2D1::ColorF(0.133f, 0.106f, 0.071f, 0.12f));
+        // 左侧红色竖条（HTML: nav a.active::before — 3px wide accent strip，比 HTML 2px 略粗以保证 100% DPI 下可见）
+        FillRect(D2D1::RectF(8.0f, y - 4, 11.0f, y + 26), theme::color::Accent());
       }
-      Text(nav[i].icon, D2D1::RectF(34, y, 52, y + 22), nav[i].active ? palette_.accent : palette_.muted,
-           {15});
-      Text(nav[i].label, D2D1::RectF(63, y, 150, y + 24), nav[i].active ? palette_.accent : palette_.text,
+      Text(nav[i].icon, D2D1::RectF(34, y, 52, y + 22),
+           nav[i].active ? theme::color::Ink() : palette_.muted, {15});
+      Text(nav[i].label, D2D1::RectF(63, y, 150, y + 24),
+           nav[i].active ? theme::color::Ink() : palette_.text,
            {14, nav[i].active ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL});
       y += 44;
     }
 
-    StrokeLine(30, 579, 150, 579, palette_.line);
-    Text(L"播放列表        +", D2D1::RectF(31, 600, 155, 626), palette_.muted, {13});
+    const float settingsTop = sidebarBottom >= 620.0f ? sidebarBottom - 62.0f : sidebarBottom;
+    if (settingsTop >= 690.0f) {
+      StrokeLine(30, 579, 150, 579, palette_.line);
+      Text(L"播放列表        +", D2D1::RectF(31, 600, 155, 626), palette_.muted, {13});
 
-    const std::array<const wchar_t*, 5> playlists = {
-        L"Chill Vibes", L"清晨旋律", L"健身动力", L"工作学习", L"经典怀旧"};
-    const std::array<D2D1_COLOR_F, 5> colors = {{
-        D2D1::ColorF(0.12f, 0.31f, 0.55f),
-        D2D1::ColorF(0.82f, 0.58f, 0.16f),
-        D2D1::ColorF(0.22f, 0.50f, 0.55f),
-        D2D1::ColorF(0.38f, 0.55f, 0.64f),
-        D2D1::ColorF(0.54f, 0.62f, 0.35f),
-    }};
-    y = 640;
-    for (std::size_t i = 0; i < playlists.size(); ++i) {
-      FillRound(D2D1::RectF(31, y - 5, 55, y + 19), 4, colors[i]);
-      Text(playlists[i], D2D1::RectF(64, y - 3, 156, y + 22), palette_.text, {13});
-      y += 39;
+      const std::array<const wchar_t*, 5> playlists = {
+          L"Chill Vibes", L"清晨旋律", L"健身动力", L"工作学习", L"经典怀旧"};
+      const std::array<D2D1_COLOR_F, 5> colors = {{
+          D2D1::ColorF(0.12f, 0.31f, 0.55f),
+          D2D1::ColorF(0.82f, 0.58f, 0.16f),
+          D2D1::ColorF(0.22f, 0.50f, 0.55f),
+          D2D1::ColorF(0.38f, 0.55f, 0.64f),
+          D2D1::ColorF(0.54f, 0.62f, 0.35f),
+      }};
+      y = 640;
+      for (std::size_t i = 0; i < playlists.size() && y + 24.0f < settingsTop - 10.0f; ++i) {
+        FillRound(D2D1::RectF(31, y - 5, 55, y + 19), 4, colors[i]);
+        Text(playlists[i], D2D1::RectF(64, y - 3, 156, y + 22), palette_.text, {13});
+        y += 39;
+      }
     }
 
     if (sidebarBottom >= 620.0f) {
-      Text(L"⚙  设置", D2D1::RectF(34, sidebarBottom - 54.0f, 150, sidebarBottom - 22.0f), palette_.muted, {14});
+      const bool active = surface_ == PageId::Settings;
+      const float settingsY = sidebarBottom - 54.0f;
+      if (active) {
+        FillRect(D2D1::RectF(14, sidebarBottom - 60.0f, 164, sidebarBottom - 22.0f),
+                 D2D1::ColorF(0.133f, 0.106f, 0.071f, 0.12f));
+        FillRect(D2D1::RectF(8.0f, settingsY - 4, 11.0f, settingsY + 26), theme::color::Accent());
+      }
+      Text(L"⚙  设置", D2D1::RectF(34, settingsY, 150, sidebarBottom - 22.0f),
+           active ? theme::color::Ink() : palette_.muted,
+           {14, active ? DWRITE_FONT_WEIGHT_SEMI_BOLD : DWRITE_FONT_WEIGHT_NORMAL});
     }
     renderTarget_->PopAxisAlignedClip();
   }
@@ -1242,112 +1767,181 @@ class MainWindow {
 
   void DrawHome() {
     const auto& home = layout_.home;
+    const auto* heroTrack = queueState_.Current();
     const float titleSize = home.compact ? 24.0f : 27.0f;
-    const float actionWidth = home.compact ? 130.0f : 137.0f;
-    const float actionRight = home.greeting.right;
+
+    // Newsprint masthead：报纸风格大标题横幅（双线 + 居中斜体）。
+    static constexpr float kMastheadH = 32.0f;
+    painter_.DrawMasthead(
+        D2D1::RectF(home.greeting.left, home.greeting.top,
+                    home.greeting.right, home.greeting.top + kMastheadH),
+        L"BOTTLE TIMES — Vol. I");
+
+    // 问候文本下移，为 masthead 腾出空间。
+    // Newsprint 设计无 Melody "个性化推荐" 按钮，整行铺满给标题用。
+    const float greetTop = home.greeting.top + kMastheadH + 8.0f;
     Text(L"早上好，开启美好的一天",
-         D2D1::RectF(home.greeting.left, home.greeting.top, actionRight - actionWidth - 18.0f,
-                     home.greeting.top + 38.0f),
+         D2D1::RectF(home.greeting.left, greetTop, home.greeting.right,
+                     greetTop + 38.0f),
          palette_.text, {titleSize, DWRITE_FONT_WEIGHT_BOLD});
     Text(L"用音乐点亮你的每一刻",
-         D2D1::RectF(home.greeting.left, home.greeting.top + 42.0f, home.greeting.right,
-                     home.greeting.top + 70.0f),
+         D2D1::RectF(home.greeting.left, greetTop + 42.0f, home.greeting.right,
+                     greetTop + 70.0f),
          palette_.muted, {14});
-    DrawButton(D2D1::RectF(actionRight - actionWidth, home.greeting.top + 18.0f, actionRight,
-                           home.greeting.top + 56.0f),
-               L"✦ 个性化推荐", false);
 
     if (IsUsable(home.hero, 260.0f, 120.0f)) {
-      DrawHero(ToD2DRect(home.hero));
+      DrawHero(ToD2DRect(home.hero), heroTrack);
     }
 
     if (home.showRecommendationRow && IsUsable(home.recommendationRow, 260.0f, 156.0f)) {
-      Text(L"为你推荐", D2D1::RectF(home.recommendationRow.left, home.recommendationRow.top,
-                                home.recommendationRow.left + 160.0f, home.recommendationRow.top + 28.0f),
-           palette_.text, {18, DWRITE_FONT_WEIGHT_BOLD});
+      painter_.SectionHead(home.recommendationRow.left, home.recommendationRow.top,
+                           home.recommendationRow.right, L"为你推荐");
       Text(L"查看全部", D2D1::RectF(home.recommendationRow.right - 72.0f, home.recommendationRow.top + 2.0f,
                                   home.recommendationRow.right, home.recommendationRow.top + 28.0f),
            palette_.accent, {13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING});
       const float cardsTop = home.recommendationRow.top + 38.0f;
-      const float cardHeight = std::max(118.0f, home.recommendationRow.bottom - cardsTop - 8.0f);
-      DrawPlaylistCards(home.recommendationRow.left, cardsTop, home.recommendationRow.right,
-                        home.recommendationCardCount, cardHeight);
+      const float cardHeight = std::max(108.0f, home.recommendationRow.bottom - cardsTop - 8.0f);
+      DrawPlaylistCards(home.recommendationRow.left,
+                        cardsTop,
+                        home.recommendationRow.right,
+                        home.recommendationCardCount,
+                        cardHeight,
+                        0);
     }
 
     if (home.showRecentList && IsUsable(home.recentList, 300.0f, 160.0f)) {
-      Text(L"最近播放", D2D1::RectF(home.recentList.left + 18.0f, home.recentList.top - 44.0f,
-                                  home.recentList.right - 80.0f, home.recentList.top - 16.0f),
-           palette_.text, {18, DWRITE_FONT_WEIGHT_BOLD});
+      painter_.SectionHead(home.recentList.left + 18.0f, home.recentList.top - 44.0f,
+                           home.recentList.right, L"最近播放");
       Text(L"查看全部", D2D1::RectF(home.recentList.right - 80.0f, home.recentList.top - 42.0f,
                                   home.recentList.right, home.recentList.top - 16.0f),
            palette_.accent, {13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING});
       DrawRecentList(ToD2DRect(home.recentList));
     }
 
-    if (home.showPlaylistPanel && IsUsable(home.playlistPanel, 320.0f, 160.0f)) {
+    if (home.showPlaylistPanel && IsUsable(home.playlistPanel, 320.0f, 132.0f)) {
       FillRound(ToD2DRect(home.playlistPanel), 8, palette_.panel);
       StrokeRound(ToD2DRect(home.playlistPanel), 8, palette_.line);
-      Text(L"推荐歌单", D2D1::RectF(home.playlistPanel.left + 14.0f, home.playlistPanel.top + 18.0f,
-                                  home.playlistPanel.left + 220.0f, home.playlistPanel.top + 48.0f),
-           palette_.text, {18, DWRITE_FONT_WEIGHT_BOLD});
-      DrawPlaylistCards(home.playlistPanel.left + 14.0f, home.playlistPanel.top + 56.0f,
-                        home.playlistPanel.right - 18.0f, home.playlistCardCount, 144.0f);
+      painter_.SectionHead(home.playlistPanel.left + 14.0f, home.playlistPanel.top + 18.0f,
+                           home.playlistPanel.right - 14.0f, L"推荐歌单");
+      const float cardHeight = std::max(108.0f, home.playlistPanel.bottom - home.playlistPanel.top - 68.0f);
+      DrawPlaylistCards(home.playlistPanel.left + 14.0f,
+                        home.playlistPanel.top + 56.0f,
+                        home.playlistPanel.right - 18.0f,
+                        home.playlistCardCount,
+                        cardHeight,
+                        2);
     }
 
-    if (home.showArtistPanel && IsUsable(home.artistPanel, 300.0f, 160.0f)) {
+    if (home.showArtistPanel && IsUsable(home.artistPanel, 300.0f, 200.0f)) {
       DrawArtistPanel(ToD2DRect(home.artistPanel));
     }
   }
 
-  void DrawHero(D2D1_RECT_F rect) {
+  void DrawHero(D2D1_RECT_F rect, const QueueTrack* track) {
     if (rect.right - rect.left < 240.0f || rect.bottom - rect.top < 120.0f) {
       return;
     }
-    FillRound(rect, 8, D2D1::ColorF(0.64f, 0.80f, 0.88f));
-    FillRound(D2D1::RectF(rect.left, std::min(rect.top + 142.0f, rect.bottom - 16.0f), rect.right, rect.bottom), 8,
-              D2D1::ColorF(0.93f, 0.82f, 0.55f, 0.42f));
-    const float artWidth = std::min((rect.right - rect.left) * 0.52f, 760.0f);
-    const float artLeft = std::max(rect.left + 330.0f, rect.right - artWidth - 36.0f);
-    FillRound(D2D1::RectF(artLeft, rect.top + 24, rect.right - 36, rect.bottom - 20), 6,
-              D2D1::ColorF(0.28f, 0.48f, 0.33f, 0.22f));
-    Text(L"今日推荐", D2D1::RectF(rect.left + 28, rect.top + 34, rect.right, rect.top + 60), palette_.text, {14});
-    Text(L"Sunshine Acoustic", D2D1::RectF(rect.left + 28, rect.top + 72, rect.right, rect.top + 112),
-         D2D1::ColorF(0.02f, 0.02f, 0.02f), {25, DWRITE_FONT_WEIGHT_BOLD});
-    Text(L"温暖的旋律，开启活力一天", D2D1::RectF(rect.left + 28, rect.top + 118, rect.right, rect.top + 146),
-         palette_.text, {14});
-    const float buttonTop = std::min(rect.top + 154.0f, rect.bottom - 54.0f);
-    FillRound(D2D1::RectF(rect.left + 28, buttonTop, rect.left + 118, buttonTop + 40.0f), 20, palette_.accent);
-    DrawPlayTriangle(D2D1::RectF(rect.left + 40.0f, buttonTop + 10.0f, rect.left + 58.0f, buttonTop + 30.0f),
+    // Newsprint .feature .hero：PaperAlt 背景 + 1px solid rule 外框 + inset 6px 内边框（近似 dashed）
+    FillRect(rect, theme::color::PaperAlt());
+    StrokeRound(rect, 0.0f, theme::color::Rule(), 1.0f);
+    const D2D1_RECT_F insetRect = D2D1::RectF(
+        rect.left + 6.0f, rect.top + 6.0f, rect.right - 6.0f, rect.bottom - 6.0f);
+    if (dashStrokeStyle_) {
+      renderTarget_->DrawRectangle(insetRect, EnsureSolidBrush(theme::color::RuleSoft()), 1.0f,
+                                   dashStrokeStyle_);
+    } else {
+      StrokeRound(insetRect, 0.0f, theme::color::RuleSoft(), 1.0f);
+    }
+
+    // 封面（右侧方形 1:1，与酷狗封面图原生比例一致）。
+    // 注意：直接走 DrawBitmap + AspectFill，不再借道 DrawArtwork（它会画 6px 圆角占位
+    // 并在没有 URL 时退回 AspectFit 的 app-icon，导致看起来"图片没填满"）。
+    const float heroH = rect.bottom - rect.top;
+    const float artSide = std::min(heroH - 32.0f, 180.0f);  // 方形，留 16px 上下 padding
+    const float artLeft = rect.right - 28.0f - artSide;
+    const float artTop = rect.top + (heroH - artSide) * 0.5f;  // 垂直居中
+    const auto artRect = D2D1::RectF(artLeft, artTop, artLeft + artSide, artTop + artSide);
+
+    // 第 1 步：方形 Ink 占位（不带圆角），确保即使没有图片也是"满"的深色块
+    FillRect(artRect, theme::color::Ink());
+
+    // 第 2 步：尝试画真实封面 —— DrawBitmap 内部用 AspectFill + 轴对齐 clip，必然铺满
+    bool coverPainted = false;
+    if (track && !track->coverUrl.empty()) {
+      const std::string imageKey = "remote-cover:" + track->coverUrl;
+      EnsureArtworkRequested(imageKey, track->coverUrl);
+      coverPainted = DrawArtworkBitmap(imageKey, artRect, true);  // fill = AspectFill
+    }
+
+    // 第 3 步：若无封面，画装饰性占位（Accent 边框 + 居中音符），仍然铺满方形
+    if (!coverPainted) {
+      const D2D1_RECT_F inner = D2D1::RectF(
+          artRect.left + 8.0f, artRect.top + 8.0f,
+          artRect.right - 8.0f, artRect.bottom - 8.0f);
+      StrokeRound(inner, 0.0f, theme::color::Accent(), 1.5f);
+      const float cx = (artRect.left + artRect.right) * 0.5f;
+      const float cy = (artRect.top + artRect.bottom) * 0.5f;
+      Text(L"♪",
+           D2D1::RectF(cx - 40.0f, cy - 40.0f, cx + 40.0f, cy + 40.0f),
+           theme::color::Paper(),
+           {56, DWRITE_FONT_WEIGHT_NORMAL,
+            DWRITE_TEXT_ALIGNMENT_CENTER, DWRITE_PARAGRAPH_ALIGNMENT_CENTER});
+    }
+
+    // Kicker（uppercase italic small label）
+    painter_.Kicker(rect.left + 28, rect.top + 28, L"TODAY'S FEATURE · 今日推荐");
+
+    // h2 标题：30px 半粗衬线（HTML: .feature .hero h2）
+    Text(track ? track->title : playerView_.title,
+         D2D1::RectF(rect.left + 28, rect.top + 52, artLeft - 24.0f, rect.top + 96),
+         theme::color::Ink(), {30, DWRITE_FONT_WEIGHT_SEMI_BOLD});
+
+    // 副标题：13px ink-soft；底边 = rect.top + 124
+    const float subtitleBottom = rect.top + 124.0f;
+    Text(track ? (track->artist + L" · " + track->album) : PlaybackSubtitle(playerView_),
+         D2D1::RectF(rect.left + 28, rect.top + 100, artLeft - 24.0f, subtitleBottom),
+         theme::color::InkSoft(), {13});
+
+    // 红色播放按钮：至少在副标题下方 8px，不超过英雄区底部 54px
+    const float buttonTop = std::max(subtitleBottom + 8.0f,
+                                     std::min(rect.top + 140.0f, rect.bottom - 54.0f));
+    FillRound(D2D1::RectF(rect.left + 28, buttonTop, rect.left + 128, buttonTop + 40.0f), 20,
+              theme::color::Accent());
+    DrawPlayTriangle(D2D1::RectF(rect.left + 42.0f, buttonTop + 10.0f, rect.left + 60.0f, buttonTop + 30.0f),
                      palette_.white);
-    Text(L"播放", D2D1::RectF(rect.left + 60, buttonTop + 10.0f, rect.left + 112, buttonTop + 36.0f), palette_.white,
-         {14, DWRITE_FONT_WEIGHT_SEMI_BOLD});
-    Circle(rect.right - 64, rect.bottom - 20, 5, palette_.white);
-    Circle(rect.right - 46, rect.bottom - 20, 5, D2D1::ColorF(1, 1, 1, 0.45f));
-    Circle(rect.right - 28, rect.bottom - 20, 5, D2D1::ColorF(1, 1, 1, 0.45f));
+    Text(L"播放", D2D1::RectF(rect.left + 62, buttonTop + 10.0f, rect.left + 122, buttonTop + 36.0f),
+         palette_.white, {14, DWRITE_FONT_WEIGHT_SEMI_BOLD});
   }
 
-  void DrawPlaylistCards(float left, float top, float right, int count, float cardHeight = 200.0f) {
+  void DrawPlaylistCards(float left, float top, float right, int count, float cardHeight = 200.0f, std::size_t startIndex = 0) {
     const auto strip = CalculateCardStripLayout(right - left, count, cardHeight);
     if (strip.count <= 0) {
       return;
     }
-    const std::array<const wchar_t*, 6> titles = {
-        L"清晨轻音乐", L"阳光流行", L"放松时刻", L"旅行日记", L"治愈民谣", L"经典老歌"};
-    const std::array<int, 6> nums = {20, 25, 18, 24, 30, 40};
+    const auto& tracks = queueState_.Tracks();
+    if (tracks.empty()) {
+      return;
+    }
     for (int i = 0; i < strip.count; ++i) {
+      const auto& track = tracks[(startIndex + static_cast<std::size_t>(i)) % tracks.size()];
       const float x = left + i * (strip.itemWidth + strip.gap);
       FillRound(D2D1::RectF(x, top, x + strip.itemWidth, top + strip.itemHeight), 8, palette_.panel);
       StrokeRound(D2D1::RectF(x, top, x + strip.itemWidth, top + strip.itemHeight), 8, palette_.line);
       D2D1_COLOR_F color = D2D1::ColorF(0.48f + i * 0.04f, 0.67f - i * 0.03f, 0.72f - i * 0.02f);
-      DrawArtwork(D2D1::RectF(x + 1, top + 1, x + strip.itemWidth - 1, top + strip.imageHeight), color, true);
+      DrawArtwork(
+          D2D1::RectF(x + 1, top + 1, x + strip.itemWidth - 1, top + strip.imageHeight),
+          color,
+          false,
+          track.coverUrl.empty() ? std::string{} : "remote-cover:" + track.coverUrl,
+          track.coverUrl);
       Circle(x + strip.itemWidth - 26, top + strip.imageHeight - 22.0f, 15, D2D1::ColorF(0.03f, 0.03f, 0.025f, 0.72f));
       DrawPlayTriangle(D2D1::RectF(x + strip.itemWidth - 35, top + strip.imageHeight - 34.0f,
                                    x + strip.itemWidth - 17, top + strip.imageHeight - 12.0f),
                        palette_.white);
-      Text(titles[static_cast<std::size_t>(i)], D2D1::RectF(x + 12, top + strip.imageHeight + 10.0f,
-                                                            x + strip.itemWidth - 12, top + strip.imageHeight + 36.0f),
+      Text(track.title, D2D1::RectF(x + 12, top + strip.imageHeight + 10.0f,
+                                    x + strip.itemWidth - 12, top + strip.imageHeight + 36.0f),
            palette_.text, {13, DWRITE_FONT_WEIGHT_SEMI_BOLD});
-      Text(std::to_wstring(nums[static_cast<std::size_t>(i)]) + L" 首歌曲",
+      Text(track.artist,
            D2D1::RectF(x + 12, top + strip.imageHeight + 36.0f, x + strip.itemWidth - 12, top + strip.itemHeight - 2.0f),
            palette_.faint, {12});
     }
@@ -1356,21 +1950,24 @@ class MainWindow {
   void DrawRecentList(D2D1_RECT_F rect) {
     FillRound(rect, 8, palette_.panel);
     StrokeRound(rect, 8, palette_.line);
-    const std::array<const wchar_t*, 5> titles = {
-        L"Another Day", L"Bloom", L"Your Hand in Mine", L"Holocene", L"River Flows"};
-    const std::array<const wchar_t*, 5> artists = {
-        L"Mac DeMarco", L"The Paper Kites", L"Explosions In The Sky", L"Bon Iver", L"Yiruma"};
-    const std::array<const wchar_t*, 5> times = {L"02:41", L"03:29", L"08:17", L"05:36", L"03:08"};
+    const auto& tracks = queueState_.Tracks();
+    if (tracks.empty()) {
+      return;
+    }
+    const std::size_t visibleCount = std::min<std::size_t>(5, tracks.size());
     float y = rect.top + 18;
-    for (std::size_t i = 0; i < titles.size(); ++i) {
+    for (std::size_t i = 0; i < visibleCount; ++i) {
+      const auto& track = tracks[QueueIndexWithOffset(i)];
       DrawArtwork(D2D1::RectF(rect.left + 22, y - 2, rect.left + 60, y + 36),
                   D2D1::ColorF(0.58f + i * 0.05f, 0.52f, 0.36f),
-                  true);
-      Text(titles[i], D2D1::RectF(rect.left + 72, y + 6, rect.left + 250, y + 30), palette_.text, {13});
-      Text(artists[i], D2D1::RectF(rect.left + 238, y + 6, rect.left + 420, y + 30), palette_.muted, {12});
-      Text(times[i], D2D1::RectF(rect.right - 96, y + 6, rect.right - 48, y + 30), palette_.muted, {12});
+                  false,
+                  track.coverUrl.empty() ? std::string{} : "remote-cover:" + track.coverUrl,
+                  track.coverUrl);
+      Text(track.title, D2D1::RectF(rect.left + 72, y + 6, rect.left + 250, y + 30), palette_.text, {13});
+      Text(track.artist, D2D1::RectF(rect.left + 238, y + 6, rect.left + 420, y + 30), palette_.muted, {12});
+      Text(track.duration, D2D1::RectF(rect.right - 96, y + 6, rect.right - 48, y + 30), palette_.muted, {12});
       Text(L"•••", D2D1::RectF(rect.right - 36, y + 4, rect.right - 8, y + 30), palette_.text, {13});
-      if (i + 1 < titles.size()) StrokeLine(rect.left + 70, y + 50, rect.right - 20, y + 50, palette_.line);
+      if (i + 1 < visibleCount) StrokeLine(rect.left + 70, y + 50, rect.right - 20, y + 50, palette_.line);
       y += 68;
     }
   }
@@ -1448,9 +2045,9 @@ class MainWindow {
     FillRound(panel, 8, palette_.panel);
     StrokeRound(panel, 8, palette_.line);
 
-    Text(L"歌曲", D2D1::RectF(left + 18, top + 116, left + 240, top + 144), palette_.muted, {13});
-    Text(L"歌手", D2D1::RectF(left + 380, top + 116, left + 560, top + 144), palette_.muted, {13});
-    Text(L"专辑", D2D1::RectF(left + 650, top + 116, left + 850, top + 144), palette_.muted, {13});
+    Text(L"歌曲", D2D1::RectF(left + 78, top + 116, left + 300, top + 144), palette_.muted, {13});
+    Text(L"歌手", D2D1::RectF(left + 410, top + 116, left + 590, top + 144), palette_.muted, {13});
+    Text(L"专辑", D2D1::RectF(left + 680, top + 116, left + 880, top + 144), palette_.muted, {13});
     Text(L"时长", D2D1::RectF(right - 100, top + 116, right - 42, top + 144), palette_.muted,
          {13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING});
     StrokeLine(left + 18, top + 150, right - 24, top + 150, palette_.line);
@@ -1467,7 +2064,7 @@ class MainWindow {
       return;
     }
 
-    constexpr float rowHeight = 58.0f;
+    constexpr float rowHeight = 68.0f;
     const float listTop = top + 166.0f;
     const auto visibleRows = CalculateVisibleRows(
         searchView_.rows.size(),
@@ -1481,15 +2078,20 @@ class MainWindow {
       const auto& row = searchView_.rows[index];
       const float y = listTop + static_cast<float>(index) * rowHeight - searchScrollOffset_;
       if (index == 0) {
-        FillRound(D2D1::RectF(left, y - 6, right - 22, y + 46), 7, D2D1::ColorF(0.90f, 0.92f, 0.93f, 0.55f));
+        FillRound(D2D1::RectF(left, y - 6, right - 22, y + 56), 7, D2D1::ColorF(0.90f, 0.92f, 0.93f, 0.55f));
       }
-      Text(row.title, D2D1::RectF(left + 18, y + 4, left + 340, y + 30), palette_.text,
+      DrawArtwork(D2D1::RectF(left + 18, y - 2, left + 58, y + 38),
+                  D2D1::ColorF(0.40f, 0.58f, 0.70f, 0.35f),
+                  true,
+                  row.imageKey,
+                  row.coverUrl);
+      Text(row.title, D2D1::RectF(left + 76, y + 2, left + 360, y + 28), palette_.text,
            {15, DWRITE_FONT_WEIGHT_SEMI_BOLD});
-      Text(row.artist, D2D1::RectF(left + 380, y + 4, left + 610, y + 30), palette_.muted, {13});
-      Text(row.album, D2D1::RectF(left + 650, y + 4, right - 140, y + 30), palette_.muted, {13});
-      Text(row.duration, D2D1::RectF(right - 100, y + 4, right - 42, y + 30), palette_.muted,
+      Text(row.artist, D2D1::RectF(left + 410, y + 2, left + 640, y + 28), palette_.muted, {13});
+      Text(row.album, D2D1::RectF(left + 680, y + 2, right - 140, y + 28), palette_.muted, {13});
+      Text(row.duration, D2D1::RectF(right - 100, y + 2, right - 42, y + 28), palette_.muted,
            {13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING});
-      StrokeLine(left + 18, y + 48, right - 24, y + 48, palette_.line);
+      StrokeLine(left + 18, y + 56, right - 24, y + 56, palette_.line);
     }
   }
 
@@ -1529,66 +2131,246 @@ class MainWindow {
          palette_.muted, {14});
   }
 
+  std::wstring PageTitle(PageId page) const {
+    switch (page) {
+      case PageId::Discover:
+        return L"发现音乐";
+      case PageId::Radio:
+        return L"电台";
+      case PageId::Video:
+        return L"视频";
+      case PageId::Songs:
+        return L"歌曲库";
+      case PageId::Albums:
+        return L"专辑";
+      case PageId::Artists:
+        return L"歌手";
+      case PageId::Favorites:
+        return L"收藏夹";
+      case PageId::Downloads:
+        return L"下载管理";
+      default:
+        return L"功能页";
+    }
+  }
+
+  bool IsFeaturePage(PageId page) const {
+    return page == PageId::Discover ||
+           page == PageId::Radio ||
+           page == PageId::Video ||
+           page == PageId::Songs ||
+           page == PageId::Albums ||
+           page == PageId::Artists ||
+           page == PageId::Favorites ||
+           page == PageId::Downloads;
+  }
+
+  std::wstring PageSearchHint(PageId page) const {
+    switch (page) {
+      case PageId::Discover:
+        return L"推荐";
+      case PageId::Radio:
+        return L"电台";
+      case PageId::Video:
+        return L"MV";
+      case PageId::Songs:
+        return L"歌曲";
+      case PageId::Albums:
+        return L"专辑";
+      case PageId::Artists:
+        return L"歌手";
+      case PageId::Favorites:
+        return L"收藏";
+      case PageId::Downloads:
+        return L"下载";
+      default:
+        return L"音乐";
+    }
+  }
+
+  void DrawFeaturePage() {
+    // Newsprint 统一空态：kicker + page-head（衬线大标题 + 双线装饰）+ 说明 + 搜索 CTA
+    const auto content = layout_.content;
+    const float left = content.left + 36.0f;
+    const float top = content.top + 36.0f;
+    const float right = content.right - 36.0f;
+
+    // Kicker：报纸式 uppercase italic 小标
+    painter_.Kicker(left, top, L"COMING SOON · 即将上线");
+
+    // Page head：22px 粗衬线标题（painter 复用）
+    painter_.PageHead(left, top + 18.0f, PageTitle(surface_));
+
+    // 装饰双线（page-head ::after）
+    painter_.DoubleRule(top + 64.0f, left, std::min(right, left + 520.0f));
+
+    // 说明：墨软色，14px 普通字体
+    Text(L"该入口已接通导航。真实数据页后续补齐；",
+         D2D1::RectF(left, top + 84.0f, right, top + 112.0f),
+         theme::color::InkSoft(), {14});
+    Text(L"现在可以用顶部搜索栏验证播放链路。",
+         D2D1::RectF(left, top + 110.0f, right, top + 138.0f),
+         theme::color::InkSoft(), {14});
+
+    // 操作提示
+    Text(L"快捷词：" + PageSearchHint(surface_),
+         D2D1::RectF(left, top + 156.0f, right, top + 180.0f),
+         theme::color::InkMute(), {13});
+
+    // 红色 CTA 按钮
+    const D2D1_RECT_F btn = D2D1::RectF(left, top + 198.0f, left + 156.0f, top + 234.0f);
+    FillRound(btn, 4, theme::color::Accent());
+    Text(L"用搜索验证", D2D1::RectF(btn.left, btn.top + 6.0f, btn.right, btn.bottom - 4.0f),
+         palette_.white, {14, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER});
+  }
+
+  void DrawLogin() {
+    const auto content = layout_.content;
+    const float left = content.left + 36.0f;
+    const float top = content.top + 36.0f;
+    const float right = content.right - 36.0f;
+
+    Text(L"扫码登录", D2D1::RectF(left, top, right, top + 44.0f), palette_.text,
+         {30, DWRITE_FONT_WEIGHT_BOLD});
+    Text(L"请使用酷狗音乐APP扫描二维码登录",
+         D2D1::RectF(left, top + 54.0f, right, top + 86.0f), palette_.muted, {15});
+
+    const auto panel = D2D1::RectF(left, top + 126.0f, std::min(right, left + 400.0f), top + 460.0f);
+    FillRound(panel, 10, palette_.panel);
+    StrokeRound(panel, 10, palette_.line);
+
+    if (loginQrKey_.empty() && !isRequestingQr_ && !loginQrFuture_.valid() && backend_) {
+      isRequestingQr_ = true;
+      loginQrFuture_ = backend_->BeginQrLogin();
+    }
+
+    if (loginQrKey_ == "error") {
+      Text(L"二维码加载失败", D2D1::RectF(panel.left, panel.top + 160.0f, panel.right, panel.top + 190.0f),
+           palette_.text, {14, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
+    } else if (!loginQrUrl_.empty()) {
+      std::string encodedUrl = loginQrUrl_;
+      auto replaceAll = [](std::string& str, const std::string& from, const std::string& to) {
+        size_t start_pos = 0;
+        while((start_pos = str.find(from, start_pos)) != std::string::npos) {
+          str.replace(start_pos, from.length(), to);
+          start_pos += to.length();
+        }
+      };
+      replaceAll(encodedUrl, ":", "%3A");
+      replaceAll(encodedUrl, "/", "%2F");
+      replaceAll(encodedUrl, "?", "%3F");
+      replaceAll(encodedUrl, "=", "%3D");
+      replaceAll(encodedUrl, "&", "%26");
+
+      const std::string qrImageUrl = "https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=" + encodedUrl;
+      const float cx = (panel.left + panel.right) * 0.5f;
+      DrawArtwork(D2D1::RectF(cx - 125.0f, panel.top + 40.0f, cx + 125.0f, panel.top + 290.0f), 
+                  palette_.panel, true, qrImageUrl, qrImageUrl);
+      
+      Text(L"等待扫描中...", D2D1::RectF(panel.left, panel.top + 300.0f, panel.right, panel.top + 330.0f),
+           palette_.text, {14, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
+    } else {
+      Text(L"正在生成二维码...", D2D1::RectF(panel.left, panel.top + 160.0f, panel.right, panel.top + 190.0f),
+           palette_.text, {14, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
+    }
+    Text(L"本轮先保证搜索、播放、封面、歌词和导航不串状态。",
+         D2D1::RectF(panel.left + 28.0f, panel.top + 156.0f, panel.right - 28.0f, panel.top + 190.0f),
+         palette_.muted, {14});
+  }
+
   void DrawAlbumArea(D2D1_RECT_F rect) {
     const float availableWidth = std::max(260.0f, rect.right - rect.left);
-    const float coverSize = std::clamp(availableWidth - 28.0f, 260.0f, 400.0f);
+    const float availableHeight = std::max(320.0f, rect.bottom - rect.top);
+    const float coverSize = std::clamp(std::min(availableWidth - 32.0f, availableHeight * 0.48f), 240.0f, 360.0f);
     const bool showVinyl = availableWidth >= 390.0f;
+    const std::wstring albumBadge = playerView_.album.empty() ? L"专辑" : playerView_.album;
+    const std::wstring artistBadge = playerView_.artist.empty() ? L"艺人" : playerView_.artist;
+    const std::wstring currentTime = playerView_.current.empty() ? L"00:00" : playerView_.current;
+    FillRound(D2D1::RectF(rect.left - 12.0f, rect.top - 10.0f, rect.right, rect.bottom), 12.0f, palette_.panel);
+    StrokeRound(D2D1::RectF(rect.left - 12.0f, rect.top - 10.0f, rect.right, rect.bottom), 12.0f, palette_.line);
     DrawArtwork(D2D1::RectF(rect.left, rect.top, rect.left + coverSize, rect.top + coverSize),
                 D2D1::ColorF(0.20f, 0.15f, 0.12f),
-                true);
+                true,
+                playerView_.imageKey,
+                playerView_.coverUrl);
     if (showVinyl) {
       Circle(rect.left + coverSize + 5.0f, rect.top + coverSize * 0.5f, coverSize * 0.29f,
              D2D1::ColorF(0.04f, 0.05f, 0.055f, 0.88f));
       Circle(rect.left + coverSize + 5.0f, rect.top + coverSize * 0.5f, coverSize * 0.11f,
              D2D1::ColorF(0.12f, 0.13f, 0.13f));
     }
-    Text(L"叶惠美", D2D1::RectF(rect.left + coverSize - 105.0f, rect.top + 32, rect.left + coverSize - 18.0f, rect.top + 120),
-         D2D1::ColorF(0.82f, 0.62f, 0.30f), {20, DWRITE_FONT_WEIGHT_SEMI_BOLD});
-    Text(L"周杰伦", D2D1::RectF(rect.left + coverSize * 0.30f, rect.top + coverSize - 62.0f,
+    Text(albumBadge, D2D1::RectF(rect.left + coverSize - 142.0f, rect.top + 26, rect.left + coverSize - 18.0f, rect.top + 92),
+         D2D1::ColorF(0.82f, 0.62f, 0.30f), {18, DWRITE_FONT_WEIGHT_SEMI_BOLD});
+    Text(artistBadge, D2D1::RectF(rect.left + coverSize * 0.20f, rect.top + coverSize - 62.0f,
                                rect.left + coverSize - 80.0f, rect.top + coverSize - 10.0f),
-         D2D1::ColorF(0.82f, 0.62f, 0.30f), {coverSize < 330.0f ? 24.0f : 30.0f, DWRITE_FONT_WEIGHT_BOLD});
+         D2D1::ColorF(0.82f, 0.62f, 0.30f), {coverSize < 330.0f ? 22.0f : 27.0f, DWRITE_FONT_WEIGHT_BOLD});
 
-    const float detailTop = rect.top + coverSize + 32.0f;
+    const float detailTop = rect.top + coverSize + 22.0f;
     Text(playerView_.title, D2D1::RectF(rect.left, detailTop, rect.left + availableWidth - 24.0f, detailTop + 38.0f), palette_.text,
-         {coverSize < 330.0f ? 25.0f : 31.0f, DWRITE_FONT_WEIGHT_BOLD});
+         {coverSize < 330.0f ? 23.0f : 28.0f, DWRITE_FONT_WEIGHT_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING,
+          DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_TRIMMING_GRANULARITY_CHARACTER});
     Text(PlaybackSubtitle(playerView_),
          D2D1::RectF(rect.left, detailTop + 56.0f, rect.left + availableWidth - 24.0f, detailTop + 86.0f),
          palette_.text,
-         {20});
+         {18, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
+          DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_TRIMMING_GRANULARITY_CHARACTER});
     Text(L"专辑 · " + playerView_.album, D2D1::RectF(rect.left, detailTop + 96.0f, rect.left + availableWidth - 24.0f, detailTop + 122.0f), palette_.muted,
-         {14});
-    DrawButton(D2D1::RectF(rect.left, detailTop + 136.0f, rect.left + 92.0f, detailTop + 168.0f), L"SQ 无损音质", false);
-    DrawButton(D2D1::RectF(rect.left + 112.0f, detailTop + 136.0f, rect.left + 178.0f, detailTop + 168.0f), L"已关注", false);
+         {13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
+          DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_TRIMMING_GRANULARITY_CHARACTER});
+    DrawButton(D2D1::RectF(rect.left, detailTop + 132.0f, rect.left + 84.0f, detailTop + 164.0f), L"HQ 音质", false);
+    DrawButton(D2D1::RectF(rect.left + 98.0f, detailTop + 132.0f, rect.left + 166.0f, detailTop + 164.0f), L"已关注", false);
     Text(L"♥", D2D1::RectF(rect.left + availableWidth - 78.0f, detailTop + 2.0f, rect.left + availableWidth - 46.0f, detailTop + 38.0f),
          palette_.accent, {26});
     Text(L"•••", D2D1::RectF(rect.left + availableWidth - 36.0f, detailTop + 8.0f, rect.left + availableWidth, detailTop + 34.0f),
          palette_.muted, {18});
-    DrawProgress(rect.left, detailTop + 214.0f, rect.left + std::min(405.0f, availableWidth - 24.0f), 0.48f);
-    Text(L"01:42", D2D1::RectF(rect.left, detailTop + 232.0f, rect.left + 60.0f, detailTop + 256.0f), palette_.muted, {12});
-    Text(playerView_.duration, D2D1::RectF(rect.left + availableWidth - 72.0f, detailTop + 232.0f, rect.left + availableWidth - 16.0f, detailTop + 256.0f), palette_.muted, {12});
+    const float progressTop = std::min(detailTop + 200.0f, rect.bottom - 46.0f);
+    DrawProgress(rect.left, progressTop, rect.left + std::min(360.0f, availableWidth - 24.0f), playerView_.progress);
+    Text(currentTime, D2D1::RectF(rect.left, progressTop + 12.0f, rect.left + 60.0f, progressTop + 36.0f), palette_.muted, {12});
+    Text(playerView_.duration, D2D1::RectF(rect.left + availableWidth - 76.0f, progressTop + 12.0f, rect.left + availableWidth - 16.0f, progressTop + 36.0f), palette_.muted, {12});
   }
 
   void DrawLyrics(D2D1_RECT_F rect) {
+    FillRound(D2D1::RectF(rect.left - 12.0f, rect.top - 10.0f, rect.right + 12.0f, rect.bottom), 12.0f,
+              D2D1::ColorF(0.985f, 0.976f, 0.955f, 0.62f));
+    StrokeRound(D2D1::RectF(rect.left - 12.0f, rect.top - 10.0f, rect.right + 12.0f, rect.bottom), 12.0f, palette_.line);
     Text(playerView_.title + L" - " + playerView_.artist, D2D1::RectF(rect.left, rect.top + 10, rect.right, rect.top + 42), palette_.text,
-         {20, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER});
+         {20, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER,
+          DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_TRIMMING_GRANULARITY_CHARACTER});
     Text(L"词：BottleMusic    曲：Native Preview", D2D1::RectF(rect.left, rect.top + 50, rect.right, rect.top + 78), palette_.muted,
-         {14, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
+         {13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
     if (lyricView_.state == LyricUiState::Empty) {
       Text(lyricView_.message, D2D1::RectF(rect.left, rect.top + 220, rect.right, rect.top + 260), palette_.muted,
            {18, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
       return;
     }
 
-    float y = rect.top + 100;
-    for (std::size_t i = 0; i < lyricView_.lines.size(); ++i) {
+    const float footerTop = rect.bottom - 60.0f;
+    const float clipTop = rect.top + 88.0f;
+    const std::size_t visibleCount = static_cast<std::size_t>(
+        std::max(1.0f, std::floor(std::max(42.0f, footerTop - clipTop - 12.0f) / 44.0f)));
+    const auto firstLine = FirstVisibleLyricLine(lyricView_.lines.size(), lyricView_.activeIndex, visibleCount);
+    const auto lastLine = std::min(lyricView_.lines.size(), firstLine + visibleCount);
+    float y = rect.top + 100.0f;
+    renderTarget_->PushAxisAlignedClip(
+        D2D1::RectF(rect.left, clipTop, rect.right, footerTop - 12.0f),
+        D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
+    for (std::size_t i = firstLine; i < lastLine; ++i) {
       const bool active = lyricView_.lines[i].active;
+      const float lineHeight = active ? 48.0f : 40.0f;
+      if (y + lineHeight > footerTop - 8.0f) {
+        break;
+      }
       Text(lyricView_.lines[i].text, D2D1::RectF(rect.left, y, rect.right, y + 38),
            active ? palette_.accent : D2D1::ColorF(0.38f, 0.38f, 0.36f),
-           {active ? 24.0f : 19.0f,
+           {active ? 24.0f : 18.0f,
             active ? DWRITE_FONT_WEIGHT_BOLD : DWRITE_FONT_WEIGHT_NORMAL,
-            DWRITE_TEXT_ALIGNMENT_CENTER});
-      y += active ? 48.0f : 42.0f;
+            DWRITE_TEXT_ALIGNMENT_CENTER,
+            DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
+            DWRITE_WORD_WRAPPING_NO_WRAP,
+            DWRITE_TRIMMING_GRANULARITY_CHARACTER});
+      y += lineHeight;
     }
+    renderTarget_->PopAxisAlignedClip();
     Text(L"歌词设置      翻译      歌词报错", D2D1::RectF(rect.left, rect.bottom - 72, rect.right, rect.bottom - 40),
          palette_.muted, {13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
   }
@@ -1616,6 +2398,7 @@ class MainWindow {
         std::max(0.0f, rect.bottom - rect.top - 190.0f),
         1);
     for (std::size_t i = visibleRows.first; i < visibleRows.lastExclusive; ++i) {
+      const auto& track = tracks[i];
       const float y = rect.top + 130.0f + static_cast<float>(i) * rowHeight - queueScrollOffset_;
       const bool active = i == queueState_.CurrentIndex();
       if (active) FillRound(D2D1::RectF(rect.left + 12, y - 10, rect.right - 12, y + 58), 7, palette_.panelStrong);
@@ -1623,11 +2406,13 @@ class MainWindow {
            active ? palette_.accent : palette_.text, {13});
       DrawArtwork(D2D1::RectF(rect.left + 54, y - 1, rect.left + 88, y + 33),
                   D2D1::ColorF(0.24f + static_cast<float>(i) * 0.04f, 0.34f, 0.40f),
-                  true);
-      Text(tracks[i].title, D2D1::RectF(rect.left + 98, y, rect.right - 90, y + 26), palette_.text,
+                  true,
+                  track.coverUrl.empty() ? std::string{} : "remote-cover:" + track.coverUrl,
+                  track.coverUrl);
+      Text(track.title, D2D1::RectF(rect.left + 98, y, rect.right - 90, y + 26), palette_.text,
            {14, DWRITE_FONT_WEIGHT_SEMI_BOLD});
-      Text(tracks[i].artist, D2D1::RectF(rect.left + 98, y + 26, rect.right - 90, y + 50), palette_.muted, {12});
-      Text(tracks[i].duration, D2D1::RectF(rect.right - 76, y + 8, rect.right - 20, y + 36), palette_.muted, {12});
+      Text(track.artist, D2D1::RectF(rect.left + 98, y + 26, rect.right - 90, y + 50), palette_.muted, {12});
+      Text(track.duration, D2D1::RectF(rect.right - 76, y + 8, rect.right - 20, y + 36), palette_.muted, {12});
       if (i + 1 < tracks.size()) StrokeLine(rect.left + 98, y + 62, rect.right - 24, y + 62, palette_.line);
     }
     Text(std::to_wstring(tracks.size()) + L" 首歌曲 · 33 分钟",
@@ -1653,18 +2438,85 @@ class MainWindow {
     Circle(left + (right - left) * progress, y, 6, palette_.accent);
   }
 
+  std::wstring PlaybackStateLabel() const {
+    switch (playerView_.state) {
+      case PlayerUiState::Resolving:
+        return L"解析中";
+      case PlayerUiState::Ready:
+        return L"就绪";
+      case PlayerUiState::Playing:
+        return L"播放中";
+      case PlayerUiState::Paused:
+        return L"已暂停";
+      case PlayerUiState::Error:
+        return L"错误";
+      case PlayerUiState::Idle:
+      default:
+        return L"待播放";
+    }
+  }
+
+  D2D1_COLOR_F PlaybackStateColor() const {
+    if (playerView_.state == PlayerUiState::Error) {
+      return D2D1::ColorF(0.72f, 0.18f, 0.16f);
+    }
+    if (playerView_.state == PlayerUiState::Playing) {
+      return palette_.accent;
+    }
+    if (playerView_.state == PlayerUiState::Resolving) {
+      return D2D1::ColorF(0.72f, 0.48f, 0.10f);
+    }
+    return palette_.muted;
+  }
+
   void DrawPlayerBar() {
     const auto bar = CalculatePlayerBarLayout(clientWidth_, clientHeight_);
-    FillRound(ToD2DRect(bar.bar), 8, palette_.panel);
-    StrokeRound(ToD2DRect(bar.bar), 8, palette_.line);
-    DrawArtwork(ToD2DRect(bar.albumArt), D2D1::ColorF(0.20f, 0.15f, 0.12f), true);
-    Text(surface_ == PageId::Home && playerView_.state == PlayerUiState::Idle ? L"Sunshine Acoustic" : playerView_.title,
-         ToD2DRect(bar.title), palette_.text, {15, DWRITE_FONT_WEIGHT_SEMI_BOLD});
-    Text(surface_ == PageId::Home && playerView_.state == PlayerUiState::Idle ? L"Leavv" : PlaybackSubtitle(playerView_),
-         ToD2DRect(bar.artist), palette_.muted, {13});
+    const D2D1_RECT_F barRect = D2D1::RectF(bar.bar.left, bar.bar.top - 1.0f,
+                                            bar.bar.right, bar.bar.bottom);
+    // List 19：玻璃面板（毛玻璃 + 纸纹 + 高光边）。glass_ 未就绪时（CI / 设备丢失中）
+    // 退回原 Paper 纯色，保证视觉不致出现透明黑色背景。
+    if (glass_.ready()) {
+      glass_.DrawGlassPanel(
+          barRect,
+          theme::color::GlassTint(),
+          theme::color::GlassEdge(),
+          &paperTex_,
+          0.22f);
+    } else {
+      FillRect(barRect, palette_.panel);
+    }
+    StrokeLine(bar.bar.left, bar.bar.top, bar.bar.right, bar.bar.top, palette_.line);
+    StrokeLine(bar.progress.left, bar.bar.top + 8.0f, bar.progress.right, bar.bar.top + 8.0f,
+               D2D1::ColorF(0.64f, 0.64f, 0.60f, 0.28f), 2.0f);
+    StrokeLine(bar.progress.left, bar.bar.top + 8.0f,
+               bar.progress.left + (bar.progress.right - bar.progress.left) * static_cast<float>(playerView_.progress),
+               bar.bar.top + 8.0f, palette_.accent, 2.0f);
+    DrawArtwork(ToD2DRect(bar.albumArt),
+                D2D1::ColorF(0.20f, 0.15f, 0.12f),
+                true,
+                playerView_.imageKey,
+                playerView_.coverUrl);
+    Text(playerView_.title, ToD2DRect(bar.title), palette_.text,
+         {16, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
+          DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_TRIMMING_GRANULARITY_CHARACTER});
+    Text(PlaybackSubtitle(playerView_), ToD2DRect(bar.artist), palette_.muted,
+         {13, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING, DWRITE_PARAGRAPH_ALIGNMENT_NEAR,
+          DWRITE_WORD_WRAPPING_NO_WRAP, DWRITE_TRIMMING_GRANULARITY_CHARACTER});
     if (bar.showFavorite) {
       Text(L"♥", ToD2DRect(bar.favorite), palette_.accent, {22});
     }
+
+    const float badgeLeft = bar.albumArt.right + 18.0f;
+    const auto badgeRect = D2D1::RectF(badgeLeft, bar.bar.top + 82.0f, badgeLeft + 72.0f, bar.bar.top + 104.0f);
+    FillRound(badgeRect, 11.0f, D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.42f));
+    StrokeRound(badgeRect, 11.0f, PlaybackStateColor());
+    Text(PlaybackStateLabel(), D2D1::RectF(badgeRect.left, badgeRect.top + 3.0f, badgeRect.right, badgeRect.bottom),
+         PlaybackStateColor(), {12, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_CENTER});
+    const std::wstring sourceText = playerView_.sourceUrl.empty() ? deviceStatus_ : L"音频流已连接";
+    Text(sourceText, D2D1::RectF(badgeRect.right + 8.0f, badgeRect.top + 3.0f, std::min(bar.progress.left - 16.0f, badgeRect.right + 220.0f), badgeRect.bottom),
+         palette_.faint, {12, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING,
+                          DWRITE_PARAGRAPH_ALIGNMENT_NEAR, DWRITE_WORD_WRAPPING_NO_WRAP,
+                          DWRITE_TRIMMING_GRANULARITY_CHARACTER});
 
     if (bar.showSecondaryControls) {
       Text(L"♢", ToD2DRect(bar.shuffle), palette_.muted, {21, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
@@ -1681,29 +2533,52 @@ class MainWindow {
     if (bar.showSecondaryControls) {
       Text(L"↻", ToD2DRect(bar.repeat), palette_.muted, {21, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
     }
-    Text(playerView_.state == PlayerUiState::Idle ? L"01:42" : playerView_.current,
-         ToD2DRect(bar.currentTime), palette_.muted, {12});
-    DrawProgress(bar.progress.left, bar.progress.top, bar.progress.right,
-                 playerView_.state == PlayerUiState::Idle ? 0.55f : static_cast<float>(playerView_.progress));
-    Text(surface_ == PageId::Home && playerView_.state == PlayerUiState::Idle ? L"03:54" : playerView_.duration,
-         ToD2DRect(bar.duration), palette_.muted, {12});
+    Text(playerView_.current, ToD2DRect(bar.currentTime), palette_.muted,
+         {12, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_TRAILING});
+    DrawProgress(bar.progress.left, bar.progress.top, bar.progress.right, static_cast<float>(playerView_.progress));
+    Text(playerView_.duration, ToD2DRect(bar.duration), palette_.muted, {12});
 
     if (bar.showVolume) {
-      Text(L"🔊", ToD2DRect(bar.volumeIcon), palette_.muted, {17});
+      Text(L"音量", D2D1::RectF(bar.volumeIcon.left - 22.0f, bar.volumeIcon.top + 2.0f, bar.volumeIcon.right + 38.0f,
+                                bar.volumeIcon.bottom),
+           palette_.muted, {12, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
       DrawProgress(bar.volume.left, bar.volume.top, bar.volume.right, volume_);
+      Text(std::to_wstring(static_cast<int>(std::round(volume_ * 100.0f))) + L"%",
+           D2D1::RectF(bar.volume.right + 8.0f, bar.volume.top - 11.0f, bar.volume.right + 48.0f, bar.volume.top + 12.0f),
+           palette_.faint, {12});
     }
     Text(L"≡", ToD2DRect(bar.queue), palette_.muted, {22, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_CENTER});
     DrawButton(ToD2DRect(bar.lyric), L"词", false);
   }
 
   HWND hwnd_ = nullptr;
-  ID2D1Factory* d2dFactory_ = nullptr;
-  ID2D1HwndRenderTarget* renderTarget_ = nullptr;
+  // 渲染管线（拥有 Factory1 / D3D11 / D2D Device / DeviceContext / SwapChain1 / 后台缓冲）。
+  // d2dFactory_ 与 renderTarget_ 是其内部资源的非拥有指针缓存，便于现有 ~160 处
+  // renderTarget_->X() / d2dFactory_->Y() 调用无须批量改写。
+  RenderPipeline renderPipeline_;
+  ID2D1Factory1* d2dFactory_ = nullptr;
+  ID2D1DeviceContext* renderTarget_ = nullptr;
   ID2D1Bitmap* appIconBitmap_ = nullptr;
   IDWriteFactory* writeFactory_ = nullptr;
+  // 虚线笔刷样式（D2D1Factory 级别对象，工厂存活期间复用，不随设备丢失重建）。
+  // 用于 Newsprint hero 内边框（.feature .hero::before 6px inset dashed）。
+  ID2D1StrokeStyle* dashStrokeStyle_ = nullptr;
+  // 短期 brush（按颜色一次性创建，绘制完即释放）。用于偶发的非 palette 颜色绘制。
+  ID2D1SolidColorBrush* EnsureSolidBrush(const D2D1_COLOR_F& color) {
+    if (transientBrush_) { transientBrush_->Release(); transientBrush_ = nullptr; }
+    if (renderTarget_) renderTarget_->CreateSolidColorBrush(color, &transientBrush_);
+    return transientBrush_;
+  }
+  ID2D1SolidColorBrush* transientBrush_ = nullptr;
+  // Newsprint 排版绘制助手（TextFormat 缓存在 InitializeFonts 后跨设备复用；
+  // 笔刷在 AttachContext / DetachContext 随设备生命周期管理）。
+  Painter painter_;
+  // List 19：玻璃面板 + 纸纹（设备相关，CreateDeviceResources/DiscardDeviceResources 管理）。
+  GlassPanel    glass_;
+  PaperTexture  paperTex_;
   ImageSlot appIconSlot_;
   std::future<ImageSlotPayload> appIconFuture_;
-  Palette palette_;
+  Palette palette_ = MakeNewsprintPalette();
   void NavigateTo(PageId page) {
     navigation_.NavigateTo(page);
     surface_ = navigation_.Current();
@@ -1738,33 +2613,49 @@ class MainWindow {
   float clientWidth_ = 1600.0f;
   float clientHeight_ = 1060.0f;
   MelodyLayout layout_ = CalculateMelodyLayout(1600.0f, 1060.0f);
+  image::MemoryImageCache imageMemoryCache_{32 * 1024 * 1024};
+  image::DiskImageCache imageDiskCache_{storage::GetAppDataDirectory() / L"image-cache", 128 * 1024 * 1024};
+  image::ImageLoader imageLoader_{imageMemoryCache_, imageDiskCache_};
+  core::HttpClient imageHttpClient_;
+  std::unordered_map<std::string, ArtworkState> artworkStates_;
   float queueScrollOffset_ = 0.0f;
   SearchViewModel searchView_;
   std::future<nlohmann::json> searchFuture_;
   std::string searchKeyword_;
+  std::future<nlohmann::json> queuePlaybackSearchFuture_;
+  std::string queuePlaybackSearchKeyword_;
+  SearchResultRow pendingQueuePlaybackRow_;
   SearchInputState searchInput_;
   float searchScrollOffset_ = 0.0f;
   playback::PlaybackController playback_;
   bool playbackInitialized_ = false;
   float volume_ = 0.48f;
   PlaybackQueueState queueState_ = PlaybackQueueState({
-      {L"晴天", L"周杰伦", L"叶惠美", L"04:29"},
-      {L"七里香", L"周杰伦", L"七里香", L"04:57"},
-      {L"一路向北", L"周杰伦", L"Initial J", L"04:55"},
-      {L"稻香", L"周杰伦", L"魔杰座", L"03:43"},
-      {L"夜曲", L"周杰伦", L"十一月的萧邦", L"03:48"},
-      {L"不能说的秘密", L"周杰伦", L"不能说的秘密", L"04:56"},
-      {L"简单爱", L"周杰伦", L"范特西", L"04:30"},
-      {L"轨迹", L"周杰伦", L"寻找周杰伦", L"04:41"},
+      {L"晴天", L"周杰伦", L"叶惠美", L"04:29", "http://imge.kugou.com/stdmusic/480/20230920/20230920142503632013.jpg"},
+      {L"七里香", L"周杰伦", L"七里香", L"04:57", "http://imge.kugou.com/stdmusic/480/20150720/20150720110818420908.jpg"},
+      {L"一路向北", L"周杰伦", L"Initial J", L"04:55", "http://imge.kugou.com/stdmusic/480/20150720/20150720110818420908.jpg"},
+      {L"稻香", L"周杰伦", L"魔杰座", L"03:43", "http://imge.kugou.com/stdmusic/480/20150720/20150720110818420908.jpg"},
+      {L"夜曲", L"周杰伦", L"十一月的萧邦", L"03:48", "http://imge.kugou.com/stdmusic/480/20150720/20150720110818420908.jpg"},
+      {L"不能说的秘密", L"周杰伦", L"不能说的秘密", L"04:56", "http://imge.kugou.com/stdmusic/480/20150720/20150720110818420908.jpg"},
+      {L"简单爱", L"周杰伦", L"范特西", L"04:30", "http://imge.kugou.com/stdmusic/480/20150720/20150720110818420908.jpg"},
+      {L"轨迹", L"周杰伦", L"寻找周杰伦", L"04:41", "http://imge.kugou.com/stdmusic/480/20150720/20150720110818420908.jpg"},
   });
   PlaybackViewModel playerView_;
   SearchResultRow pendingPlaybackRow_;
+  std::vector<SearchResultRow> playbackCandidates_;
+  std::size_t playbackCandidateIndex_ = 0;
   std::future<nlohmann::json> songUrlFuture_;
   std::future<nlohmann::json> lyricSearchFuture_;
   std::future<nlohmann::json> lyricDetailFuture_;
   core::LyricDocument lyricDocument_;
   LyricViewModel lyricView_;
   std::int64_t playbackPositionMs_ = 102000;
+  
+  bool isRequestingQr_ = false;
+  std::string loginQrKey_;
+  std::string loginQrUrl_;
+  std::future<nlohmann::json> loginQrFuture_;
+  std::future<nlohmann::json> loginPollFuture_;
 };
 
 }  // namespace

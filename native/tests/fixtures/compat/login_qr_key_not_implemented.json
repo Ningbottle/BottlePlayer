@@ -1,0 +1,13 @@
+{
+  "_meta": {
+    "route": "/login/qr/key",
+    "params": {},
+    "volatile_paths": [],
+    "description": "Login QR key route: until native login is migrated, the route must fail in a stable native_not_implemented shape."
+  },
+  "status": 0,
+  "error_code": "native_not_implemented",
+  "error": "Native C++ compatibility route has not been ported yet",
+  "path": "/login/qr/key",
+  "data": null
+}

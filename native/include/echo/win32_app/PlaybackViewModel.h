@@ -1,10 +1,12 @@
 #pragma once
 
 #include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
 #include "echo/win32_app/LyricViewModel.h"
+#include "echo/win32_app/PlaybackQueue.h"
 #include "echo/win32_app/SearchViewModel.h"
 
 namespace echo::win32_app {
@@ -39,5 +41,21 @@ void ApplyPlaybackProgress(
     LyricViewModel& lyric,
     const core::LyricDocument& document,
     double progress);
+void ApplyPlaybackStateSnapshot(
+    PlaybackViewModel& playback,
+    LyricViewModel& lyric,
+    const core::LyricDocument& document,
+    const core::PlaybackState& state);
+SearchResultRow BuildSearchRowFromQueueTrack(const QueueTrack& track);
+std::wstring BuildQueueTrackSearchText(const QueueTrack& track);
+std::vector<SearchResultRow> RankQueuePlaybackCandidates(const SearchResultRow& requested, const SearchViewModel& lookup);
+SearchResultRow PickQueuePlaybackCandidate(const SearchResultRow& requested, const SearchViewModel& lookup);
+bool TryAdvancePlaybackCandidate(
+    const std::vector<SearchResultRow>& candidates,
+    std::size_t& currentIndex,
+    SearchResultRow& pendingRow,
+    PlaybackViewModel& playback,
+    LyricViewModel& lyric,
+    const std::wstring& lastError);
 
 }  // namespace echo::win32_app

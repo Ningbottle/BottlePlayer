@@ -6,14 +6,21 @@
 
 #include "echo/core/CatalogService.h"
 #include "echo/core/DeviceService.h"
+#include "echo/core/HomeService.h"
 #include "echo/core/JsonHelpers.h"
+#include "echo/core/LoginService.h"
 #include "echo/core/LyricService.h"
 #include "echo/core/PlaylistService.h"
 #include "echo/core/PrivilegeService.h"
 #include "echo/core/RankService.h"
 #include "echo/core/SearchService.h"
 #include "echo/core/SongUrlService.h"
+#include "echo/core/UserService.h"
+#include "echo/core/SongService.h"
+#include "echo/core/PlayHistoryService.h"
+#include "echo/core/UserCloudService.h"
 #include "echo/storage/DeviceRepository.h"
+#include "echo/storage/SessionRepository.h"
 
 namespace echo::core {
 namespace {
@@ -360,8 +367,257 @@ CompatResponse CompatApi::HandleKnownRoute(
   }
 
   if (path == "/comment/music" || path == "/comment/playlist" ||
-      path == "/comment/album" || path == "/user/history" || path == "/user/cloud") {
+      path == "/comment/album") {
     return JsonResponse(EmptyPagedData());
+  }
+
+  if (path == "/user/history") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    const std::string bp = QueryValue(query, "bp");
+    PlayHistoryService playSvc;
+    return JsonResponse(playSvc.GetUserHistory(userId, token, bp));
+  }
+
+  if (path == "/playlist/add") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    const std::string name = QueryValue(query, "name");
+    const int type = QueryInt(query, "type", 0);
+    const int source = QueryInt(query, "source", 1);
+    const std::string createUserId = QueryValue(query, "list_create_userid");
+    const std::string createListId = QueryValue(query, "list_create_listid");
+    const std::string createGid = QueryValue(query, "list_create_gid");
+
+    PlaylistService playlist;
+    return JsonResponse(playlist.AddPlaylist(
+        userId, token, name, type, source, createUserId, createListId, createGid));
+  }
+
+  if (path == "/playlist/del") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    const std::string listIdStr = QueryValue(query, "listid", QueryValue(query, "id"));
+    const long long listId = listIdStr.empty() ? 0 : std::stoll(listIdStr);
+
+    PlaylistService playlist;
+    return JsonResponse(playlist.DeletePlaylist(userId, token, listId));
+  }
+
+  if (path == "/playlist/tracks/add") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    const std::string listId = QueryValue(query, "listid", QueryValue(query, "id"));
+    const std::string data = QueryValue(query, "data");
+
+    PlaylistService playlist;
+    return JsonResponse(playlist.AddPlaylistTracks(userId, token, listId, data));
+  }
+
+  if (path == "/playlist/tracks/del") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    const std::string listId = QueryValue(query, "listid", QueryValue(query, "id"));
+    const std::string fileids = QueryValue(query, "fileids", QueryValue(query, "ids", QueryValue(query, "data")));
+
+    PlaylistService playlist;
+    return JsonResponse(playlist.DeletePlaylistTracks(userId, token, listId, fileids));
+  }
+
+  if (path == "/user/detail") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    if (handlers_.userDetail) {
+      return JsonResponse(handlers_.userDetail(userId, token));
+    }
+    UserService userSvc;
+    return JsonResponse(userSvc.GetUserDetail(userId, token));
+  }
+
+  if (path == "/user/vip/detail") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    if (handlers_.userVip) {
+      return JsonResponse(handlers_.userVip(userId, token));
+    }
+    UserService userSvc;
+    return JsonResponse(userSvc.GetUserVip(userId, token));
+  }
+
+  if (path == "/youth/day/vip") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    UserService userSvc;
+    return JsonResponse(userSvc.ClaimVip(userId, token));
+  }
+
+  if (path == "/everyday/recommend") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    if (handlers_.everydayRecommend) {
+      return JsonResponse(handlers_.everydayRecommend(userId, token));
+    }
+    HomeService homeSvc;
+    return JsonResponse(homeSvc.GetEverydayRecommend(userId, token));
+  }
+
+  if (path == "/login/qr/key") {
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+    if (handlers_.loginQrKey) {
+      return JsonResponse(handlers_.loginQrKey(device));
+    }
+    LoginService login;
+    return JsonResponse(login.BeginQrLogin(device));
+  }
+
+  if (path == "/login/qr/create") {
+    const auto key = QueryValue(query, "key");
+    if (key.empty()) {
+      return JsonResponse({{"status", 0}, {"error", "missing key parameter"}, {"data", nullptr}});
+    }
+    const auto qrcodeUrl = "https://h5.kugou.com/apps/loginQRCode/html/index.html?qrcode=" + key;
+    return JsonResponse({
+        {"status", 1},
+        {"data", {{"qrcode", key}, {"qrcodeurl", qrcodeUrl}}},
+    });
+  }
+
+  if (path == "/login/qr/check") {
+    const auto key = QueryValue(query, "key");
+    if (key.empty()) {
+      return JsonResponse({{"status", 0}, {"error", "missing key parameter"}, {"data", nullptr}});
+    }
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+    nlohmann::json result;
+    if (handlers_.loginQrCheck) {
+      result = handlers_.loginQrCheck(device, key);
+    } else {
+      LoginService login;
+      result = login.PollQrLogin(device, key);
+    }
+
+    // Persist session on successful login.
+    if (result.contains("data") && result["data"].is_object()) {
+      const auto& data = result["data"];
+      if (data.value("status", 0) == 4) {
+        SessionInfo session;
+        session.token = data.value("token", "");
+        session.userId = data.contains("userid")
+            ? (data["userid"].is_string()
+                   ? data["userid"].get<std::string>()
+                   : std::to_string(data["userid"].get<std::int64_t>()))
+            : "";
+        if (!session.token.empty() && !session.userId.empty()) {
+          storage::SessionRepository sessionRepo(database_);
+          sessionRepo.Save(session);
+        }
+      }
+    }
+    return JsonResponse(result);
+  }
+
+  if (path == "/song/climax") {
+    SongService songSvc;
+    return JsonResponse(songSvc.GetClimax(QueryValue(query, "hash")));
+  }
+
+  if (path == "/song/ranking") {
+    SongService songSvc;
+    return JsonResponse(songSvc.GetRanking(QueryValue(query, "album_audio_id")));
+  }
+
+  if (path == "/song/ranking/filter") {
+    SongService songSvc;
+    return JsonResponse(songSvc.GetRankingFilter(
+        QueryValue(query, "album_audio_id"),
+        QueryInt(query, "page", 1),
+        QueryInt(query, "pagesize", 30)));
+  }
+
+  if (path == "/images/audio") {
+    HomeService homeSvc;
+    return JsonResponse(homeSvc.GetImagesAudio(
+        QueryValue(query, "hash"),
+        QueryValue(query, "audio_id"),
+        QueryValue(query, "album_audio_id"),
+        QueryValue(query, "filename"),
+        QueryInt(query, "count", 5)));
+  }
+
+  if (path == "/playhistory/upload") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    
+    std::string mxidStr = QueryValue(query, "mxid");
+    std::string timeStr = QueryValue(query, "time");
+    int pc = QueryInt(query, "pc", 1);
+
+    PlayHistoryService playSvc;
+    long long mxidVal = mxidStr.empty() ? 0 : std::stoll(mxidStr);
+    long long timeVal = timeStr.empty() ? 0 : std::stoll(timeStr);
+    return JsonResponse(playSvc.UploadSong(userId, token, mxidVal, timeVal, pc));
+  }
+
+  if (path == "/user/cloud") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    const int page = QueryInt(query, "page", 1);
+    const int pageSize = QueryInt(query, "pagesize", 30);
+    UserCloudService cloudSvc;
+    return JsonResponse(cloudSvc.GetList(userId, token, page, pageSize));
+  }
+
+  if (path == "/playlist/detail") {
+    const auto id = QueryValue(query, "id", QueryValue(query, "ids"));
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "0";
+    const std::string token = session ? session->token : "";
+    if (handlers_.playlistDetail) {
+      return JsonResponse(handlers_.playlistDetail(id, userId, token));
+    }
+    PlaylistService playlist;
+    return JsonResponse(playlist.GetPlaylistDetail(id, userId, token));
+  }
+
+  if (path == "/user/playlist") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+    const int page = QueryInt(query, "page", 1);
+    const int pageSize = QueryInt(query, "pagesize", 30);
+    if (handlers_.userPlaylist) {
+      return JsonResponse(handlers_.userPlaylist(userId, token, page, pageSize));
+    }
+    PlaylistService playlist;
+    return JsonResponse(playlist.GetUserPlaylists(userId, token, page, pageSize));
   }
 
   return JsonResponse(NativeNotImplementedPayload(path), 501);

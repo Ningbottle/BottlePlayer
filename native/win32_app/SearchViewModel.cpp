@@ -3,6 +3,7 @@
 #include <iomanip>
 #include <sstream>
 #include <string_view>
+#include <utility>
 
 #include <windows.h>
 
@@ -27,6 +28,40 @@ std::wstring Utf8ToWide(const std::string& value) {
 std::string JsonString(const nlohmann::json& value, std::string_view key) {
   const auto found = value.find(std::string(key));
   return found != value.end() && found->is_string() ? found->get<std::string>() : "";
+}
+
+std::string NestedJsonString(const nlohmann::json& value, std::string_view objectKey, std::string_view key) {
+  const auto object = value.find(std::string(objectKey));
+  if (object == value.end() || !object->is_object()) {
+    return {};
+  }
+  return JsonString(*object, key);
+}
+
+std::pair<std::string, std::string> SplitFileName(const std::string& value) {
+  const auto delimiter = value.find(" - ");
+  if (delimiter == std::string::npos) {
+    return {"", value};
+  }
+  return {value.substr(0, delimiter), value.substr(delimiter + 3)};
+}
+
+std::string NormalizeCoverUrl(std::string value) {
+  if (value.empty()) {
+    return {};
+  }
+
+  for (const auto token : {"{size}", "{SIZE}"}) {
+    std::string::size_type pos = 0;
+    while ((pos = value.find(token, pos)) != std::string::npos) {
+      value.replace(pos, std::char_traits<char>::length(token), "480");
+      pos += 3;
+    }
+  }
+  if (value.rfind("//", 0) == 0) {
+    value.insert(0, "https:");
+  }
+  return value;
 }
 
 int JsonInt(const nlohmann::json& value, std::string_view key) {
@@ -108,18 +143,24 @@ SearchViewModel BuildSearchViewModel(const std::string& keyword, const nlohmann:
 
   for (const auto& row : *rows) {
     SearchResultRow item;
-    item.title = Utf8ToWide(JsonString(row, "SongName").empty() ? JsonString(row, "songname") : JsonString(row, "SongName"));
-    item.artist = Utf8ToWide(JsonString(row, "SingerName").empty() ? JsonString(row, "singername") : JsonString(row, "SingerName"));
+    const auto fileName = FirstNonEmpty({JsonString(row, "FileName"), JsonString(row, "filename")});
+    const auto [fileArtist, fileTitle] = SplitFileName(fileName);
+    item.title = Utf8ToWide(FirstNonEmpty({JsonString(row, "SongName"), JsonString(row, "songname"), fileTitle}));
+    item.artist = Utf8ToWide(FirstNonEmpty({JsonString(row, "SingerName"), JsonString(row, "singername"), fileArtist}));
     item.album = Utf8ToWide(JsonString(row, "AlbumName").empty() ? JsonString(row, "album_name") : JsonString(row, "AlbumName"));
     item.duration = FormatDuration(JsonInt(row, "Duration") == 0 ? JsonInt(row, "duration") : JsonInt(row, "Duration"));
     item.hash = JsonString(row, "FileHash").empty() ? JsonString(row, "hash") : JsonString(row, "FileHash");
-    item.coverUrl = FirstNonEmpty({
+    item.privilege = JsonInt(row, "privilege");
+    item.payType = JsonInt(row, "pay_type");
+    item.coverUrl = NormalizeCoverUrl(FirstNonEmpty({
         JsonString(row, "Image"),
         JsonString(row, "imgurl"),
         JsonString(row, "cover"),
         JsonString(row, "pic_url"),
         JsonString(row, "sizable_cover"),
-    });
+        JsonString(row, "album_sizable_cover"),
+        NestedJsonString(row, "trans_param", "union_cover"),
+    }));
     if (!item.coverUrl.empty()) {
       item.imageKey = "remote-cover:" + item.coverUrl;
     }

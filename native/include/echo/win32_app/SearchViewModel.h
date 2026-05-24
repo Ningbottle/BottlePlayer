@@ -23,6 +23,8 @@ struct SearchResultRow {
   std::string hash;
   std::string coverUrl;
   std::string imageKey;
+  int privilege = 0;
+  int payType = 0;
 };
 
 struct SearchViewModel {
