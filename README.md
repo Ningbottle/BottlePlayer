@@ -1,99 +1,65 @@
 # BottleMusic
 
-BottleMusic 是一个面向 Windows 的原生音乐播放器重构项目，目标是把现有 Electron/Vue/Node 版本逐步迁移到 C++20、Win32、Direct2D、DirectWrite 和 Media Foundation 架构下，降低常驻内存并保留完整音乐客户端体验。
-
-## 当前状态
-
-- 已删除原 EchoMusic 的 Electron/Vue 前端代码；当前项目以 BottleMusic 原生客户端为主。
-- 已删除旧 Flutter 跨平台桌面工程残留；当前桌面原生客户端只面向 Windows 10/11 x64。
-- 已保留 `server/` 子模块作为 KuGouMusicApi 行为参考和未完成接口迁移来源。
-- 已新增 `native/` C++ 工程骨架。
-- 已实现部分兼容 HTTP API、后端 DTO、SQLite 存储、WinHTTP 请求封装和 Win32 绘制壳。
-- 原生 UI 仍在迭代中，当前重点是按参考图修正布局、播放栏、歌词页和响应式行为。
+BottleMusic 是面向 Windows 10/11 x64 的音乐客户端。
+前端使用 **Tauri 2.0 + Vue 3 + Vanilla CSS**，后端使用 **C++ EchoCompatServer** 作为 HTTP sidecar，两端通过 `127.0.0.1:6609` loopback 通信。
 
 ## 技术栈
 
-- C++20
-- Win32 API
-- Direct2D
-- DirectWrite
-- WIC
-- Media Foundation
-- SQLite
-- CMake
-- vcpkg
+| 层 | 技术 |
+| --- | --- |
+| 前端窗口壳 | Tauri 2.0（Rust + WRY WebView2） |
+| UI 框架 | Vue 3（Composition API） |
+| 样式 | Vanilla CSS（Newsprint 报纸风，无 CSS 框架） |
+| 构建 | Vite 6 + pnpm 11 |
+| 后端 sidecar | C++ EchoCompatServer（`127.0.0.1:6609`） |
+| 业务模块 | EchoCore / EchoStorage / EchoPlayback / EchoImage / EchoAsync / EchoDiagnostics |
+| 构建系统 | CMake + vcpkg（MSVC C++20） |
 
-## 原生模块规划
+## 目录结构
 
-```text
-EchoCore          酷狗业务接口、DTO、错误模型
-EchoStorage       SQLite、migration、cache metadata
-EchoPlayback      Media Foundation 播放状态机
-EchoWin32         Win32 + Direct2D + DirectWrite UI
-EchoImage         WIC decode + disk cache + memory LRU
-EchoAsync         thread pool、event queue、cancellation
-EchoDiagnostics   logging、trace、memory snapshot
-EchoCompatServer  dev-only compatibility server
+```
+EchoMusic-tauri/ui/     ← Tauri + Vue 3 前端（tauri-experiment 分支 git worktree）
+EchoMusic-main/native/  ← C++ 后端（main 分支）
+EchoMusic-main/server/  ← KuGouMusicApi 参考实现（接口迁移来源）
 ```
 
-## 文档入口
+## 文档
 
-- [产品愿景](docs/PRODUCT_VISION.zh-CN.md)
-- [技术栈](docs/TECH_STACK.zh-CN.md)
-- [架构设计](docs/ARCHITECTURE.zh-CN.md)
-- [模块说明](docs/MODULES.zh-CN.md)
-- [内存预算](docs/MEMORY_BUDGET.zh-CN.md)
-- [开发规则](docs/IMPLEMENTATION_RULES.zh-CN.md)
-- [TDD 计划](docs/TDD_PLAN.zh-CN.md)
-- [技能使用规范](docs/SKILL_USAGE.zh-CN.md)
-- [Melody UI 参考](docs/UI_REFERENCE_MELODY.zh-CN.md)
+- [`docs/REFERENCE.zh-CN.md`](docs/REFERENCE.zh-CN.md) — 技术栈、架构、迁移注意事项、内存预算、开发约束
+- [`docs/WORKLIST.zh-CN.md`](docs/WORKLIST.zh-CN.md) — 长期任务队列、验证命令、历史内存基线
 
-## 本地构建
+## 快速开始
 
-原生工程位于 `native/`。建议先进入 Visual Studio Developer Command Prompt，或在 PowerShell 中通过 `VsDevCmd.bat` 初始化 MSVC 环境。
+### 前端开发（Tauri + Vue 3）
 
 ```powershell
+cd ..\EchoMusic-tauri\ui
+pnpm install
+pnpm approve-builds --all
+pnpm tauri dev       # 首跑编译 Rust crate ~5-10 分钟；之后 < 30 秒
+```
+
+### 后端构建（C++ EchoCompatServer）
+
+```powershell
+cd EchoMusic-main
+pnpm --prefix ..\EchoMusic-tauri\ui backend:build
+```
+
+或手动 CMake：
+
+```powershell
+# 在 Visual Studio Developer Command Prompt 或 VsDevCmd.bat 初始化的 PowerShell 里
 cmake -S native --preset bottlemusic-check
-cmake --build native/out/bottlemusic-check --target EchoNativeSmokeTests EchoWin32 EchoCompatServer
-ctest --test-dir native/out/bottlemusic-check --output-on-failure
+cmake --build native/out/bottlemusic-check --target EchoCompatServer
 ```
 
-Release 构建：
+### 原生 C++ 客户端（历史，仅 main 分支）
 
 ```powershell
-cmake -S native --preset bottlemusic-release
-cmake --build native/out/bottlemusic-release --target EchoNativeSmokeTests EchoWin32 EchoCompatServer
-ctest --test-dir native/out/bottlemusic-release --output-on-failure
-```
-
-启动原生 UI：
-
-```powershell
+cmake --build native/out/bottlemusic-check --target EchoWin32
 .\native\out\bottlemusic-check\EchoWin32.exe
 ```
-
-启动开发期兼容服务：
-
-```powershell
-.\native\out\bottlemusic-check\EchoCompatServer.exe --host 127.0.0.1 --port 6609
-```
-
-`EchoCompatServer` 只用于开发期验证旧接口形态；最终原生客户端不依赖本地 HTTP 服务。
-
-## 当前已知缺口
-
-- Melody 视觉还需要人工截图确认，尤其是 1600x1060 首页和播放详情页。
-- 真实播放的长时间稳定性仍需补充：连续播放 4 小时、连续切歌 100 次。
-- 真实酷狗网络接口仍有一部分处在兼容迁移阶段。
-- 当前封面/推荐数据仍混有占位内容，最终需要接入真实图片和缓存淘汰验证。
-- 安装包、自动更新、签名和正式发布流程尚未开始。
-- 不再维护旧 Flutter 的 Linux/macOS/Windows 平台工程。
-- 不再维护旧 Electron/Vue 前端；未完成接口以 `server/` 中的 KuGouMusicApi 实现作为参考。
-
-## 上游参考
-
-- [KuGouMusicApi](https://github.com/MakcRe/KuGouMusicApi)
-- `server/` 中的 KuGouMusicApi 参考实现
 
 ## 免责声明
 
