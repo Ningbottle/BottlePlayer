@@ -15,6 +15,14 @@ std::string SignatureAndroidParams(
     const std::unordered_map<std::string, std::string>& params,
     const std::string& data = "");
 
+// Register-flow signature: md5("1014" + sorted_values_joined + "1014").
+// Used by KuGou's risk service endpoints (e.g., /risk/v2/r_register_dev) in
+// some app builds. NOTE: MakcRe's `encryptType: 'android'` config might
+// actually be wrong for this endpoint — KuGou's signature error_code 20010
+// suggests it expects this register-style signature instead.
+std::string SignatureRegisterParams(
+    const std::unordered_map<std::string, std::string>& params);
+
 // Computes the `key` query parameter used by the cloud / images endpoints:
 //   MD5( appid + salt + clientver + data )
 // where salt = "OIlwieks28dk2k092lksi2UIkp"
@@ -46,5 +54,10 @@ AesKeyPair PlaylistAesEncrypt(const std::string& plaintext);
 // Decrypts a `PlaylistAesEncrypt` result.
 // Matches JS `playlistAesDecrypt`.
 std::string PlaylistAesDecrypt(const std::string& base64Cipher, const std::string& keySeed);
+
+// ── Base64 helpers ────────────────────────────────────────────────────────────
+// Encodes raw bytes (typically a binary HTTP response body) as Base64.
+// Useful for feeding `PlaylistAesDecrypt`, which expects base64 input.
+std::string Base64EncodeBytes(const std::string& rawBytes);
 
 }  // namespace echo::core

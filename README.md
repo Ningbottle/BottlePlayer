@@ -1,65 +1,41 @@
 # BottleMusic
 
-BottleMusic 是面向 Windows 10/11 x64 的音乐客户端。
-前端使用 **Tauri 2.0 + Vue 3 + Vanilla CSS**，后端使用 **C++ EchoCompatServer** 作为 HTTP sidecar，两端通过 `127.0.0.1:6609` loopback 通信。
+BottleMusic 是面向 Windows 10/11 x64 的轻量音乐客户端，主打 Newsprint 报纸风视觉与 ≤ 220 MB 内存预算。
 
-## 技术栈
-
-| 层 | 技术 |
-| --- | --- |
-| 前端窗口壳 | Tauri 2.0（Rust + WRY WebView2） |
-| UI 框架 | Vue 3（Composition API） |
-| 样式 | Vanilla CSS（Newsprint 报纸风，无 CSS 框架） |
-| 构建 | Vite 6 + pnpm 11 |
-| 后端 sidecar | C++ EchoCompatServer（`127.0.0.1:6609`） |
-| 业务模块 | EchoCore / EchoStorage / EchoPlayback / EchoImage / EchoAsync / EchoDiagnostics |
-| 构建系统 | CMake + vcpkg（MSVC C++20） |
+- **前端**：Tauri 2.0（Rust + WRY WebView2）+ Vue 3 + Vanilla CSS（无 CSS 框架）
+- **后端**：C++ EchoCompatServer HTTP sidecar（loopback `127.0.0.1:6609`）+ EchoCore / EchoStorage / EchoPlayback / EchoImage
+- **构建**：Vite 6 + pnpm 11 + CMake + MSVC C++20
 
 ## 目录结构
 
 ```
-EchoMusic-tauri/ui/     ← Tauri + Vue 3 前端（tauri-experiment 分支 git worktree）
-EchoMusic-main/native/  ← C++ 后端（main 分支）
-EchoMusic-main/server/  ← KuGouMusicApi 参考实现（接口迁移来源）
+EchoMusic-tauri/
+├── ui/         ← Tauri 2.0 + Vue 3 前端
+├── native/     ← C++ EchoCompatServer 后端
+├── server/     ← KuGouMusicApi 参考实现（接口迁移来源）
+├── docs/       ← REFERENCE / WORKLIST 文档
+└── CLAUDE.md   ← 长期 agent 入口（含当前 TODO）
 ```
-
-## 文档
-
-- [`docs/REFERENCE.zh-CN.md`](docs/REFERENCE.zh-CN.md) — 技术栈、架构、迁移注意事项、内存预算、开发约束
-- [`docs/WORKLIST.zh-CN.md`](docs/WORKLIST.zh-CN.md) — 长期任务队列、验证命令、历史内存基线
 
 ## 快速开始
 
-### 前端开发（Tauri + Vue 3）
-
 ```powershell
-cd ..\EchoMusic-tauri\ui
+# 前端开发
+cd ui
 pnpm install
-pnpm approve-builds --all
-pnpm tauri dev       # 首跑编译 Rust crate ~5-10 分钟；之后 < 30 秒
+pnpm tauri dev          # 首跑 5-10 分钟，之后 < 30s
+
+# 后端构建（VS Developer PowerShell）
+pnpm backend:build      # 等价于 cmake + sync 二进制到 ui/src-tauri/binaries/
+pnpm backend:sync       # 只同步已有产物
 ```
 
-### 后端构建（C++ EchoCompatServer）
+## 文档导览
 
-```powershell
-cd EchoMusic-main
-pnpm --prefix ..\EchoMusic-tauri\ui backend:build
-```
-
-或手动 CMake：
-
-```powershell
-# 在 Visual Studio Developer Command Prompt 或 VsDevCmd.bat 初始化的 PowerShell 里
-cmake -S native --preset bottlemusic-check
-cmake --build native/out/bottlemusic-check --target EchoCompatServer
-```
-
-### 原生 C++ 客户端（历史，仅 main 分支）
-
-```powershell
-cmake --build native/out/bottlemusic-check --target EchoWin32
-.\native\out\bottlemusic-check\EchoWin32.exe
-```
+- [`CLAUDE.md`](CLAUDE.md) — **入口文档**，含架构概览、构建命令、当前 TODO 列表
+- [`AGENTS.md`](AGENTS.md) — 通用 agent 工作规则（适用于 C++ 端，UI 端规则见 CLAUDE.md）
+- [`docs/REFERENCE.zh-CN.md`](docs/REFERENCE.zh-CN.md) — 技术栈、架构边界、内存预算、迁移注意事项
+- [`docs/WORKLIST.zh-CN.md`](docs/WORKLIST.zh-CN.md) — 长期任务队列与验收记录
 
 ## 免责声明
 

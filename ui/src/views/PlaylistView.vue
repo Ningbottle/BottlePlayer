@@ -1,0 +1,172 @@
+<script setup lang="ts">
+import { ref, onMounted, watch } from 'vue';
+import { apiGet } from '../api/backend';
+import { playTrack, playAll, playerStore } from '../api/playerStore';
+import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
+
+
+const props = defineProps<{
+  playlistId: string;
+  playlistName: string;
+}>();
+
+const loading = ref(false);
+const songs = ref<SongInfo[]>([]);
+const totalCount = ref(0);
+const page = ref(1);
+const error = ref('');
+
+async function loadPlaylistTracks() {
+  if (!props.playlistId) return;
+  loading.value = true;
+  error.value = '';
+  try {
+    const res = await apiGet<{ status: number; error?: string; data?: { list: SongInfo[], total: number } }>('/playlist/track/all', {
+      id: props.playlistId,
+      page: page.value,
+      pagesize: 50
+    });
+
+    if (res.status === 1 && res.data) {
+      songs.value = (res.data.list || []).map(normalizeTrack);
+      totalCount.value = res.data.total || songs.value.length;
+    } else {
+      error.value = res.error || '无法获取歌单曲目';
+    }
+  } catch (err: any) {
+    console.error('Playlist load error', err);
+    error.value = '连接 C++ 后端 Sidecar 出错';
+  } finally {
+    loading.value = false;
+  }
+}
+
+watch(() => props.playlistId, () => {
+  page.value = 1;
+  loadPlaylistTracks();
+});
+
+watch(page, () => {
+  loadPlaylistTracks();
+});
+
+onMounted(() => {
+  loadPlaylistTracks();
+});
+
+function handlePlay(song: SongInfo) {
+  playTrack(song);
+}
+
+function handlePlayAll() {
+  if (songs.value.length === 0) return;
+  playAll(songs.value, 0);
+}
+
+function formatDuration(sec: number) {
+  if (!sec) return '00:00';
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+}
+
+const isCurrentTrack = (song: SongInfo) => {
+  return playerStore.currentTrack?.FileHash === song.FileHash;
+};
+</script>
+
+<template>
+  <div class="list-view">
+    <div class="page-head">
+      <div>
+        <div class="kicker">PLAYLIST REVIEW · 歌单专栏</div>
+        <h1>{{ playlistName }}</h1>
+      </div>
+      <div class="date" style="display:flex; flex-direction:column; align-items:flex-end;">
+        <div>曲目数 <b>{{ totalCount }}</b> 首</div>
+        <button 
+          v-if="songs.length > 0"
+          class="play-cta" 
+          style="margin-top: 10px; font-size:12px; padding: 6px 14px;"
+          @click="handlePlayAll"
+        >
+          <span class="pp" style="width:18px; height:18px;">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="8" height="8">
+              <polygon points="6,4 20,12 6,20"/>
+            </svg>
+          </span>
+          播放全部
+        </button>
+      </div>
+    </div>
+
+    <!-- Spinner -->
+    <div v-if="loading" class="spinner">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+        <circle cx="12" cy="12" r="10" stroke="rgba(34,27,18,0.1)"></circle>
+        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
+      </svg>
+      采编中…
+    </div>
+
+    <!-- Error message -->
+    <div v-else-if="error" class="spinner" style="color: var(--accent);">
+      {{ error }}
+    </div>
+
+    <!-- Empty playlist -->
+    <div v-else-if="songs.length === 0" class="spinner">
+      该歌单暂无曲目记录。
+    </div>
+
+    <!-- Songs table list -->
+    <div v-else>
+      <div class="song-row" style="font-weight: 600; border-bottom: 2px solid var(--ink); cursor: default; background: transparent;">
+        <span class="index">#</span>
+        <span class="title">歌名</span>
+        <span class="artist">歌手</span>
+        <span class="album">专辑</span>
+        <span class="duration">时长</span>
+      </div>
+
+      <div 
+        v-for="(song, idx) in songs" 
+        :key="song.FileHash"
+        class="song-row"
+        :class="{ active: isCurrentTrack(song) }"
+        @click="handlePlay(song)"
+      >
+        <span class="index">{{ (page - 1) * 50 + idx + 1 }}</span>
+        <span class="title">{{ song.SongName }}</span>
+        <span class="artist">{{ song.SingerName }}</span>
+        <span class="album">{{ song.AlbumName || '—' }}</span>
+        <span class="duration">{{ formatDuration(song.Duration) }}</span>
+      </div>
+
+      <!-- Pagination if needed -->
+      <div v-if="totalCount > 50" style="display:flex; justify-content:center; gap: 14px; margin-top: 24px; font-family:'EB Garamond',serif; font-style:italic;">
+        <button 
+          class="icon-btn" 
+          :disabled="page === 1" 
+          style="width:auto; padding: 4px 14px; border-radius:14px;"
+          @click="page--"
+        >
+          ← Previous
+        </button>
+        <span style="line-height:30px; font-size:16px;">Page {{ page }}</span>
+        <button 
+          class="icon-btn" 
+          :disabled="songs.length < 50" 
+          style="width:auto; padding: 4px 14px; border-radius:14px;"
+          @click="page++"
+        >
+          Next →
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+/* Scoped overrides */
+</style>

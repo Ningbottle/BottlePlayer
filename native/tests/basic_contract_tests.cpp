@@ -491,6 +491,83 @@ int main() {
   assert(songUrl["data"]["play_url"] == "http://audio.example/song.mp3");
   assert(songUrl["data"]["backup_url"].size() == 1);
 
+  std::string capturedSongUrlRequest;
+  std::unordered_map<std::string, std::string> capturedSongUrlHeaders;
+  echo::core::SongUrlService authenticatedSongUrlService([&](
+                                                              const std::string& url,
+                                                              const std::unordered_map<std::string, std::string>& headers) {
+    capturedSongUrlRequest = url;
+    capturedSongUrlHeaders = headers;
+    return echo::core::HttpResult{
+        200,
+        R"({"status":1,"hash":"ABCDEF","url":"http://audio.example/authed.mp3"})",
+        ""};
+  });
+  const echo::core::DeviceInfo qrLoginDevice{
+      .dfid = "dfid123",
+      .mid = "mid123",
+      .uuid = "uuid123",
+      .guid = "uuid123",
+      .serverDev = "",
+      .mac = "mac123",
+      .appid = "1014",
+      .clientver = "20000"};
+  const auto authedSongUrl = authenticatedSongUrlService.Resolve(
+      "ABCDEF", "123", "456", "sq", "", "42", "tok", qrLoginDevice);
+  assert(authedSongUrl["status"] == 1);
+  const std::string expectedSongUrlKey = echo::core::CalculateMd5(
+      "abcdef57ae12eb6890223e355ccfcb74edf70d1005042");
+  assert(capturedSongUrlRequest.find("https://gateway.kugou.com/v5/url?") == 0);
+  assert(capturedSongUrlRequest.find("hash=abcdef") != std::string::npos);
+  assert(capturedSongUrlRequest.find("album_id=123") != std::string::npos);
+  assert(capturedSongUrlRequest.find("album_audio_id=456") != std::string::npos);
+  assert(capturedSongUrlRequest.find("quality=sq") != std::string::npos);
+  assert(capturedSongUrlRequest.find("appid=1005") != std::string::npos);
+  assert(capturedSongUrlRequest.find("clientver=11430") != std::string::npos);
+  assert(capturedSongUrlRequest.find("mid=0") != std::string::npos);
+  assert(capturedSongUrlRequest.find("dfid=-") != std::string::npos);
+  assert(capturedSongUrlRequest.find("uuid=-") != std::string::npos);
+  assert(capturedSongUrlRequest.find("userid=42") != std::string::npos);
+  assert(capturedSongUrlRequest.find("token=tok") != std::string::npos);
+  assert(capturedSongUrlRequest.find("key=" + expectedSongUrlKey) != std::string::npos);
+  assert(capturedSongUrlRequest.find("appid=1014") == std::string::npos);
+  assert(capturedSongUrlRequest.find("clientver=10000") == std::string::npos);
+  assert(capturedSongUrlHeaders["x-router"] == "trackercdn.kugou.com");
+  assert(capturedSongUrlHeaders["dfid"] == "-");
+  assert(capturedSongUrlHeaders["mid"] == "0");
+  assert(!capturedSongUrlHeaders["clienttime"].empty());
+
+  std::vector<std::string> previewRequests;
+  echo::core::SongUrlService previewSongUrlService([&](
+                                                       const std::string& url,
+                                                       const std::unordered_map<std::string, std::string>&) {
+    previewRequests.push_back(url);
+    if (previewRequests.size() == 1) {
+      assert(url.find("userid=42") != std::string::npos);
+      return echo::core::HttpResult{200, R"({"status":2,"errcode":20018})", ""};
+    }
+    if (previewRequests.size() == 2) {
+      assert(url.find("userid=42") == std::string::npos);
+      return echo::core::HttpResult{
+          200,
+          R"({"status":2,"fail_process":["pkg","buy"],"hash_offset":{"offset_hash":"OFFSETHASH"}})",
+          ""};
+    }
+    assert(url.find("hash=offsethash") != std::string::npos);
+    assert(url.find("IsFreePart=1") != std::string::npos);
+    assert(url.find("userid=42") == std::string::npos);
+    return echo::core::HttpResult{
+        200,
+        R"({"status":1,"hash":"OFFSETHASH","url":["http://audio.example/preview.mp3"]})",
+        ""};
+  });
+  const auto previewSongUrl = previewSongUrlService.Resolve(
+      "VIPHASH", "123", "456", "", "", "42", "tok", qrLoginDevice);
+  assert(previewSongUrl["status"] == 1);
+  assert(previewSongUrl["is_preview"] == true);
+  assert(previewSongUrl["url"] == "http://audio.example/preview.mp3");
+  assert(previewRequests.size() == 3);
+
   echo::core::SongUrlService paidSongUrlService([](
                                                     const std::string&,
                                                     const std::unordered_map<std::string, std::string>&) {
@@ -709,9 +786,11 @@ int main() {
   assert(rankSongs["data"]["info"][0]["audio_info"]["duration"] == 235000);
   assert(rankSongs["data"]["info"][0]["album_info"]["sizable_cover"].get<std::string>().find("{size}") != std::string::npos);
 
+  const std::string localPlaybackFixture = "file:///C:/Windows/Media/Windows%20Notify.wav";
+
   echo::playback::PlaybackController playback;
   assert(playback.Initialize());
-  assert(playback.PlayUrl("https://example.invalid/audio.mp3"));
+  assert(playback.PlayUrl(localPlaybackFixture));
   assert(playback.GetState().kind == echo::core::PlaybackStateKind::Opening);
   playback.Pause();
   assert(playback.GetState().kind == echo::core::PlaybackStateKind::Paused);
@@ -729,8 +808,8 @@ int main() {
   assert(playback.GetState().rate == 2.0);
   playback.SetRate(0.1);
   assert(playback.GetState().rate == 0.5);
-  assert(playback.PlayUrl("https://example.invalid/next.mp3"));
-  assert(playback.GetState().sourceUrl == "https://example.invalid/next.mp3");
+  assert(playback.PlayUrl(localPlaybackFixture));
+  assert(playback.GetState().sourceUrl == localPlaybackFixture);
   playback.Stop();
   assert(playback.GetState().kind == echo::core::PlaybackStateKind::Stopped);
   assert(playback.GetState().sourceUrl.empty());
@@ -2146,7 +2225,7 @@ int main() {
     // GetPlaylistDetail
     auto detailResult = playlistSvc.GetPlaylistDetail("abc123", "42", "tok");
     assert(detailResult["status"].get<int>() == 1);
-    assert(capturedPostUrl.find("pubsongs.kugou.com/v3/get_list_info") != std::string::npos);
+    assert(capturedPostUrl.find("gateway.kugou.com/v3/get_list_info") != std::string::npos);
     assert(capturedPostUrl.find("signature=") != std::string::npos);
     assert(capturedPostBody.find("abc123") != std::string::npos);
 
@@ -2162,14 +2241,17 @@ int main() {
       capturedPostBody = body;
       echo::core::HttpResult res;
       res.statusCode = 200;
-      res.body = R"({"status":1,"data":{"list":[{"name":"My Playlist"}],"total":1}})";
+      res.body = R"({"errcode":0,"data":{"lists":[{"global_collection_id":"gid42","listname":"My Playlist"}],"total":1}})";
       return res;
     };
 
     echo::core::PlaylistService userPlaylistSvc(mockGet, mockPostUser);
     auto userResult = userPlaylistSvc.GetUserPlaylists("42", "tok", 1, 30);
     assert(userResult["status"].get<int>() == 1);
-    assert(capturedPostUrl.find("cloudlist.service.kugou.com/v7/get_all_list") != std::string::npos);
+    assert(userResult["data"]["list"].size() == 1);
+    assert(userResult["data"]["list"][0]["id"].get<std::string>() == "gid42");
+    assert(userResult["data"]["list"][0]["name"].get<std::string>() == "My Playlist");
+    assert(capturedPostUrl.find("gateway.kugou.com/v7/get_all_list") != std::string::npos);
     assert(capturedPostUrl.find("signature=") != std::string::npos);
     assert(capturedPostBody.find("\"userid\":\"42\"") != std::string::npos);
 

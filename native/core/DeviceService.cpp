@@ -31,6 +31,12 @@ std::string RandomGuidLike() {
 
 DeviceInfo CreateDeviceInfo() {
   const auto guid = RandomGuidLike();
+  // Device default appid is 1014 (KuGou's "web/lite" identifier) — this is
+  // what QR login (/v2/qrcode) and most session-management endpoints expect.
+  // Endpoints that need a different appid (e.g. /song/url, /youth/day/vip*)
+  // hardcode their own appid; the shared mid/dfid/uuid carry across all.
+  // Explicit `registered=false` because MSVC's designated initializer does
+  // not respect NSDMI defaults for omitted fields (UB without this line).
   return DeviceInfo{
       .dfid = RandomHex(32),
       .mid = RandomHex(32),
@@ -40,6 +46,7 @@ DeviceInfo CreateDeviceInfo() {
       .mac = RandomHex(12),
       .appid = "1014",
       .clientver = "20000",
+      .registered = false,
   };
 }
 
@@ -49,7 +56,14 @@ DeviceService::DeviceService(storage::DeviceRepository& devices) : devices_(devi
 
 DeviceInfo DeviceService::EnsureDeviceReady() {
   if (auto existing = devices_.Load(); existing && !existing->dfid.empty()) {
-    return *existing;
+    // Migrate devices that were briefly created as appid=1005 — KuGou flags
+    // those as untrusted via QR login and downgrades VIP audio. Reset to
+    // 1014 (the QR-login-friendly identifier) so the next scan can bind
+    // a token correctly.
+    if (existing->appid == "1014") {
+      return *existing;
+    }
+    // Fall through to regenerate with the canonical 1014/20000 fingerprint.
   }
 
   auto device = CreateDeviceInfo();

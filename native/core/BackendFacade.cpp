@@ -134,17 +134,34 @@ class BackendFacade final : public IBackendFacade {
       const std::string userId = session ? session->userId : "0";
       const std::string token = session ? session->token : "";
 
+      storage::DeviceRepository deviceRepo(database);
+      DeviceService devices(deviceRepo);
+      const auto device = devices.EnsureDeviceReady();
+
       PlaylistService playlist;
-      return playlist.GetPlaylistDetail(id, userId, token);
+      return playlist.GetPlaylistDetail(device, id, userId, token);
     });
   }
 
   std::future<nlohmann::json> ResolveSongUrl(std::string hash, std::string quality) override {
     return std::async(
         std::launch::async,
-        [hash = std::move(hash), quality = std::move(quality)] {
+        [databasePath = databasePath_, hash = std::move(hash), quality = std::move(quality)] {
+          storage::Database database;
+          database.Open(databasePath);
+          database.Initialize();
+
+          storage::SessionRepository sessionRepo(database);
+          const auto session = sessionRepo.Load();
+          const std::string userId = session ? session->userId : "";
+          const std::string token = session ? session->token : "";
+
+          storage::DeviceRepository deviceRepo(database);
+          DeviceService devices(deviceRepo);
+          const auto device = devices.EnsureDeviceReady();
+
           SongUrlService songUrl;
-          return songUrl.Resolve(hash, quality);
+          return songUrl.Resolve(hash, "", "", quality, "", userId, token, device);
         });
   }
 

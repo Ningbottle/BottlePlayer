@@ -108,7 +108,9 @@ bool MatchContractJson(
 }  // namespace
 
 nlohmann::json ToJson(const DeviceInfo& device) {
-  return {
+  // Use explicit assignment for the bool field — nlohmann::json's initializer
+  // list constructor sometimes misinterprets `{"key", boolValue}` pairs.
+  nlohmann::json j = {
       {"dfid", device.dfid},
       {"mid", device.mid},
       {"uuid", device.uuid},
@@ -118,6 +120,8 @@ nlohmann::json ToJson(const DeviceInfo& device) {
       {"appid", device.appid},
       {"clientver", device.clientver},
   };
+  j["registered"] = device.registered;
+  return j;
 }
 
 nlohmann::json ToJson(const SessionInfo& session) {
@@ -125,6 +129,8 @@ nlohmann::json ToJson(const SessionInfo& session) {
       {"token", session.token},
       {"userid", session.userId},
       {"t1", session.t1},
+      {"nickname", session.nickname},
+      {"pic", session.pic},
   };
 }
 
@@ -138,6 +144,7 @@ DeviceInfo DeviceInfoFromJson(const nlohmann::json& value) {
   device.mac = value.value("mac", "");
   device.appid = value.value("appid", "");
   device.clientver = value.value("clientver", "");
+  device.registered = value.value("registered", false);
   return device;
 }
 
@@ -146,6 +153,8 @@ SessionInfo SessionInfoFromJson(const nlohmann::json& value) {
   session.token = value.value("token", "");
   session.userId = value.value("userid", "");
   session.t1 = value.value("t1", "");
+  session.nickname = value.value("nickname", "");
+  session.pic = value.value("pic", "");
   return session;
 }
 

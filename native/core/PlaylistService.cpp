@@ -5,11 +5,14 @@
 #include <wincrypt.h>
 
 #include <algorithm>
+#include <array>
 #include <cctype>
 #include <ctime>
 #include <iomanip>
+#include <initializer_list>
 #include <sstream>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 
 namespace echo::core {
@@ -82,6 +85,14 @@ std::string ReadString(const nlohmann::json& value, std::string_view key) {
   return "";
 }
 
+std::string ReadFirstString(const nlohmann::json& value, std::initializer_list<std::string_view> keys) {
+  for (const auto key : keys) {
+    const auto text = ReadString(value, key);
+    if (!text.empty()) return text;
+  }
+  return "";
+}
+
 int ReadInt(const nlohmann::json& value, std::string_view key, int fallback = 0) {
   if (!value.contains(key)) return fallback;
   const auto& item = value.at(key);
@@ -118,31 +129,69 @@ nlohmann::json EmptyTracks(std::string id, int page, int pageSize) {
 nlohmann::json NormalizeTrack(const nlohmann::json& raw) {
   nlohmann::json item = raw;
   const auto transParam = raw.value("trans_param", nlohmann::json::object());
-  const auto filename = ReadString(raw, "filename");
+
+  // Two upstream shapes:
+  //   A) mobilecdn special/song:  filename="歌手 - 歌名", songname, singername
+  //   B) pubsongs/v2:             name="歌手 - 歌名", singerinfo[{name}], albuminfo{name}
+  //                               (filename usually empty)
+  std::string filename = ReadString(raw, "filename");
+  if (filename.empty()) filename = ReadString(raw, "name");
   const auto separator = filename.find(" - ");
 
   item["songname"] = ReadString(raw, "songname");
   if (item["songname"].get<std::string>().empty() && separator != std::string::npos) {
     item["songname"] = filename.substr(separator + 3);
   }
+  if (item["songname"].get<std::string>().empty() && raw.contains("name")) {
+    item["songname"] = ReadString(raw, "name");
+  }
 
   item["singername"] = ReadString(raw, "singername");
   if (item["singername"].get<std::string>().empty() && separator != std::string::npos) {
     item["singername"] = filename.substr(0, separator);
   }
+  if (item["singername"].get<std::string>().empty() && raw.contains("singerinfo") &&
+      raw["singerinfo"].is_array() && !raw["singerinfo"].empty()) {
+    std::string joined;
+    for (const auto& si : raw["singerinfo"]) {
+      if (si.is_object() && si.contains("name") && si["name"].is_string()) {
+        if (!joined.empty()) joined += "、";
+        joined += si["name"].get<std::string>();
+      }
+    }
+    if (!joined.empty()) item["singername"] = joined;
+  }
 
   item["filename"] = filename;
-  item["album_name"] = ReadString(raw, "album_name");
-  item["album_id"] = ReadString(raw, "album_id");
+
+  std::string albumName = ReadString(raw, "album_name");
+  std::string albumId = ReadString(raw, "album_id");
+  if (raw.contains("albuminfo") && raw["albuminfo"].is_object()) {
+    const auto& albumInfo = raw["albuminfo"];
+    if (albumName.empty() && albumInfo.contains("name") && albumInfo["name"].is_string()) {
+      albumName = albumInfo["name"].get<std::string>();
+    }
+    if (albumId.empty() && albumInfo.contains("id")) {
+      const auto& aid = albumInfo["id"];
+      if (aid.is_string()) albumId = aid.get<std::string>();
+      else if (aid.is_number()) albumId = std::to_string(aid.get<std::int64_t>());
+    }
+  }
+  item["album_name"] = albumName;
+  item["album_id"] = albumId;
+
   item["timelen"] = ReadInt(raw, "duration") * 1000;
   item["duration"] = ReadInt(raw, "duration");
   item["hash"] = ReadString(raw, "hash");
   item["mvhash"] = ReadString(raw, "mvhash");
-  item["mixsongid"] = ReadInt(raw, "album_audio_id");
-  item["album_audio_id"] = ReadInt(raw, "album_audio_id");
+  item["mixsongid"] = ReadInt(raw, "album_audio_id", ReadInt(raw, "mixsongid"));
+  item["album_audio_id"] = ReadInt(raw, "album_audio_id", ReadInt(raw, "mixsongid"));
   item["audio_id"] = ReadInt(raw, "audio_id");
   item["fileid"] = ReadInt(raw, "audio_id");
-  item["cover"] = transParam.value("union_cover", "");
+
+  std::string cover = transParam.value("union_cover", std::string{});
+  if (cover.empty()) cover = ReadString(raw, "cover");
+  item["cover"] = cover;
 
   item["HQ"] = {{"Hash", ReadString(raw, "320hash")}};
   item["SQ"] = {{"Hash", ReadString(raw, "sqhash")}};
@@ -224,6 +273,174 @@ nlohmann::json NormalizePlaylistMeta(const nlohmann::json& raw) {
   return item;
 }
 
+std::string UserPlaylistId(const nlohmann::json& raw) {
+  return ReadFirstString(
+      raw,
+      {
+          "global_collection_id",
+          "global_collectionid",
+          "listid",
+          "list_id",
+          "specialid",
+          "special_id",
+          "id",
+          "list_create_listid",
+          "collection_id",
+          "gid",
+      });
+}
+
+std::string UserPlaylistName(const nlohmann::json& raw) {
+  return ReadFirstString(
+      raw,
+      {
+          "name",
+          "listname",
+          "list_name",
+          "specialname",
+          "special_name",
+          "title",
+          "filename",
+          "list_create_name",
+      });
+}
+
+bool LooksLikeUserPlaylist(const nlohmann::json& raw) {
+  return raw.is_object() && (!UserPlaylistId(raw).empty() || !UserPlaylistName(raw).empty());
+}
+
+nlohmann::json NormalizeUserPlaylistMeta(const nlohmann::json& raw) {
+  nlohmann::json item = raw;
+  const auto id = UserPlaylistId(raw);
+  const auto name = UserPlaylistName(raw);
+  const auto image = ReadFirstString(
+      raw,
+      {
+          "imgurl",
+          "pic",
+          "pic_url",
+          "cover",
+          "image",
+          "sizable_cover",
+          "sizable_pic",
+      });
+
+  item["id"] = id;
+  item["global_collection_id"] = id;
+  item["listid"] = id;
+  item["specialid"] = id;
+  item["name"] = name.empty() ? "无标题歌单" : name;
+  item["listname"] = item["name"];
+  item["specialname"] = item["name"];
+  item["title"] = item["name"];
+  item["imgurl"] = image;
+  item["cover"] = image;
+  item["pic_url"] = image;
+  item["songcount"] = ReadInt(raw, "songcount", ReadInt(raw, "song_count", ReadInt(raw, "count")));
+  item["playcount"] = ReadInt(raw, "playcount", ReadInt(raw, "play_count"));
+  return item;
+}
+
+void PushUserPlaylist(
+    const nlohmann::json& raw,
+    nlohmann::json& playlists,
+    std::unordered_set<std::string>& seen) {
+  const auto id = UserPlaylistId(raw);
+  if (id.empty() || seen.contains(id)) return;
+  seen.insert(id);
+  playlists.push_back(NormalizeUserPlaylistMeta(raw));
+}
+
+void CollectUserPlaylists(
+    const nlohmann::json& node,
+    nlohmann::json& playlists,
+    std::unordered_set<std::string>& seen,
+    int depth = 0) {
+  if (depth > 5 || node.is_null()) return;
+
+  if (node.is_array()) {
+    bool hasPlaylistItems = false;
+    for (const auto& item : node) {
+      if (LooksLikeUserPlaylist(item)) {
+        hasPlaylistItems = true;
+        break;
+      }
+    }
+
+    if (hasPlaylistItems) {
+      for (const auto& item : node) {
+        if (LooksLikeUserPlaylist(item)) PushUserPlaylist(item, playlists, seen);
+      }
+      return;
+    }
+
+    for (const auto& item : node) {
+      CollectUserPlaylists(item, playlists, seen, depth + 1);
+    }
+    return;
+  }
+
+  if (!node.is_object()) return;
+
+  if (LooksLikeUserPlaylist(node)) {
+    PushUserPlaylist(node, playlists, seen);
+  }
+
+  constexpr std::array<std::string_view, 10> keys = {
+      "data",
+      "list",
+      "lists",
+      "info",
+      "special_list",
+      "specialList",
+      "cloud_list",
+      "cloudList",
+      "playlist",
+      "playlists",
+  };
+  for (const auto key : keys) {
+    if (node.contains(key)) {
+      CollectUserPlaylists(node.at(key), playlists, seen, depth + 1);
+    }
+  }
+}
+
+int ReadTotal(const nlohmann::json& upstream, const nlohmann::json& playlists) {
+  if (upstream.contains("data") && upstream["data"].is_object()) {
+    const auto& data = upstream["data"];
+    const auto total = ReadInt(data, "total", ReadInt(data, "total_count", ReadInt(data, "count", -1)));
+    if (total >= 0) return total;
+  }
+  return ReadInt(upstream, "total", ReadInt(upstream, "total_count", static_cast<int>(playlists.size())));
+}
+
+nlohmann::json NormalizeUserPlaylistsResponse(nlohmann::json upstream, int page, int pageSize) {
+  nlohmann::json playlists = nlohmann::json::array();
+  std::unordered_set<std::string> seen;
+  CollectUserPlaylists(upstream, playlists, seen);
+
+  int status = ReadInt(upstream, "status", playlists.empty() ? 0 : 1);
+  if (ReadInt(upstream, "errcode", -1) == 0 || ReadInt(upstream, "error_code", -1) == 0) {
+    status = 1;
+  }
+  if (!playlists.empty()) {
+    status = 1;
+  }
+
+  if (!upstream.contains("data") || !upstream["data"].is_object()) {
+    upstream["data"] = nlohmann::json::object();
+  }
+  auto& data = upstream["data"];
+  data["list"] = playlists;
+  data["lists"] = playlists;
+  data["info"] = playlists;
+  data["total"] = ReadTotal(upstream, playlists);
+  data["page"] = page;
+  data["pagesize"] = pageSize;
+  upstream["status"] = status;
+  return upstream;
+}
+
 }  // namespace
 
 PlaylistService::PlaylistService()
@@ -253,11 +470,103 @@ PlaylistService::PlaylistService(PlaylistHttpGet httpGet, PlaylistHttpPost httpP
     : httpGet_(std::move(httpGet)), httpPost_(std::move(httpPost)) {}
 
 nlohmann::json PlaylistService::GetTracks(std::string id, int page, int pageSize) const {
+  return GetTracks(DeviceInfo{}, std::move(id), page, pageSize);
+}
+
+nlohmann::json PlaylistService::GetTracks(
+    const DeviceInfo& device,
+    std::string id,
+    int page,
+    int pageSize) const {
   id = Trim(std::move(id));
   page = Clamp(page, 1, 1000);
   pageSize = Clamp(pageSize, 1, 200);
 
   if (id.empty() || id == "0" || id == "null") return EmptyTracks(id, page, pageSize);
+
+  // User-collection playlists from /user/playlist come back as
+  // "collection_3_<userid>_<listid>_0" (a global_collection_id). The
+  // legacy mobilecdn/special/song endpoint doesn't accept these — it
+  // returns "参数不合法" (invalid params). Use the modern signed pubsongs
+  // endpoint with `global_collection_id` for those.
+  const bool isUserCollection = id.rfind("collection_", 0) == 0;
+  if (isUserCollection) {
+    const auto beginIdx = std::to_string((page - 1) * pageSize);
+    const std::string appid = "1005";
+    const std::string clientver = "20489";
+    const auto clienttime = std::to_string(std::time(nullptr));
+    std::unordered_map<std::string, std::string> params = {
+        {"appid", appid},
+        {"clientver", clientver},
+        {"clienttime", clienttime},
+        {"plat", "1"},
+        {"dfid", device.dfid.empty() ? "-" : device.dfid},
+        {"mid", device.mid.empty() ? "0" : device.mid},
+        {"uuid", device.uuid.empty() ? "-" : device.uuid},
+        {"global_collection_id", id},
+        {"begin_idx", beginIdx},
+        {"pagesize", std::to_string(pageSize)},
+        {"area_code", "1"},
+    };
+    params["signature"] = SignatureAndroidParams(params, "");
+
+    std::ostringstream urlStream;
+    // Note: pubsongs endpoint is hosted on pubsongs.kugou.com directly
+    // (NOT under gateway.kugou.com — gateway returns 404).
+    urlStream << "https://pubsongs.kugou.com/v2/get_other_list_file_nofilt?";
+    bool first = true;
+    for (const auto& [key, value] : params) {
+      if (!first) urlStream << "&";
+      urlStream << key << "=" << UrlEncode(value);
+      first = false;
+    }
+
+    const auto result = httpGet_(
+        urlStream.str(),
+        {
+            {"Accept", "application/json"},
+            {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
+        });
+
+    if (!result.error.empty()) return ErrorTracks(id, page, pageSize, result.error, result.statusCode);
+    if (result.statusCode < 200 || result.statusCode >= 300) {
+      return ErrorTracks(id, page, pageSize, "Kugou playlist upstream returned an error", result.statusCode);
+    }
+
+    nlohmann::json upstream;
+    try {
+      upstream = nlohmann::json::parse(result.body);
+    } catch (const nlohmann::json::exception& error) {
+      return ErrorTracks(id, page, pageSize, std::string("Invalid Kugou playlist JSON: ") + error.what());
+    }
+
+    // Response shape: { status:1, data:{ info:[ {hash,filename,...} ], count } }
+    const auto data = upstream.value("data", nlohmann::json::object());
+    const auto info = data.value("info", data.value("songs", nlohmann::json::array()));
+    nlohmann::json songs = nlohmann::json::array();
+    if (info.is_array()) {
+      for (const auto& raw : info) {
+        if (raw.is_object()) songs.push_back(NormalizeTrack(raw));
+      }
+    }
+    const auto total = data.value("count", data.value("total", static_cast<int>(songs.size())));
+    return {
+        {"status", upstream.value("status", 1)},
+        {"error", upstream.value("error", "")},
+        {"data",
+         {
+             {"songs", songs},
+             {"info", songs},
+             {"list", songs},
+             {"songlist", songs},
+             {"total", total},
+             {"page", page},
+             {"pagesize", pageSize},
+             {"id", id},
+         }},
+        {"raw", upstream},
+    };
+  }
 
   const auto url = "http://mobilecdn.kugou.com/api/v3/special/song?specialid=" + UrlEncode(id) +
                    "&page=" + std::to_string(page) + "&pagesize=" + std::to_string(pageSize);
@@ -439,6 +748,14 @@ nlohmann::json PlaylistService::GetPlaylistDetail(
     const std::string& id,
     const std::string& userId,
     const std::string& token) const {
+  return GetPlaylistDetail(DeviceInfo{}, id, userId, token);
+}
+
+nlohmann::json PlaylistService::GetPlaylistDetail(
+    const DeviceInfo& device,
+    const std::string& id,
+    const std::string& userId,
+    const std::string& token) const {
   if (id.empty()) {
     return {{"status", 0}, {"error", "empty playlist id"}, {"data", nullptr}};
   }
@@ -451,18 +768,25 @@ nlohmann::json PlaylistService::GetPlaylistDetail(
   const std::string body = dataPayload.dump();
 
   const auto clienttime = std::to_string(std::time(nullptr));
+  const std::string appid = "1005";
+  const std::string clientver = "20489";
   std::unordered_map<std::string, std::string> params = {
-      {"appid", "1014"},
-      {"clientver", "20000"},
+      {"appid", appid},
+      {"clientver", clientver},
       {"clienttime", clienttime},
       {"plat", "1"},
       {"userid", userId.empty() ? "0" : userId},
       {"token", token}
   };
+  if (!device.dfid.empty()) params["dfid"] = device.dfid;
+  if (!device.mid.empty()) params["mid"] = device.mid;
+  if (!device.uuid.empty()) params["uuid"] = device.uuid;
+
   params["signature"] = SignatureAndroidParams(params, body);
 
   std::ostringstream urlStream;
-  urlStream << "https://pubsongs.kugou.com/v3/get_list_info?";
+  // Route via gateway.kugou.com + x-router (see GetUserPlaylists comment).
+  urlStream << "https://gateway.kugou.com/v3/get_list_info?";
   bool first = true;
   for (const auto& [key, value] : params) {
     if (!first) urlStream << "&";
@@ -496,6 +820,15 @@ nlohmann::json PlaylistService::GetUserPlaylists(
     const std::string& token,
     int page,
     int pageSize) const {
+  return GetUserPlaylists(DeviceInfo{}, userId, token, page, pageSize);
+}
+
+nlohmann::json PlaylistService::GetUserPlaylists(
+    const DeviceInfo& device,
+    const std::string& userId,
+    const std::string& token,
+    int page,
+    int pageSize) const {
   if (userId.empty() || userId == "0") {
     return {{"status", 0}, {"error", "not logged in"}, {"data", {{"list", nlohmann::json::array()}, {"total", 0}}}};
   }
@@ -514,18 +847,27 @@ nlohmann::json PlaylistService::GetUserPlaylists(
   const std::string body = dataPayload.dump();
 
   const auto clienttime = std::to_string(std::time(nullptr));
+  const std::string appid = "1005";
+  const std::string clientver = "20489";
   std::unordered_map<std::string, std::string> params = {
-      {"appid", "1014"},
-      {"clientver", "20000"},
+      {"appid", appid},
+      {"clientver", clientver},
       {"clienttime", clienttime},
       {"plat", "1"},
+      {"dfid", device.dfid.empty() ? "-" : device.dfid},
+      {"mid", device.mid.empty() ? "0" : device.mid},
+      {"uuid", device.uuid.empty() ? "-" : device.uuid},
       {"userid", userId},
       {"token", token}
   };
   params["signature"] = SignatureAndroidParams(params, body);
 
   std::ostringstream urlStream;
-  urlStream << "https://cloudlist.service.kugou.com/v7/get_all_list?";
+  // Reference (MakcRe/KuGouMusicApi util/request.js): the base URL is
+  // gateway.kugou.com; the x-router header tells KuGou's gateway which
+  // backend service to proxy to. Hitting cloudlist.service.kugou.com
+  // directly gives WinHttp 12175 (SSL certificate validation failure).
+  urlStream << "https://gateway.kugou.com/v7/get_all_list?";
   bool first = true;
   for (const auto& [key, value] : params) {
     if (!first) urlStream << "&";
@@ -548,13 +890,26 @@ nlohmann::json PlaylistService::GetUserPlaylists(
   }
 
   try {
-    return nlohmann::json::parse(result.body);
+    return NormalizeUserPlaylistsResponse(nlohmann::json::parse(result.body), page, pageSize);
   } catch (const nlohmann::json::exception& e) {
     return {{"status", 0}, {"error", std::string("JSON parse error: ") + e.what()}, {"data", {{"list", nlohmann::json::array()}, {"total", 0}}}};
   }
 }
 
 nlohmann::json PlaylistService::AddPlaylist(
+    const std::string& userId,
+    const std::string& token,
+    const std::string& name,
+    int type,
+    int source,
+    const std::string& createUserId,
+    const std::string& createListId,
+    const std::string& createGid) const {
+  return AddPlaylist(DeviceInfo{}, userId, token, name, type, source, createUserId, createListId, createGid);
+}
+
+nlohmann::json PlaylistService::AddPlaylist(
+    const DeviceInfo& device,
     const std::string& userId,
     const std::string& token,
     const std::string& name,
@@ -585,13 +940,16 @@ nlohmann::json PlaylistService::AddPlaylist(
   const std::string body = dataPayload.dump();
   const auto clienttime = std::to_string(std::time(nullptr));
 
+  const std::string appid = "1005";
+  const std::string clientver = "20489";
+
   std::unordered_map<std::string, std::string> params;
-  params["appid"] = "1005";
-  params["clientver"] = "20489";
+  params["appid"] = appid;
+  params["clientver"] = clientver;
   params["clienttime"] = clienttime;
-  params["mid"] = "0";
-  params["uuid"] = "-";
-  params["dfid"] = "-";
+  params["mid"] = device.mid.empty() ? "0" : device.mid;
+  params["uuid"] = device.uuid.empty() ? "-" : device.uuid;
+  params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
   if (!userId.empty()) params["userid"] = userId;
   if (!token.empty()) params["token"] = token;
 
@@ -635,6 +993,14 @@ nlohmann::json PlaylistService::DeletePlaylist(
     const std::string& userId,
     const std::string& token,
     long long listId) const {
+  return DeletePlaylist(DeviceInfo{}, userId, token, listId);
+}
+
+nlohmann::json PlaylistService::DeletePlaylist(
+    const DeviceInfo& device,
+    const std::string& userId,
+    const std::string& token,
+    long long listId) const {
   
   nlohmann::json dataMap = {
       {"listid", listId},
@@ -655,13 +1021,16 @@ nlohmann::json PlaylistService::DeletePlaylist(
   std::string p = RsaPkcs1Encrypt(rsaPayload.dump());
 
   const auto clienttime = std::to_string(std::time(nullptr));
+  const std::string appid = "1005";
+  const std::string clientver = "20489";
+
   std::unordered_map<std::string, std::string> paramsMap;
   paramsMap["clienttime"] = clienttime;
-  paramsMap["mid"] = "0";
-  paramsMap["key"] = SignParamsKey(clienttime, "1005", "20489");
+  paramsMap["mid"] = device.mid.empty() ? "0" : device.mid;
+  paramsMap["key"] = SignParamsKey(clienttime, appid, clientver);
   paramsMap["last_area"] = "gztx";
-  paramsMap["clientver"] = "20489";
-  paramsMap["appid"] = "1005";
+  paramsMap["clientver"] = clientver;
+  paramsMap["appid"] = appid;
   paramsMap["last_time"] = clienttime;
   paramsMap["p"] = p;
 
@@ -712,6 +1081,15 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
     const std::string& token,
     const std::string& listId,
     const std::string& commaSeparatedTracks) const {
+  return AddPlaylistTracks(DeviceInfo{}, userId, token, listId, commaSeparatedTracks);
+}
+
+nlohmann::json PlaylistService::AddPlaylistTracks(
+    const DeviceInfo& device,
+    const std::string& userId,
+    const std::string& token,
+    const std::string& listId,
+    const std::string& commaSeparatedTracks) const {
   
   nlohmann::json resource = nlohmann::json::array();
   std::stringstream ss(commaSeparatedTracks);
@@ -751,13 +1129,16 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
   const std::string body = dataPayload.dump();
   const auto clienttime = std::to_string(std::time(nullptr));
 
+  const std::string appid = "1005";
+  const std::string clientver = "20489";
+
   std::unordered_map<std::string, std::string> params;
-  params["appid"] = "1005";
-  params["clientver"] = "20489";
+  params["appid"] = appid;
+  params["clientver"] = clientver;
   params["clienttime"] = clienttime;
-  params["mid"] = "0";
-  params["uuid"] = "-";
-  params["dfid"] = "-";
+  params["mid"] = device.mid.empty() ? "0" : device.mid;
+  params["uuid"] = device.uuid.empty() ? "-" : device.uuid;
+  params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
   if (!userId.empty()) params["userid"] = userId;
   if (!token.empty()) params["token"] = token;
   params["last_time"] = clienttime;
@@ -799,6 +1180,15 @@ nlohmann::json PlaylistService::DeletePlaylistTracks(
     const std::string& token,
     const std::string& listId,
     const std::string& commaSeparatedFileIds) const {
+  return DeletePlaylistTracks(DeviceInfo{}, userId, token, listId, commaSeparatedFileIds);
+}
+
+nlohmann::json PlaylistService::DeletePlaylistTracks(
+    const DeviceInfo& device,
+    const std::string& userId,
+    const std::string& token,
+    const std::string& listId,
+    const std::string& commaSeparatedFileIds) const {
   
   nlohmann::json resource = nlohmann::json::array();
   std::stringstream ss(commaSeparatedFileIds);
@@ -820,13 +1210,16 @@ nlohmann::json PlaylistService::DeletePlaylistTracks(
   const std::string body = dataPayload.dump();
   const auto clienttime = std::to_string(std::time(nullptr));
 
+  const std::string appid = "1005";
+  const std::string clientver = "20489";
+
   std::unordered_map<std::string, std::string> params;
-  params["appid"] = "1005";
-  params["clientver"] = "20489";
+  params["appid"] = appid;
+  params["clientver"] = clientver;
   params["clienttime"] = clienttime;
-  params["mid"] = "0";
-  params["uuid"] = "-";
-  params["dfid"] = "-";
+  params["mid"] = device.mid.empty() ? "0" : device.mid;
+  params["uuid"] = device.uuid.empty() ? "-" : device.uuid;
+  params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
   if (!userId.empty()) params["userid"] = userId;
   if (!token.empty()) params["token"] = token;
 
