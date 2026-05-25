@@ -152,14 +152,20 @@ std::string DeviceRegisterService::Register(
     first = false;
   }
 
-  // 4) POST with the AES ciphertext as body. Restore android-style signature
-  // since register-style with appid=1014 fails on signature; the 20010 we
-  // see may come from a different validation step.
+  // 4) POST with the AES ciphertext as body. Match useAxios headers exactly:
+  //    User-Agent, dfid, clienttime, mid, kg-rc, kg-thash, kg-rec, kg-rf.
   const auto result = httpPost_(
       urlStream.str(),
       aes.data,
       {
           {"User-Agent",   "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
+          {"dfid",         device.dfid.empty() ? "-" : device.dfid},
+          {"clienttime",   clienttime},
+          {"mid",          device.mid.empty() ? "0" : device.mid},
+          {"kg-rc",        "1"},
+          {"kg-thash",     "5d816a0"},
+          {"kg-rec",       "1"},
+          {"kg-rf",        "B9EDA08A64250DEFFBCADDEE00F8F25F"},
       });
 
   if (!result.error.empty()) return setError(result.error);
