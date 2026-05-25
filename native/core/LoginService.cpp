@@ -60,8 +60,12 @@ LoginService::LoginService()
 LoginService::LoginService(LoginHttpGet httpGet) : httpGet_(std::move(httpGet)) {}
 
 nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
+  // Use the device's stored appid (1014 by default) for QR login.
+  // This matches MakcRe/KuGouMusicApi which uses appid=1014/clientver=10000
+  // for /v2/qrcode regardless of which other endpoints the app talks to.
   std::unordered_map<std::string, std::string> params = {
       {"appid", device.appid},
+      {"clientver", "10000"},
       {"type", "1"},
       {"plat", "4"},
       {"qrcode_txt", "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=" + device.appid + "&"},
@@ -86,7 +90,9 @@ nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
   }
 
   try {
-    return nlohmann::json::parse(result.body);
+    auto j = nlohmann::json::parse(result.body);
+    j["debug_url"] = url;
+    return j;
   } catch (const nlohmann::json::exception& e) {
     return MakeErrorJson(std::string("JSON parse error: ") + e.what(), result.statusCode);
   }
@@ -96,6 +102,7 @@ nlohmann::json LoginService::PollQrLogin(const DeviceInfo& device, const std::st
   std::unordered_map<std::string, std::string> params = {
       {"plat", "4"},
       {"appid", device.appid},
+      {"clientver", "10000"},
       {"qrcode", key},
       {"srcappid", "2919"},
       {"clienttime", std::to_string(std::time(nullptr))},

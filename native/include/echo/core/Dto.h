@@ -16,12 +16,19 @@ struct DeviceInfo {
   std::string mac;
   std::string appid;
   std::string clientver;
+  // True once /risk/v2/r_register_dev returned a real, KuGou-issued dfid.
+  // Random local dfids get rejected by /v5/url with errcode 20018/20028,
+  // /user/playlist with 20017, and /user/vip/detail upstream fails. Once
+  // a registered dfid is set here, those endpoints accept the device.
+  bool registered = false;
 };
 
 struct SessionInfo {
   std::string token;
   std::string userId;
   std::string t1;
+  std::string nickname;
+  std::string pic;
 };
 
 struct AppSettings {

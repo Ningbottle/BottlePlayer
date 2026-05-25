@@ -52,6 +52,7 @@ add_library(EchoCore STATIC
   core/CatalogService.cpp
   core/CompatApi.cpp
   core/DeviceService.cpp
+  core/DeviceRegisterService.cpp
   core/HomeService.cpp
   core/HttpClient.cpp
   core/Crypto.cpp

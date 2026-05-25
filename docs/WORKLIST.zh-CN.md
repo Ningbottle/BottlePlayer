@@ -597,6 +597,96 @@ Latest verification：
 - 2026-05-24：完整接入完成。`EchoNativeSmokeTests` ctest 1/1 passed in 15.55s（含 GlassPanelRender + PaperTextureSmoke 两个新 RED→GREEN）；`EchoWin32` Debug 编译通过；隐藏启动 5 秒响应：WorkingSetMB=92.6、PrivateMB=97.5、Responding=True。
 - 内存增量：相对 List 18 baseline（47.2 MB WS / 56.6 MB Private）+45 MB WS / +41 MB Private —— 略高于计划估算的 +15-20 MB，主要来自 sceneBitmap (~8 MB ARGB 1080p) + blurredBitmap (~0.5 MB) + D2D Effects 内部状态 + DXGI/D3D11/D2D Effects 库加载。仍在 180 MB 预算内（剩 85 MB 容真实播放）。
 
+## List 20：Tauri UI 收口（当前主线）
+
+Status：In Progress
+
+Type：HITL（每项完成后需用户截图确认视觉无回归）
+
+Blocked by：None
+
+Context：
+2026-05-24 用户截图反馈：QR 登录与 `/song/url` 主链路已通（包括 VIP 错误提示与 60 秒试听 fallback）。本 List 聚焦 Sidebar / Topbar / PlayerBar 与窗口装饰的 UI 收尾。
+
+What to build（按用户标注的优先级）：
+
+**P0 · 断路类**
+
+- [x] 20.1 前进按钮历史栈
+  - 现状：[Topbar.vue:48](../ui/src/components/Topbar.vue#L48) `forward` 按钮 `@click="goBack"`，与 back 共享处理函数
+  - 目标：在 App.vue 引入 `historyStack: string[]` + `historyIndex: number`，`handleNavigate` 截断并 push，back/forward 改变 index
+  - 验收：进入歌单→后退→前进可恢复歌单视图
+
+- [x] 20.2 侧栏歌单接真实接口
+  - 现状：[Sidebar.vue:21-27](../ui/src/components/Sidebar.vue#L21) `mockPlaylists` 写死 5 条
+  - 目标：登录后调 `/user/playlist`（CompatApi 中已有 userPlaylist 路由）拉真实列表；未登录显示"扫码登录后查看歌单"占位
+  - 验收：换不同账号登录后侧栏列表不同
+
+- [x] 20.3 侧栏 placeholder 项清理
+  - 现状：[Sidebar.vue:15-18](../ui/src/components/Sidebar.vue#L15) "私人漫游 / 喜欢 / 最近 / 本地" 点击弹 alert
+  - 目标：保留首页和歌单两类；其他要么实现，要么暂时隐藏。"最近"可以基于本地 `/playhistory/upload` 历史实现，但首版先隐藏更清爽
+  - 验收：用户截图里左栏没有任何点击就报错的项
+
+- [~] 20.4 登录后头像/昵称显示（部分完成）
+  - 已做：[CompatApi.cpp /login/qr/check](../native/core/CompatApi.cpp) 现在尝试 `nickname/username/name` 和 `pic/headphoto/avatar/headerurl/userpic` 多种字段名；[/user/vip/detail](../native/core/CompatApi.cpp) 改为调真 `get_union_vip` 端点并把响应里的 nickname/pic 反写到 session；userStore.checkLoginStatus 把 VIP 数据里的 nickname/pic 也拉到前端
+  - 仍缺：经实测，QR check 响应和 get_union_vip 响应都不包含 `pic`/`nickname` 字段，所以登录后这两个仍为空。要拿真头像需调 `/v3/get_my_info`（RSA 加密，不稳定）或反向工程 `m.kugou.com` 网页用户中心的 JSONP 接口
+  - 当前 UI 表现：首字母占位（"听"）正常显示；username 是 fallback "听歌用户"
+  - 后续：考虑加 `m.kugou.com/userCenter/index?uid=X` JSONP 解析作为兜底
+
+**P1 · 视觉与导航小改**
+
+- [x] 20.5 底部 PlayerBar 点击进入歌词页
+  - 现状：[PlayerBar.vue](../ui/src/components/PlayerBar.vue) 整条 bar 不可点
+  - 目标：bar 的左侧曲名/封面区域加 `@click="emit('navigate', 'lyric')"`；按钮区域（播放/暂停/上下首/进度条/音量）保持原行为
+  - 验收：点击曲名区进入 LyricView，点击播放按钮仍是切换播放
+
+- [x] 20.6 删除侧栏小字 "Vol. MMXXVI · No. 17"
+  - 位置：[Sidebar.vue:48](../ui/src/components/Sidebar.vue#L48) `<span class="edition">`
+  - 验收：截图里 logo 下方不再有这行小字
+
+- [ ] 20.7 自绘 Title Bar + Newsprint 背景延伸
+  - 现状：Tauri 默认窗口装饰 + "BottleMusic" 标题独立在最顶部白色 bar
+  - 目标：`tauri.conf.json` 设 `decorations: false`，前端 CSS 画一条 32-40px 高、米色 (`--paper`) 的 drag 区，包含左侧 logo、右侧 min/max/close 按钮；用 `data-tauri-drag-region` 实现拖拽
+  - 验收：窗口顶部颜色与下方 Newsprint 背景一致，没有突兀白条
+
+- [ ] 20.8 Title Bar 中间显示进程内存
+  - 依赖：20.7 完成
+  - 目标：title bar 中间显示 `Working Set: XX.X / 220 MB`，每 2s 刷新；Tauri command 用 `sysinfo` crate 取当前进程 working set
+  - 验收：拖动窗口、滚动歌单时数字会变化
+
+**P2 · 已知遗留**
+
+- [x] 20.9 VIP 5 秒广告领取流程（2026-05-25 完整闭环工作）
+  - 之前 bug：`source_id/receive_day` 写在 JSON body 里，且缺 `dfid/mid/uuid` 默认参数，酷狗在签名校验前就 304001 "日期格式错误"
+  - 修复 1：[UserService::ClaimVip](../native/core/UserService.cpp) 改成 android encryptType 标准做法——所有参数走 URL query string，`receive_day=YYYY-MM-DD`，body 留空。酷狗回 `status:1` + `ad_vip_end_time/ad_vip_num`
+  - 修复 2：**新增** [UserService::UpgradeVipReward](../native/core/UserService.cpp) 调 `/youth/v1/listen_song/upgrade_vip_reward?ad_type=1`，CompatApi 暴露 `/youth/day/vip/upgrade`。**实测这个 endpoint 真的会发放 24 小时 SVIP**——KuGou 服务端只校验请求格式，不验证真有广告 SDK 凭证
+  - [claimVip](../ui/src/api/userStore.ts) 现在双调：先 `/youth/day/vip` 注册当日尝试，再 `/youth/day/vip/upgrade` 领奖。任意一次返回非零 `ad_vip_end_time` 即视为成功
+  - 实测响应：第一次 upgrade 返 `{status:1, data:{recharge_hours:24}}` + `/user/vip/detail` 立刻显示 `busi_vip[0]: product_type="svip", is_vip:1, vip_end_time=24h_later`。第二次返 `error_code:297002 "已经领取过升级vip奖励"`，证明 KuGou 真的发放了 VIP
+  - 验收命令：`curl http://127.0.0.1:6609/youth/day/vip/upgrade` 应返回 `recharge_hours:24`（首次）
+
+- [x] **20-bonus 歌单加载彻底修通** + VIP 检测纠正 + 头像/昵称（2026-05-25）
+  - 之前 bug 1：`PlaylistService` 直连 `cloudlist.service.kugou.com` 触发 WinHttp 12175（SSL 证书校验失败）
+  - 之前 bug 2：用 `appid=1014/clientver=20000` 被酷狗返 `error_code:20006`
+  - 之前 bug 3：缺 `dfid/mid/uuid` 默认参数同样导致 20006
+  - 修复：[PlaylistService](../native/core/PlaylistService.cpp) 改用 `https://gateway.kugou.com` + `x-router: cloudlist.service.kugou.com` 让酷狗网关代理；appid 改 `1005/20489`；补全 `dfid="-", mid="0", uuid="-"`
+  - 实测：拉到用户真实的 2 个歌单（"默认收藏" + "我喜欢" 218 首），以及真实昵称（"音无"）+ 头像 URL
+  - [CompatApi.cpp /user/playlist](../native/core/CompatApi.cpp) 把响应里的 `list_create_username` + `create_user_pic` 反写 session；[Sidebar.vue](../ui/src/components/Sidebar.vue) 也立刻更新 userStore
+  - VIP 检测纠正：[userStore.checkLoginStatus](../ui/src/api/userStore.ts) 之前把 `busi_vip[].is_vip=1` 当 VIP，但 tvip(concept) 是 KuGou 自动设的试用标记，不解锁音源。新规则只看 `product_type=="svip" && is_vip==1 && vip_end_time` 未来
+
+- [ ] 20.10 EchoNativeSmokeTests PlaybackController 段超时
+  - 现状：测试用 `https://example.invalid/...` 触发 Media Foundation 异步打开，`Stop()` 会等 TCP 超时（~70 秒）
+  - 修复：测试改用 `file:///nonexistent.mp3` 或注入 mock IMFMediaPlayer
+  - 不影响线上 EchoCompatServer，只阻塞 ctest
+
+Done when：
+
+- 20.1–20.8 全部勾选
+- 用户截图无明显视觉/交互断路
+- 内存指示器读数稳定在 220 MB 以内
+- 重新跑 `pnpm tauri dev` + 手动验证一遍登录→搜索→播放→歌词→返回主路径
+
+---
+
 ## 历史内存基线
 
 来源：原 `docs/MEMORY_BUDGET.zh-CN.md` 已合并入 `REFERENCE.zh-CN.md`，历史快照保留在本附录。

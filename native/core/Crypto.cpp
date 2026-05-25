@@ -78,10 +78,30 @@ std::string SignatureWebParams(const std::unordered_map<std::string, std::string
   return CalculateMd5(salt + paramsString + salt);
 }
 
+std::string SignatureRegisterParams(
+    const std::unordered_map<std::string, std::string>& params) {
+  // Match MakcRe/helper.js signatureRegisterParams:
+  //   md5("1014" + sorted(values).join("") + "1014")
+  std::vector<std::string> values;
+  values.reserve(params.size());
+  for (const auto& [_, v] : params) {
+    values.push_back(v);
+  }
+  std::sort(values.begin(), values.end());
+  std::string joined;
+  for (const auto& v : values) joined += v;
+  return CalculateMd5("1014" + joined + "1014");
+}
+
 std::string SignatureAndroidParams(
     const std::unordered_map<std::string, std::string>& params,
     const std::string& data) {
-  const std::string salt = "OIlwieks28dk2k092lksi2UIkp";
+  std::string appid;
+  if (params.find("appid") != params.end()) {
+    appid = params.at("appid");
+  }
+  const bool isLite = (appid == "1014" || appid == "3116");
+  const std::string salt = isLite ? "LnT6xpN3khm36zse0QzvmgTZ3waWdRSA" : "OIlwieks28dk2k092lksi2UIkp";
   std::vector<std::string> keys;
   keys.reserve(params.size());
   for (const auto& [key, _] : params) {
@@ -216,7 +236,8 @@ std::string RsaRawEncrypt(const std::string& jsonPayload) {
 std::string SignParamsKey(const std::string& data,
                           const std::string& appid,
                           const std::string& clientver) {
-  const std::string salt = "OIlwieks28dk2k092lksi2UIkp";
+  const bool isLite = (appid == "1014" || appid == "3116");
+  const std::string salt = isLite ? "LnT6xpN3khm36zse0QzvmgTZ3waWdRSA" : "OIlwieks28dk2k092lksi2UIkp";
   return CalculateMd5(appid + salt + clientver + data);
 }
 
@@ -340,6 +361,11 @@ AesKeyPair PlaylistAesEncrypt(const std::string& plaintext) {
 
   std::string base64Str = Base64Encode(cipher);
   return AesKeyPair{keySeed, base64Str};
+}
+
+std::string Base64EncodeBytes(const std::string& rawBytes) {
+  std::vector<BYTE> bytes(rawBytes.begin(), rawBytes.end());
+  return Base64Encode(bytes);
 }
 
 std::string PlaylistAesDecrypt(const std::string& base64Cipher, const std::string& keySeed) {

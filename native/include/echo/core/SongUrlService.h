@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include "echo/core/HttpClient.h"
+#include "echo/core/Dto.h"
 
 namespace echo::core {
 
@@ -19,7 +20,18 @@ class SongUrlService {
   SongUrlService();
   explicit SongUrlService(SongUrlHttpGet httpGet);
 
-  nlohmann::json Resolve(std::string hash, std::string quality, std::string ppageId = "") const;
+  nlohmann::json Resolve(
+      std::string hash,
+      std::string albumId,
+      std::string albumAudioId,
+      std::string quality,
+      std::string ppageId,
+      std::string userId,
+      std::string token,
+      const DeviceInfo& device) const;
+
+  // Convenience overload for tests / simple callers — uses empty quality/auth/device defaults.
+  nlohmann::json Resolve(std::string hash, std::string albumId, std::string albumAudioId) const;
 
  private:
   SongUrlHttpGet httpGet_;

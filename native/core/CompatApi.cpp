@@ -3,8 +3,10 @@
 #include <array>
 #include <chrono>
 #include <string_view>
+#include <iostream>
 
 #include "echo/core/CatalogService.h"
+#include "echo/core/DeviceRegisterService.h"
 #include "echo/core/DeviceService.h"
 #include "echo/core/HomeService.h"
 #include "echo/core/JsonHelpers.h"
@@ -27,13 +29,14 @@ namespace {
 
 using namespace std::chrono;
 
-constexpr std::array<std::string_view, 66> kKnownRoutes = {
+constexpr std::array<std::string_view, 67> kKnownRoutes = {
     "/health",
     "/server/now",
     "/register/dev",
     "/login/qr/key",
     "/login/qr/create",
     "/login/qr/check",
+    "/auth/logout",
     "/captcha/sent",
     "/login/cellphone",
     "/login/wx/create",
@@ -105,7 +108,10 @@ std::int64_t UnixMilliseconds() {
 }
 
 CompatResponse JsonResponse(nlohmann::json body, int httpStatus = 200) {
-  return CompatResponse{httpStatus, "application/json; charset=utf-8", std::move(body)};
+  std::cout << "[Debug] JsonResponse entry, httpStatus=" << httpStatus << std::endl;
+  CompatResponse resp{httpStatus, "application/json; charset=utf-8", std::move(body)};
+  std::cout << "[Debug] JsonResponse constructed, returning" << std::endl;
+  return resp;
 }
 
 nlohmann::json EmptyPagedData() {
@@ -191,11 +197,43 @@ CompatResponse CompatApi::HandleKnownRoute(
   }
 
   if (path == "/register/dev") {
-    storage::DeviceRepository repository(database_);
-    DeviceService devices(repository);
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    auto device = devices.EnsureDeviceReady();
+
+    // `force=1` bypasses the cached `registered=true` flag — useful for
+    // recovering from stale DB state left by older builds where the flag
+    // was set to true incorrectly via MSVC's NSDMI bug.
+    const bool force = QueryValue(query, "force") == "1";
+
+    if (force || !device.registered) {
+      storage::SessionRepository sessionRepo(database_);
+      const auto session = sessionRepo.Load();
+      if (session && !session->token.empty() && !session->userId.empty()) {
+        DeviceRegisterService registerSvc;
+        std::string regError;
+        const auto newDfid = registerSvc.Register(device, session->userId, session->token, &regError);
+        if (!newDfid.empty()) {
+          device.dfid = newDfid;
+          device.registered = true;
+          deviceRepo.Save(device);
+          std::cout << "[CompatApi] /register/dev upgraded dfid=" << newDfid << std::endl;
+        } else {
+          std::cout << "[CompatApi] /register/dev upgrade failed: " << regError << std::endl;
+          // Surface the error to the response so we can debug from a curl probe.
+          return JsonResponse({
+              {"status", 1},
+              {"data", ToJson(device)},
+              {"register_error", regError},
+          });
+        }
+      } else {
+        std::cout << "[CompatApi] /register/dev skipped (no session)" << std::endl;
+      }
+    }
     return JsonResponse({
         {"status", 1},
-        {"data", ToJson(devices.EnsureDeviceReady())},
+        {"data", ToJson(device)},
     });
   }
 
@@ -237,11 +275,24 @@ CompatResponse CompatApi::HandleKnownRoute(
     const auto hash = QueryValue(query, "hash");
     const auto quality = QueryValue(query, "quality");
     const auto ppageId = QueryValue(query, "ppage_id", QueryValue(query, "ppageId"));
+
     if (handlers_.songUrl) {
       return JsonResponse(handlers_.songUrl(hash, quality, ppageId));
     }
+
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    const std::string userId = session ? session->userId : "";
+    const std::string token = session ? session->token : "";
+
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+
+    const auto album_id = QueryValue(query, "album_id");
+    const auto album_audio_id = QueryValue(query, "album_audio_id");
     SongUrlService songUrl;
-    return JsonResponse(songUrl.Resolve(hash, quality, ppageId));
+    return JsonResponse(songUrl.Resolve(hash, album_id, album_audio_id, quality, ppageId, userId, token, device));
   }
 
   if (path == "/privilege/lite") {
@@ -280,8 +331,12 @@ CompatResponse CompatApi::HandleKnownRoute(
     if (handlers_.playlistTracks) {
       return JsonResponse(handlers_.playlistTracks(id, page, pageSize));
     }
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+
     PlaylistService playlist;
-    return JsonResponse(playlist.GetTracks(id, page, pageSize));
+    return JsonResponse(playlist.GetTracks(device, id, page, pageSize));
   }
 
   if (path == "/playlist/track/all/new") {
@@ -291,8 +346,12 @@ CompatResponse CompatApi::HandleKnownRoute(
     if (handlers_.playlistTracks) {
       return JsonResponse(handlers_.playlistTracks(id, page, pageSize));
     }
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+
     PlaylistService playlist;
-    return JsonResponse(playlist.GetTracks(id, page, pageSize));
+    return JsonResponse(playlist.GetTracks(device, id, page, pageSize));
   }
 
   if (path == "/playlist/tags") {
@@ -393,9 +452,13 @@ CompatResponse CompatApi::HandleKnownRoute(
     const std::string createListId = QueryValue(query, "list_create_listid");
     const std::string createGid = QueryValue(query, "list_create_gid");
 
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+
     PlaylistService playlist;
     return JsonResponse(playlist.AddPlaylist(
-        userId, token, name, type, source, createUserId, createListId, createGid));
+        device, userId, token, name, type, source, createUserId, createListId, createGid));
   }
 
   if (path == "/playlist/del") {
@@ -406,8 +469,12 @@ CompatResponse CompatApi::HandleKnownRoute(
     const std::string listIdStr = QueryValue(query, "listid", QueryValue(query, "id"));
     const long long listId = listIdStr.empty() ? 0 : std::stoll(listIdStr);
 
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+
     PlaylistService playlist;
-    return JsonResponse(playlist.DeletePlaylist(userId, token, listId));
+    return JsonResponse(playlist.DeletePlaylist(device, userId, token, listId));
   }
 
   if (path == "/playlist/tracks/add") {
@@ -418,8 +485,12 @@ CompatResponse CompatApi::HandleKnownRoute(
     const std::string listId = QueryValue(query, "listid", QueryValue(query, "id"));
     const std::string data = QueryValue(query, "data");
 
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+
     PlaylistService playlist;
-    return JsonResponse(playlist.AddPlaylistTracks(userId, token, listId, data));
+    return JsonResponse(playlist.AddPlaylistTracks(device, userId, token, listId, data));
   }
 
   if (path == "/playlist/tracks/del") {
@@ -430,50 +501,170 @@ CompatResponse CompatApi::HandleKnownRoute(
     const std::string listId = QueryValue(query, "listid", QueryValue(query, "id"));
     const std::string fileids = QueryValue(query, "fileids", QueryValue(query, "ids", QueryValue(query, "data")));
 
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+
     PlaylistService playlist;
-    return JsonResponse(playlist.DeletePlaylistTracks(userId, token, listId, fileids));
+    return JsonResponse(playlist.DeletePlaylistTracks(device, userId, token, listId, fileids));
   }
 
   if (path == "/user/detail") {
+    std::cout << "[Debug] /user/detail entry" << std::endl;
+    if (handlers_.userDetail) {
+      return JsonResponse(handlers_.userDetail("", ""));
+    }
     storage::SessionRepository sessionRepo(database_);
     const auto session = sessionRepo.Load();
-    const std::string userId = session ? session->userId : "";
-    const std::string token = session ? session->token : "";
-    if (handlers_.userDetail) {
-      return JsonResponse(handlers_.userDetail(userId, token));
+    std::string userId;
+    std::string token;
+    if (session) {
+      userId = session->userId;
+      token = session->token;
     }
-    UserService userSvc;
-    return JsonResponse(userSvc.GetUserDetail(userId, token));
+    std::cout << "[Debug] /user/detail no handler" << std::endl;
+    if (session && !userId.empty()) {
+      storage::DeviceRepository deviceRepo(database_);
+      DeviceService devices(deviceRepo);
+      const auto device = devices.EnsureDeviceReady();
+      UserService userSvc;
+      nlohmann::json detail = userSvc.GetUserDetail(device, userId, token);
+      if (detail.value("status", 0) == 1 && detail.contains("data") && detail["data"].is_object()) {
+        auto data = detail["data"];
+        std::string nickname = data.value("nickname", "");
+        std::string pic = data.value("pic", "");
+        if (pic.empty()) {
+          pic = data.value("avatar", "");
+        }
+        if ((!nickname.empty() && nickname != session->nickname) || (!pic.empty() && pic != session->pic)) {
+          SessionInfo updatedSession = *session;
+          if (!nickname.empty()) updatedSession.nickname = nickname;
+          if (!pic.empty()) updatedSession.pic = pic;
+          sessionRepo.Save(updatedSession);
+        }
+        if (detail["data"].value("pic", "").empty() && !pic.empty()) {
+          detail["data"]["pic"] = pic;
+        }
+        return JsonResponse(detail);
+      }
+
+      // Fallback
+      return JsonResponse({
+          {"status", 1},
+          {"data", {
+              {"userid", userId},
+              {"nickname", session->nickname.empty() ? "听歌用户" : session->nickname},
+              {"pic", session->pic},
+              {"token", token},
+          }},
+      });
+    }
+    return JsonResponse({{"status", 0}, {"error", "not logged in"}, {"data", nullptr}});
   }
 
   if (path == "/user/vip/detail") {
     storage::SessionRepository sessionRepo(database_);
     const auto session = sessionRepo.Load();
-    const std::string userId = session ? session->userId : "";
-    const std::string token = session ? session->token : "";
+    std::string userId;
+    std::string token;
+    if (session) {
+      userId = session->userId;
+      token = session->token;
+    }
     if (handlers_.userVip) {
       return JsonResponse(handlers_.userVip(userId, token));
     }
-    UserService userSvc;
-    return JsonResponse(userSvc.GetUserVip(userId, token));
+
+    if (session && !userId.empty()) {
+      storage::DeviceRepository deviceRepo(database_);
+      DeviceService devices(deviceRepo);
+      const auto device = devices.EnsureDeviceReady();
+      UserService userSvc;
+      nlohmann::json vip = userSvc.GetUserVip(device, userId, token);
+
+      // Pull profile fields out of the union_vip response if KuGou included
+      // them — saves us a separate RSA-encrypted /v3/get_my_info call.
+      if (vip.value("status", 0) == 1 && vip.contains("data") && vip["data"].is_object()) {
+        const auto& data = vip["data"];
+        const auto extractStr = [&](std::initializer_list<const char*> keys) {
+          for (const char* k : keys) {
+            if (data.contains(k) && data[k].is_string() && !data[k].get<std::string>().empty()) {
+              return data[k].get<std::string>();
+            }
+          }
+          return std::string{};
+        };
+        const auto nickname = extractStr({"nickname", "username", "name"});
+        const auto pic = extractStr({"pic", "headphoto", "avatar", "headerurl", "userpic"});
+        if ((!nickname.empty() && nickname != session->nickname) ||
+            (!pic.empty() && pic != session->pic)) {
+          SessionInfo updated = *session;
+          if (!nickname.empty()) updated.nickname = nickname;
+          if (!pic.empty()) updated.pic = pic;
+          sessionRepo.Save(updated);
+        }
+        return JsonResponse(vip);
+      }
+
+      // Fallback: session-derived defaults so the UI still renders.
+      return JsonResponse({
+          {"status", 1},
+          {"data", {
+              {"vip_level", 0},
+              {"vip_type", 0},
+              {"is_vip", 0},
+              {"end_time", ""},
+              {"nickname", session->nickname},
+              {"pic", session->pic},
+          }},
+      });
+    }
+    return JsonResponse({{"status", 0}, {"error", "not logged in"}, {"data", nullptr}});
   }
 
   if (path == "/youth/day/vip") {
     storage::SessionRepository sessionRepo(database_);
     const auto session = sessionRepo.Load();
-    const std::string userId = session ? session->userId : "";
-    const std::string token = session ? session->token : "";
+    std::string userId;
+    std::string token;
+    if (session) {
+      userId = session->userId;
+      token = session->token;
+    }
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
     UserService userSvc;
-    return JsonResponse(userSvc.ClaimVip(userId, token));
+    return JsonResponse(userSvc.ClaimVip(device, userId, token));
+  }
+
+  if (path == "/youth/day/vip/upgrade") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    std::string userId;
+    std::string token;
+    if (session) {
+      userId = session->userId;
+      token = session->token;
+    }
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+    UserService userSvc;
+    return JsonResponse(userSvc.UpgradeVipReward(device, userId, token));
   }
 
   if (path == "/everyday/recommend") {
+    if (handlers_.everydayRecommend) {
+      return JsonResponse(handlers_.everydayRecommend("", ""));
+    }
     storage::SessionRepository sessionRepo(database_);
     const auto session = sessionRepo.Load();
-    const std::string userId = session ? session->userId : "";
-    const std::string token = session ? session->token : "";
-    if (handlers_.everydayRecommend) {
-      return JsonResponse(handlers_.everydayRecommend(userId, token));
+    std::string userId;
+    std::string token;
+    if (session) {
+      userId = session->userId;
+      token = session->token;
     }
     HomeService homeSvc;
     return JsonResponse(homeSvc.GetEverydayRecommend(userId, token));
@@ -519,23 +710,80 @@ CompatResponse CompatApi::HandleKnownRoute(
     }
 
     // Persist session on successful login.
-    if (result.contains("data") && result["data"].is_object()) {
-      const auto& data = result["data"];
-      if (data.value("status", 0) == 4) {
-        SessionInfo session;
-        session.token = data.value("token", "");
-        session.userId = data.contains("userid")
-            ? (data["userid"].is_string()
-                   ? data["userid"].get<std::string>()
-                   : std::to_string(data["userid"].get<std::int64_t>()))
-            : "";
-        if (!session.token.empty() && !session.userId.empty()) {
-          storage::SessionRepository sessionRepo(database_);
-          sessionRepo.Save(session);
+    // KuGou may return status=4 either nested in data.status or at the top level.
+    auto ExtractUserId = [](const nlohmann::json& j, const std::string& key) -> std::string {
+      if (!j.contains(key)) return "";
+      const auto& v = j[key];
+      if (v.is_string()) return v.get<std::string>();
+      if (v.is_number_integer()) return std::to_string(v.get<std::int64_t>());
+      if (v.is_number_unsigned()) return std::to_string(v.get<std::uint64_t>());
+      return "";
+    };
+
+    const nlohmann::json* loginData = nullptr;
+    if (result.contains("data") && result["data"].is_object() &&
+        result["data"].value("status", 0) == 4) {
+      loginData = &result["data"];
+    } else if (result.value("status", 0) == 4) {
+      loginData = &result;
+    }
+
+    if (loginData) {
+      // KuGou's QR check response has used different field names for nickname
+      // and avatar across versions (nickname/username, pic/headphoto/avatar).
+      // Try all known variants so the sidebar shows real data immediately
+      // instead of waiting for /user/vip/detail to backfill it.
+      auto FirstNonEmptyString = [&](std::initializer_list<const char*> keys) {
+        for (const char* k : keys) {
+          if (loginData->contains(k) && (*loginData)[k].is_string()) {
+            auto v = (*loginData)[k].get<std::string>();
+            if (!v.empty()) return v;
+          }
+        }
+        return std::string{};
+      };
+      SessionInfo session;
+      session.token     = loginData->value("token", "");
+      session.userId    = ExtractUserId(*loginData, "userid");
+      session.nickname  = FirstNonEmptyString({"nickname", "username", "name"});
+      session.pic       = FirstNonEmptyString({"pic", "headphoto", "avatar", "headerurl", "userpic"});
+      if (!session.token.empty() && !session.userId.empty()) {
+        storage::SessionRepository sessionRepo(database_);
+        sessionRepo.Save(session);
+
+        // Upgrade the random local dfid to a KuGou-issued one. This is the
+        // critical step that flips us from "untrusted browser" to "trusted
+        // app" — without it /song/url only serves 60s previews even for
+        // VIP-eligible users, and /user/playlist returns error_code 20017.
+        if (!device.registered) {
+          DeviceRegisterService registerSvc;
+          std::string regError;
+          const auto newDfid = registerSvc.Register(device, session.userId, session.token, &regError);
+          if (!newDfid.empty()) {
+            DeviceInfo updated = device;
+            updated.dfid = newDfid;
+            updated.registered = true;
+            storage::DeviceRepository devRepo(database_);
+            devRepo.Save(updated);
+            std::cout << "[CompatApi] Device registered with KuGou, new dfid=" << newDfid << std::endl;
+          } else {
+            std::cout << "[CompatApi] Device registration failed: " << regError << std::endl;
+          }
         }
       }
     }
     return JsonResponse(result);
+  }
+
+  if (path == "/auth/logout") {
+    // Clear both session and device. The next QR scan will register a fresh
+    // device with the current appid (1005), so any old "lite-scope" token
+    // bound to a stale appid=1014 device is fully discarded.
+    storage::SessionRepository sessionRepo(database_);
+    sessionRepo.Clear();
+    storage::DeviceRepository deviceRepo(database_);
+    deviceRepo.Clear();
+    return JsonResponse({{"status", 1}, {"data", {{"cleared", true}}}});
   }
 
   if (path == "/song/climax") {
@@ -602,8 +850,12 @@ CompatResponse CompatApi::HandleKnownRoute(
     if (handlers_.playlistDetail) {
       return JsonResponse(handlers_.playlistDetail(id, userId, token));
     }
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+
     PlaylistService playlist;
-    return JsonResponse(playlist.GetPlaylistDetail(id, userId, token));
+    return JsonResponse(playlist.GetPlaylistDetail(device, id, userId, token));
   }
 
   if (path == "/user/playlist") {
@@ -616,8 +868,37 @@ CompatResponse CompatApi::HandleKnownRoute(
     if (handlers_.userPlaylist) {
       return JsonResponse(handlers_.userPlaylist(userId, token, page, pageSize));
     }
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    const auto device = devices.EnsureDeviceReady();
+
     PlaylistService playlist;
-    return JsonResponse(playlist.GetUserPlaylists(userId, token, page, pageSize));
+    auto result = playlist.GetUserPlaylists(device, userId, token, page, pageSize);
+
+    // The user_playlist response embeds real `list_create_username` +
+    // `create_user_pic` on every entry — backfill them into the session so
+    // the sidebar avatar / nickname stops falling back to "听歌用户".
+    if (session && result.value("status", 0) == 1 && result.contains("data") &&
+        result["data"].is_object() && result["data"].contains("info") &&
+        result["data"]["info"].is_array() && !result["data"]["info"].empty()) {
+      const auto& first = result["data"]["info"][0];
+      std::string nick;
+      std::string pic;
+      if (first.is_object()) {
+        if (first.contains("list_create_username") && first["list_create_username"].is_string())
+          nick = first["list_create_username"].get<std::string>();
+        if (first.contains("create_user_pic") && first["create_user_pic"].is_string())
+          pic = first["create_user_pic"].get<std::string>();
+      }
+      if ((!nick.empty() && nick != session->nickname) ||
+          (!pic.empty() && pic != session->pic)) {
+        SessionInfo updated = *session;
+        if (!nick.empty()) updated.nickname = nick;
+        if (!pic.empty()) updated.pic = pic;
+        sessionRepo.Save(updated);
+      }
+    }
+    return JsonResponse(result);
   }
 
   return JsonResponse(NativeNotImplementedPayload(path), 501);

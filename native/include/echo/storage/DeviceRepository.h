@@ -13,6 +13,7 @@ class DeviceRepository {
 
   std::optional<echo::core::DeviceInfo> Load();
   void Save(const echo::core::DeviceInfo& device);
+  void Clear();
 
  private:
   Database& database_;

@@ -16,5 +16,9 @@ void DeviceRepository::Save(const echo::core::DeviceInfo& device) {
   database_.SetJson("device.info", echo::core::ToJson(device));
 }
 
+void DeviceRepository::Clear() {
+  database_.SetJson("device.info", nlohmann::json::object());
+}
+
 }  // namespace echo::storage
 
