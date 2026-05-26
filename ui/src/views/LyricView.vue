@@ -14,6 +14,18 @@ const parsedLyrics = ref<LyricLine[]>([]);
 const currentTrack = computed(() => playerStore.currentTrack);
 const currentTime = computed(() => playerStore.currentTime);
 
+// Stable cover URL with inline SVG fallback (same trick as PlayerBar) so
+// switching songs doesn't flicker to a blank/SVG fallback while the cover
+// URL loads from KuGou's CDN.
+const FALLBACK_BIG_COVER =
+  'data:image/svg+xml;utf8,' + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">` +
+    `<rect width="200" height="200" fill="#2a2520"/>` +
+    `<text x="100" y="115" text-anchor="middle" font-family="Noto Serif SC,serif" ` +
+    `font-weight="700" font-size="36" fill="#f1ead8">听</text></svg>`
+  );
+const coverUrl = computed(() => currentTrack.value?.Image || FALLBACK_BIG_COVER);
+
 async function loadLyrics() {
   if (!currentTrack.value) {
     parsedLyrics.value = [];
@@ -137,13 +149,9 @@ onMounted(() => {
       <!-- Left cover & name -->
       <div class="lyric-left">
         <div class="big-cover">
-          <img v-if="currentTrack.Image" :src="currentTrack.Image" alt="cover" />
-          <svg v-else viewBox="0 0 200 200">
-            <rect width="200" height="200" fill="#2a2520"/>
-            <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="28" fill="#f1ead8">
-              {{ currentTrack.SongName.slice(0, 4) }}
-            </text>
-          </svg>
+          <!-- Stable img with inline-SVG fallback (computed). Avoids
+               flicker by keeping the element mounted; cover swaps smoothly. -->
+          <img :src="coverUrl" alt="cover" style="transition: opacity 0.2s ease;" />
         </div>
         <h2>{{ currentTrack.SongName }}</h2>
         <p>{{ currentTrack.SingerName }}</p>

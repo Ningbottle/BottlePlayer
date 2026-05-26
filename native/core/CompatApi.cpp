@@ -29,7 +29,7 @@ namespace {
 
 using namespace std::chrono;
 
-constexpr std::array<std::string_view, 67> kKnownRoutes = {
+constexpr std::array<std::string_view, 68> kKnownRoutes = {
     "/health",
     "/server/now",
     "/register/dev",
@@ -37,6 +37,7 @@ constexpr std::array<std::string_view, 67> kKnownRoutes = {
     "/login/qr/create",
     "/login/qr/check",
     "/auth/logout",
+    "/settings/device",
     "/captcha/sent",
     "/login/cellphone",
     "/login/wx/create",
@@ -152,19 +153,21 @@ CompatResponse CompatApi::Handle(
     const std::string& method,
     const std::string& path,
     const QueryMap& query,
-    const HeaderMap& headers) {
+    const HeaderMap& headers,
+    const std::string& body) {
   if (!IsKnownCompatRoute(path)) {
     return JsonResponse({{"status", 0}, {"error_code", 404}, {"error", "Unknown route"}}, 404);
   }
 
-  return HandleKnownRoute(method, path, query, headers);
+  return HandleKnownRoute(method, path, query, headers, body);
 }
 
 CompatResponse CompatApi::HandleKnownRoute(
     const std::string& method,
     const std::string& path,
     const QueryMap& query,
-    const HeaderMap& headers) {
+    const HeaderMap& headers,
+    const std::string& body) {
   (void)method;
   (void)query;
   (void)headers;
@@ -482,12 +485,30 @@ CompatResponse CompatApi::HandleKnownRoute(
     const auto session = sessionRepo.Load();
     const std::string userId = session ? session->userId : "";
     const std::string token = session ? session->token : "";
-    const std::string listId = QueryValue(query, "listid", QueryValue(query, "id"));
-    const std::string data = QueryValue(query, "data");
-
     storage::DeviceRepository deviceRepo(database_);
     DeviceService devices(deviceRepo);
     const auto device = devices.EnsureDeviceReady();
+
+    nlohmann::json jsonBody;
+    try {
+      if (!body.empty()) {
+        jsonBody = nlohmann::json::parse(body);
+      }
+    } catch (...) {}
+
+    auto ReadString = [](const nlohmann::json& j, const std::string& k, const std::string& def = "") -> std::string {
+      if (j.contains(k)) {
+        if (j[k].is_string()) return j[k].get<std::string>();
+        if (j[k].is_number()) return std::to_string(j[k].get<long long>());
+      }
+      return def;
+    };
+
+    const std::string listIdFromQuery = QueryValue(query, "listid", QueryValue(query, "id"));
+    const std::string listId = listIdFromQuery.empty() ? ReadString(jsonBody, "listId", ReadString(jsonBody, "id", ReadString(jsonBody, "listid"))) : listIdFromQuery;
+
+    const std::string dataFromQuery = QueryValue(query, "data");
+    const std::string data = dataFromQuery.empty() ? ReadString(jsonBody, "data") : dataFromQuery;
 
     PlaylistService playlist;
     return JsonResponse(playlist.AddPlaylistTracks(device, userId, token, listId, data));
@@ -784,6 +805,56 @@ CompatResponse CompatApi::HandleKnownRoute(
     storage::DeviceRepository deviceRepo(database_);
     deviceRepo.Clear();
     return JsonResponse({{"status", 1}, {"data", {{"cleared", true}}}});
+  }
+
+  if (path == "/settings/device") {
+    // GET /settings/device                          → return current device
+    // GET /settings/device?dfid=X&mid=Y&uuid=Z      → override fields, mark
+    //   registered=true so /song/url / /user/playlist treat it as trusted.
+    // Empty values are ignored (keep existing). Pass `clear=1` to reset.
+    storage::DeviceRepository deviceRepo(database_);
+    DeviceService devices(deviceRepo);
+    auto device = devices.EnsureDeviceReady();
+
+    const auto newDfid = QueryValue(query, "dfid");
+    const auto newMid = QueryValue(query, "mid");
+    const auto newUuid = QueryValue(query, "uuid");
+    const bool clearOverride = QueryValue(query, "clear") == "1";
+
+    bool changed = false;
+    if (clearOverride) {
+      // Reset to a fresh random device — useful for testing.
+      deviceRepo.Clear();
+      device = devices.EnsureDeviceReady();
+      changed = true;
+    }
+    if (!newDfid.empty() && newDfid != device.dfid) {
+      device.dfid = newDfid;
+      changed = true;
+    }
+    if (!newMid.empty() && newMid != device.mid) {
+      device.mid = newMid;
+      changed = true;
+    }
+    if (!newUuid.empty() && newUuid != device.uuid) {
+      device.uuid = newUuid;
+      changed = true;
+    }
+    if (changed) {
+      // Any manual override implies the user trusts the value as KuGou-issued.
+      // Set registered=true so downstream skips the (broken) /register_dev call.
+      if (!newDfid.empty() || !newMid.empty() || !newUuid.empty()) {
+        device.registered = true;
+      }
+      deviceRepo.Save(device);
+      std::cout << "[CompatApi] /settings/device updated dfid=" << device.dfid
+                << " mid=" << device.mid << " uuid=" << device.uuid << std::endl;
+    }
+    return JsonResponse({
+        {"status", 1},
+        {"data", ToJson(device)},
+        {"updated", changed},
+    });
   }
 
   if (path == "/song/climax") {

@@ -38,14 +38,14 @@ DeviceInfo CreateDeviceInfo() {
   // Explicit `registered=false` because MSVC's designated initializer does
   // not respect NSDMI defaults for omitted fields (UB without this line).
   return DeviceInfo{
-      .dfid = RandomHex(32),
+      .dfid = "-",
       .mid = RandomHex(32),
-      .uuid = guid,
+      .uuid = "-",
       .guid = guid,
       .serverDev = "",
-      .mac = RandomHex(12),
-      .appid = "1014",
-      .clientver = "20000",
+      .mac = "02:00:00:00:00:00",
+      .appid = "3116",
+      .clientver = "11440",
       .registered = false,
   };
 }
@@ -56,14 +56,11 @@ DeviceService::DeviceService(storage::DeviceRepository& devices) : devices_(devi
 
 DeviceInfo DeviceService::EnsureDeviceReady() {
   if (auto existing = devices_.Load(); existing && !existing->dfid.empty()) {
-    // Migrate devices that were briefly created as appid=1005 — KuGou flags
-    // those as untrusted via QR login and downgrades VIP audio. Reset to
-    // 1014 (the QR-login-friendly identifier) so the next scan can bind
-    // a token correctly.
-    if (existing->appid == "1014") {
+    // Accept existing device if it already uses the lite appid=3116.
+    if (existing->appid == "3116") {
       return *existing;
     }
-    // Fall through to regenerate with the canonical 1014/20000 fingerprint.
+    // Fall through to regenerate with the canonical 3116/11440 fingerprint.
   }
 
   auto device = CreateDeviceInfo();

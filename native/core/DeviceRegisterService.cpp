@@ -129,14 +129,14 @@ std::string DeviceRegisterService::Register(
   // verifies. Notably NO `plat` parameter; the signature covers exactly:
   // dfid/mid/uuid/appid/clientver/clienttime + (part, platid, p) + userid/token.
   std::unordered_map<std::string, std::string> params = {
-      {"appid",     "1005"},
-      {"clientver", "20489"},
+      {"appid",     "3116"},
+      {"clientver", "11440"},
       {"clienttime", clienttime},
       {"part",      "1"},
       {"platid",    "1"},
       {"p",         rsaP},
       {"mid",       device.mid.empty() ? "0" : device.mid},
-      {"uuid",      device.uuid.empty() ? "-" : device.uuid},
+      {"uuid",      "-"},
       {"dfid",      device.dfid.empty() ? "-" : device.dfid},
   };
   if (!userId.empty() && userId != "0") params["userid"] = userId;

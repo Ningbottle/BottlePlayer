@@ -30,9 +30,26 @@ export function normalizeTrack(raw: any): Track {
   const AlbumAudioID = raw.AlbumAudioID || raw.album_audio_id || raw.mixsongid || raw.MixSongID || undefined;
   const Duration = Number(raw.Duration || raw.duration || raw.time_length || 0);
 
-  // Cover image extraction
-  let Image = raw.Image || raw.imgurl || raw.img || raw.cover || raw.pic_url;
-  // If it's a sizable cover, clean up the {size} placeholder
+  // Cover image extraction — KuGou's many endpoints stash the cover URL in
+  // different field names. Walk through them in order of preference.
+  // `union_cover` and `album_sizable_cover` typically come from /top/song,
+  // /everyday/recommend, and /search responses.
+  let Image: string | undefined =
+      raw.Image ||
+      raw.imgurl ||
+      raw.img ||
+      raw.cover ||
+      raw.pic_url ||
+      raw.sizable_cover ||
+      raw.album_sizable_cover ||
+      raw.album_cover ||
+      raw.album_imgurl ||
+      raw.trans_param?.union_cover ||
+      raw.albuminfo?.sizable_cover ||
+      raw.albuminfo?.imgurl ||
+      raw.singerinfo?.[0]?.avatar ||
+      undefined;
+  // Most KuGou cover URLs embed a `{size}` placeholder (e.g. /400/ for 400px).
   if (Image && typeof Image === 'string') {
     Image = Image.replace('{size}', '400');
   }

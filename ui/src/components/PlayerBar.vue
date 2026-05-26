@@ -20,6 +20,19 @@ const loopMode = computed(() => playerStore.loopMode);
 const errorMsg = computed(() => playerStore.errorMsg);
 const isPreview = computed(() => playerStore.isPreview);
 
+// Stable fallback cover — keeps the <img> element mounted even when the
+// track has no Image yet (avoids the v-if mount/unmount flicker during
+// track switches). Uses paper-colored background so the swap is invisible.
+const FALLBACK_COVER =
+  'data:image/svg+xml;utf8,' + encodeURIComponent(
+    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56">` +
+    `<rect width="56" height="56" fill="#2a2520"/>` +
+    `<text x="28" y="34" text-anchor="middle" font-family="Noto Serif SC,serif" ` +
+    `font-weight="700" font-size="14" fill="#f1ead8">听</text></svg>`
+  );
+
+const coverUrl = computed(() => currentTrack.value?.Image || FALLBACK_COVER);
+
 function formatTime(sec: number) {
   if (isNaN(sec) || sec === null || sec === undefined) return '00:00';
   const m = Math.floor(sec / 60);
@@ -73,21 +86,9 @@ function toggleLyricView() {
     <!-- Left: Track info -->
     <div class="np" @click="toggleLyricView" style="cursor: pointer;" title="点击查看歌词 · Click to view lyrics">
       <div class="cv">
-        <template v-if="currentTrack">
-          <img v-if="currentTrack.Image" :src="currentTrack.Image" alt="cover" />
-          <svg v-else viewBox="0 0 56 56">
-            <rect width="56" height="56" fill="#2a2520"/>
-            <text x="28" y="32" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="10" fill="#f1ead8">
-              {{ currentTrack.SongName.slice(0, 6) }}
-            </text>
-          </svg>
-        </template>
-        <svg v-else viewBox="0 0 56 56">
-          <rect width="56" height="56" fill="#2a2520"/>
-          <text x="28" y="32" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="10" fill="#f1ead8">
-            未播放
-          </text>
-        </svg>
+        <!-- Stable <img> with fallback data URL — avoids v-if remount flicker
+             when switching tracks while a cover is still loading. -->
+        <img :src="coverUrl" alt="cover" style="transition: opacity 0.15s ease;" />
       </div>
 
       <div class="info">
@@ -105,9 +106,12 @@ function toggleLyricView() {
       <span v-if="errorMsg" class="dim" style="font-size: 11px; margin-left: 10px; color: var(--accent);">
         {{ errorMsg }}
       </span>
-      <!-- Preview-mode banner — sticks across pause/play, only clears on next track -->
-      <span v-else-if="isPreview" class="dim" style="font-size: 11px; margin-left: 10px; color: var(--accent);">
-        ⚠️ 试听 60 秒 (VIP 歌曲)
+      <!-- Preview-mode banner — sticks across pause/play, only clears on next track.
+           Wording softened because the upstream "preview" URL sometimes plays
+           the full song or much more than 60s, so a hard "60 秒" claim was
+           misleading. -->
+      <span v-else-if="isPreview" class="dim" style="font-size: 11px; margin-left: 10px; color: var(--ink-soft);">
+        ⚠️ 试听版本（KuGou 仅授权部分时长）
       </span>
     </div>
 

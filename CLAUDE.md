@@ -10,13 +10,24 @@ BottleMusic 是一个 Tauri 2.0 + Vue 3 + C++ EchoCompatServer HTTP sidecar 的�
 
 > 截止 2026-05-25。
 
-### 设备风控注册（实现完成，但 KuGou 端拒绝，未解决）
+### 设备风控注册（2026-05-26 BREAKTHROUGH — 用户提供真实 dfid 解决）
 
-**症状**（实测）：
-- `/song/url` 任意 VIP 歌 → `errcode:20028 "本次请求需要验证"` → 只给 60s 试听
-- `/user/playlist` → `error_code:20017` → 空列表
-- `/user/vip/detail` → 上游返空，回 fallback 假数据
-- 这些都是 KuGou 风控对**未注册的随机 dfid** 的统一降权
+**已确认根因**：KuGou 风控对随机生成的 dfid 一律降权；自己实现的 `/risk/v2/r_register_dev` 调用 KuGou 已修改签名不再接收（详见下方 8 种组合实验）。
+
+**最终方案**：[settings/device](native/core/CompatApi.cpp) 路由让用户**直接输入手抓的真实 dfid/mid/uuid**，存进 DeviceRepository 标记 `registered=true`，后续 `/song/url`、`/user/playlist` 直接用这组真值。
+- 前端 UI：[SettingsView.vue](ui/src/views/SettingsView.vue) "Device Fingerprint" 卡片
+- 数据来源：浏览器 F12 抓 `m.kugou.com` 的 Network 面板，复制 `dfid=`、`mid=`、`uuid=`
+- 实测以一组真实指纹（用户提供）替换后：**麦恩莉/VIP 歌从 `20028 needs verify` → `20018 needs VIP pkg`，意味着请求已被信任**。`F0A6BA24635A8560F96C2C2D603E8CA8` 风中芭蕾返回**完整 mp3 URL** `/full/...mp3`，VIP 歌完整播放跑通
+
+**关键 bug 修复（与本次破解一并修通）**：
+- `Crypto::SignatureAndroidParams` 之前按 appid 选 lite/regular 盐 → 改为始终用 regular 盐（MakcRe/helper.js 是按 `process.env.platform` 选，从不按 appid）
+- `BuildV5Url` 之前 lite 模式默认 → 改回 1005/11430 regular，与 MakcRe 默认一致
+- `SongUrlService` 之前去掉了 dfid/mid/uuid（"-/0" workaround）→ 改回用 device 的真值
+- `PlaylistService::GetUserPlaylists` body 字段顺序改成插入顺序（与 JS axios.JSON.stringify 一致），userid 改为 number 而非 string
+
+**症状对照（修复前 → 修复后）**：
+- `/song/url` VIP 歌 → 之前 `errcode:20028`（设备未注册）→ 现在返回完整 mp3 URL（或个别歌曲返 `20018` 表"需要更高 VIP"，超出 SVIP 范围）
+- `/user/playlist` → 之前 `error_code:20017`（信号未通过）→ 现在仍 20017 但**性质改变**：是 token 过期，需要重新扫码登录
 
 **已实现的破解尝试**：[DeviceRegisterService](native/core/DeviceRegisterService.cpp) 完整复刻了 [MakcRe/KuGouMusicApi register_dev.js](https://github.com/MakcRe/KuGouMusicApi/blob/main/module/register_dev.js) 流程——AES-CBC + RSA-PKCS1-v1.5 + android 签名 + Xiaomi Redmi 设备指纹 POST 到 `https://userservice.kugou.com/risk/v2/r_register_dev`。
 

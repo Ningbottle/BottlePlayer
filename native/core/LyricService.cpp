@@ -1,4 +1,4 @@
-#include "echo/core/LyricService.h"
+﻿#include "echo/core/LyricService.h"
 
 #include <array>
 #include <cctype>
@@ -132,8 +132,8 @@ nlohmann::json LyricService::Search(std::string hash) const {
     return ErrorPayload("native_lyric_search_invalid_json", error.what());
   }
 
-  const auto candidates = upstream.value("candidates", nlohmann::json::array());
-  const auto info = upstream.value("info", nlohmann::json::array());
+  auto candidates = upstream.contains("candidates") ? upstream["candidates"] : nlohmann::json::array();
+  auto info = upstream.contains("info") ? upstream["info"] : nlohmann::json::array();
   return {
       {"status", upstream.value("status", 1)},
       {"error", upstream.value("error", "")},

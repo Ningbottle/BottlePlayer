@@ -92,8 +92,8 @@ std::string BuildV5Url(
   std::string mid = params["mid"];
   std::string userid = params.count("userid") ? params["userid"] : "0";
 
-  const bool isLite = (appid == "1014" || appid == "3116");
-  const std::string str = isLite ? "185672dd44712f60bb1736df5a377e82" : "57ae12eb6890223e355ccfcb74edf70d";
+  const bool isLiteKey = (appid == "1014"); // 3116 uses standard key string
+  const std::string str = isLiteKey ? "185672dd44712f60bb1736df5a377e82" : "57ae12eb6890223e355ccfcb74edf70d";
   params["key"] = CalculateMd5(hash + str + appid + mid + userid);
   
   params["signature"] = SignatureAndroidParams(params, "");
@@ -169,6 +169,9 @@ bool HasFailProcess(const nlohmann::json& upstream, std::initializer_list<std::s
 void ClearAuth(std::unordered_map<std::string, std::string>& params) {
   params.erase("userid");
   params.erase("token");
+  params["dfid"] = "-";
+  params["mid"] = "0";
+  params["uuid"] = "-";
 }
 
 }  // namespace
@@ -226,8 +229,8 @@ nlohmann::json SongUrlService::Resolve(
   params["ppage_id"] = ppageId.empty() ? "463467626,350369493,788954147" : ppageId;
   params["cdnBackup"] = "1";
   params["module"] = "";
-  params["clientver"] = "11430";
-  params["appid"] = "1005";
+  params["appid"] = "3116";
+  params["clientver"] = "11440";
   params["mid"] = device.mid.empty() ? "0" : device.mid;
   params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
   params["uuid"] = device.uuid.empty() ? "-" : device.uuid;
@@ -332,13 +335,25 @@ nlohmann::json SongUrlService::Resolve(
     tryPreview(upstream, params);
   }
 
-  if (!ok && !userId.empty()) {
+  if (!ok) {
     auto anonymousParams = params;
     ClearAuth(anonymousParams);
     auto [anonymousResult, anonymousUpstream] = callUpstream(anonymousParams);
     if (anonymousResult.error.empty() && anonymousResult.statusCode >= 200 &&
         anonymousResult.statusCode < 300 && !anonymousUpstream.is_null()) {
-      tryPreview(anonymousUpstream, anonymousParams);
+      
+      const auto anonymousPlayUrl = ReadStringOrFirstArrayElement(anonymousUpstream, "url");
+      if (!anonymousPlayUrl.empty()) {
+        playUrl = anonymousPlayUrl;
+        upstreamHash = ReadString(anonymousUpstream, "hash");
+        backupUrl = NormalizeBackupUrl(anonymousUpstream.value("backup_url", nlohmann::json::array()));
+        upstream = std::move(anonymousUpstream);
+        ok = true;
+        isPreview = true;
+      } else {
+        tryPreview(anonymousUpstream, anonymousParams);
+      }
+      
       if (!ok && upstream.empty()) {
         upstream = std::move(anonymousUpstream);
       }

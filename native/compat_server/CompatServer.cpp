@@ -213,8 +213,30 @@ int RunCompatServer(const char* host, int port) {
     std::string path;
     echo::core::QueryMap query;
     echo::core::HeaderMap headers;
+    std::string body;
 
     if (ParseRequest(raw, method, path, query, headers)) {
+      size_t contentLength = 0;
+      for (const auto& kv : headers) {
+        if (kv.first == "content-length") {
+          contentLength = std::stoull(kv.second);
+        }
+      }
+      if (contentLength > 0) {
+        size_t headerEnd = raw.find("\r\n\r\n");
+        if (headerEnd != std::string::npos) {
+          headerEnd += 4;
+          if (raw.size() > headerEnd) {
+            body = raw.substr(headerEnd);
+          }
+          while (body.size() < contentLength) {
+            const int received = recv(client, buffer, sizeof(buffer), 0);
+            if (received <= 0) break;
+            body.append(buffer, buffer + received);
+          }
+        }
+      }
+
       if (method == "OPTIONS") {
         SendResponse(
             client,
@@ -222,7 +244,7 @@ int RunCompatServer(const char* host, int port) {
       } else {
         SendResponse(client, path == "/diagnostics/memory"
                                  ? DiagnosticsMemoryResponse()
-                                 : api.Handle(method, path, query, headers));
+                                 : api.Handle(method, path, query, headers, body));
       }
     } else {
       SendResponse(
