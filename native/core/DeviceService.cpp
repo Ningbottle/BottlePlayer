@@ -44,8 +44,8 @@ DeviceInfo CreateDeviceInfo() {
       .guid = guid,
       .serverDev = "",
       .mac = "02:00:00:00:00:00",
-      .appid = "1014",
-      .clientver = "10000",
+      .appid = "1005",
+      .clientver = "12143",
       .registered = false,
   };
 }
@@ -56,11 +56,11 @@ DeviceService::DeviceService(storage::DeviceRepository& devices) : devices_(devi
 
 DeviceInfo DeviceService::EnsureDeviceReady() {
   if (auto existing = devices_.Load(); existing && !existing->dfid.empty()) {
-    // Accept existing device if it already uses the lite appid=3116.
-    if (existing->appid == "3116") {
+    // Accept existing device if it already uses the standard appid=1005.
+    if (existing->appid == "1005") {
       return *existing;
     }
-    // Fall through to regenerate with the canonical 3116/11440 fingerprint.
+    // Fall through to regenerate with the canonical 1005/12143 fingerprint.
   }
 
   auto device = CreateDeviceInfo();
