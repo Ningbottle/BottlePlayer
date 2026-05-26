@@ -44,8 +44,8 @@ DeviceInfo CreateDeviceInfo() {
       .guid = guid,
       .serverDev = "",
       .mac = "02:00:00:00:00:00",
-      .appid = "3116",
-      .clientver = "11440",
+      .appid = "1014",
+      .clientver = "10000",
       .registered = false,
   };
 }

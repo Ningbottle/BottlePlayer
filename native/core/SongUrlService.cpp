@@ -229,8 +229,8 @@ nlohmann::json SongUrlService::Resolve(
   params["ppage_id"] = ppageId.empty() ? "463467626,350369493,788954147" : ppageId;
   params["cdnBackup"] = "1";
   params["module"] = "";
-  params["appid"] = "3116";
-  params["clientver"] = "11440";
+  params["appid"] = "1005";
+  params["clientver"] = "12143";
   params["mid"] = device.mid.empty() ? "0" : device.mid;
   params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
   params["uuid"] = device.uuid.empty() ? "-" : device.uuid;
