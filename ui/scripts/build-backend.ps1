@@ -1,5 +1,5 @@
-# 编 C++ EchoCompatServer 并同步到 sidecar 位置。
-# 用法：pnpm backend:build
+﻿# 缂?C++ EchoCompatServer 骞跺悓姝ュ埌 sidecar 浣嶇疆銆?
+# 鐢ㄦ硶锛歱npm backend:build
 $ErrorActionPreference = 'Stop'
 
 $root      = Split-Path -Parent $PSScriptRoot                   # ui/
@@ -8,7 +8,12 @@ $buildDir  = "$nativeDir\out\bottlemusic-check"
 
 if (-not (Test-Path "$buildDir\CMakeCache.txt")) {
   Write-Host "[backend:build] configuring CMake (bottlemusic-check preset)..."
-  cmake -S "$nativeDir" --preset bottlemusic-check
+  $vsdev = "C:\Program Files\Microsoft Visual Studio\18\Insiders\Common7\Tools\VsDevCmd.bat"
+  if (Test-Path $vsdev) {
+    cmd /c ""$vsdev" -arch=x64 -host_arch=x64 2>nul && cmake -S "$nativeDir" --preset bottlemusic-check"
+  } else {
+    cmake -S "$nativeDir" --preset bottlemusic-check
+  }
   if ($LASTEXITCODE -ne 0) { throw "cmake configure failed" }
 }
 
@@ -21,5 +26,6 @@ if (Test-Path $vsdev) {
 }
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed" }
 
-# 同步到 sidecar 位置
+# 鍚屾鍒?sidecar 浣嶇疆
 & (Join-Path $PSScriptRoot 'sync-backend.ps1')
+
