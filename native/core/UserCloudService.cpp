@@ -109,9 +109,9 @@ nlohmann::json UserCloudService::GetList(
   std::unordered_map<std::string, std::string> paramsMap;
   paramsMap["clienttime"] = clienttime;
   paramsMap["mid"] = "0"; // Default MID
-  paramsMap["key"] = SignParamsKey(clienttime, "1005", "20489");
-  paramsMap["clientver"] = "20489";
-  paramsMap["appid"] = "1005";
+  paramsMap["key"] = SignParamsKey(clienttime, "3116", "11440");
+  paramsMap["clientver"] = "11440";
+  paramsMap["appid"] = "3116";
   paramsMap["p"] = p;
 
   // Build sorted query string (clearDefaultParams: true, notSignature: true)

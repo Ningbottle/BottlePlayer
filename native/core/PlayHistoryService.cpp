@@ -26,8 +26,8 @@ std::string BuildAndroidSignedUrl(
     const std::string& baseUrl,
     std::unordered_map<std::string, std::string> params,
     const std::string& body = "") {
-  if (params.find("appid") == params.end()) params["appid"] = "1005";
-  if (params.find("clientver") == params.end()) params["clientver"] = "20489";
+  if (params.find("appid") == params.end()) params["appid"] = "3116";
+  if (params.find("clientver") == params.end()) params["clientver"] = "11440";
   if (params.find("clienttime") == params.end()) {
     params["clienttime"] = std::to_string(std::time(nullptr));
   }

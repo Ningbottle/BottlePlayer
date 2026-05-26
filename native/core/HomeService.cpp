@@ -225,8 +225,8 @@ nlohmann::json HomeService::GetImagesAudio(const std::string& hash,
   }
 
   std::unordered_map<std::string, std::string> paramsMap;
-  paramsMap["appid"] = "1005";
-  paramsMap["clientver"] = "20489";
+  paramsMap["appid"] = "3116";
+  paramsMap["clientver"] = "11440";
   paramsMap["count"] = std::to_string(count);
   paramsMap["data"] = data.dump();
   paramsMap["isCdn"] = "1";

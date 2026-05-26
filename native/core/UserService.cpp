@@ -1,4 +1,4 @@
-#include "echo/core/UserService.h"
+﻿#include "echo/core/UserService.h"
 #include "echo/core/Crypto.h"
 
 #include <ctime>
@@ -90,8 +90,8 @@ nlohmann::json UserService::GetUserDetail(
 
   // Android-signed query params.
   std::unordered_map<std::string, std::string> params = {
-      {"appid", "1005"},
-      {"clientver", "20489"},
+      {"appid", "3116"},
+      {"clientver", "11440"},
       {"clienttime", clienttime},
       {"plat", "1"},
       {"userid", userId},
@@ -129,8 +129,8 @@ nlohmann::json UserService::GetUserVip(
   // Android-signed requests need the full device fingerprint; KuGou rejects
   // the request silently (status:0 / empty data) when dfid/mid/uuid are absent.
   std::unordered_map<std::string, std::string> params = {
-      {"appid", "1005"},
-      {"clientver", "20489"},
+      {"appid", "3116"},
+      {"clientver", "11440"},
       {"clienttime", clienttime},
       {"plat", "1"},
       {"busi_type", "concept"},
@@ -172,7 +172,7 @@ nlohmann::json UserService::ClaimVip(
   const auto clienttime = std::to_string(nowEpoch);
 
   // KuGou expects receive_day as today's date in YYYY-MM-DD form (error_code
-  // 304001 "日期格式错误" comes back for raw integers).
+  // 304001 "鏃ユ湡鏍煎紡閿欒" comes back for raw integers).
   std::string receiveDay;
   {
     std::tm tmNow{};
@@ -190,12 +190,12 @@ nlohmann::json UserService::ClaimVip(
 
   // KuGouMusicApi reference (module/youth_day_vip.js + util/request.js):
   //   POST /youth/v1/recharge/receive_vip_listen_song
-  //   • encryptType=android => params live in URL query string, NOT body
-  //   • android defaults inject dfid, mid, uuid, appid, clientver, clienttime
-  //   • signature = md5(salt + sorted(k=v) + body + salt) where body="" here
+  //   鈥?encryptType=android => params live in URL query string, NOT body
+  //   鈥?android defaults inject dfid, mid, uuid, appid, clientver, clienttime
+  //   鈥?signature = md5(salt + sorted(k=v) + body + salt) where body="" here
   std::unordered_map<std::string, std::string> params = {
-      {"appid", "1005"},
-      {"clientver", "20489"},
+      {"appid", "3116"},
+      {"clientver", "11440"},
       {"clienttime", clienttime},
       {"plat", "1"},
       {"dfid", device.dfid.empty() ? "-" : device.dfid},
@@ -225,10 +225,10 @@ nlohmann::json UserService::ClaimVip(
     auto json = nlohmann::json::parse(result.body);
     // Normalize the response so the UI always sees a usable shape.
     // KuGou's success response is `{status:1, data:{...}, error_msg:""}`.
-    // On failure it returns `{status:0, error_msg:"今日已领取" / "广告未观看" / ...}`.
+    // On failure it returns `{status:0, error_msg:"浠婃棩宸查鍙? / "骞垮憡鏈鐪? / ...}`.
     if (json.value("status", 0) != 1) {
       std::string msg = json.value("error_msg", json.value("error", std::string{}));
-      if (msg.empty()) msg = "领取失败，可能今天已领过";
+      if (msg.empty()) msg = "广告 VIP 升级失败（需要酷狗官方 App 内的广告 SDK 凭证）";
       return {
           {"status", 0},
           {"error", msg},
@@ -273,8 +273,8 @@ nlohmann::json UserService::UpgradeVipReward(
   //   params: kugouid=<userid>, ad_type=1
   // android encryptType => params live in URL query, no body.
   std::unordered_map<std::string, std::string> params = {
-      {"appid", "1005"},
-      {"clientver", "20489"},
+      {"appid", "3116"},
+      {"clientver", "11440"},
       {"clienttime", clienttime},
       {"plat", "1"},
       {"dfid", device.dfid.empty() ? "-" : device.dfid},

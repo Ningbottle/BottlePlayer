@@ -131,8 +131,8 @@ nlohmann::json NormalizeTrack(const nlohmann::json& raw) {
   const auto transParam = raw.value("trans_param", nlohmann::json::object());
 
   // Two upstream shapes:
-  //   A) mobilecdn special/song:  filename="歌手 - 歌名", songname, singername
-  //   B) pubsongs/v2:             name="歌手 - 歌名", singerinfo[{name}], albuminfo{name}
+  //   A) mobilecdn special/song:  filename="姝屾墜 - 姝屽悕", songname, singername
+  //   B) pubsongs/v2:             name="姝屾墜 - 姝屽悕", singerinfo[{name}], albuminfo{name}
   //                               (filename usually empty)
   std::string filename = ReadString(raw, "filename");
   if (filename.empty()) filename = ReadString(raw, "name");
@@ -486,14 +486,14 @@ nlohmann::json PlaylistService::GetTracks(
 
   // User-collection playlists from /user/playlist come back as
   // "collection_3_<userid>_<listid>_0" (a global_collection_id). The
-  // legacy mobilecdn/special/song endpoint doesn't accept these — it
-  // returns "参数不合法" (invalid params). Use the modern signed pubsongs
+  // legacy mobilecdn/special/song endpoint doesn't accept these 鈥?it
+  // returns "鍙傛暟涓嶅悎娉? (invalid params). Use the modern signed pubsongs
   // endpoint with `global_collection_id` for those.
   const bool isUserCollection = id.rfind("collection_", 0) == 0;
   if (isUserCollection) {
     const auto beginIdx = std::to_string((page - 1) * pageSize);
-    const std::string appid = "1005";
-    const std::string clientver = "20489";
+    const std::string appid = "3116";
+    const std::string clientver = "11440";
     const auto clienttime = std::to_string(std::time(nullptr));
     std::unordered_map<std::string, std::string> params = {
         {"appid", appid},
@@ -512,7 +512,7 @@ nlohmann::json PlaylistService::GetTracks(
 
     std::ostringstream urlStream;
     // Note: pubsongs endpoint is hosted on pubsongs.kugou.com directly
-    // (NOT under gateway.kugou.com — gateway returns 404).
+    // (NOT under gateway.kugou.com 鈥?gateway returns 404).
     urlStream << "https://pubsongs.kugou.com/v2/get_other_list_file_nofilt?";
     bool first = true;
     for (const auto& [key, value] : params) {
@@ -662,8 +662,8 @@ nlohmann::json PlaylistService::GetTags() const {
   list.push_back({
       {"tag_id", 0},
       {"id", 0},
-      {"tag_name", "推荐"},
-      {"name", "推荐"},
+      {"tag_name", "鎺ㄨ崘"},
+      {"name", "鎺ㄨ崘"},
       {"son", tags},
       {"children", tags},
   });
@@ -768,8 +768,8 @@ nlohmann::json PlaylistService::GetPlaylistDetail(
   const std::string body = dataPayload.dump();
 
   const auto clienttime = std::to_string(std::time(nullptr));
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const std::string appid = "3116";
+  const std::string clientver = "11440";
   std::unordered_map<std::string, std::string> params = {
       {"appid", appid},
       {"clientver", clientver},
@@ -847,8 +847,8 @@ nlohmann::json PlaylistService::GetUserPlaylists(
   const std::string body = dataPayload.dump();
 
   const auto clienttime = std::to_string(std::time(nullptr));
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const std::string appid = "3116";
+  const std::string clientver = "11440";
   std::unordered_map<std::string, std::string> params = {
       {"appid", appid},
       {"clientver", clientver},
@@ -940,8 +940,8 @@ nlohmann::json PlaylistService::AddPlaylist(
   const std::string body = dataPayload.dump();
   const auto clienttime = std::to_string(std::time(nullptr));
 
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const std::string appid = "3116";
+  const std::string clientver = "11440";
 
   std::unordered_map<std::string, std::string> params;
   params["appid"] = appid;
@@ -1021,8 +1021,8 @@ nlohmann::json PlaylistService::DeletePlaylist(
   std::string p = RsaPkcs1Encrypt(rsaPayload.dump());
 
   const auto clienttime = std::to_string(std::time(nullptr));
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const std::string appid = "3116";
+  const std::string clientver = "11440";
 
   std::unordered_map<std::string, std::string> paramsMap;
   paramsMap["clienttime"] = clienttime;
@@ -1129,8 +1129,8 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
   const std::string body = dataPayload.dump();
   const auto clienttime = std::to_string(std::time(nullptr));
 
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const std::string appid = "3116";
+  const std::string clientver = "11440";
 
   std::unordered_map<std::string, std::string> params;
   params["appid"] = appid;
@@ -1210,8 +1210,8 @@ nlohmann::json PlaylistService::DeletePlaylistTracks(
   const std::string body = dataPayload.dump();
   const auto clienttime = std::to_string(std::time(nullptr));
 
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const std::string appid = "3116";
+  const std::string clientver = "11440";
 
   std::unordered_map<std::string, std::string> params;
   params["appid"] = appid;

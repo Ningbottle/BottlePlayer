@@ -1,8 +1,20 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { apiGet } from '../api/backend';
 import { playTrack } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
+
+// Subtitle below the date — varies by hour so the "晚刊" feel is honest.
+const timeOfDayPhrase = computed(() => {
+  const h = new Date().getHours();
+  if (h < 5) return '夜深人静，适合低吟';
+  if (h < 9) return '清晨的轻语时光';
+  if (h < 12) return '上午的舒缓节拍';
+  if (h < 14) return '正午的悠扬时分';
+  if (h < 18) return '适合慢听的午后';
+  if (h < 22) return '晚归路上的回响';
+  return '深夜的安眠曲';
+});
 
 interface PlaylistInfo {
   specialid: number;
@@ -117,7 +129,7 @@ function playHeadline() {
       </div>
       <div class="date">
         <b>星期{{ ['日','一','二','三','四','五','六'][new Date().getDay()] }} · {{ new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' }) }}</b>
-        适合慢听的午后
+        {{ timeOfDayPhrase }}
       </div>
     </div>
 

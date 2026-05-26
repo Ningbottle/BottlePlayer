@@ -236,7 +236,7 @@ std::string RsaRawEncrypt(const std::string& jsonPayload) {
 std::string SignParamsKey(const std::string& data,
                           const std::string& appid,
                           const std::string& clientver) {
-  const bool isLite = (appid == "1014" || appid == "3116");
+  const bool isLite = (appid == "1014" );
   const std::string salt = isLite ? "LnT6xpN3khm36zse0QzvmgTZ3waWdRSA" : "OIlwieks28dk2k092lksi2UIkp";
   return CalculateMd5(appid + salt + clientver + data);
 }

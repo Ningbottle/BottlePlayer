@@ -43,7 +43,8 @@ class CompatApi {
       const std::string& method,
       const std::string& path,
       const QueryMap& query,
-      const HeaderMap& headers);
+      const HeaderMap& headers,
+      const std::string& body);
 
  private:
   storage::Database& database_;
@@ -53,7 +54,8 @@ class CompatApi {
       const std::string& method,
       const std::string& path,
       const QueryMap& query,
-      const HeaderMap& headers);
+      const HeaderMap& headers,
+      const std::string& body);
 };
 
 bool IsKnownCompatRoute(const std::string& path);
