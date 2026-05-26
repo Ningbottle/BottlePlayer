@@ -60,15 +60,15 @@ LoginService::LoginService()
 LoginService::LoginService(LoginHttpGet httpGet) : httpGet_(std::move(httpGet)) {}
 
 nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
-  // Use the device's stored appid (1014 by default) for QR login.
-  // This matches MakcRe/KuGouMusicApi which uses appid=1014/clientver=10000
-  // for /v2/qrcode regardless of which other endpoints the app talks to.
+  // For /v2/qrcode, KuGou expects appid=1001 or 1014 in the GET parameters,
+  // but we MUST hardcode appid=1005 in the qrcode_txt payload so the mobile app
+  // authorizes the token for standard Android endpoints (like /v7/get_all_list).
   std::unordered_map<std::string, std::string> params = {
-      {"appid", device.appid},
-      {"clientver", "10000"},
+      {"appid", "1001"},
+      {"clientver", device.clientver},
       {"type", "1"},
       {"plat", "4"},
-      {"qrcode_txt", "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=" + device.appid + "&"},
+      {"qrcode_txt", "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=1005&"},
       {"srcappid", "2919"},
       {"clienttime", std::to_string(std::time(nullptr))},
       {"mid", device.mid},
@@ -101,8 +101,8 @@ nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
 nlohmann::json LoginService::PollQrLogin(const DeviceInfo& device, const std::string& key) const {
   std::unordered_map<std::string, std::string> params = {
       {"plat", "4"},
-      {"appid", device.appid},
-      {"clientver", "10000"},
+      {"appid", "1005"},
+      {"clientver", device.clientver},
       {"qrcode", key},
       {"srcappid", "2919"},
       {"clienttime", std::to_string(std::time(nullptr))},
