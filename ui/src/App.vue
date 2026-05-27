@@ -59,10 +59,7 @@ async function runWindowAction(action: () => Promise<void>, label: string) {
   }
 }
 
-function startDrag(event: MouseEvent) {
-  if (event.button !== 0 || isTitlebarControl(event.target) || !appWindow) return;
-  void runWindowAction(() => appWindow!.startDragging(), 'drag');
-}
+
 
 function handleTitlebarDoubleClick(event: MouseEvent) {
   if (isTitlebarControl(event.target)) return;
@@ -169,7 +166,7 @@ onUnmounted(() => {
   <!-- Main grid app shell -->
   <div class="app">
     <!-- Custom Drag-enabled Titlebar -->
-    <div class="titlebar" @mousedown="startDrag" @dblclick="handleTitlebarDoubleClick">
+    <div class="titlebar" data-tauri-drag-region @dblclick="handleTitlebarDoubleClick">
       <div class="titlebar-logo">
         <span class="logo"><i>The</i> Player</span>
       </div>
