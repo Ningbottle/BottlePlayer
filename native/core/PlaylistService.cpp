@@ -493,7 +493,7 @@ nlohmann::json PlaylistService::GetTracks(
   if (isUserCollection) {
     const auto beginIdx = std::to_string((page - 1) * pageSize);
     const std::string appid = "1005";
-    const std::string clientver = "12143";
+    const std::string clientver = "20489";
     const auto clienttime = std::to_string(std::time(nullptr));
     std::unordered_map<std::string, std::string> params = {
         {"appid", appid},
@@ -769,7 +769,7 @@ nlohmann::json PlaylistService::GetPlaylistDetail(
 
   const auto clienttime = std::to_string(std::time(nullptr));
   const std::string appid = "1005";
-  const std::string clientver = "12143";
+  const std::string clientver = "20489";
   std::unordered_map<std::string, std::string> params = {
       {"appid", appid},
       {"clientver", clientver},
@@ -848,7 +848,7 @@ nlohmann::json PlaylistService::GetUserPlaylists(
 
   const auto clienttime = std::to_string(std::time(nullptr));
   const std::string appid = "1005";
-  const std::string clientver = "12143";
+  const std::string clientver = "20489";
   std::unordered_map<std::string, std::string> params = {
       {"appid", appid},
       {"clientver", clientver},
@@ -941,7 +941,7 @@ nlohmann::json PlaylistService::AddPlaylist(
   const auto clienttime = std::to_string(std::time(nullptr));
 
   const std::string appid = "1005";
-  const std::string clientver = "12143";
+  const std::string clientver = "20489";
 
   std::unordered_map<std::string, std::string> params;
   params["appid"] = appid;
@@ -1022,7 +1022,7 @@ nlohmann::json PlaylistService::DeletePlaylist(
 
   const auto clienttime = std::to_string(std::time(nullptr));
   const std::string appid = "1005";
-  const std::string clientver = "12143";
+  const std::string clientver = "20489";
 
   std::unordered_map<std::string, std::string> paramsMap;
   paramsMap["clienttime"] = clienttime;
@@ -1130,7 +1130,7 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
   const auto clienttime = std::to_string(std::time(nullptr));
 
   const std::string appid = "1005";
-  const std::string clientver = "12143";
+  const std::string clientver = "20489";
 
   std::unordered_map<std::string, std::string> params;
   params["appid"] = appid;
@@ -1211,7 +1211,7 @@ nlohmann::json PlaylistService::DeletePlaylistTracks(
   const auto clienttime = std::to_string(std::time(nullptr));
 
   const std::string appid = "1005";
-  const std::string clientver = "12143";
+  const std::string clientver = "20489";
 
   std::unordered_map<std::string, std::string> params;
   params["appid"] = appid;
