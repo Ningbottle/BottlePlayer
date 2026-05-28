@@ -93,15 +93,23 @@ std::string SignatureRegisterParams(
   return CalculateMd5("1014" + joined + "1014");
 }
 
+const char* AndroidSalt(KuGouSaltKind kind) {
+  return kind == KuGouSaltKind::Lite
+             ? "LnT6xpN3khm36zse0QzvmgTZ3waWdRSA"
+             : "OIlwieks28dk2k092lksi2UIkp";
+}
+
+const char* KeySalt(KuGouSaltKind kind) {
+  return kind == KuGouSaltKind::Lite
+             ? "185672dd44712f60bb1736df5a377e82"
+             : "57ae12eb6890223e355ccfcb74edf70d";
+}
+
 std::string SignatureAndroidParams(
     const std::unordered_map<std::string, std::string>& params,
-    const std::string& data) {
-  std::string appid;
-  if (params.find("appid") != params.end()) {
-    appid = params.at("appid");
-  }
-  const bool isLite = (appid == "1014" || appid == "3116");
-  const std::string salt = isLite ? "LnT6xpN3khm36zse0QzvmgTZ3waWdRSA" : "OIlwieks28dk2k092lksi2UIkp";
+    const std::string& data,
+    KuGouSaltKind saltKind) {
+  const std::string salt = AndroidSalt(saltKind);
   std::vector<std::string> keys;
   keys.reserve(params.size());
   for (const auto& [key, _] : params) {
@@ -123,16 +131,24 @@ static const char kKuGouPublicKeyB64[] =
     "bjDJX51HBNnEl5HXqTW6lQ7LC8jr9fWZTwusknp+sVGzwd40MwP6U5yDE27M/X1+"
     "UR4tvOGOqp94TJtQ1EPnWGWXngpeIW5GxoQGao1rmYWAu6oi1z9XkChrsUdC6DJE"
     "5E221wf/4WLFxwAtRQIDAQAB";
+static const char kKuGouLitePublicKeyB64[] =
+    "MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQKBgQDECi0Np2UR87scwrvTr72L6oO01"
+    "rBbbBPriSDFPxr3Z5syug0O24QyQO8bg27+0+4kBzTBTBOZ/WWU0WryL1JSXRTXL"
+    "gFVxtzIY41Pe7lPOgsfTCn5kZcvKhYKJesKnnJDNr5/abvTGf+rHG3YRwsCHcQ08"
+    "/q6ifSioBszvb3QiwIDAQAB";
 
 namespace {
 
-BCRYPT_KEY_HANDLE GetKuGouPublicKey() {
+BCRYPT_KEY_HANDLE GetKuGouPublicKey(KuGouSaltKind saltKind = KuGouSaltKind::Standard) {
+  const char* keyB64 = saltKind == KuGouSaltKind::Lite
+      ? kKuGouLitePublicKeyB64
+      : kKuGouPublicKeyB64;
   DWORD derLen = 0;
-  if (!CryptStringToBinaryA(kKuGouPublicKeyB64, 0, CRYPT_STRING_BASE64, nullptr, &derLen, nullptr, nullptr)) {
+  if (!CryptStringToBinaryA(keyB64, 0, CRYPT_STRING_BASE64, nullptr, &derLen, nullptr, nullptr)) {
     return nullptr;
   }
   std::vector<BYTE> derBytes(derLen);
-  if (!CryptStringToBinaryA(kKuGouPublicKeyB64, 0, CRYPT_STRING_BASE64, derBytes.data(), &derLen, nullptr, nullptr)) {
+  if (!CryptStringToBinaryA(keyB64, 0, CRYPT_STRING_BASE64, derBytes.data(), &derLen, nullptr, nullptr)) {
     return nullptr;
   }
 
@@ -235,14 +251,82 @@ std::string RsaRawEncrypt(const std::string& jsonPayload) {
 
 std::string SignParamsKey(const std::string& data,
                           const std::string& appid,
-                          const std::string& clientver) {
-  const bool isLite = (appid == "1014" );
-  const std::string salt = isLite ? "LnT6xpN3khm36zse0QzvmgTZ3waWdRSA" : "OIlwieks28dk2k092lksi2UIkp";
+                          const std::string& clientver,
+                          KuGouSaltKind saltKind) {
+  const std::string salt = AndroidSalt(saltKind);
   return CalculateMd5(appid + salt + clientver + data);
 }
 
+std::string SignKey(const std::string& hash,
+                    const std::string& mid,
+                    const std::string& userid,
+                    const std::string& appid,
+                    KuGouSaltKind saltKind) {
+  const std::string salt = KeySalt(saltKind);
+  return CalculateMd5(hash + salt + appid + mid + (userid.empty() ? "0" : userid));
+}
+
+// Hex → decimal string (arbitrary precision via manual base conversion). Used
+// to convert a 32-char md5 digest into the 38-39 digit decimal mid that
+// KuGou's Android-family clients send.
+std::string HexStringToDecimalString(const std::string& hex) {
+  // digits[] holds decimal digits in little-endian order (digits[0] is the
+  // ones place). We process the hex string left-to-right, repeatedly doing
+  // `result = result * 16 + nibble`.
+  std::vector<unsigned char> digits = {0};
+  for (char c : hex) {
+    int v;
+    if (c >= '0' && c <= '9') v = c - '0';
+    else if (c >= 'a' && c <= 'f') v = c - 'a' + 10;
+    else if (c >= 'A' && c <= 'F') v = c - 'A' + 10;
+    else continue;  // skip non-hex chars defensively
+
+    // multiply digits by 16
+    unsigned int carry = 0;
+    for (auto& d : digits) {
+      unsigned int x = d * 16u + carry;
+      d = static_cast<unsigned char>(x % 10u);
+      carry = x / 10u;
+    }
+    while (carry > 0) {
+      digits.push_back(static_cast<unsigned char>(carry % 10u));
+      carry /= 10u;
+    }
+
+    // add v
+    carry = static_cast<unsigned int>(v);
+    for (auto& d : digits) {
+      if (carry == 0) break;
+      unsigned int x = d + carry;
+      d = static_cast<unsigned char>(x % 10u);
+      carry = x / 10u;
+    }
+    while (carry > 0) {
+      digits.push_back(static_cast<unsigned char>(carry % 10u));
+      carry /= 10u;
+    }
+  }
+  // digits is little-endian; reverse to produce the printable string.
+  std::string result;
+  result.reserve(digits.size());
+  for (auto it = digits.rbegin(); it != digits.rend(); ++it) {
+    result.push_back(static_cast<char>('0' + *it));
+  }
+  return result.empty() ? "0" : result;
+}
+
+std::string CalculateAndroidMid(const std::string& input) {
+  // MakcRe util/util.js calculateMid(): md5(input).hex → base16-BigInt → base10
+  const std::string digest = CalculateMd5(input);  // 32 lowercase hex chars
+  return HexStringToDecimalString(digest);
+}
+
 std::string RsaPkcs1Encrypt(const std::string& payload) {
-  BCRYPT_KEY_HANDLE keyHandle = GetKuGouPublicKey();
+  return RsaPkcs1Encrypt(payload, KuGouSaltKind::Standard);
+}
+
+std::string RsaPkcs1Encrypt(const std::string& payload, KuGouSaltKind saltKind) {
+  BCRYPT_KEY_HANDLE keyHandle = GetKuGouPublicKey(saltKind);
   if (!keyHandle) return {};
 
   BCRYPT_PKCS1_PADDING_INFO padInfo = { nullptr };

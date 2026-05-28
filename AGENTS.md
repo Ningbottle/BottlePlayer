@@ -1,168 +1,102 @@
-# BottleMusic Agent 指南
+# BottleMusic Agent 工作指南
 
-本文是 BottleMusic 项目的通用 agent 工作规则。任何自动化编码助手在本仓库内工作时，都应先阅读本文，再阅读 `docs/REFERENCE.zh-CN.md`（技术栈、架构、迁移注意事项）和 `docs/WORKLIST.zh-CN.md`（执行队列）。
+本文回答「怎么做」。项目事实只读 `docs/PROJECT_LOGIC.zh-CN.md`。
 
-## 1. 项目定位
+## 1. 项目身份
 
-BottleMusic 是面向 Windows 10/11 x64 的音乐客户端。前端采用 **Tauri 2.0 + Vue 3 + Vanilla CSS**（`tauri-experiment` 分支），后端沿用 C++20 模块体系，通过 EchoCompatServer HTTP sidecar 连接两端。
+- BottleMusic 是 **酷狗音乐概念版 PC 非官方客户端**。
+- 酷狗音乐概念版没有官网、没有官方 PC 端；本项目目标是在 Windows 上提供非官方 PC 体验。
+- 不要混成酷狗标准版、酷狗官方 PC、m 站项目或 Electron 兼容项目。
 
-- 前端：Tauri 2.0 壳 + Vue 3（Composition API）+ Vanilla CSS（Newsprint 报纸风）
-- 后端：C++ EchoCompatServer（sidecar `127.0.0.1:6609`）+ EchoCore/Storage/Playback/Image/Async/Diagnostics
-- `server/` 子模块保留为 KuGouMusicApi 行为参考与未完成接口迁移来源
-- 播放中整进程内存目标：≤ 220 MB（WebView2 基线约 60-80 MB）
-- 视觉方向：Newsprint 报纸风（`Music Player.html` 参考，纸色 `#f1ead8` + 红强调 `#a8311b`）
+## 2. 必读顺序
 
-## 2. 模块结构
+1. `AGENTS.md`：工作流程、skills、约束。
+2. `docs/PROJECT_LOGIC.zh-CN.md`：架构、业务链路、酷狗音乐概念版 API 事实。
 
-```text
-前端（tauri-experiment 分支）
-├── Tauri 2.0 壳         // 窗口、sidecar 启停、invoke bridge
-├── Vue 3 组件树          // 页面、组件、Composition API
-├── Vanilla CSS          // Newsprint token、自定义属性
-└── src/api/backend.ts   // 唯一 HTTP 调用入口（→ EchoCompatServer）
+旧 `CLAUDE.md`、`REFERENCE`、`WORKLIST` 若出现，视为过期资料，不作为事实源。
 
-后端（main 分支，C++）
-├── EchoCompatServer  // HTTP sidecar，127.0.0.1:6609
-├── EchoCore          // 酷狗业务接口、DTO、错误模型
-├── EchoStorage       // SQLite、migration、cache metadata
-├── EchoPlayback      // Media Foundation 播放状态机
-├── EchoImage         // WIC decode + disk cache + memory LRU
-├── EchoAsync         // thread pool、event queue、cancellation
-└── EchoDiagnostics   // logging、trace、memory snapshot
-```
+## 3. 工作规则
 
-技术栈、依赖方向、迁移注意事项与内存预算见 `docs/REFERENCE.zh-CN.md`。
-
-## 3. 沟通与文档
-
-- 默认用中文沟通和写项目文档
-- 代码标识符使用英文
-- 架构与设计基线写入 `docs/REFERENCE.zh-CN.md`
-- 执行队列、验证命令、历史实测写入 `docs/WORKLIST.zh-CN.md`
-- 技术栈与迁移注意事项写入 `docs/REFERENCE.zh-CN.md`
-- 如果用户要求重新梳理，先停手沟通，不继续写代码
-
-### 架构语言
-
-架构讨论统一使用：Module、Interface、Implementation、Depth、Seam、Adapter、Leverage、Locality。
-
-### 任务类型
-
-- HITL：需要用户参与确认（视觉截图、交互取舍、架构决策）
-- AFK：agent 可独立完成并验证
-
-任务切片优先纵向：每个任务穿过数据 / Interface / UI 或测试中的完整路径，能独立验收，写清依赖；不写"只做某层"的横向任务，除非是明确的基础设施切片。
+- 默认用中文沟通和写项目文档；代码标识符使用英文。
+- 用户要求「先不动手」「重新梳理」时，只沟通和整理文档，不改代码。
+- 不确定时先查代码和项目逻辑文档，不凭记忆猜。
+- 架构讨论使用：Module、Interface、Implementation、Depth、Seam、Adapter、Leverage、Locality。
 
 ## 4. 实现前检查
 
-每次动手前回答这几个问题：
+- **Module**：改动属于 UI、CompatServer、EchoCore、Storage、Playback、Image、Async、Diagnostics 哪一块？
+- **Interface**：调用方看到的 public Interface 是什么？
+- **Concept baseline**：是否仍服务酷狗音乐概念版，而不是误切到标准版、m 站或 MakcRe `platform=lite` 的命名假设？
+- **Memory**：是否增加长期驻留对象、缓存或大依赖？
+- **Threading**：是否会把网络、SQLite、图片解码、Media Foundation 放到 UI 线程？
+- **Test**：是否需要 TDD tracer bullet？
 
-- 这次改动属于哪个 Module？
-- 调用方应该看到什么 Interface？
-- 是否会增加长期内存占用？
-- 是否需要 TDD tracer bullet？
-- 是否会影响 Melody UI 参考方向？
-- 是否只是 Electron 兼容期能力，还是最终客户端能力？
+## 5. Skills
 
-## 5. 实现规则
+| Skill | 使用场景 |
+| --- | --- |
+| `tdd` | 新功能、修 bug、迁移接口、缓存与内存预算 |
+| `diagnose` | 风控、签名、播放、性能等不确定问题 |
+| `improve-codebase-architecture` | 模块边界、依赖混乱、深 Module 设计 |
+| `to-issues` | 把计划拆成可独立验收的纵向任务 |
+| `zoom-out` | 进入陌生模块前建立全局理解 |
+
+Skill 是流程工具，不替代项目事实；结论必须落回 `docs/PROJECT_LOGIC.zh-CN.md` 或测试。
+
+## 6. TDD
+
+- 每次只验证一个用户可观察行为。
+- RED：先写失败测试。
+- GREEN：最小实现通过。
+- REFACTOR：通过后再整理命名和结构。
+- 通过 public Interface 测行为，不测私有函数和内部调用顺序。
+
+## 7. 实现约束
 
 ### UI
 
-- UI 线程不做网络、SQLite、图片解码或 Media Foundation 调用
-- UI 只持有当前页面 ViewModel 与可见区域数据
-- 列表都准备虚拟化，尤其歌曲、歌单、搜索结果、队列、评论
-- 控件状态变化不能导致布局跳动
-- 文本必须适配中文、英文、长歌名和长艺人名
-
-### 图片
-
-- 所有图片加载走 EchoImage
-- 不允许页面自己持有无限 Direct2D bitmap
-- 图片请求必须可取消
-- 不可见列表项的图片应能释放
-- 图片缓存有内存与磁盘上限
+- 前端使用 Tauri 2 + Vue 3 + Vanilla CSS。
+- 所有业务请求经 `ui/src/api/backend.ts`，组件不直接访问酷狗接口。
+- UI 线程不做网络、SQLite、图片解码、Media Foundation。
+- 视觉方向是 Newsprint 报纸风：纸色 `#f1ead8`，红强调 `#a8311b`。
 
 ### 后端
 
-- 酷狗接口细节集中在 EchoCore
-- Authorization、dfid、mid、uuid、guid、mac、token 不泄漏到 UI
-- 兼容 JSON 与 typed DTO 分开
-- 大响应不长期保留原始 JSON
-- 分页接口不一次性拉取全部历史
+- 酷狗细节集中在 EchoCore。
+- `dfid`、`mid`、`uuid`、`guid`、`mac`、`token` 不泄漏到 UI。
+- 兼容 JSON 与 typed DTO 分开。
+- 大响应不长期保留原始 JSON。
+- 分页接口不一次性拉取全部历史。
+- 酷狗音乐概念版 `appid`、`clientver`、`busi_type`、盐选择、设备指纹血缘必须以 `docs/PROJECT_LOGIC.zh-CN.md` 为准。
 
-### 播放
+### 播放、图片、异步
 
-- EchoPlayback 只暴露状态与命令
-- UI 监听播放状态 snapshot，不直接持有 Media Foundation 对象
-- 播放失败必须有明确错误
-- 切歌时释放旧播放对象
-- 不做整曲解码缓存
+- EchoPlayback 只暴露状态与命令；切歌释放旧播放对象；不做整曲解码缓存。
+- 图片加载归口 EchoImage；请求必须可取消；缓存必须有内存和磁盘上限。
+- 后台任务必须可追踪、可取消；性能问题先诊断再改。
 
-### 异步
+## 8. 禁止事项
 
-- 所有后台任务必须可追踪
-- 页面销毁或切换时取消无用任务
-- 关闭程序时等待或取消后台任务
-- 后台错误通过事件队列回到 UI
+- 不要把酷狗标准版参数当作酷狗音乐概念版默认事实。
+- 不要把 MakcRe 的 `platform=lite` 命名写成 BottleMusic 的业务身份；本项目身份是酷狗音乐概念版。
+- 不要把 m.kugou.com Cookie-only GET 当作已确认的 VIP 领取路线。
+- 不要把临时 EchoCompatServer HTTP 形态污染最终业务 Interface。
+- 不要在 UI 线程做网络、数据库、图片解码或播放底层调用。
+- 不要无上限缓存图片、搜索结果、歌单歌曲或歌词对象。
+- 不要新增大体积依赖绕过首版问题。
+- 不要伪造成功；未迁移或不可绕过接口应返回稳定错误。
+- 酷狗 appid / clientver / 盐选择 / busi_type 不得在业务代码里硬编码，必须经由 `GetKuGouProfile()` 派生；唯一豁免是 `KuGouProfile.h/cpp`。
+- 不要把 dfid 派生公式无条件当作所有酷狗音乐概念版接口的全局 `mid` 事实；先查 `PROJECT_LOGIC.zh-CN.md` 的设备指纹章节。
 
-### 诊断
+## 9. 验证
 
-- 每个阶段保留可读日志
-- 内存快照包含进程内存、图片缓存、队列长度、当前页面、播放状态
-- 性能问题先诊断再改，不用猜测替代测量
+- 改前端：运行类型检查/构建。
+- 改 C++：构建相关 target，必要时跑 smoke tests。
+- 改酷狗接口：至少验证请求参数、签名路径、错误码归因。
+- 改文档：确认 `AGENTS.md` 只回答「怎么做」，`docs/PROJECT_LOGIC.zh-CN.md` 只沉淀项目事实，二者不互相矛盾。
 
-### 兼容服务
+## 10. 长任务
 
-- EchoCompatServer 仅开发调试
-- 不把兼容 HTTP 当作最终 UI 内部协议
-- 未迁移接口返回稳定错误，不伪造成功
-- 兼容响应只保证旧前端需要的字段，不扩大成最终模型
-
-### 依赖
-
-- 引入依赖前写清楚理由、内存影响、体积影响、替代方案
-- 优先 Windows 原生能力与小依赖
-- 首版不默认引入 FFmpeg、libmpv、Chromium、WebView2
-
-## 6. 禁止事项
-
-- 不要把旧 Vue 组件结构当作最终原生 UI 结构
-- 不要为了快速实现把网络、数据库、图片解码放到 UI 线程
-- 不要无上限缓存图片、搜索结果、歌单歌曲或歌词对象
-- 不要新增大体积依赖来绕开首版问题
-- 不要让兼容 Electron 的临时接口污染最终 `IBackendFacade`
-- 不要在没有内存影响说明的情况下引入长期驻留对象
-
-## 7. TDD 与 Skill 使用
-
-### TDD 原则
-
-- 每次只验证一个用户可观察行为
-- RED：写一个失败的行为测试
-- GREEN：写最小实现让测试通过
-- REFACTOR：在测试通过后整理模块与命名
-- 测试通过 public Interface 验证行为，不测私有函数和内部调用顺序
-- 不一次性写一整批未来测试
-- 不为 volatile 字段做字节级比较
-
-### Skill 调用
-
-| Skill | 用途 |
-| --- | --- |
-| `tdd` | 新增可观察功能、修 bug、迁移后端接口、实现缓存与内存预算 |
-| `improve-codebase-architecture` | 划分模块、发现依赖混乱、设计深 Module、解释 Interface 价值 |
-| `design-an-interface` | 设计 `IBackendFacade`、`IPlaybackController`、`IImageLoader`、`IImageCache`、`IEventQueue`、`IMemorySnapshotProvider`、`IPage`、`IRenderContext` 等关键 Interface；至少比较三种方向（最少方法 / 最灵活 / 最常见路径优化） |
-| `to-issues` | 把计划拆成可执行任务，包含 Title / Type（HITL or AFK）/ Blocked by / Acceptance criteria |
-
-### Skill 规则
-
-- skills 是流程工具，不替代项目事实；事实以 `docs/`、本文与用户最新指令为准
-- skill 结论必须落回 `docs/`
-- skill 输出不是已批准实现计划
-- 用户说"先不动手"时只沟通和写文档，不修改 C++ 代码
-
-## 8. 长时间任务
-
-- 优先按 `docs/WORKLIST.zh-CN.md` 自动推进
-- 上下文压缩时只保留 BottleMusic 相关事实，丢弃与项目无关的 GitHub 凭据、账号登录、网络证书、代理配置等临时排障信息
-- 压缩规则与验证命令详见 `docs/WORKLIST.zh-CN.md`
+- 优先纵向切片：数据/API/Interface/UI 或测试贯通。
+- 每个任务写清 Type：HITL 或 AFK。
+- 上下文压缩只保留 BottleMusic 项目事实，丢弃账号、代理、证书等临时排障信息。

@@ -22,6 +22,7 @@
 #include "echo/core/CatalogService.h"
 #include "echo/core/CompatApi.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/DeviceService.h"
 #include "echo/core/LoginService.h"
 #include "echo/core/JsonHelpers.h"
 #include "echo/core/LyricParser.h"
@@ -41,6 +42,7 @@
 #include "echo/image/ImageLoader.h"
 #include "echo/playback/PlaybackController.h"
 #include "echo/storage/Database.h"
+#include "echo/storage/DeviceRepository.h"
 #include "echo/win32_app/ImageSlot.h"
 #include "echo/storage/SettingsRepository.h"
 #include "echo/win32_app/Layout.h"
@@ -173,21 +175,23 @@ int main() {
     return {{"status", 1}, {"data", {{"qrcode", "mock_key"}, {"qrcodeurl", "http://mock"}}}};
   };
   echo::core::CompatApi api(database, std::move(defaultHandlers));
-  auto health = api.Handle("GET", "/health", {}, {});
+  auto health = api.Handle("GET", "/health", {}, {}, "");
   assert(health.httpStatus == 200);
   assert(health.body["status"] == 1);
 
-  auto device = api.Handle("GET", "/register/dev", {}, {});
+  auto device = api.Handle("GET", "/register/dev", {}, {}, "");
   assert(device.httpStatus == 200);
   assert(device.body["status"] == 1);
-  assert(device.body["data"]["dfid"].get<std::string>().size() == 32);
+  // New device uses dfid="-" as unregistered placeholder; mid/uuid are derived.
+  assert(device.body["data"]["dfid"].get<std::string>() == "-");
+  assert(device.body["data"]["registered"] == false);
 
-  auto now = api.Handle("GET", "/server/now", {}, {});
+  auto now = api.Handle("GET", "/server/now", {}, {}, "");
   assert(now.httpStatus == 200);
   assert(now.body["data"]["timestamp"].get<std::int64_t>() > 0);
 
   std::cout << "[Test] Calling /login/qr/key (first time)..." << std::endl;
-  auto loginQrKey = api.Handle("GET", "/login/qr/key", {}, {});
+  auto loginQrKey = api.Handle("GET", "/login/qr/key", {}, {}, "");
   assert(loginQrKey.httpStatus == 200);
   assert(loginQrKey.body.contains("status"));
   // The route is now live — it must NOT return native_not_implemented.
@@ -336,7 +340,8 @@ int main() {
       "GET",
       "/search",
       {{"keyword", "晴天"}, {"type", "song"}, {"page", "2"}, {"pageSize", "7"}},
-      {});
+      {},
+      "");
   assert(compatSearch.httpStatus == 200);
   assert(compatSearch.body["status"] == 1);
   assert(compatSearch.body["data"]["keywords"] == "晴天");
@@ -347,7 +352,8 @@ int main() {
       "GET",
       "/song/url",
       {{"hash", "abc123"}, {"quality", "sq"}, {"ppage_id", "playlist_detail"}},
-      {});
+      {},
+      "");
   assert(compatSongUrl.httpStatus == 200);
   assert(compatSongUrl.body["status"] == 1);
   assert(compatSongUrl.body["url"] == "https://audio.example/abc123.flac");
@@ -357,7 +363,8 @@ int main() {
       "GET",
       "/search/lyric",
       {{"hash", "abc123"}},
-      {});
+      {},
+      "");
   assert(compatLyricSearch.body["status"] == 200);
   assert(compatLyricSearch.body["candidates"].size() == 1);
   assert(compatLyricSearchCalls == 1);
@@ -366,7 +373,8 @@ int main() {
       "GET",
       "/lyric",
       {{"id", "lyric-1"}, {"accessKey", "ak"}},
-      {});
+      {},
+      "");
   assert(compatLyricDetail.body["status"] == 200);
   assert(compatLyricDetail.body["decodeContent"] == "[00:01.00]晴天");
   assert(compatLyricDetailCalls == 1);
@@ -375,7 +383,8 @@ int main() {
       "GET",
       "/playlist/track/all",
       {{"id", "125032"}, {"page", "3"}, {"pageSize", "12"}},
-      {});
+      {},
+      "");
   assert(compatPlaylistTracks.body["status"] == 1);
   assert(compatPlaylistTracks.body["data"]["songs"].size() == 1);
   assert(compatPlaylistTracks.body["data"]["pagesize"] == 12);
@@ -384,8 +393,36 @@ int main() {
   auto facade = echo::core::CreateBackendFacade(TestDbPath());
   const auto facadeDevice = facade->EnsureDeviceReady().get();
   const auto secondFacadeDevice = facade->EnsureDeviceReady().get();
-  assert(facadeDevice.dfid.size() == 32);
+  // New device uses dfid="-" as unregistered placeholder; EnsureDeviceReady is idempotent.
+  assert(facadeDevice.dfid == "-");
   assert(facadeDevice.dfid == secondFacadeDevice.dfid);
+  assert(facadeDevice.mid.empty());
+  assert(facadeDevice.uuid.empty());
+  assert(facadeDevice.registered == false);
+
+  {
+    echo::storage::Database trustedDeviceDb;
+    trustedDeviceDb.Open(TestDbPath());
+    trustedDeviceDb.Initialize();
+    echo::storage::DeviceRepository trustedDeviceRepo(trustedDeviceDb);
+    trustedDeviceRepo.Save(echo::core::DeviceInfo{
+        .dfid = "2ULHpc3qaLZa43ln8x0fLJQp",
+        .mid = "0123456789abcdef0123456789abcdef",
+        .uuid = "1779947671000",
+        .guid = "guid-real",
+        .serverDev = "",
+        .mac = "02:00:00:00:00:00",
+        .appid = "3116",
+        .clientver = "11440",
+        .registered = true,
+    });
+    echo::core::DeviceService trustedDeviceService(trustedDeviceRepo);
+    const auto trustedDevice = trustedDeviceService.EnsureDeviceReady();
+    assert(trustedDevice.dfid == "2ULHpc3qaLZa43ln8x0fLJQp");
+    assert(trustedDevice.mid == "0123456789abcdef0123456789abcdef");
+    assert(trustedDevice.uuid == "1779947671000");
+    assert(trustedDevice.registered == true);
+  }
 
   echo::core::SearchService searchService([](
                                               const std::string& url,
@@ -515,17 +552,20 @@ int main() {
   const auto authedSongUrl = authenticatedSongUrlService.Resolve(
       "ABCDEF", "123", "456", "sq", "", "42", "tok", qrLoginDevice);
   assert(authedSongUrl["status"] == 1);
-  const std::string expectedSongUrlKey = echo::core::CalculateMd5(
-      "abcdef57ae12eb6890223e355ccfcb74edf70d1005042");
+  // Resolve now forces appid=3116 / clientver=11430 (concept edition defaults).
+  const std::string expectedMid = echo::core::CalculateAndroidMid("uuid123");
+  // Resolve lower-cases the hash before signing, so use "abcdef" for the expected key.
+  const std::string expectedSongUrlKey =
+      echo::core::SignKey("abcdef", expectedMid, "42", "3116");
   assert(capturedSongUrlRequest.find("https://gateway.kugou.com/v5/url?") == 0);
   assert(capturedSongUrlRequest.find("hash=abcdef") != std::string::npos);
   assert(capturedSongUrlRequest.find("album_id=123") != std::string::npos);
   assert(capturedSongUrlRequest.find("album_audio_id=456") != std::string::npos);
   assert(capturedSongUrlRequest.find("quality=sq") != std::string::npos);
-  assert(capturedSongUrlRequest.find("appid=1005") != std::string::npos);
+  assert(capturedSongUrlRequest.find("appid=3116") != std::string::npos);
   assert(capturedSongUrlRequest.find("clientver=11430") != std::string::npos);
-  assert(capturedSongUrlRequest.find("mid=0") != std::string::npos);
-  assert(capturedSongUrlRequest.find("dfid=-") != std::string::npos);
+  assert(capturedSongUrlRequest.find("mid=" + expectedMid) != std::string::npos);
+  assert(capturedSongUrlRequest.find("dfid=dfid123") != std::string::npos);
   assert(capturedSongUrlRequest.find("uuid=-") != std::string::npos);
   assert(capturedSongUrlRequest.find("userid=42") != std::string::npos);
   assert(capturedSongUrlRequest.find("token=tok") != std::string::npos);
@@ -533,8 +573,8 @@ int main() {
   assert(capturedSongUrlRequest.find("appid=1014") == std::string::npos);
   assert(capturedSongUrlRequest.find("clientver=10000") == std::string::npos);
   assert(capturedSongUrlHeaders["x-router"] == "trackercdn.kugou.com");
-  assert(capturedSongUrlHeaders["dfid"] == "-");
-  assert(capturedSongUrlHeaders["mid"] == "0");
+  assert(capturedSongUrlHeaders["dfid"] == "dfid123");
+  assert(capturedSongUrlHeaders["mid"] == expectedMid);
   assert(!capturedSongUrlHeaders["clienttime"].empty());
 
   std::vector<std::string> previewRequests;
@@ -1707,7 +1747,8 @@ int main() {
          {"type", params.value("type", "song")},
          {"page", params.value("page", "1")},
          {"pageSize", params.value("pageSize", "30")}},
-        {});
+        {},
+        "");
 
     std::vector<std::string> searchMismatches;
     const auto volatilePathsSearch =
@@ -1760,7 +1801,8 @@ int main() {
         "/song/url",
         {{"hash", params["hash"].get<std::string>()},
          {"quality", params.value("quality", "sq")}},
-        {});
+        {},
+        "");
 
     std::vector<std::string> songUrlMismatches;
     const auto volatilePathsSongUrl =
@@ -1806,7 +1848,8 @@ int main() {
         "/lyric",
         {{"id", params["id"].get<std::string>()},
          {"accessKey", params["accessKey"].get<std::string>()}},
-        {});
+        {},
+        "");
 
     std::vector<std::string> lyricMismatches;
     const auto volatilePathsLyric =
@@ -1859,7 +1902,8 @@ int main() {
         {{"id", meta["params"]["id"].get<std::string>()},
          {"page", meta["params"]["page"].get<std::string>()},
          {"pageSize", meta["params"]["pageSize"].get<std::string>()}},
-        {});
+        {},
+        "");
     assert(playlistResponse.httpStatus == 200);
 
     std::vector<std::string> playlistMismatches;
@@ -1893,7 +1937,7 @@ int main() {
     };
     echo::core::CompatApi loginContractApi(loginContractDb, std::move(loginContractHandlers));
 
-    const auto loginResponse = loginContractApi.Handle("GET", "/login/qr/key", {}, {});
+    const auto loginResponse = loginContractApi.Handle("GET", "/login/qr/key", {}, {}, "");
     assert(loginResponse.httpStatus == 200 &&
            "[A1] /login/qr/key should no longer return 501");
     assert(loginResponse.body.contains("status") &&
@@ -2144,8 +2188,9 @@ int main() {
     assert(echo::core::SignatureWebParams(params) == expectedWebSig && "SignatureWebParams mismatch");
 
     // Android: salt + sorted(abc=123foo=bar) + data + salt
-    // String: OIlwieks28dk2k092lksi2UIkpabc=123foo=barpayloadOIlwieks28dk2k092lksi2UIkp
-    const std::string expectedAndroidString = "OIlwieks28dk2k092lksi2UIkpabc=123foo=barpayloadOIlwieks28dk2k092lksi2UIkp";
+    // Lite salt: LnT6xpN3khm36zse0QzvmgTZ3waWdRSA
+    const std::string expectedAndroidString =
+        "LnT6xpN3khm36zse0QzvmgTZ3waWdRSAabc=123foo=barpayloadLnT6xpN3khm36zse0QzvmgTZ3waWdRSA";
     const std::string expectedAndroidSig = echo::core::CalculateMd5(expectedAndroidString);
     assert(echo::core::SignatureAndroidParams(params, "payload") == expectedAndroidSig && "SignatureAndroidParams mismatch");
   }
@@ -2178,7 +2223,7 @@ int main() {
     assert(beginResult["status"].get<int>() == 1);
     assert(beginResult["data"]["qrcode"].get<std::string>() == "mock_key");
     assert(capturedUrl.find("https://login-user.kugou.com/v2/qrcode") == 0);
-    assert(capturedUrl.find("appid=1014") != std::string::npos);
+    assert(capturedUrl.find("appid=1001") != std::string::npos);
     assert(capturedUrl.find("signature=") != std::string::npos);
 
     auto mockPoll = [&](const std::string& url, const std::unordered_map<std::string, std::string>& headers) -> echo::core::HttpResult {
@@ -2253,7 +2298,7 @@ int main() {
     assert(userResult["data"]["list"][0]["name"].get<std::string>() == "My Playlist");
     assert(capturedPostUrl.find("gateway.kugou.com/v7/get_all_list") != std::string::npos);
     assert(capturedPostUrl.find("signature=") != std::string::npos);
-    assert(capturedPostBody.find("\"userid\":\"42\"") != std::string::npos);
+    assert(capturedPostBody.find("\"userid\":42") != std::string::npos);
 
     // GetUserPlaylists with no user
     auto noUserResult = userPlaylistSvc.GetUserPlaylists("", "tok", 1, 30);
@@ -2481,13 +2526,13 @@ int main() {
 
       echo::core::CompatApi api(db, handlers);
 
-      const auto detailResp = api.Handle("GET", "/user/detail", {}, {});
+      const auto detailResp = api.Handle("GET", "/user/detail", {}, {}, "");
       assert(detailResp.httpStatus == 200);
       assert(detailResp.body["status"].get<int>() == 1);
       assert(detailResp.body["data"]["nickname"].get<std::string>() == "MockUser");
       std::cout << "  [ok] CompatApi /user/detail routes to handler" << std::endl;
 
-      const auto recResp = api.Handle("GET", "/everyday/recommend", {}, {});
+      const auto recResp = api.Handle("GET", "/everyday/recommend", {}, {}, "");
       assert(recResp.httpStatus == 200);
       assert(recResp.body["status"].get<int>() == 1);
       std::cout << "  [ok] CompatApi /everyday/recommend routes to handler" << std::endl;

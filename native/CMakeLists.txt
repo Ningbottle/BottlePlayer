@@ -56,6 +56,7 @@ add_library(EchoCore STATIC
   core/HomeService.cpp
   core/HttpClient.cpp
   core/Crypto.cpp
+  core/KuGouProfile.cpp
   core/LoginService.cpp
   core/JsonHelpers.cpp
   core/LyricParser.cpp

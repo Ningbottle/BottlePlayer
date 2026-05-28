@@ -1,5 +1,6 @@
 #include "echo/core/SongService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/KuGouProfile.h"
 
 #include <ctime>
 #include <sstream>
@@ -26,8 +27,9 @@ std::string BuildAndroidSignedUrl(
     const std::string& baseUrl,
     std::unordered_map<std::string, std::string> params,
     const std::string& body = "") {
-  if (params.find("appid") == params.end()) params["appid"] = "3116";
-  if (params.find("clientver") == params.end()) params["clientver"] = "11440";
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  if (params.find("appid") == params.end()) params["appid"] = profile.appid;
+  if (params.find("clientver") == params.end()) params["clientver"] = profile.clientver;
   if (params.find("clienttime") == params.end()) {
     params["clienttime"] = std::to_string(std::time(nullptr));
   }
@@ -35,7 +37,7 @@ std::string BuildAndroidSignedUrl(
   if (params.find("uuid") == params.end()) params["uuid"] = "-";
   if (params.find("dfid") == params.end()) params["dfid"] = "-";
 
-  params["signature"] = SignatureAndroidParams(params, body);
+  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
 
   std::ostringstream urlStream;
   urlStream << baseUrl << "?";

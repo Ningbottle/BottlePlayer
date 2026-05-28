@@ -23,6 +23,12 @@ interface DeviceInfo {
 const loading = ref(false);
 const memoryInfo = ref<MemoryData | null>(null);
 
+// VIP claiming state
+const listenVipLoading = ref(false);
+const listenVipMsg = ref('');
+const adVipLoading = ref(false);
+const adVipMsg = ref('');
+
 // Custom device fingerprint (used to unlock VIP audio when KuGou's risk
 // service rejects randomly-generated dfids).
 const device = ref<DeviceInfo | null>(null);
@@ -81,7 +87,7 @@ async function saveDevice() {
 }
 
 async function resetDevice() {
-  if (!confirm('重置为随机指纹？将清除当前自定义 dfid/mid/uuid。')) return;
+  if (!confirm('清除设备指纹？将删除当前自定义 dfid/mid/uuid，退化为未注册占位。')) return;
   deviceStatus.value = '重置中…';
   try {
     const res = await apiGet<{ status: number; data: DeviceInfo }>('/settings/device', { clear: '1' });
@@ -94,6 +100,72 @@ async function resetDevice() {
     }
   } catch (e: any) {
     deviceStatus.value = '出错：' + (e?.message || String(e));
+  }
+}
+
+// Probe whether KuGou trusts the current saved device. Calls /song/url with a
+// well-known free song hash; analyzes the upstream response to tell the user
+// instantly if the dfid is registered (status:1 + /full/), risk-controlled
+// (errcode:20028), or VIP-locked (fail_process). Avoids the round-trip of
+// "save → close settings → click a track → check banner".
+async function testDevice() {
+  deviceStatus.value = '测试中…';
+  try {
+    // hash f0a6ba24... (风中芭蕾) is a known concept-edition track that
+    // KuGou serves as /full/ to trusted devices.
+    const res = await apiGet<any>('/song/url', {
+      hash: 'F0A6BA24635A8560F96C2C2D603E8CA8',
+      album_id: '1776319',
+      album_audio_id: '39905465',
+    });
+    if (res?.status === 1 && res?.url) {
+      const url: string = res.url;
+      if (url.includes('/yp/full/') || url.includes('/full/')) {
+        deviceStatus.value = '✓ KuGou 信任该指纹（拿到 /full/ 完整 URL）';
+      } else if (url.match(/\/p_0_\d+\//)) {
+        deviceStatus.value = '⚠ 拿到的是 60s 试听（设备可能未被信任或账号需要 VIP）';
+      } else {
+        deviceStatus.value = '⚠ URL 形态未知：' + url.slice(0, 80) + '...';
+      }
+    } else {
+      deviceStatus.value = '✗ 失败：' + (res?.error || '未拿到 URL');
+    }
+  } catch (e: any) {
+    deviceStatus.value = '出错：' + (e?.message || String(e));
+  }
+}
+
+async function claimListenVip() {
+  listenVipLoading.value = true;
+  listenVipMsg.value = '';
+  try {
+    const res = await apiGet<any>('/youth/listen/song');
+    if (res?.status === 1) {
+      listenVipMsg.value = '✓ 听歌领 VIP 成功';
+    } else {
+      listenVipMsg.value = res?.error_msg || res?.error || '领取失败（需要酷狗官方 App 内领取）';
+    }
+  } catch (e: any) {
+    listenVipMsg.value = '出错：' + (e?.message || String(e));
+  } finally {
+    listenVipLoading.value = false;
+  }
+}
+
+async function claimAdVip() {
+  adVipLoading.value = true;
+  adVipMsg.value = '';
+  try {
+    const res = await apiGet<any>('/youth/vip/ad');
+    if (res?.status === 1) {
+      adVipMsg.value = '✓ 领取成功';
+    } else {
+      adVipMsg.value = res?.error_msg || res?.error || '领取失败（需要酷狗官方 App 内领取）';
+    }
+  } catch (e: any) {
+    adVipMsg.value = '出错：' + (e?.message || String(e));
+  } finally {
+    adVipLoading.value = false;
   }
 }
 
@@ -136,30 +208,69 @@ function clearCache() {
         酷狗对随机生成的设备指纹会限制 VIP 音频与歌单访问。如果你能从酷狗官方 App 或网页抓到真实的 <code>dfid / mid / uuid</code>（典型格式：dfid 24 位 base64，mid 32 位 hex，uuid 13 位时间戳或 GUID），填进下面三个框，所有 KuGou API 调用都会改用你输入的指纹。
         <br>
         <strong>怎么获取</strong>：浏览器打开 <a href="https://m.kugou.com/" target="_blank" style="color: var(--accent);">m.kugou.com</a> → F12 → Network → 找任意请求里的 query 字符串 → 复制 <code>dfid=</code><code>mid=</code><code>uuid=</code> 三个字段。
+        <br>
+        <strong style="color: var(--accent);">注意</strong>：本地生成的指纹永远是 <code>unregistered</code> 占位，不会被当作可信设备上送。只有从官方渠道抓到的真实指纹才能解锁完整 VIP 音频。
       </p>
 
+      <!-- Use monospace font for these three inputs because dfid contains
+           visually-ambiguous chars (I vs l, O vs 0, 1 vs l). A previous user
+           typo I→l broke the dfid registration silently — KuGou returned
+           errcode 20028 and the user had no way to see what went wrong. -->
       <div style="margin-top: 14px;">
-        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">dfid（24 字符 base64-like，如 <code>2ULHpc3qaLZa43ln8x0fLJQp</code>）</label>
-        <input v-model="dfidInput" type="text" placeholder="-" style="width: 100%; padding: 8px 10px; font-family: var(--font-sans); font-size: 13px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
+        <label style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">
+          <span>dfid（24 字符 base64-like，如 <code style="font-family: 'JetBrains Mono', 'Consolas', monospace;">2ULHpc3qaLZa43ln8x0fLJQp</code>）</span>
+          <span style="font-family: monospace;">{{ dfidInput.length }} 字符</span>
+        </label>
+        <input v-model="dfidInput" type="text" placeholder="-" spellcheck="false" autocorrect="off" autocapitalize="off" style="width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace; font-size: 14px; letter-spacing: 0.5px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
       </div>
       <div style="margin-top: 10px;">
-        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">mid（32 字符 hex）</label>
-        <input v-model="midInput" type="text" placeholder="0" style="width: 100%; padding: 8px 10px; font-family: var(--font-sans); font-size: 13px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
+        <label style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">
+          <span>mid（32 字符 hex）</span>
+          <span style="font-family: monospace;">{{ midInput.length }} 字符</span>
+        </label>
+        <input v-model="midInput" type="text" placeholder="0" spellcheck="false" autocorrect="off" autocapitalize="off" style="width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace; font-size: 14px; letter-spacing: 0.5px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
       </div>
       <div style="margin-top: 10px;">
-        <label style="display: block; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">uuid（13 位时间戳数字或 GUID）</label>
-        <input v-model="uuidInput" type="text" placeholder="-" style="width: 100%; padding: 8px 10px; font-family: var(--font-sans); font-size: 13px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
+        <label style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">
+          <span>uuid（13 位时间戳数字或 GUID）</span>
+          <span style="font-family: monospace;">{{ uuidInput.length }} 字符</span>
+        </label>
+        <input v-model="uuidInput" type="text" placeholder="-" spellcheck="false" autocorrect="off" autocapitalize="off" style="width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace; font-size: 14px; letter-spacing: 0.5px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
       </div>
 
-      <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center;">
+      <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
         <button class="cta" @click="saveDevice">保存指纹</button>
-        <button class="more" @click="resetDevice" style="color: var(--ink-mute);">重置为随机</button>
-        <span v-if="deviceStatus" style="font-size: 12px; color: var(--ink-soft);">{{ deviceStatus }}</span>
+        <button class="more" @click="testDevice" style="color: var(--accent);">测试连接</button>
+        <button class="more" @click="resetDevice" style="color: var(--ink-mute);">清除设备指纹</button>
+        <span v-if="deviceStatus" style="font-size: 12px; color: var(--ink-soft); flex-basis: 100%;">{{ deviceStatus }}</span>
+      </div>
+    </section>
+
+    <!-- VIP Daily Rewards -->
+    <section class="card" style="margin-bottom: 24px;">
+      <p class="kicker">VIP · 每日福利</p>
+      <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">领取免费 VIP</h3>
+
+      <p style="color: var(--ink-soft); font-size: 13px; line-height: 1.7;">
+        通过酷狗概念版端点领取每日免费 VIP。需要在酷狗官方 App 内完成广告观看才能生效，纯 HTTP 调用无法绕过广告 SDK 凭证校验。
+      </p>
+
+      <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button class="cta" @click="claimListenVip" :disabled="listenVipLoading || adVipLoading">
+          {{ listenVipLoading ? '领取中…' : '听歌领 VIP' }}
+        </button>
+        <span v-if="listenVipMsg" style="font-size: 12px; color: var(--ink-soft);">{{ listenVipMsg }}</span>
+      </div>
+
+      <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button class="cta" @click="claimAdVip" :disabled="adVipLoading || listenVipLoading">
+          {{ adVipLoading ? '领取中…' : '看广告领 VIP' }}
+        </button>
+        <span v-if="adVipMsg" style="font-size: 12px; color: var(--ink-soft);">{{ adVipMsg }}</span>
       </div>
     </section>
 
     <section class="card" style="margin-bottom: 24px;">
-      <p class="kicker">PREFERENCES · 参数项</p>
       <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">存储与缓存控制</h3>
       
       <p style="color: var(--ink-soft); font-size: 13px; line-height: 1.6;">

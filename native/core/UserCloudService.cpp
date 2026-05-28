@@ -1,5 +1,6 @@
 #include "echo/core/UserCloudService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/KuGouProfile.h"
 
 #include <windows.h>
 #include <wincrypt.h>
@@ -106,12 +107,13 @@ nlohmann::json UserCloudService::GetList(
   std::string p = RsaPkcs1Encrypt(rsaPayload.dump());
 
   // 3. Construct parameters map
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
   std::unordered_map<std::string, std::string> paramsMap;
   paramsMap["clienttime"] = clienttime;
   paramsMap["mid"] = "0"; // Default MID
-  paramsMap["key"] = SignParamsKey(clienttime, "3116", "11440");
-  paramsMap["clientver"] = "11440";
-  paramsMap["appid"] = "3116";
+  paramsMap["key"] = SignParamsKey(clienttime, profile.appid, profile.clientver, profile.saltKind);
+  paramsMap["clientver"] = profile.clientver;
+  paramsMap["appid"] = profile.appid;
   paramsMap["p"] = p;
 
   // Build sorted query string (clearDefaultParams: true, notSignature: true)

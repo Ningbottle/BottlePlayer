@@ -1,5 +1,6 @@
 #include "echo/core/HomeService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/KuGouProfile.h"
 
 #include <ctime>
 #include <sstream>
@@ -224,16 +225,17 @@ nlohmann::json HomeService::GetImagesAudio(const std::string& hash,
     }
   }
 
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
   std::unordered_map<std::string, std::string> paramsMap;
-  paramsMap["appid"] = "3116";
-  paramsMap["clientver"] = "11440";
+  paramsMap["appid"] = profile.appid;
+  paramsMap["clientver"] = profile.clientver;
   paramsMap["count"] = std::to_string(count);
   paramsMap["data"] = data.dump();
   paramsMap["isCdn"] = "1";
   paramsMap["publish_time"] = "1";
   paramsMap["show_authors"] = "1";
 
-  const std::string signature = SignatureAndroidParams(paramsMap);
+  const std::string signature = SignatureAndroidParams(paramsMap, "", profile.saltKind);
 
   std::vector<std::string> keys;
   keys.reserve(paramsMap.size());

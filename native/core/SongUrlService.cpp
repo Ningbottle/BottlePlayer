@@ -1,11 +1,14 @@
 #include "echo/core/SongUrlService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/KuGouProfile.h"
 
+#include <chrono>
 #include <ctime>
 
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <iostream>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -63,6 +66,18 @@ int ReadInt(const nlohmann::json& value, std::string_view key, int fallback = 0)
   return fallback;
 }
 
+std::string ResolveAndroidMid(const DeviceInfo& device) {
+  const bool storedMidLooksAndroid =
+      device.mid.size() >= 38 &&
+      device.mid.size() <= 39 &&
+      std::all_of(device.mid.begin(), device.mid.end(),
+                  [](unsigned char c) { return std::isdigit(c); });
+  if (storedMidLooksAndroid) return device.mid;
+  if (!device.guid.empty()) return CalculateAndroidMid(device.guid);
+  if (!device.mid.empty()) return CalculateAndroidMid(device.mid);
+  return "0";
+}
+
 std::string ReadStringOrFirstArrayElement(const nlohmann::json& value, std::string_view key) {
   if (!value.contains(key)) return "";
   const auto& item = value.at(key);
@@ -74,11 +89,10 @@ std::string ReadStringOrFirstArrayElement(const nlohmann::json& value, std::stri
 std::string BuildV5Url(
     const std::string& baseUrl,
     std::unordered_map<std::string, std::string> params) {
-  if (params.find("appid") == params.end()) params["appid"] = "1005";
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  if (params.find("appid") == params.end()) params["appid"] = profile.appid;
   if (params.find("clientver") == params.end()) {
-    const std::string appid = params["appid"];
-    const bool isLite = (appid == "1014" || appid == "3116");
-    params["clientver"] = isLite ? (appid == "1014" ? "10000" : "11440") : "11430";
+    params["clientver"] = profile.clientver;
   }
   if (params.find("clienttime") == params.end()) {
     params["clienttime"] = std::to_string(std::time(nullptr));
@@ -92,11 +106,12 @@ std::string BuildV5Url(
   std::string mid = params["mid"];
   std::string userid = params.count("userid") ? params["userid"] : "0";
 
-  const bool isLiteKey = (appid == "1014"); // 3116 uses standard key string
-  const std::string str = isLiteKey ? "185672dd44712f60bb1736df5a377e82" : "57ae12eb6890223e355ccfcb74edf70d";
-  params["key"] = CalculateMd5(hash + str + appid + mid + userid);
+  // Concept (3116) and lite (1014) both use the lite key salt. Empirically the
+  // user's concept-edition mid only validates with this salt; switching 3116 to
+  // standard salt produces errcode 31833 "illegal key".
+  params["key"] = SignKey(hash, mid, userid, appid, profile.saltKind);
   
-  params["signature"] = SignatureAndroidParams(params, "");
+  params["signature"] = SignatureAndroidParams(params, "", profile.saltKind);
 
   std::ostringstream urlStream;
   urlStream << baseUrl << "?";
@@ -177,14 +192,260 @@ void ClearAuth(std::unordered_map<std::string, std::string>& params) {
 }  // namespace
 
 SongUrlService::SongUrlService()
-    : SongUrlService([](
-          const std::string& url,
-          const std::unordered_map<std::string, std::string>& headers) {
+    : SongUrlService(
+          [](const std::string& url,
+             const std::unordered_map<std::string, std::string>& headers) {
+            HttpClient client;
+            return client.Get(url, headers);
+          },
+          [](const std::string& url,
+             const std::string& body,
+             const std::unordered_map<std::string, std::string>& headers) {
+            HttpClient client;
+            return client.Post(url, body, headers);
+          }) {}
+
+SongUrlService::SongUrlService(SongUrlHttpGet httpGet)
+    : httpGet_(std::move(httpGet)),
+      httpPost_([](const std::string& url,
+                    const std::string& body,
+                    const std::unordered_map<std::string, std::string>& headers) {
         HttpClient client;
-        return client.Get(url, headers);
+        return client.Post(url, body, headers);
       }) {}
 
-SongUrlService::SongUrlService(SongUrlHttpGet httpGet) : httpGet_(std::move(httpGet)) {}
+SongUrlService::SongUrlService(SongUrlHttpGet httpGet, SongUrlHttpPost httpPost)
+    : httpGet_(std::move(httpGet)), httpPost_(std::move(httpPost)) {}
+
+nlohmann::json SongUrlService::ResolveV6PrivUrl(
+    std::string hash,
+    std::string albumAudioId,
+    std::string userId,
+    std::string token,
+    std::string vipToken,
+    int vipType,
+    const DeviceInfo& device) const {
+  if (!httpPost_) {
+    return EmptySongUrl(hash, "", "No HTTP POST handler available");
+  }
+
+  hash = Trim(std::move(hash));
+  std::transform(hash.begin(), hash.end(), hash.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (hash.empty()) {
+    return EmptySongUrl(hash, "", "Missing song hash");
+  }
+
+  // ── 1. Signed query params ───────────────────────────────────────────────
+  const std::string clienttime = std::to_string(std::time(nullptr));
+  const std::string mid = ResolveAndroidMid(device);
+  const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
+
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  std::unordered_map<std::string, std::string> queryParams;
+  queryParams["appid"] = profile.appid;
+  queryParams["clientver"] = profile.clientver;
+  queryParams["clienttime"] = clienttime;
+  queryParams["dfid"] = dfid;
+  queryParams["mid"] = mid;
+  queryParams["uuid"] = "-";
+  if (!userId.empty()) queryParams["userid"] = userId;
+  if (!token.empty()) queryParams["token"] = token;
+
+  // ── 2. Build JSON body ───────────────────────────────────────────────────
+  const auto collectTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  const std::string albumAudioIdStr = albumAudioId.empty() ? "0" : albumAudioId;
+  const std::string key = SignKey(hash, mid, userId, profile.appid, profile.saltKind);
+  // MakcRe sends userid as a number (Number(userid)), defaulting to 0
+  const int useridNum = userId.empty() ? 0 : [userId] {
+    try { return std::stoi(userId); } catch (...) { return 0; }
+  }();
+
+  nlohmann::json body = {
+      {"area_code", "1"},
+      {"behavior", "play"},
+      {"qualities", {"128", "320", "flac", "high", "multitrack",
+                     "viper_atmos", "viper_tape", "viper_clear", "super"}},
+      {"resource", {
+          {"album_audio_id", albumAudioIdStr},
+          {"collect_list_id", "3"},
+          {"collect_time", collectTimeMs},
+          {"hash", hash},
+          {"id", 0},
+          {"page_id", 1},
+          {"type", "audio"},
+      }},
+      {"token", token},
+      {"tracker_param", {
+          {"all_m", 1},
+          {"auth", ""},
+          {"is_free_part", 0},
+          {"key", key},
+          {"module_id", 0},
+          {"need_climax", 1},
+          {"need_xcdn", 1},
+          {"open_time", ""},
+          {"pid", GetConceptUrlParams().pid},
+          {"pidversion", "3001"},
+          {"priv_vip_type", "6"},
+          {"viptoken", vipToken},
+      }},
+      {"userid", std::to_string(useridNum)},
+      {"vip", vipType},
+  };
+
+  const std::string bodyStr = body.dump();
+
+  // ── 3. Compute signature over query params + body ────────────────────────
+  queryParams["signature"] = SignatureAndroidParams(queryParams, bodyStr, profile.saltKind);
+
+  // ── 4. Build full URL ────────────────────────────────────────────────────
+  std::ostringstream urlStream;
+  urlStream << "http://tracker.kugou.com/v6/priv_url?";
+  bool first = true;
+  for (const auto& [k, v] : queryParams) {
+    if (!first) urlStream << "&";
+    urlStream << k << "=" << UrlEncode(v);
+    first = false;
+  }
+  const std::string url = urlStream.str();
+
+  // ── 5. HTTP POST ─────────────────────────────────────────────────────────
+  auto result = httpPost_(
+      url,
+      bodyStr,
+      {
+          {"Content-Type", "application/json"},
+          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
+          {"dfid", dfid},
+          {"mid", mid},
+          {"clienttime", clienttime},
+          {"kg-rc", "1"},
+          {"kg-thash", "5d816a0"},
+          {"kg-rec", "1"},
+          {"kg-rf", "B9EDA08A64250DEFFBCADDEE00F8F25F"},
+      });
+
+  // Diagnostic log
+  {
+    std::string bodyPreview = bodyStr.size() > 600 ? bodyStr.substr(0, 600) + "..." : bodyStr;
+    std::string respPreview = result.body.size() > 800 ? result.body.substr(0, 800) + "..." : result.body;
+    std::cerr << "[SongUrl/V6PRIV] http=" << result.statusCode
+              << " err=" << result.error
+              << " body=" << bodyPreview
+              << " resp=" << respPreview << std::endl;
+  }
+
+  if (!result.error.empty()) {
+    return EmptySongUrl(hash, "", "v6 HTTP error: " + result.error);
+  }
+  if (result.statusCode < 200 || result.statusCode >= 300) {
+    return EmptySongUrl(hash, "", "v6 upstream returned HTTP " + std::to_string(result.statusCode));
+  }
+
+  nlohmann::json upstream;
+  try {
+    upstream = nlohmann::json::parse(result.body);
+  } catch (const nlohmann::json::exception&) {
+    return EmptySongUrl(hash, "", "v6 invalid JSON response");
+  }
+
+  if (upstream.is_null() || upstream.empty()) {
+    return EmptySongUrl(hash, "", "v6 empty response");
+  }
+
+  // ── 6. Parse response ────────────────────────────────────────────────────
+  // v6 returns: { status, data: { url: [{ quality, url, ... }, ...] }, ... }
+  const int status = ReadInt(upstream, "status", 0);
+  const int errcode = ReadInt(upstream, "errcode", ReadInt(upstream, "error_code", 0));
+  if (status == 0 && errcode != 0) {
+    return EmptySongUrl(hash, "", "v6 errcode " + std::to_string(errcode));
+  }
+
+  std::string playUrl;
+  std::string bestQuality;
+  nlohmann::json backupUrls = nlohmann::json::array();
+
+  if (upstream.contains("data") && upstream["data"].is_object()) {
+    const auto& data = upstream["data"];
+    if (data.contains("url") && data["url"].is_array()) {
+      for (const auto& item : data["url"]) {
+        if (!item.is_object()) continue;
+        const auto itemUrl = ReadString(item, "url");
+        if (itemUrl.empty()) continue;
+        const auto itemQuality = ReadString(item, "quality");
+        if (playUrl.empty()) {
+          playUrl = itemUrl;
+          bestQuality = itemQuality;
+        } else {
+          backupUrls.push_back(itemUrl);
+        }
+      }
+    }
+    // Fallback: some responses put url directly as string
+    if (playUrl.empty()) {
+      playUrl = ReadStringOrFirstArrayElement(data, "url");
+    }
+  }
+
+  // Also check top-level url (some responses may flatten)
+  if (playUrl.empty()) {
+    playUrl = ReadStringOrFirstArrayElement(upstream, "url");
+  }
+
+  const bool ok = !playUrl.empty();
+  const bool hasFullSegment = playUrl.find("/yp/full/") != std::string::npos
+                           || playUrl.find("/full/") != std::string::npos;
+  const bool isPreview = ok && !hasFullSegment;
+
+  // Pass through other useful fields from v6 response
+  std::string fileName;
+  std::string songName;
+  std::string singerName;
+  int timeLength = 0;
+  int bitRate = 0;
+  std::string extName;
+  if (upstream.contains("data") && upstream["data"].is_object()) {
+    const auto& data = upstream["data"];
+    fileName = ReadString(data, "fileName");
+    songName = ReadString(data, "songName");
+    singerName = ReadString(data, "singerName");
+    timeLength = ReadInt(data, "timeLength", 0);
+    bitRate = ReadInt(data, "bitRate", 0);
+    extName = ReadString(data, "extName");
+  }
+
+  return {
+      {"status", ok ? 1 : 0},
+      {"error", ""},
+      {"error_code", ""},
+      {"url", playUrl},
+      {"play_url", playUrl},
+      {"playUrl", playUrl},
+      {"is_preview", isPreview},
+      {"vip_required", false},
+      {"data",
+       {
+           {"hash", hash},
+           {"req_hash", hash},
+           {"quality", bestQuality.empty() ? "" : bestQuality},
+           {"url", playUrl},
+           {"play_url", playUrl},
+           {"playUrl", playUrl},
+           {"is_preview", isPreview},
+           {"vip_required", false},
+           {"backup_url", backupUrls},
+           {"fileName", fileName},
+           {"songName", songName},
+           {"singerName", singerName},
+           {"timeLength", timeLength},
+           {"bitRate", bitRate},
+           {"extName", extName},
+           {"raw", upstream},
+       }},
+  };
+}
 
 nlohmann::json SongUrlService::Resolve(
     std::string hash,
@@ -207,33 +468,57 @@ nlohmann::json SongUrlService::Resolve(
     return EmptySongUrl(hash, quality, "Missing song hash");
   }
 
+  // ── Try v6/priv_url first (VIP-aware endpoint) ──────────────────────────
+  if (httpPost_) {
+    auto v6 = ResolveV6PrivUrl(hash, albumAudioId, userId, token,
+                                /*vipToken=*/"", /*vipType=*/0, device);
+    if (v6.value("status", 0) == 1) {
+      std::cerr << "[SongUrl/V6PRIV] SUCCESS — using v6 result" << std::endl;
+      return v6;
+    }
+    std::cerr << "[SongUrl/V6PRIV] FAILED — falling back to v5" << std::endl;
+  }
+
+  // ── v5/url fallback ─────────────────────────────────────────────────────
   // Once the device is registered with KuGou (DeviceRegisterService), its
   // dfid/mid/uuid become "trusted" and /v5/url returns full VIP URLs. Without
   // registration we previously zeroed these out as a workaround, but KuGou
   // then treated us as anonymous and only served 60s previews. The DeviceInfo
   // here carries the *registered* fingerprint when device.registered is true.
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
   std::unordered_map<std::string, std::string> params;
   params["album_id"] = albumId.empty() ? "0" : albumId;
   params["area_code"] = "1";
   params["hash"] = hash;
   params["ssa_flag"] = "is_fromtrack";
-  params["version"] = "11430";
-  params["page_id"] = "151369488";
+  params["version"] = V5UrlClientver;
+  const auto conceptUrls = GetConceptUrlParams();
+  params["page_id"] = conceptUrls.pageId;
   params["quality"] = quality.empty() ? "128" : quality;
   params["album_audio_id"] = albumAudioId.empty() ? "0" : albumAudioId;
   params["behavior"] = "play";
-  params["pid"] = "2";
+  params["pid"] = conceptUrls.pid;
   params["cmd"] = "26";
   params["pidversion"] = "3001";
   params["IsFreePart"] = "0";
-  params["ppage_id"] = ppageId.empty() ? "463467626,350369493,788954147" : ppageId;
+  params["ppage_id"] = ppageId.empty() ? conceptUrls.ppageId : ppageId;
   params["cdnBackup"] = "1";
   params["module"] = "";
-  params["appid"] = "1005";
-  params["clientver"] = "12143";
-  params["mid"] = device.mid.empty() ? "0" : device.mid;
+  // Mirror MakcRe/KuGouMusicApi module/song_url.js exactly. The /v5/url
+  // endpoint is concept-edition (lite): appid=3116, clientver=11430 (the
+  // module's dataMap explicitly overrides the lite default 11440).
+  //
+  // CRITICAL: KuGou's Android-family clients send `mid` as a 38-39 digit
+  // DECIMAL string (calculateMid in MakcRe util/util.js: hex md5 → base16
+  // BigInt → base10). The raw 32-char hex mid that m.kugou.com web sets in
+  // cookies is NOT accepted by /v5/url with appid=3116 — KuGou silently
+  // returns priv_status:0 + auth_through:[] (no VIP applied) when the mid
+  // format doesn't match the appid family.
+  params["appid"] = profile.appid;
+  params["clientver"] = V5UrlClientver;
+  params["mid"] = ResolveAndroidMid(device);
   params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
-  params["uuid"] = device.uuid.empty() ? "-" : device.uuid;
+  params["uuid"] = "-";  // MakcRe request.js:36 default
 
   if (!userId.empty() && !token.empty()) {
     params["userid"] = userId;
@@ -262,8 +547,32 @@ nlohmann::json SongUrlService::Resolve(
             {"kg-rc", "1"},
             {"kg-thash", "5d816a0"},
             {"kg-rec", "1"},
-            {"kg-rf", "B9EDA08A64250DEFFBCADDEE00F8"}
+            // FULL 32-char value from MakcRe util/request.js:41. Truncating
+            // to 28 chars (which the code had been doing) makes KuGou's risk
+            // service treat the request as fingerprint-altered.
+            {"kg-rf", "B9EDA08A64250DEFFBCADDEE00F8F25F"}
         });
+    // Diagnostic: log auth presence + KuGou response. Tag each call with the
+    // path kind so logs from main path / preview-retry / anonymous-fallback
+    // can be told apart at a glance. The tag is inferred from the params:
+    //   - userid/token absent + IsFreePart=1 → tryPreview (offset_hash retry)
+    //   - userid/token absent + IsFreePart=0 → anonymous fallback
+    //   - userid/token present → main path
+    {
+      const bool hasUserId = url.find("&userid=") != std::string::npos
+                          || url.find("?userid=") != std::string::npos;
+      const bool hasToken = url.find("&token=") != std::string::npos
+                         || url.find("?token=") != std::string::npos;
+      const bool isFreePart = url.find("IsFreePart=1") != std::string::npos;
+      const char* pathKind = hasToken ? "MAIN" : (isFreePart ? "PREVIEW" : "ANON");
+      std::string urlPreview = url.size() > 400 ? url.substr(0, 400) + "..." : url;
+      std::string bodyPreview = result.body.size() > 800 ? result.body.substr(0, 800) + "..." : result.body;
+      std::cerr << "[SongUrl/" << pathKind << "] http=" << result.statusCode
+                << " hasUserId=" << (hasUserId ? "Y" : "N")
+                << " hasToken=" << (hasToken ? "Y" : "N")
+                << " url=" << urlPreview
+                << " body=" << bodyPreview << std::endl;
+    }
     nlohmann::json parsed;
     if (result.error.empty() && result.statusCode >= 200 && result.statusCode < 300) {
       try {
@@ -294,6 +603,17 @@ nlohmann::json SongUrlService::Resolve(
   nlohmann::json backupUrl = NormalizeBackupUrl(upstream.value("backup_url", nlohmann::json::array()));
   bool ok = !playUrl.empty();
   bool isPreview = false;
+  // KuGou's main-path "VIP-locked" signal: fail_process containing "pkg"/"buy"
+  // means the account has no entitlement and KuGou will only serve a 60s clip
+  // (hash_offset.end_ms == 60000). Detect this BEFORE the tryPreview fallback
+  // so we can mark isPreview correctly even when the preview URL fetch later
+  // succeeds.
+  const bool mainPathVipBlocked = HasFailProcess(upstream, {"pkg", "buy"});
+  const bool hasShortOffset = upstream.contains("hash_offset")
+      && upstream["hash_offset"].is_object()
+      && ReadInt(upstream["hash_offset"], "end_ms", 0) > 0
+      && ReadInt(upstream["hash_offset"], "end_ms", 0) <= 65000;
+  const bool vipLocked = mainPathVipBlocked || hasShortOffset;
 
   auto tryPreview = [&](const nlohmann::json& source, std::unordered_map<std::string, std::string> sourceParams) {
     if (!source.contains("hash_offset") || !source["hash_offset"].is_object()) {
@@ -341,7 +661,7 @@ nlohmann::json SongUrlService::Resolve(
     auto [anonymousResult, anonymousUpstream] = callUpstream(anonymousParams);
     if (anonymousResult.error.empty() && anonymousResult.statusCode >= 200 &&
         anonymousResult.statusCode < 300 && !anonymousUpstream.is_null()) {
-      
+
       const auto anonymousPlayUrl = ReadStringOrFirstArrayElement(anonymousUpstream, "url");
       if (!anonymousPlayUrl.empty()) {
         playUrl = anonymousPlayUrl;
@@ -349,11 +669,21 @@ nlohmann::json SongUrlService::Resolve(
         backupUrl = NormalizeBackupUrl(anonymousUpstream.value("backup_url", nlohmann::json::array()));
         upstream = std::move(anonymousUpstream);
         ok = true;
-        isPreview = true;
+        // CRITICAL: KuGou's anonymous endpoint can still return /full/ URLs for
+        // songs that don't actually require VIP. Only mark isPreview=true when
+        // the URL path actually shows preview semantics (no "/full/" segment).
+        // Real example: errcode 20028 (device-risk-control) on main path forces
+        // anonymous fallback, but the song is free → /full/ comes back; user
+        // saw "试听" banner incorrectly. URL pattern:
+        //   /v3/<hash>/yp/full/...   (complete track)
+        //   /v3/<hash>/yp/p_0_<n>/...(preview byte range, ~60s)
+        const bool hasFullSegment = playUrl.find("/yp/full/") != std::string::npos
+                                 || playUrl.find("/full/") != std::string::npos;
+        isPreview = !hasFullSegment;
       } else {
         tryPreview(anonymousUpstream, anonymousParams);
       }
-      
+
       if (!ok && upstream.empty()) {
         upstream = std::move(anonymousUpstream);
       }
@@ -381,6 +711,10 @@ nlohmann::json SongUrlService::Resolve(
     }
   }
 
+  // Final preview flag: any of the explicit VIP-locked main-path signals or
+  // the fallback paths that previously set isPreview.
+  isPreview = isPreview || vipLocked;
+
   return {
       {"status", ok ? 1 : 0},
       {"error", error},
@@ -389,6 +723,7 @@ nlohmann::json SongUrlService::Resolve(
       {"play_url", playUrl},
       {"playUrl", playUrl},
       {"is_preview", isPreview},
+      {"vip_required", vipLocked},
       {"data",
        {
            {"hash", upstreamHash.empty() ? hash : upstreamHash},
@@ -398,6 +733,7 @@ nlohmann::json SongUrlService::Resolve(
            {"play_url", playUrl},
            {"playUrl", playUrl},
            {"is_preview", isPreview},
+           {"vip_required", vipLocked},
            {"backup_url", backupUrl},
            {"fileName", upstream.value("fileName", "")},
            {"songName", upstream.value("songName", "")},

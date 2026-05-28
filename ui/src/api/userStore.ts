@@ -129,49 +129,29 @@ export async function claimVip() {
   userStore.loading = true;
   userStore.claimMessage = '正在领取每日免费 VIP…';
   try {
-    // Step 1: poke /youth/day/vip to register today's claim attempt and read
-    // the current ad-VIP state.
-    const claim = await apiGet<any>('/youth/day/vip');
+    const listen = await apiGet<any>('/youth/listen/song');
 
-    // Step 2: ask /youth/day/vip/upgrade to actually credit the ad-reward VIP
-    // (ad_type=1). KuGou's official app submits this AFTER its 5s ad SDK
-    // produces a watch-completion token; from a pure HTTP client the token
-    // is missing so this usually fails — but we still try, because some
-    // accounts get credited based on device fingerprint alone.
-    const upgrade = await apiGet<any>('/youth/day/vip/upgrade');
-
-    // Pick the freshest VIP state from either call.
-    const data = (upgrade && upgrade.status === 1 && upgrade.data) ? upgrade.data :
-                 (claim && claim.status === 1 && claim.data) ? claim.data : null;
-
-    if (data) {
-      const endTime = Number(data.ad_vip_end_time || 0);
-      const adVipNum = Number(data.ad_vip_num || 0);
-      const serverTime = Number(data.server_time || Math.floor(Date.now() / 1000));
-      if (endTime > serverTime && adVipNum > 0) {
+    if (listen?.status === 1 && listen?.data) {
+      const endTime = Number(listen.data.ad_vip_end_time || 0);
+      const serverTime = Number(listen.data.server_time || Math.floor(Date.now() / 1000));
+      if (endTime > serverTime) {
         const endDate = new Date(endTime * 1000).toLocaleString('zh-CN');
         userStore.isVip = true;
-        userStore.vipType = 5; // ad VIP marker
+        userStore.vipType = 5;
         userStore.vipEndDate = endDate;
         userStore.claimMessage = `✓ 已激活每日 VIP，到期：${endDate}`;
-        // Re-fetch real VIP detail so the badge sticks across reloads.
         await checkLoginStatus();
         return;
       }
     }
 
-    // Neither call granted VIP. Build a useful message from whichever has the
-    // most info.
-    const errMsg = (upgrade && upgrade.error) || (claim && claim.error) || '';
+    const errMsg = listen?.error_msg || listen?.error || '';
     if (errMsg.includes('已领') || errMsg.includes('已经领')) {
-      userStore.claimMessage = '今天已经领过了（或在酷狗官方 App 领过）';
+      userStore.claimMessage = '今天已经领过了';
     } else if (errMsg) {
       userStore.claimMessage = `领取失败：${errMsg}`;
     } else {
-      // Most common path: KuGou accepted both calls but didn't credit VIP
-      // because no ad-watch token was attached. Be honest about it.
-      userStore.claimMessage =
-        '⚠️ 该入口需要酷狗官方 App 内观看 5 秒广告才能真正发放 VIP；第三方 HTTP 无法伪造广告凭证';
+      userStore.claimMessage = '领取失败：需要在酷狗官方 App 内领取';
     }
   } catch (e: any) {
     console.error('Claim VIP error', e);
