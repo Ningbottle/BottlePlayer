@@ -29,7 +29,7 @@ namespace {
 
 using namespace std::chrono;
 
-constexpr std::array<std::string_view, 68> kKnownRoutes = {
+constexpr std::array<std::string_view, 70> kKnownRoutes = {
     "/health",
     "/server/now",
     "/register/dev",
@@ -47,6 +47,8 @@ constexpr std::array<std::string_view, 68> kKnownRoutes = {
     "/user/vip/detail",
     "/youth/day/vip",
     "/youth/day/vip/upgrade",
+    "/youth/listen/song",
+    "/youth/vip/ad",
     "/youth/month/vip/record",
     "/user/history",
     "/playhistory/upload",
@@ -140,6 +142,20 @@ int QueryInt(const QueryMap& query, const std::string& key, int fallback) {
   } catch (...) {
     return fallback;
   }
+}
+
+bool IsKuGouErrorCode(const nlohmann::json& body, int code) {
+  if (!body.is_object() || !body.contains("error_code")) return false;
+  const auto& value = body.at("error_code");
+  if (value.is_number_integer()) return value.get<int>() == code;
+  if (value.is_string()) {
+    try {
+      return std::stoi(value.get<std::string>()) == code;
+    } catch (...) {
+      return false;
+    }
+  }
+  return false;
 }
 
 }  // namespace
@@ -584,6 +600,7 @@ CompatResponse CompatApi::HandleKnownRoute(
   }
 
   if (path == "/user/vip/detail") {
+    // DEBUG: force return test marker
     storage::SessionRepository sessionRepo(database_);
     const auto session = sessionRepo.Load();
     std::string userId;
@@ -643,36 +660,33 @@ CompatResponse CompatApi::HandleKnownRoute(
     return JsonResponse({{"status", 0}, {"error", "not logged in"}, {"data", nullptr}});
   }
 
-  if (path == "/youth/day/vip") {
-    storage::SessionRepository sessionRepo(database_);
-    const auto session = sessionRepo.Load();
-    std::string userId;
-    std::string token;
-    if (session) {
-      userId = session->userId;
-      token = session->token;
-    }
-    storage::DeviceRepository deviceRepo(database_);
-    DeviceService devices(deviceRepo);
-    const auto device = devices.EnsureDeviceReady();
-    UserService userSvc;
-    return JsonResponse(userSvc.ClaimVip(device, userId, token));
+  if (path == "/youth/day/vip" || path == "/youth/day/vip/upgrade") {
+    return JsonResponse({
+        {"status", 0},
+        {"error_code", "kugou_vip_legacy_disabled"},
+        {"error", "该端点需要广告 SDK 凭证，纯 HTTP 不可达；请使用 /youth/listen/song 或 /youth/vip/ad"},
+        {"data", nullptr},
+    });
   }
 
-  if (path == "/youth/day/vip/upgrade") {
+  if (path == "/youth/listen/song") {
     storage::SessionRepository sessionRepo(database_);
     const auto session = sessionRepo.Load();
-    std::string userId;
-    std::string token;
-    if (session) {
-      userId = session->userId;
-      token = session->token;
+    if (!session || session->userId.empty() || session->token.empty()) {
+      return JsonResponse({{"status", 0}, {"error", "not logged in"}, {"data", nullptr}});
     }
-    storage::DeviceRepository deviceRepo(database_);
-    DeviceService devices(deviceRepo);
-    const auto device = devices.EnsureDeviceReady();
     UserService userSvc;
-    return JsonResponse(userSvc.UpgradeVipReward(device, userId, token));
+    return JsonResponse(userSvc.ClaimYouthListenSong(session->userId, session->token));
+  }
+
+  if (path == "/youth/vip/ad") {
+    storage::SessionRepository sessionRepo(database_);
+    const auto session = sessionRepo.Load();
+    if (!session || session->userId.empty() || session->token.empty()) {
+      return JsonResponse({{"status", 0}, {"error", "not logged in"}, {"data", nullptr}});
+    }
+    UserService userSvc;
+    return JsonResponse(userSvc.ClaimYouthAdVip(session->userId, session->token));
   }
 
   if (path == "/everyday/recommend") {
@@ -941,10 +955,39 @@ CompatResponse CompatApi::HandleKnownRoute(
     }
     storage::DeviceRepository deviceRepo(database_);
     DeviceService devices(deviceRepo);
-    const auto device = devices.EnsureDeviceReady();
+    auto device = devices.EnsureDeviceReady();
 
     PlaylistService playlist;
+    if (!device.registered && session && !userId.empty() && !token.empty()) {
+      DeviceRegisterService registerSvc;
+      std::string regError;
+      const auto newDfid = registerSvc.Register(device, userId, token, &regError);
+      if (!newDfid.empty()) {
+        device.dfid = newDfid;
+        device.registered = true;
+        deviceRepo.Save(device);
+        std::cout << "[CompatApi] /user/playlist registered device dfid=" << newDfid << std::endl;
+      } else {
+        std::cout << "[CompatApi] /user/playlist device registration failed: " << regError << std::endl;
+      }
+    }
     auto result = playlist.GetUserPlaylists(device, userId, token, page, pageSize);
+    if (IsKuGouErrorCode(result, 20017) && session && !userId.empty() && !token.empty()) {
+      DeviceRegisterService registerSvc;
+      std::string regError;
+      DeviceInfo retryDevice = device;
+      retryDevice.registered = false;
+      const auto newDfid = registerSvc.Register(retryDevice, userId, token, &regError);
+      if (!newDfid.empty()) {
+        retryDevice.dfid = newDfid;
+        retryDevice.registered = true;
+        deviceRepo.Save(retryDevice);
+        std::cout << "[CompatApi] /user/playlist refreshed device dfid=" << newDfid << std::endl;
+        result = playlist.GetUserPlaylists(retryDevice, userId, token, page, pageSize);
+      } else {
+        std::cout << "[CompatApi] /user/playlist device refresh failed: " << regError << std::endl;
+      }
+    }
 
     // The user_playlist response embeds real `list_create_username` +
     // `create_user_pic` on every entry — backfill them into the session so

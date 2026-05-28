@@ -1,10 +1,12 @@
 #include "echo/core/LoginService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/KuGouProfile.h"
 
 #include <ctime>
 #include <iomanip>
 #include <sstream>
 #include <algorithm>
+#include <cctype>
 
 namespace echo::core {
 namespace {
@@ -47,6 +49,18 @@ nlohmann::json MakeErrorJson(const std::string& errorMsg, long statusCode = 0) {
   };
 }
 
+std::string ResolveAndroidMid(const DeviceInfo& device) {
+  const bool storedMidLooksAndroid =
+      device.mid.size() >= 38 &&
+      device.mid.size() <= 39 &&
+      std::all_of(device.mid.begin(), device.mid.end(),
+                  [](unsigned char c) { return std::isdigit(c); });
+  if (storedMidLooksAndroid) return device.mid;
+  if (!device.guid.empty()) return CalculateAndroidMid(device.guid);
+  if (!device.mid.empty()) return CalculateAndroidMid(device.mid);
+  return "0";
+}
+
 }  // namespace
 
 LoginService::LoginService()
@@ -64,15 +78,15 @@ nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
   // but we MUST hardcode appid=1005 in the qrcode_txt payload so the mobile app
   // authorizes the token for standard Android endpoints (like /v7/get_all_list).
   std::unordered_map<std::string, std::string> params = {
-      {"appid", "1001"},
+      {"appid", QrLoginAppId},
       {"clientver", device.clientver},
       {"type", "1"},
       {"plat", "4"},
       {"qrcode_txt", "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=1005&"},
       {"srcappid", "2919"},
       {"clienttime", std::to_string(std::time(nullptr))},
-      {"mid", device.mid},
-      {"uuid", device.uuid},
+      {"mid", ResolveAndroidMid(device)},
+      {"uuid", "-"},
       {"dfid", device.dfid}
   };
 
@@ -99,15 +113,16 @@ nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
 }
 
 nlohmann::json LoginService::PollQrLogin(const DeviceInfo& device, const std::string& key) const {
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
   std::unordered_map<std::string, std::string> params = {
       {"plat", "4"},
-      {"appid", "1005"},
+      {"appid", profile.appid},
       {"clientver", device.clientver},
       {"qrcode", key},
       {"srcappid", "2919"},
       {"clienttime", std::to_string(std::time(nullptr))},
-      {"mid", device.mid},
-      {"uuid", device.uuid},
+      {"mid", ResolveAndroidMid(device)},
+      {"uuid", "-"},
       {"dfid", device.dfid}
   };
 

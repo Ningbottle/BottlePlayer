@@ -1,5 +1,6 @@
 #include "echo/core/PlaylistService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/KuGouProfile.h"
 
 #include <windows.h>
 #include <wincrypt.h>
@@ -47,6 +48,18 @@ std::vector<BYTE> Base64Decode(const std::string& b64Str) {
 
 int Clamp(int value, int minValue, int maxValue) {
   return std::max(minValue, std::min(value, maxValue));
+}
+
+std::string ResolveAndroidMid(const DeviceInfo& device) {
+  const bool storedMidLooksAndroid =
+      device.mid.size() >= 38 &&
+      device.mid.size() <= 39 &&
+      std::all_of(device.mid.begin(), device.mid.end(),
+                  [](unsigned char c) { return std::isdigit(c); });
+  if (storedMidLooksAndroid) return device.mid;
+  if (!device.guid.empty()) return CalculateAndroidMid(device.guid);
+  if (!device.mid.empty()) return CalculateAndroidMid(device.mid);
+  return "0";
 }
 
 std::string Trim(std::string value) {
@@ -492,8 +505,9 @@ nlohmann::json PlaylistService::GetTracks(
   const bool isUserCollection = id.rfind("collection_", 0) == 0;
   if (isUserCollection) {
     const auto beginIdx = std::to_string((page - 1) * pageSize);
-    const std::string appid = "1005";
-    const std::string clientver = "20489";
+    const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+    const std::string appid = profile.appid;
+    const std::string clientver = profile.clientver;
     const auto clienttime = std::to_string(std::time(nullptr));
     std::unordered_map<std::string, std::string> params = {
         {"appid", appid},
@@ -501,14 +515,14 @@ nlohmann::json PlaylistService::GetTracks(
         {"clienttime", clienttime},
         {"plat", "1"},
         {"dfid", device.dfid.empty() ? "-" : device.dfid},
-        {"mid", device.mid.empty() ? "0" : device.mid},
-        {"uuid", device.uuid.empty() ? "-" : device.uuid},
+        {"mid", ResolveAndroidMid(device)},
+        {"uuid", "-"},
         {"global_collection_id", id},
         {"begin_idx", beginIdx},
         {"pagesize", std::to_string(pageSize)},
         {"area_code", "1"},
     };
-    params["signature"] = SignatureAndroidParams(params, "");
+    params["signature"] = SignatureAndroidParams(params, "", profile.saltKind);
 
     std::ostringstream urlStream;
     // Note: pubsongs endpoint is hosted on pubsongs.kugou.com directly
@@ -662,8 +676,8 @@ nlohmann::json PlaylistService::GetTags() const {
   list.push_back({
       {"tag_id", 0},
       {"id", 0},
-      {"tag_name", "鎺ㄨ崘"},
-      {"name", "鎺ㄨ崘"},
+      {"tag_name", "推荐"},
+      {"name", "推荐"},
       {"son", tags},
       {"children", tags},
   });
@@ -768,8 +782,9 @@ nlohmann::json PlaylistService::GetPlaylistDetail(
   const std::string body = dataPayload.dump();
 
   const auto clienttime = std::to_string(std::time(nullptr));
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  const std::string appid = profile.appid;
+  const std::string clientver = profile.clientver;
   std::unordered_map<std::string, std::string> params = {
       {"appid", appid},
       {"clientver", clientver},
@@ -779,10 +794,10 @@ nlohmann::json PlaylistService::GetPlaylistDetail(
       {"token", token}
   };
   if (!device.dfid.empty()) params["dfid"] = device.dfid;
-  if (!device.mid.empty()) params["mid"] = device.mid;
-  if (!device.uuid.empty()) params["uuid"] = device.uuid;
+  params["mid"] = ResolveAndroidMid(device);
+  params["uuid"] = "-";
 
-  params["signature"] = SignatureAndroidParams(params, body);
+  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
 
   std::ostringstream urlStream;
   // Route via gateway.kugou.com + x-router (see GetUserPlaylists comment).
@@ -847,20 +862,21 @@ nlohmann::json PlaylistService::GetUserPlaylists(
   const std::string body = dataPayload.dump();
 
   const auto clienttime = std::to_string(std::time(nullptr));
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  const std::string appid = profile.appid;
+  const std::string clientver = profile.clientver;
   std::unordered_map<std::string, std::string> params = {
       {"appid", appid},
       {"clientver", clientver},
       {"clienttime", clienttime},
       {"plat", "1"},
       {"dfid", device.dfid.empty() ? "-" : device.dfid},
-      {"mid", device.mid.empty() ? "0" : device.mid},
-      {"uuid", device.uuid.empty() ? "-" : device.uuid},
+      {"mid", ResolveAndroidMid(device)},
+      {"uuid", "-"},
       {"userid", userId},
       {"token", token}
   };
-  params["signature"] = SignatureAndroidParams(params, body);
+  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
 
   std::ostringstream urlStream;
   // Reference (MakcRe/KuGouMusicApi util/request.js): the base URL is
@@ -882,6 +898,13 @@ nlohmann::json PlaylistService::GetUserPlaylists(
           {"Accept", "application/json"},
           {"Content-Type", "application/json"},
           {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
+          {"dfid", device.dfid.empty() ? "-" : device.dfid},
+          {"clienttime", clienttime},
+          {"mid", ResolveAndroidMid(device)},
+          {"kg-rc", "1"},
+          {"kg-thash", "5d816a0"},
+          {"kg-rec", "1"},
+          {"kg-rf", "B9EDA08A64250DEFFBCADDEE00F8F25F"},
           {"x-router", "cloudlist.service.kugou.com"},
       });
 
@@ -940,15 +963,16 @@ nlohmann::json PlaylistService::AddPlaylist(
   const std::string body = dataPayload.dump();
   const auto clienttime = std::to_string(std::time(nullptr));
 
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  const std::string appid = profile.appid;
+  const std::string clientver = profile.clientver;
 
   std::unordered_map<std::string, std::string> params;
   params["appid"] = appid;
   params["clientver"] = clientver;
   params["clienttime"] = clienttime;
-  params["mid"] = device.mid.empty() ? "0" : device.mid;
-  params["uuid"] = device.uuid.empty() ? "-" : device.uuid;
+  params["mid"] = ResolveAndroidMid(device);
+  params["uuid"] = "-";
   params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
   if (!userId.empty()) params["userid"] = userId;
   if (!token.empty()) params["token"] = token;
@@ -958,7 +982,7 @@ nlohmann::json PlaylistService::AddPlaylist(
     params["last_area"] = "gztx";
   }
 
-  params["signature"] = SignatureAndroidParams(params, body);
+  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
 
   std::ostringstream urlStream;
   urlStream << "https://gateway.kugou.com/cloudlist.service/v5/add_list?";
@@ -1021,13 +1045,14 @@ nlohmann::json PlaylistService::DeletePlaylist(
   std::string p = RsaPkcs1Encrypt(rsaPayload.dump());
 
   const auto clienttime = std::to_string(std::time(nullptr));
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  const std::string appid = profile.appid;
+  const std::string clientver = profile.clientver;
 
   std::unordered_map<std::string, std::string> paramsMap;
   paramsMap["clienttime"] = clienttime;
-  paramsMap["mid"] = device.mid.empty() ? "0" : device.mid;
-  paramsMap["key"] = SignParamsKey(clienttime, appid, clientver);
+  paramsMap["mid"] = ResolveAndroidMid(device);
+  paramsMap["key"] = SignParamsKey(clienttime, appid, clientver, profile.saltKind);
   paramsMap["last_area"] = "gztx";
   paramsMap["clientver"] = clientver;
   paramsMap["appid"] = appid;
@@ -1129,22 +1154,23 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
   const std::string body = dataPayload.dump();
   const auto clienttime = std::to_string(std::time(nullptr));
 
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  const std::string appid = profile.appid;
+  const std::string clientver = profile.clientver;
 
   std::unordered_map<std::string, std::string> params;
   params["appid"] = appid;
   params["clientver"] = clientver;
   params["clienttime"] = clienttime;
-  params["mid"] = device.mid.empty() ? "0" : device.mid;
-  params["uuid"] = device.uuid.empty() ? "-" : device.uuid;
+  params["mid"] = ResolveAndroidMid(device);
+  params["uuid"] = "-";
   params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
   if (!userId.empty()) params["userid"] = userId;
   if (!token.empty()) params["token"] = token;
   params["last_time"] = clienttime;
   params["last_area"] = "gztx";
 
-  params["signature"] = SignatureAndroidParams(params, body);
+  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
 
   std::ostringstream urlStream;
   urlStream << "https://gateway.kugou.com/cloudlist.service/v6/add_song?";
@@ -1210,20 +1236,21 @@ nlohmann::json PlaylistService::DeletePlaylistTracks(
   const std::string body = dataPayload.dump();
   const auto clienttime = std::to_string(std::time(nullptr));
 
-  const std::string appid = "1005";
-  const std::string clientver = "20489";
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  const std::string appid = profile.appid;
+  const std::string clientver = profile.clientver;
 
   std::unordered_map<std::string, std::string> params;
   params["appid"] = appid;
   params["clientver"] = clientver;
   params["clienttime"] = clienttime;
-  params["mid"] = device.mid.empty() ? "0" : device.mid;
-  params["uuid"] = device.uuid.empty() ? "-" : device.uuid;
+  params["mid"] = ResolveAndroidMid(device);
+  params["uuid"] = "-";
   params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
   if (!userId.empty()) params["userid"] = userId;
   if (!token.empty()) params["token"] = token;
 
-  params["signature"] = SignatureAndroidParams(params, body);
+  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
 
   std::ostringstream urlStream;
   urlStream << "https://gateway.kugou.com/v4/delete_songs?";

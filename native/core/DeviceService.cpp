@@ -1,6 +1,9 @@
 #include "echo/core/DeviceService.h"
+#include "echo/core/Crypto.h"
+#include "echo/core/KuGouProfile.h"
 
 #include <array>
+#include <iostream>
 #include <random>
 #include <sstream>
 
@@ -29,25 +32,46 @@ std::string RandomGuidLike() {
   return stream.str();
 }
 
+void NormalizeDeviceInfo(DeviceInfo& device) {
+  const bool placeholderDfid = device.dfid.empty() || device.dfid == "-";
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+
+  if (device.appid != profile.appid) {
+    device.registered = false;
+  }
+  device.appid = profile.appid;
+  device.clientver = profile.clientver;
+
+  if (placeholderDfid) {
+    device.registered = false;
+    return;
+  }
+
+  if (device.mid.empty()) {
+    const std::string md5Dfid = CalculateMd5(device.dfid);
+    device.mid = md5Dfid + md5Dfid.substr(0, 7);
+  }
+  if (device.uuid.empty()) {
+    device.uuid = CalculateMd5(device.dfid + device.mid);
+  }
+}
+
 DeviceInfo CreateDeviceInfo() {
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
   const auto guid = RandomGuidLike();
-  // Device default appid is 1014 (KuGou's "web/lite" identifier) — this is
-  // what QR login (/v2/qrcode) and most session-management endpoints expect.
-  // Endpoints that need a different appid (e.g. /song/url, /youth/day/vip*)
-  // hardcode their own appid; the shared mid/dfid/uuid carry across all.
-  // Explicit `registered=false` because MSVC's designated initializer does
-  // not respect NSDMI defaults for omitted fields (UB without this line).
-  return DeviceInfo{
+  DeviceInfo device{
       .dfid = "-",
-      .mid = RandomHex(32),
-      .uuid = "-",
+      .mid = "",
+      .uuid = "",
       .guid = guid,
       .serverDev = "",
       .mac = "02:00:00:00:00:00",
-      .appid = "1005",
-      .clientver = "12143",
+      .appid = profile.appid,
+      .clientver = profile.clientver,
       .registered = false,
   };
+  NormalizeDeviceInfo(device);
+  return device;
 }
 
 }  // namespace
@@ -55,16 +79,18 @@ DeviceInfo CreateDeviceInfo() {
 DeviceService::DeviceService(storage::DeviceRepository& devices) : devices_(devices) {}
 
 DeviceInfo DeviceService::EnsureDeviceReady() {
-  if (auto existing = devices_.Load(); existing && !existing->dfid.empty()) {
-    // Accept existing device if it already uses the standard appid=1005.
-    if (existing->appid == "1005") {
-      return *existing;
-    }
-    // Fall through to regenerate with the canonical 1005/12143 fingerprint.
+  DeviceInfo device;
+  if (auto existing = devices_.Load(); existing) {
+    device = *existing;
+  } else {
+    device = CreateDeviceInfo();
+    devices_.Save(device);
   }
 
-  auto device = CreateDeviceInfo();
-  devices_.Save(device);
+  // Normalize in-memory before returning to business code.
+  // Old records with random mid/uuid are overwritten here; the db is NOT modified.
+  NormalizeDeviceInfo(device);
+
   return device;
 }
 

@@ -1,6 +1,7 @@
 #include "echo/core/DeviceRegisterService.h"
 
 #include "echo/core/Crypto.h"
+#include "echo/core/KuGouProfile.h"
 
 #include <algorithm>
 #include <cctype>
@@ -67,6 +68,12 @@ nlohmann::json BuildDeviceFingerprint(const DeviceInfo& device) {
   };
 }
 
+std::string AndroidMidForDevice(const DeviceInfo& device) {
+  if (!device.guid.empty()) return CalculateAndroidMid(device.guid);
+  if (!device.mid.empty()) return CalculateAndroidMid(device.mid);
+  return "0";
+}
+
 }  // namespace
 
 DeviceRegisterService::DeviceRegisterService()
@@ -110,38 +117,37 @@ std::string DeviceRegisterService::Register(
       {"uid",   userId.empty() ? 0 : std::stoll(userId)},
       {"token", token},
   };
-  std::string rsaP = RsaPkcs1Encrypt(wrapper.dump());
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  std::string rsaP = RsaPkcs1Encrypt(wrapper.dump(), profile.saltKind);
   if (rsaP.empty()) {
     return setError("RsaPkcs1Encrypt failed");
   }
   std::transform(rsaP.begin(), rsaP.end(), rsaP.begin(),
                  [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
-  // 3) Build the signed URL. MakcRe's request.js loads appid/clientver from
-  // config.json (1005/20489) by default, which determines the signature
-  // salt. Hardcode those here — using the device's appid=1014 picks the
-  // lite salt (LnT6xpN3...) and produces a signature KuGou's risk service
-  // rejects with error_code 20010.
+  // 3) Build the signed URL.  Actual implementation uses
+  // SignatureAndroidParams with KuGouSaltKind::Lite (the concept/lite salt).
+  // The appid must be 3116 for the concept edition; 1005 picks the standard
+  // salt and produces error_code 20010. Notably NO `plat` parameter.
   const auto clienttime = std::to_string(std::time(nullptr));
-  // /risk/v2/r_register_dev uses the register-style signature whose salt is
-  // literally "1014", so the appid in params must also be 1014 — sending
-  // 1005 here returns error_code 20006 even when the signature itself
-  // verifies. Notably NO `plat` parameter; the signature covers exactly:
-  // dfid/mid/uuid/appid/clientver/clienttime + (part, platid, p) + userid/token.
+  // The old comment claimed this endpoint needs SignatureRegisterParams
+  // (salt="1014"); that was incorrect — the real traffic uses
+  // SignatureAndroidParams + lite salt + appid=3116.
+  const auto androidMid = AndroidMidForDevice(device);
   std::unordered_map<std::string, std::string> params = {
-      {"appid",     "3116"},
-      {"clientver", "11440"},
+      {"appid",     profile.appid},
+      {"clientver", profile.clientver},
       {"clienttime", clienttime},
       {"part",      "1"},
       {"platid",    "1"},
       {"p",         rsaP},
-      {"mid",       device.mid.empty() ? "0" : device.mid},
+      {"mid",       androidMid},
       {"uuid",      "-"},
       {"dfid",      device.dfid.empty() ? "-" : device.dfid},
   };
   if (!userId.empty() && userId != "0") params["userid"] = userId;
   if (!token.empty()) params["token"] = token;
-  params["signature"] = SignatureAndroidParams(params, aes.data);
+  params["signature"] = SignatureAndroidParams(params, aes.data, profile.saltKind);
 
   std::ostringstream urlStream;
   urlStream << "https://userservice.kugou.com/risk/v2/r_register_dev?";
@@ -161,7 +167,7 @@ std::string DeviceRegisterService::Register(
           {"User-Agent",   "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
           {"dfid",         device.dfid.empty() ? "-" : device.dfid},
           {"clienttime",   clienttime},
-          {"mid",          device.mid.empty() ? "0" : device.mid},
+          {"mid",          androidMid},
           {"kg-rc",        "1"},
           {"kg-thash",     "5d816a0"},
           {"kg-rec",       "1"},

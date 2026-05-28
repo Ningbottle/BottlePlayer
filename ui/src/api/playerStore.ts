@@ -21,6 +21,11 @@ interface PlayerState {
   // True when the current track's URL is the 60s free preview, not the full song.
   // Stays true across pause/play; only resets when a new track is loaded.
   isPreview: boolean;
+  // True specifically when KuGou rejected the request because the account has
+  // no VIP entitlement (fail_process contains "pkg"/"buy"). vipRequired implies
+  // isPreview but adds the "you need VIP" semantic so the UI can say so
+  // explicitly instead of the generic "试听版本" hedge.
+  vipRequired: boolean;
 }
 
 export const playerStore = reactive<PlayerState>({
@@ -35,6 +40,7 @@ export const playerStore = reactive<PlayerState>({
   audio: null,
   errorMsg: '',
   isPreview: false,
+  vipRequired: false,
 });
 
 // Setup audio listeners
@@ -139,7 +145,13 @@ export async function playTrack(track: Track) {
   }
 
   try {
-    const res = await apiGet<{ status: number; url?: string; error?: string; is_preview?: boolean }>('/song/url', {
+    const res = await apiGet<{
+      status: number;
+      url?: string;
+      error?: string;
+      is_preview?: boolean;
+      vip_required?: boolean;
+    }>('/song/url', {
       hash: normalized.FileHash,
       album_id: normalized.AlbumID || '',
       album_audio_id: normalized.AlbumAudioID || '',
@@ -150,16 +162,19 @@ export async function playTrack(track: Track) {
       // Set preview state BEFORE play() so the 'play' event listener doesn't
       // clobber it. The listener only clears `errorMsg`, not `isPreview`.
       playerStore.isPreview = !!res.is_preview;
+      playerStore.vipRequired = !!res.vip_required;
       playerStore.errorMsg = '';
       await audio.play();
     } else {
       playerStore.isPreview = false;
+      playerStore.vipRequired = false;
       throw new Error(res.error || '获取歌曲链接失败');
     }
   } catch (err: any) {
     console.error('Failed to resolve play URL', err);
     playerStore.isPlaying = false;
     playerStore.isPreview = false;
+    playerStore.vipRequired = false;
     playerStore.errorMsg = err.message || '获取歌曲链接失败（受版权或VIP限制）';
   }
 }

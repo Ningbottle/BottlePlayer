@@ -103,9 +103,12 @@ class BackendFacade final : public IBackendFacade {
             storage::SessionRepository sessionRepo(database);
             sessionRepo.Save(session);
             
-            // Claim VIP automatically on login
+            // Claim daily VIP automatically on login via the kgcheckin
+            // endpoint (gateway.kugou.com/youth/v2/report/listen_song).
+            // The legacy /youth/v1/recharge/receive_vip_listen_song endpoint
+            // is deprecated upstream (returns 51002 ad SDK credential error).
             UserService userSvc;
-            userSvc.ClaimVip(session.userId, session.token);
+            userSvc.ClaimYouthListenSong(session.userId, session.token);
           }
         }
       }

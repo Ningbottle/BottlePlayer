@@ -19,6 +19,7 @@ const volume = computed(() => playerStore.volume);
 const loopMode = computed(() => playerStore.loopMode);
 const errorMsg = computed(() => playerStore.errorMsg);
 const isPreview = computed(() => playerStore.isPreview);
+const vipRequired = computed(() => playerStore.vipRequired);
 
 // Stable fallback cover — keeps the <img> element mounted even when the
 // track has no Image yet (avoids the v-if mount/unmount flicker during
@@ -106,10 +107,15 @@ function toggleLyricView() {
       <span v-if="errorMsg" class="dim" style="font-size: 11px; margin-left: 10px; color: var(--accent);">
         {{ errorMsg }}
       </span>
-      <!-- Preview-mode banner — sticks across pause/play, only clears on next track.
-           Wording softened because the upstream "preview" URL sometimes plays
-           the full song or much more than 60s, so a hard "60 秒" claim was
-           misleading. -->
+      <!-- Two-tier preview banner:
+           - vipRequired: KuGou explicitly returned fail_process:["pkg","buy"]
+             meaning this song needs VIP and the account has none. Show the
+             specific call-to-action so the user knows what to do.
+           - isPreview (without vipRequired): some other reason — auth fallback,
+             rate limit, region — fall back to the generic phrasing. -->
+      <span v-else-if="vipRequired" class="dim" style="font-size: 11px; margin-left: 10px; color: var(--accent);">
+        ⚠️ VIP 歌曲 · 仅 60s 试听（需要 VIP 才能完整播放）
+      </span>
       <span v-else-if="isPreview" class="dim" style="font-size: 11px; margin-left: 10px; color: var(--ink-soft);">
         ⚠️ 试听版本（KuGou 仅授权部分时长）
       </span>
