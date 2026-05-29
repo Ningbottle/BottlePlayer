@@ -46,16 +46,36 @@ else()
   message(WARNING "SQLite3 development files were not found; EchoStorage will use the JSON-file fallback.")
 endif()
 
+add_library(EchoDiagnostics STATIC
+  diagnostics/EchoDiagnostics.cpp
+  diagnostics/MemorySnapshot.cpp
+  diagnostics/ScopedTimer.cpp
+  diagnostics/Redaction.cpp
+)
+target_include_directories(EchoDiagnostics PUBLIC include)
+target_link_libraries(EchoDiagnostics PRIVATE psapi)
+
 add_library(EchoCore STATIC
   core/Authorization.cpp
   core/BackendFacade.cpp
   core/CatalogService.cpp
   core/CompatApi.cpp
+  core/CompatRequestContext.cpp
+  core/compat_routes/DiagnosticsRoutes.cpp
+  core/compat_routes/LoginRoutes.cpp
+  core/compat_routes/UserRoutes.cpp
+  core/compat_routes/PlaylistRoutes.cpp
+  core/compat_routes/MediaRoutes.cpp
+  core/compat_routes/YouthVipRoutes.cpp
+  core/compat_routes/RegisterRoutes.cpp
+  core/StringUtils.cpp
   core/DeviceService.cpp
   core/DeviceRegisterService.cpp
   core/HomeService.cpp
   core/HttpClient.cpp
+  core/HttpUtils.cpp
   core/Crypto.cpp
+  core/KuGouAndroidRequest.cpp
   core/KuGouProfile.cpp
   core/LoginService.cpp
   core/JsonHelpers.cpp
@@ -73,7 +93,7 @@ add_library(EchoCore STATIC
 )
 target_include_directories(EchoCore PUBLIC include)
 target_link_libraries(EchoCore
-  PUBLIC EchoStorage nlohmann_json::nlohmann_json
+  PUBLIC EchoStorage EchoDiagnostics EchoAsync nlohmann_json::nlohmann_json
   PRIVATE winhttp bcrypt crypt32
 )
 
@@ -87,6 +107,7 @@ target_link_libraries(EchoPlayback
 add_library(EchoAsync STATIC
   async/EventQueue.cpp
   async/TaskScheduler.cpp
+  async/RequestScheduler.cpp
 )
 target_include_directories(EchoAsync PUBLIC include)
 
@@ -96,10 +117,6 @@ add_library(EchoImage STATIC
 )
 target_include_directories(EchoImage PUBLIC include)
 target_link_libraries(EchoImage PUBLIC EchoAsync PRIVATE windowscodecs ole32)
-
-add_library(EchoDiagnostics STATIC diagnostics/MemorySnapshot.cpp)
-target_include_directories(EchoDiagnostics PUBLIC include)
-target_link_libraries(EchoDiagnostics PRIVATE psapi)
 
 add_library(EchoWin32Layout STATIC
   win32_app/GlassPanel.cpp
