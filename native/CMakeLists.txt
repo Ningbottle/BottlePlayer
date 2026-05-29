@@ -68,7 +68,6 @@ add_library(EchoCore STATIC
   core/compat_routes/MediaRoutes.cpp
   core/compat_routes/YouthVipRoutes.cpp
   core/compat_routes/RegisterRoutes.cpp
-  core/StringUtils.cpp
   core/DeviceService.cpp
   core/DeviceRegisterService.cpp
   core/HomeService.cpp
@@ -90,12 +89,17 @@ add_library(EchoCore STATIC
   core/SongService.cpp
   core/PlayHistoryService.cpp
   core/UserCloudService.cpp
+  core/C_API.cpp
 )
 target_include_directories(EchoCore PUBLIC include)
 target_link_libraries(EchoCore
   PUBLIC EchoStorage EchoDiagnostics EchoAsync nlohmann_json::nlohmann_json
   PRIVATE winhttp bcrypt crypt32
 )
+
+add_library(EchoCAPI SHARED core/C_API.cpp)
+target_include_directories(EchoCAPI PUBLIC include)
+target_link_libraries(EchoCAPI PUBLIC EchoCore)
 
 add_library(EchoPlayback STATIC playback/PlaybackController.cpp)
 target_include_directories(EchoPlayback PUBLIC include)

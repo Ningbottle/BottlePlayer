@@ -1,30 +1,17 @@
-// BottleMusic Tauri 前端壳：
-//   - 仅负责窗口、sidecar 生命周期、（可选）Rust 端 HTTP 代理
-//   - 真正业务由 C++ EchoCompatServer 提供（loopback 127.0.0.1:6609）
-//
-// 设计：进程启动时拉起 EchoCompatServer 作为 sidecar；关窗 = 后端进程一同关闭。
+mod backend_api;
 
-use std::sync::Mutex;
 use tauri::Manager;
-use tauri_plugin_shell::process::{CommandChild, CommandEvent};
-use tauri_plugin_shell::ShellExt;
 
-/// 后端 sidecar 进程句柄。State 内放 Mutex<Option<...>>：进程退出 / 显式 kill 时 take()。
-struct BackendProcess(Mutex<Option<CommandChild>>);
-
-/// 简单的 ping 命令，供前端确认 Rust 壳就绪。
 #[tauri::command]
 fn ping() -> &'static str {
     "pong"
 }
 
-/// 返回后端基地址；前端 fetch 时统一从此读取。
 #[tauri::command]
 fn backend_base_url() -> &'static str {
-    "http://127.0.0.1:6609"
+    "native-ipc" // Returning a dummy value to avoid breaking frontend immediately
 }
 
-/// 获取当前进程占用的物理内存 (Working Set)，单位为字节。
 #[tauri::command]
 fn get_memory_usage() -> u64 {
     use sysinfo::{Pid, System};
@@ -39,71 +26,70 @@ fn get_memory_usage() -> u64 {
     }
 }
 
+#[tauri::command]
+async fn native_request(
+    method: String,
+    path: String,
+    query_json: Option<String>,
+    headers_json: Option<String>,
+    body: Option<String>,
+) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        backend_api::handle_request(
+            &method,
+            &path,
+            query_json.as_deref(),
+            headers_json.as_deref(),
+            body.as_deref(),
+        )
+    })
+    .await
+    .unwrap_or_else(|e| Err(format!("Task panic: {:?}", e)))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .manage(BackendProcess(Mutex::new(None)))
         .setup(|app| {
-            // 拉起 EchoCompatServer sidecar。
-            let sidecar = app
-                .shell()
-                .sidecar("EchoCompatServer")
-                .expect("EchoCompatServer sidecar not registered")
-                .args(["--host", "127.0.0.1", "--port", "6609"]);
+            // Locate the native EchoCAPI.dll
+            let dll_name = if cfg!(target_os = "windows") { "EchoCAPI.dll" } else { "libEchoCAPI.so" };
+            
+            // Try loading from some paths
+            let possible_paths = [
+                format!("{}", dll_name),
+                format!("../../native/out/bottlemusic-check/{}", dll_name),
+                format!("native/out/bottlemusic-check/{}", dll_name),
+                format!("../../../native/out/bottlemusic-check/{}", dll_name),
+                format!("d:/KuGouMusic/native/out/bottlemusic-check/{}", dll_name),
+            ];
 
-            let (mut rx, child) = sidecar.spawn().expect("failed to spawn EchoCompatServer");
-
-            // 保存子进程句柄到 State；窗口关闭时 take() 出来再 kill。
-            // 显式作用域避免 MutexGuard 与 State 借用顺序冲突。
-            {
-                let state: tauri::State<BackendProcess> = app.state();
-                let mut slot = state.0.lock().expect("BackendProcess mutex poisoned");
-                *slot = Some(child);
-            }
-
-            // 透传后端日志，便于排查。
-            tauri::async_runtime::spawn(async move {
-                while let Some(ev) = rx.recv().await {
-                    match ev {
-                        CommandEvent::Stdout(line) => {
-                            println!("[EchoCompat] {}", String::from_utf8_lossy(&line));
-                        }
-                        CommandEvent::Stderr(line) => {
-                            eprintln!("[EchoCompat ERR] {}", String::from_utf8_lossy(&line));
-                        }
-                        CommandEvent::Error(err) => {
-                            eprintln!("[EchoCompat FATAL] {}", err);
-                        }
-                        CommandEvent::Terminated(payload) => {
-                            eprintln!(
-                                "[EchoCompat] terminated, code={:?} signal={:?}",
-                                payload.code, payload.signal
-                            );
-                            break;
-                        }
-                        _ => {}
-                    }
+            let mut loaded = false;
+            for path in &possible_paths {
+                if backend_api::load_c_api(path).is_ok() {
+                    println!("[EchoCAPI] Loaded native library from {}", path);
+                    loaded = true;
+                    break;
                 }
-            });
+            }
+            if !loaded {
+                eprintln!("[EchoCAPI ERR] Could not load {} from any known path", dll_name);
+            }
 
             Ok(())
         })
-        .on_window_event(|window, event| {
-            // 主窗口关闭时主动 kill sidecar。
+        .on_window_event(|_window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                let taken: Option<CommandChild> = {
-                    let state: tauri::State<BackendProcess> = window.state();
-                    let mut slot = state.0.lock().expect("BackendProcess mutex poisoned");
-                    slot.take()
-                };
-                if let Some(child) = taken {
-                    let _ = child.kill();
-                }
+                backend_api::shutdown_c_api();
             }
         })
-        .invoke_handler(tauri::generate_handler![ping, backend_base_url, get_memory_usage])
+        .invoke_handler(tauri::generate_handler![
+            ping,
+            backend_base_url,
+            get_memory_usage,
+            native_request
+        ])
         .run(tauri::generate_context!())
         .expect("error while running BottleMusic Tauri app");
 }

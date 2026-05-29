@@ -354,7 +354,7 @@ nlohmann::json UserService::UpgradeVipReward(
 }
 
 nlohmann::json UserService::ClaimYouthListenSong(
-    const DeviceInfo& device, const std::string& userId, const std::string& token) const {
+    const std::string& userId, const std::string& token) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
@@ -365,8 +365,8 @@ nlohmann::json UserService::ClaimYouthListenSong(
   // listen_song report uses a distinct clientver from the global concept profile.
   const std::string kListenSongClientver = "10566";
 
-  const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
-  const std::string mid  = ResolveAndroidMid(device);
+  const std::string dfid = "-";
+  const std::string mid  = "0";
   const std::string uuid = "-";
 
   std::unordered_map<std::string, std::string> params = {
@@ -428,13 +428,8 @@ nlohmann::json UserService::ClaimYouthListenSong(
   }
 }
 
-nlohmann::json UserService::ClaimYouthListenSong(
-    const std::string& userId, const std::string& token) const {
-  return ClaimYouthListenSong(DeviceInfo{}, userId, token);
-}
-
 nlohmann::json UserService::ClaimYouthAdVip(
-    const DeviceInfo& device, const std::string& userId, const std::string& token) const {
+    const std::string& userId, const std::string& token) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
@@ -444,8 +439,8 @@ nlohmann::json UserService::ClaimYouthAdVip(
       std::chrono::system_clock::now().time_since_epoch()).count();
 
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
-  const std::string mid  = ResolveAndroidMid(device);
+  const std::string dfid = "-";
+  const std::string mid  = "0";
   const std::string uuid = "-";
 
   std::unordered_map<std::string, std::string> params = {
@@ -504,11 +499,6 @@ nlohmann::json UserService::ClaimYouthAdVip(
   } catch (const nlohmann::json::exception& e) {
     return MakeError(std::string("JSON parse error: ") + e.what());
   }
-}
-
-nlohmann::json UserService::ClaimYouthAdVip(
-    const std::string& userId, const std::string& token) const {
-  return ClaimYouthAdVip(DeviceInfo{}, userId, token);
 }
 
 }  // namespace echo::core

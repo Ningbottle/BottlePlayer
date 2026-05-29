@@ -19,9 +19,8 @@ CompatResponse HandleYouthListenSong(storage::Database& database) {
     return JsonResponse({{"status", 0}, {"error", "not logged in"}, {"data", nullptr}});
   }
   const auto& session = ctx.Session();
-  const auto& device = ctx.Device();
   UserService userSvc;
-  return JsonResponse(userSvc.ClaimYouthListenSong(device, session->userId, session->token));
+  return JsonResponse(userSvc.ClaimYouthListenSong(session->userId, session->token));
 }
 
 CompatResponse HandleYouthVipAd(storage::Database& database) {
@@ -30,9 +29,8 @@ CompatResponse HandleYouthVipAd(storage::Database& database) {
     return JsonResponse({{"status", 0}, {"error", "not logged in"}, {"data", nullptr}});
   }
   const auto& session = ctx.Session();
-  const auto& device = ctx.Device();
   UserService userSvc;
-  return JsonResponse(userSvc.ClaimYouthAdVip(device, session->userId, session->token));
+  return JsonResponse(userSvc.ClaimYouthAdVip(session->userId, session->token));
 }
 
 }  // namespace echo::core
