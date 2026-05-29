@@ -58,14 +58,16 @@ class UserService {
   [[deprecated("kugou_vip_legacy_disabled: use ClaimYouthListenSong")]]
   nlohmann::json UpgradeVipReward(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
 
-  // ── kgcheckin 概念版 m 端点（Cookie-only GET，不需要广告 SDK 凭证）──
+  // ── 酷狗音乐概念版 VIP 领取（gateway.kugou.com POST + Android signature）──
 
-  // GET https://m.kugou.com/youth/listen/song
-  // 听歌领 VIP（每日一次）。Cookie-only 鉴权。
+  // POST https://gateway.kugou.com/youth/v2/report/listen_song
+  // 听歌领 VIP（每日一次）。需传入设备指纹生成 Android 签名，clientver 强指定为 10566。
+  nlohmann::json ClaimYouthListenSong(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
   nlohmann::json ClaimYouthListenSong(const std::string& userId, const std::string& token) const;
 
-  // GET https://m.kugou.com/youth/vip
-  // 看广告领 VIP（需循环调用，每次间隔 30s，最多 8 次）。Cookie-only 鉴权。
+  // POST https://gateway.kugou.com/youth/v1/ad/play_report
+  // 看广告领 VIP（需循环调用，每次间隔 30s，最多 8 次）。需传入设备指纹生成 Android 签名。
+  nlohmann::json ClaimYouthAdVip(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
   nlohmann::json ClaimYouthAdVip(const std::string& userId, const std::string& token) const;
 
  private:
