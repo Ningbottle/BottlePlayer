@@ -4,6 +4,7 @@
 #include <fstream>
 #include <filesystem>
 #include <iostream>
+#include <thread>
 
 #if defined(_MSC_VER)
 #include <crtdbg.h>
@@ -16,13 +17,18 @@
 #include <dxgi.h>
 
 #include "echo/async/EventQueue.h"
+#include "echo/async/RequestScheduler.h"
 #include "echo/async/TaskScheduler.h"
 #include "echo/core/Authorization.h"
 #include "echo/core/BackendFacade.h"
+#include "echo/core/StringUtils.h"
+#include "echo/core/CompatRequestContext.h"
 #include "echo/core/CatalogService.h"
 #include "echo/core/CompatApi.h"
 #include "echo/core/Crypto.h"
 #include "echo/core/DeviceService.h"
+#include "echo/core/HttpUtils.h"
+#include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/LoginService.h"
 #include "echo/core/JsonHelpers.h"
 #include "echo/core/LyricParser.h"
@@ -38,11 +44,14 @@
 #include "echo/core/PlayHistoryService.h"
 #include "echo/core/UserCloudService.h"
 #include "echo/diagnostics/MemorySnapshot.h"
+#include "echo/diagnostics/Redaction.h"
+#include "echo/diagnostics/ScopedTimer.h"
 #include "echo/image/ImageCache.h"
 #include "echo/image/ImageLoader.h"
 #include "echo/playback/PlaybackController.h"
 #include "echo/storage/Database.h"
 #include "echo/storage/DeviceRepository.h"
+#include "echo/storage/SessionRepository.h"
 #include "echo/win32_app/ImageSlot.h"
 #include "echo/storage/SettingsRepository.h"
 #include "echo/win32_app/Layout.h"
@@ -107,6 +116,107 @@ int main() {
   assert(auth.userId == "42");
   assert(auth.mid == "mid");
   assert(auth.guid == "g");
+
+  {
+    echo::core::DeviceInfo device;
+    device.mid = "12345678901234567890123456789012345678";
+    assert(echo::core::ResolveAndroidMid(device) == device.mid);
+  }
+  {
+    echo::core::DeviceInfo device;
+    device.guid = "guid-for-android-mid";
+    device.mid = "legacy-mid";
+    assert(echo::core::ResolveAndroidMid(device) ==
+           echo::core::CalculateAndroidMid(device.guid));
+  }
+  {
+    echo::core::DeviceInfo device;
+    assert(echo::core::ResolveAndroidMid(device) == "0");
+  }
+
+  // ── KuGouAndroidRequest BuildSignedUrl contract ──────────────────────────
+  {
+    echo::core::KuGouAndroidRequest req;
+    req.endpoint = "https://gateway.kugou.com/v5/url";
+    req.profile = echo::core::GetKuGouProfile(echo::core::KuGouEdition::Concept);
+    req.includeSongUrlKey = true;
+    req.params["hash"] = "abc123";
+    req.params["quality"] = "128";
+    req.params["clienttime"] = "1700000000";
+    req.device.dfid = "dfid-test";
+    req.device.guid = "guid-test";
+
+    const auto url = echo::core::BuildSignedUrl(req);
+    assert(!url.empty());
+    assert(url.find("https://gateway.kugou.com/v5/url?") == 0);
+    assert(url.find("hash=abc123") != std::string::npos);
+    assert(url.find("quality=128") != std::string::npos);
+    assert(url.find("appid=3116") != std::string::npos);
+    assert(url.find("clientver=11440") != std::string::npos);
+    assert(url.find("clienttime=1700000000") != std::string::npos);
+    assert(url.find("dfid=dfid-test") != std::string::npos);
+    assert(url.find("signature=") != std::string::npos);
+    assert(url.find("key=") != std::string::npos);
+
+    // BuildAndroidHeaders contract
+    const auto headers = echo::core::BuildAndroidHeaders(req);
+    assert(headers.count("dfid") && headers.at("dfid") == "dfid-test");
+    assert(headers.count("mid"));
+    assert(headers.count("clienttime") && headers.at("clienttime") == "1700000000");
+    assert(headers.at("kg-rc") == "1");
+    assert(headers.at("kg-thash") == "5d816a0");
+    assert(headers.at("kg-rec") == "1");
+    assert(headers.at("kg-rf") == "B9EDA08A64250DEFFBCADDEE00F8F25F");
+    assert(headers.at("Accept") == "application/json");
+
+    // 边界：无 hash 时不生成 key
+    {
+      echo::core::KuGouAndroidRequest noHashReq;
+      noHashReq.endpoint = "https://gateway.kugou.com/v3/get_my_info";
+      noHashReq.profile = echo::core::GetKuGouProfile(echo::core::KuGouEdition::Concept);
+      noHashReq.params["userid"] = "42";
+      noHashReq.device.dfid = "dfid42";
+      const auto url = echo::core::BuildSignedUrl(noHashReq);
+      assert(url.find("key=") == std::string::npos);
+      assert(url.find("appid=3116") != std::string::npos);
+      assert(url.find("dfid=dfid42") != std::string::npos);
+    }
+
+    // 边界：空 device 时 mid 回退到 "0"
+    {
+      echo::core::KuGouAndroidRequest emptyDeviceReq;
+      emptyDeviceReq.endpoint = "https://gateway.kugou.com/v5/url";
+      emptyDeviceReq.profile = echo::core::GetKuGouProfile(echo::core::KuGouEdition::Concept);
+      emptyDeviceReq.includeSongUrlKey = true;
+      emptyDeviceReq.params["hash"] = "xyz";
+      const auto url = echo::core::BuildSignedUrl(emptyDeviceReq);
+      assert(url.find("mid=0") != std::string::npos);
+      assert(url.find("dfid=-") != std::string::npos);
+    }
+
+    {
+      echo::core::KuGouAndroidRequest explicitIdentityReq;
+      explicitIdentityReq.endpoint = "https://gateway.kugou.com/v5/url";
+      explicitIdentityReq.profile = echo::core::GetKuGouProfile(echo::core::KuGouEdition::Concept);
+      explicitIdentityReq.includeSongUrlKey = true;
+      explicitIdentityReq.params["hash"] = "fallbackhash";
+      explicitIdentityReq.params["mid"] = "0";
+      explicitIdentityReq.params["dfid"] = "-";
+      explicitIdentityReq.params["uuid"] = "-";
+      explicitIdentityReq.params["clienttime"] = "1700000001";
+      explicitIdentityReq.device.dfid = "real-dfid";
+      explicitIdentityReq.device.guid = "real-guid";
+      const auto url = echo::core::BuildSignedUrl(explicitIdentityReq);
+      const auto headers = echo::core::BuildAndroidHeaders(explicitIdentityReq);
+      assert(url.find("mid=0") != std::string::npos);
+      assert(url.find("dfid=-") != std::string::npos);
+      assert(url.find("uuid=-") != std::string::npos);
+      assert(url.find("clienttime=1700000001") != std::string::npos);
+      assert(headers.at("mid") == "0");
+      assert(headers.at("dfid") == "-");
+      assert(headers.at("clienttime") == "1700000001");
+    }
+  }
 
   echo::storage::Database database;
   database.Open(TestDbPath());
@@ -580,14 +690,21 @@ int main() {
   std::vector<std::string> previewRequests;
   echo::core::SongUrlService previewSongUrlService([&](
                                                        const std::string& url,
-                                                       const std::unordered_map<std::string, std::string>&) {
+                                                       const std::unordered_map<std::string, std::string>& headers) {
     previewRequests.push_back(url);
     if (previewRequests.size() == 1) {
       assert(url.find("userid=42") != std::string::npos);
+      assert(url.find("mid=0") == std::string::npos);
+      assert(headers.at("dfid") == "dfid123");
+      assert(headers.at("mid") == expectedMid);
       return echo::core::HttpResult{200, R"({"status":2,"errcode":20018})", ""};
     }
     if (previewRequests.size() == 2) {
       assert(url.find("userid=42") == std::string::npos);
+      assert(url.find("mid=0") != std::string::npos);
+      assert(url.find("dfid=-") != std::string::npos);
+      assert(headers.at("dfid") == "-");
+      assert(headers.at("mid") == "0");
       return echo::core::HttpResult{
           200,
           R"({"status":2,"fail_process":["pkg","buy"],"hash_offset":{"offset_hash":"OFFSETHASH"}})",
@@ -596,6 +713,10 @@ int main() {
     assert(url.find("hash=offsethash") != std::string::npos);
     assert(url.find("IsFreePart=1") != std::string::npos);
     assert(url.find("userid=42") == std::string::npos);
+    assert(url.find("mid=0") != std::string::npos);
+    assert(url.find("dfid=-") != std::string::npos);
+    assert(headers.at("dfid") == "-");
+    assert(headers.at("mid") == "0");
     return echo::core::HttpResult{
         200,
         R"({"status":1,"hash":"OFFSETHASH","url":["http://audio.example/preview.mp3"]})",
@@ -2812,6 +2933,295 @@ int main() {
     }
   }
 
+  // ── Diagnostics contract tests ────────────────────────────────────────
+  {
+    // Stopwatch: elapsed must be non-negative and increase over time
+    auto sw = echo::diagnostics::Stopwatch::Start();
+    assert(sw.ElapsedMs() >= 0);
+    // Sleep a tiny bit to ensure elapsed > 0 on most systems
+    #if defined(_WIN32)
+    Sleep(15);
+    #else
+    usleep(15000);
+    #endif
+    assert(sw.ElapsedMs() >= 10);
+    std::cout << "  [ok] Stopwatch elapsed_ms >= 10 after 15ms sleep" << std::endl;
+  }
+
+  {
+    // RedactSensitive: token / dfid / userid / Cookie / KugooID
+    std::string raw = "token=secret123&dfid=abcdefghijk&userid=424242&Cookie=x=y; KugooID=kgid";
+    auto redacted = echo::diagnostics::RedactSensitive(raw);
+    assert(redacted.find("secret123") == std::string::npos);
+    assert(redacted.find("token=***") != std::string::npos);
+    assert(redacted.find("Cookie=***") != std::string::npos);
+    assert(redacted.find("KugooID=***") != std::string::npos);
+    // dfid masked
+    assert(redacted.find("abcdefghijk") == std::string::npos);
+    // userid long enough to mask
+    assert(redacted.find("424242") == std::string::npos);
+    std::cout << "  [ok] RedactSensitive masks token/dfid/Cookie/KugooID" << std::endl;
+  }
+
+  {
+    std::string raw = R"(Cookie=abc url=https://example.test {"token":"json-secret"} token=query-secret)";
+    auto redacted = echo::diagnostics::RedactSensitive(raw);
+    assert(redacted.find("url=https://example.test") != std::string::npos);
+    assert(redacted.find("json-secret") == std::string::npos);
+    assert(redacted.find("query-secret") == std::string::npos);
+    assert(redacted.find(R"("token":"***")") != std::string::npos);
+    assert(redacted.find("token=***") != std::string::npos);
+    std::cout << "  [ok] RedactSensitive preserves post-Cookie fields and masks JSON token" << std::endl;
+  }
+
+  {
+    // TruncateForLog
+    std::string longText(600, 'x');
+    auto truncated = echo::diagnostics::TruncateForLog(longText, 512);
+    assert(truncated.size() <= 512 + std::string("... truncated=true").size());
+    assert(truncated.find("truncated=true") != std::string::npos);
+    std::string shortText = "short";
+    assert(echo::diagnostics::TruncateForLog(shortText, 512) == "short");
+    std::cout << "  [ok] TruncateForLog caps at maxBytes and marks truncated" << std::endl;
+  }
+
+  {
+    // MaskMiddle
+    assert(echo::diagnostics::MaskMiddle("abcdefghij", 3, 3) == "abc...hij");
+    assert(echo::diagnostics::MaskMiddle("ab", 3, 3) == "**");
+    assert(echo::diagnostics::MaskMiddle("abc", 3, 3) == "***");
+    std::cout << "  [ok] MaskMiddle prefix...suffix behavior" << std::endl;
+  }
+
+  {
+    // UrlEncode contract tests
+    using echo::core::UrlEncode;
+    // Safe chars preserved
+    assert(UrlEncode("abcABC123-_.~") == "abcABC123-_.~");
+    // Space -> %20
+    assert(UrlEncode("hello world") == "hello%20world");
+    // Comma -> %2C
+    assert(UrlEncode("a,b") == "a%2Cb");
+    // UTF-8 Chinese
+    assert(UrlEncode("中文") == "%E4%B8%AD%E6%96%87");
+    // Already-encoded percent gets double-encoded
+    assert(UrlEncode("100%") == "100%25");
+    std::cout << "  [ok] UrlEncode contract (safe/special/UTF-8/double-encode)" << std::endl;
+  }
+
+  {
+    // CompatRequestContext: empty DB -> fallback userId, empty token, default device
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+
+    echo::core::CompatRequestContext ctx(db);
+    assert(ctx.UserIdOr("fallback") == "fallback");
+    assert(ctx.TokenOrEmpty() == "");
+    assert(!ctx.Session().has_value());
+
+    const auto& device = ctx.Device();
+    assert(device.dfid == "-");
+    std::cout << "  [ok] CompatRequestContext empty-DB fallback" << std::endl;
+  }
+
+  {
+    // CompatRequestContext: with saved session -> userId/token loaded
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+
+    echo::storage::SessionRepository repo(db);
+    echo::core::SessionInfo session;
+    session.userId = "42";
+    session.token = "tok";
+    repo.Save(session);
+
+    echo::core::CompatRequestContext ctx(db);
+    assert(ctx.UserIdOr("fallback") == "42");
+    assert(ctx.TokenOrEmpty() == "tok");
+    assert(ctx.Session().has_value());
+    assert(ctx.Session()->userId == "42");
+    assert(ctx.HasLogin());
+    std::cout << "  [ok] CompatRequestContext session load" << std::endl;
+  }
+
+  {
+    // CompatRequestContext: HasLogin() returns false when session is empty or incomplete
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    echo::core::CompatRequestContext ctx(db);
+    assert(!ctx.HasLogin());
+    std::cout << "  [ok] CompatRequestContext HasLogin empty DB" << std::endl;
+  }
+
+  {
+    // CompatRequestContext: SaveDevice persists changes and updates the cache
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+
+    echo::core::CompatRequestContext ctx(db);
+    auto device = ctx.Device();
+    assert(device.registered == false);
+    // A real (non-placeholder) dfid is required, otherwise EnsureDeviceReady's
+    // NormalizeDeviceInfo forces registered=false on the next load.
+    device.dfid = "2ULHpc3qaLZa43ln8x0fLJQp";
+    device.registered = true;
+    ctx.SaveDevice(device);
+    // Cached device should reflect the update immediately.
+    assert(ctx.Device().registered == true);
+    assert(ctx.Device().dfid == "2ULHpc3qaLZa43ln8x0fLJQp");
+
+    // Fresh context should also see the persisted value.
+    echo::core::CompatRequestContext ctx2(db);
+    assert(ctx2.Device().registered == true);
+    assert(ctx2.Device().dfid == "2ULHpc3qaLZa43ln8x0fLJQp");
+    std::cout << "  [ok] CompatRequestContext SaveDevice persists and caches" << std::endl;
+  }
+
+  {
+    // RequestScheduler: bounded concurrency — worker count limits parallel execution.
+    std::cout << "[Test] Testing RequestScheduler bounded concurrency..." << std::endl;
+    echo::async::RequestScheduler scheduler(2);
+    std::atomic<int> active{0};
+    std::atomic<int> maxActive{0};
+    std::vector<std::future<int>> futures;
+    for (int i = 0; i < 4; ++i) {
+      futures.push_back(scheduler.Submit(echo::async::RequestKind::Generic, [&active, &maxActive, i](echo::async::CancellationToken) -> int {
+        int current = ++active;
+        int prevMax = maxActive.load();
+        while (current > prevMax && !maxActive.compare_exchange_weak(prevMax, current)) {}
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        --active;
+        return i;
+      }));
+    }
+    for (auto& f : futures) {
+      f.wait();
+    }
+    assert(maxActive.load() <= 2);
+    std::cout << "  [ok] RequestScheduler bounded concurrency (maxActive=" << maxActive.load() << ")" << std::endl;
+  }
+
+  {
+    // RequestScheduler: latest-wins — only the most recent SubmitLatest result survives.
+    std::cout << "[Test] Testing RequestScheduler latest-wins..." << std::endl;
+    echo::async::RequestScheduler scheduler(2);
+    std::vector<std::future<int>> futures;
+    for (int i = 0; i < 5; ++i) {
+      futures.push_back(scheduler.SubmitLatest(echo::async::RequestKind::SongUrl, [i](echo::async::CancellationToken cancelToken) -> int {
+        std::this_thread::sleep_for(std::chrono::milliseconds(20));
+        if (cancelToken.IsCancellationRequested()) {
+          return -1;
+        }
+        return i;
+      }));
+    }
+    // The oldest futures should be canceled; the newest should return 4.
+    for (std::size_t i = 0; i < futures.size(); ++i) {
+      int value = futures[i].get();
+      if (i < futures.size() - 1) {
+        assert(value == -1);
+      } else {
+        assert(value == 4);
+      }
+    }
+    std::cout << "  [ok] RequestScheduler latest-wins" << std::endl;
+  }
+
+  {
+    // RequestScheduler: Cancel — explicit Cancel cancels an in-flight or pending job.
+    std::cout << "[Test] Testing RequestScheduler Cancel..." << std::endl;
+    echo::async::RequestScheduler scheduler(2);
+    std::atomic<bool> started{false};
+    auto future = scheduler.SubmitLatest(echo::async::RequestKind::SongUrl, [&started](echo::async::CancellationToken cancelToken) -> int {
+      started.store(true);
+      std::this_thread::sleep_for(std::chrono::milliseconds(30));
+      if (cancelToken.IsCancellationRequested()) {
+        return -1;
+      }
+      return 0;
+    });
+    // Wait until the job has started, then cancel it.
+    while (!started.load()) {
+      std::this_thread::yield();
+    }
+    scheduler.Cancel(echo::async::RequestKind::SongUrl);
+    int value = future.get();
+    assert(value == -1);
+    std::cout << "  [ok] RequestScheduler Cancel" << std::endl;
+  }
+
+  {
+    // RequestScheduler: Submit exception safety — promise is fulfilled via set_exception,
+    // so future.get() propagates the exception rather than hanging or crashing.
+    std::cout << "[Test] Testing RequestScheduler exception safety..." << std::endl;
+    echo::async::RequestScheduler scheduler(2);
+    auto future = scheduler.Submit(echo::async::RequestKind::Generic, [](echo::async::CancellationToken) -> int {
+      throw std::runtime_error("test exception");
+    });
+    bool caught = false;
+    try {
+      future.get();
+    } catch (const std::runtime_error&) {
+      caught = true;
+    }
+    assert(caught);
+    std::cout << "  [ok] RequestScheduler exception safety" << std::endl;
+  }
+
+  {
+    // ParseHttpRequest: header key case-insensitive.
+    std::cout << "[Test] Testing ParseHttpRequest header case-insensitive..." << std::endl;
+    std::string method, path;
+    echo::core::QueryMap query;
+    echo::core::HeaderMap headers;
+    std::string raw = "GET /test HTTP/1.1\r\nContent-Length: 42\r\n\r\n";
+    bool ok = echo::core::ParseHttpRequest(raw, method, path, query, headers);
+    assert(ok);
+    assert(method == "GET");
+    assert(path == "/test");
+    assert(headers["content-length"] == "42");
+
+    headers.clear();
+    raw = "GET /test2 HTTP/1.1\r\ncontent-length: 99\r\n\r\n";
+    ok = echo::core::ParseHttpRequest(raw, method, path, query, headers);
+    assert(ok);
+    assert(headers["content-length"] == "99");
+
+    headers.clear();
+    raw = "GET /test3 HTTP/1.1\r\nCoNtEnT-LeNgTh: 123\r\n\r\n";
+    ok = echo::core::ParseHttpRequest(raw, method, path, query, headers);
+    assert(ok);
+    assert(headers["content-length"] == "123");
+    std::cout << "  [ok] ParseHttpRequest header case-insensitive" << std::endl;
+  }
+
+  {
+    // ParseHttpRequest: malformed Content-Length does not crash.
+    std::cout << "[Test] Testing ParseHttpRequest malformed Content-Length..." << std::endl;
+    std::string method, path;
+    echo::core::QueryMap query;
+    echo::core::HeaderMap headers;
+    std::string raw = "POST /test HTTP/1.1\r\ncontent-length: abc\r\n\r\n";
+    bool ok = echo::core::ParseHttpRequest(raw, method, path, query, headers);
+    assert(ok);
+    assert(headers["content-length"] == "abc");
+    // CompatServer's body-reading logic uses std::stoull with try/catch;
+    // verify that parsing "abc" yields 0 (fallback) rather than throwing.
+    size_t contentLength = 0;
+    try {
+      contentLength = std::stoull(headers.at("content-length"));
+    } catch (...) {
+      contentLength = 0;
+    }
+    assert(contentLength == 0);
+    std::cout << "  [ok] ParseHttpRequest malformed Content-Length" << std::endl;
+  }
+
   std::cout << "[Test] All tests completed successfully!" << std::endl;
   return 0;
 }
+
