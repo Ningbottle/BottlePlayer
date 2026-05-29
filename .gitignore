@@ -93,3 +93,8 @@ Thumbs.db
 *.bak
 .cache/
 .ace-tool/
+
+# Project docs and agent configs (keep local only)
+docs/
+AGENTS.md
+.windsurf/skills/
