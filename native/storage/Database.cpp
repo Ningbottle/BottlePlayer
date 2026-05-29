@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <mutex>
 #include <stdexcept>
 #include <string>
 
@@ -161,6 +162,7 @@ void Database::Execute(const std::string& sql) {
 }
 
 void Database::SetJson(const std::string& key, const nlohmann::json& value) {
+  std::lock_guard<std::mutex> guard(mutex_);
   sqlite3_stmt* stmt = nullptr;
   const char* sql =
       "INSERT INTO kv_store(key, value, updated_at) VALUES(?1, ?2, ?3) "
@@ -180,6 +182,7 @@ void Database::SetJson(const std::string& key, const nlohmann::json& value) {
 }
 
 std::optional<nlohmann::json> Database::GetJson(const std::string& key) const {
+  std::lock_guard<std::mutex> guard(mutex_);
   sqlite3_stmt* stmt = nullptr;
   const char* sql = "SELECT value FROM kv_store WHERE key=?1 LIMIT 1;";
   if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -202,6 +205,7 @@ void Database::PutApiCache(
     const std::string& key,
     const nlohmann::json& value,
     std::int64_t expiresAt) {
+  std::lock_guard<std::mutex> guard(mutex_);
   sqlite3_stmt* stmt = nullptr;
   const char* sql =
       "INSERT INTO api_cache(cache_key, response_json, expires_at, created_at) "
@@ -226,6 +230,7 @@ void Database::PutApiCache(
 std::optional<nlohmann::json> Database::GetApiCache(
     const std::string& key,
     std::int64_t now) const {
+  std::lock_guard<std::mutex> guard(mutex_);
   sqlite3_stmt* stmt = nullptr;
   const char* sql =
       "SELECT response_json FROM api_cache WHERE cache_key=?1 AND expires_at>?2 LIMIT 1;";
@@ -247,6 +252,7 @@ std::optional<nlohmann::json> Database::GetApiCache(
 }
 
 void Database::PruneExpiredApiCache(std::int64_t now) {
+  std::lock_guard<std::mutex> guard(mutex_);
   sqlite3_stmt* stmt = nullptr;
   const char* sql = "DELETE FROM api_cache WHERE expires_at<=?1;";
   if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -296,11 +302,13 @@ void Database::FlushFallback() const {
 }
 
 void Database::SetJson(const std::string& key, const nlohmann::json& value) {
+  std::lock_guard<std::mutex> guard(mutex_);
   fallback_["kv_store"][key] = {{"value", value}, {"updated_at", NowSeconds()}};
   FlushFallback();
 }
 
 std::optional<nlohmann::json> Database::GetJson(const std::string& key) const {
+  std::lock_guard<std::mutex> guard(mutex_);
   const auto& store = fallback_.at("kv_store");
   if (!store.contains(key)) return std::nullopt;
   return store.at(key).value("value", nlohmann::json{});
@@ -310,6 +318,7 @@ void Database::PutApiCache(
     const std::string& key,
     const nlohmann::json& value,
     std::int64_t expiresAt) {
+  std::lock_guard<std::mutex> guard(mutex_);
   fallback_["api_cache"][key] = {
       {"response_json", value},
       {"expires_at", expiresAt},
@@ -321,6 +330,7 @@ void Database::PutApiCache(
 std::optional<nlohmann::json> Database::GetApiCache(
     const std::string& key,
     std::int64_t now) const {
+  std::lock_guard<std::mutex> guard(mutex_);
   const auto& cache = fallback_.at("api_cache");
   if (!cache.contains(key)) return std::nullopt;
   const auto& record = cache.at(key);
@@ -329,6 +339,7 @@ std::optional<nlohmann::json> Database::GetApiCache(
 }
 
 void Database::PruneExpiredApiCache(std::int64_t now) {
+  std::lock_guard<std::mutex> guard(mutex_);
   auto& cache = fallback_["api_cache"];
   for (auto it = cache.begin(); it != cache.end();) {
     if (it.value().value("expires_at", 0LL) <= now) {

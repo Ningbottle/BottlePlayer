@@ -8,17 +8,36 @@
 
 #include <sstream>
 #include <string>
+#include <atomic>
 
 namespace echo::diagnostics {
 
+static std::atomic<LogCallback> g_log_callback{nullptr};
+static std::atomic<void*> g_log_user_data{nullptr};
+
+void SetLogCallback(LogCallback cb, void* user_data) {
+  g_log_callback.store(cb, std::memory_order_release);
+  g_log_user_data.store(user_data, std::memory_order_release);
+}
+
 void LogDebug(std::string_view tag, std::string_view message) {
   std::ostringstream stream;
-  stream << "[" << tag << "] " << message << "\n";
+  stream << "[" << tag << "] " << message;
   const std::string line = stream.str();
+
+  // Forward to FFI callback if installed
+  if (LogCallback cb = g_log_callback.load(std::memory_order_acquire)) {
+    void* ud = g_log_user_data.load(std::memory_order_acquire);
+    std::string tagStr(tag);
+    std::string msgStr(message);
+    cb(0, tagStr.c_str(), msgStr.c_str(), ud);
+    return;
+  }
+
 #if defined(_WIN32)
-  OutputDebugStringA(line.c_str());
+  OutputDebugStringA((line + "\n").c_str());
 #else
-  std::cerr << line;
+  std::cerr << line << "\n";
 #endif
 }
 

@@ -1,7 +1,5 @@
 mod backend_api;
 
-use tauri::Manager;
-
 #[tauri::command]
 fn ping() -> &'static str {
     "pong"
@@ -53,28 +51,67 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .setup(|app| {
-            // Locate the native EchoCAPI.dll
-            let dll_name = if cfg!(target_os = "windows") { "EchoCAPI.dll" } else { "libEchoCAPI.so" };
-            
-            // Try loading from some paths
-            let possible_paths = [
-                format!("{}", dll_name),
-                format!("../../native/out/bottlemusic-check/{}", dll_name),
-                format!("native/out/bottlemusic-check/{}", dll_name),
-                format!("../../../native/out/bottlemusic-check/{}", dll_name),
-                format!("d:/KuGouMusic/native/out/bottlemusic-check/{}", dll_name),
+            use tauri::Manager;
+
+            let dll_name = if cfg!(target_os = "windows") {
+                "EchoCAPI.dll"
+            } else {
+                "libEchoCAPI.so"
+            };
+
+            // 1. Production: Tauri resource dir (bundled by tauri.conf.json resources)
+            let resource_dir = app.path().resource_dir().unwrap_or_default();
+
+            // 2. Development: same dir as the executable (copied there by build.rs)
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+                .unwrap_or_default();
+
+            // 3. Development fallback: source-tree native/out (for when C++ was rebuilt but Rust not)
+            let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap_or_default();
+            let preset = if cfg!(debug_assertions) {
+                "bottlemusic-check"
+            } else {
+                "bottlemusic-release"
+            };
+
+            let possible_paths: Vec<std::path::PathBuf> = vec![
+                resource_dir.join(dll_name),
+                exe_dir.join(dll_name),
+                std::path::PathBuf::from(&manifest_dir)
+                    .join(format!("../../native/out/{}/{}", preset, dll_name)),
             ];
+
+            let app_data_dir = app
+                .path()
+                .app_data_dir()
+                .unwrap_or_default()
+                .to_string_lossy()
+                .into_owned();
 
             let mut loaded = false;
             for path in &possible_paths {
-                if backend_api::load_c_api(path).is_ok() {
-                    println!("[EchoCAPI] Loaded native library from {}", path);
-                    loaded = true;
-                    break;
+                if let Some(path_str) = path.to_str() {
+                    if backend_api::init_with_paths(path_str, Some(&app_data_dir)).is_ok() {
+                        println!(
+                            "[EchoCAPI] Loaded native library from {} (data: {})",
+                            path.display(),
+                            app_data_dir
+                        );
+                        if let Err(e) = backend_api::set_log_callback() {
+                            eprintln!("[EchoCAPI WARN] Failed to set log callback: {}", e);
+                        }
+                        loaded = true;
+                        break;
+                    }
                 }
             }
             if !loaded {
-                eprintln!("[EchoCAPI ERR] Could not load {} from any known path", dll_name);
+                eprintln!(
+                    "[EchoCAPI ERR] Could not load {} from any known path",
+                    dll_name
+                );
             }
 
             Ok(())
