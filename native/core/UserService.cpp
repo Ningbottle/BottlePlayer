@@ -355,6 +355,11 @@ nlohmann::json UserService::UpgradeVipReward(
 
 nlohmann::json UserService::ClaimYouthListenSong(
     const std::string& userId, const std::string& token) const {
+  return ClaimYouthListenSong(DeviceInfo{}, userId, token);
+}
+
+nlohmann::json UserService::ClaimYouthListenSong(
+    const DeviceInfo& device, const std::string& userId, const std::string& token) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
@@ -365,9 +370,9 @@ nlohmann::json UserService::ClaimYouthListenSong(
   // listen_song report uses a distinct clientver from the global concept profile.
   const std::string kListenSongClientver = "10566";
 
-  const std::string dfid = "-";
-  const std::string mid  = "0";
-  const std::string uuid = "-";
+  const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
+  const std::string mid  = ResolveAndroidMid(device);
+  const std::string uuid = device.guid.empty() ? "-" : device.guid;
 
   std::unordered_map<std::string, std::string> params = {
       {"appid", profile.appid},
@@ -416,6 +421,12 @@ nlohmann::json UserService::ClaimYouthListenSong(
         {"error_msg", json.value("error_msg", "")},
         {"data", json.contains("data") && json["data"].is_object() ? json["data"] : nlohmann::json::object()},
     };
+
+    // 放宽拦截：为 130012 业务限制注入明确的提示，让前端不再只显示“网络异常”
+    if (out["status"] == 0 && out["error_code"] == 130012 && out["error_msg"] == "") {
+      out["error_msg"] = "今日已通过广告领过，或需要去酷狗官方 App 内先听完整歌曲 (Err: 130012)";
+    }
+
     if (json.contains("data") && json["data"].is_object()) {
       auto& d = json["data"];
       out["data"]["ad_vip_end_time"] = d.value("ad_vip_end_time", 0);
@@ -430,6 +441,11 @@ nlohmann::json UserService::ClaimYouthListenSong(
 
 nlohmann::json UserService::ClaimYouthAdVip(
     const std::string& userId, const std::string& token) const {
+  return ClaimYouthAdVip(DeviceInfo{}, userId, token);
+}
+
+nlohmann::json UserService::ClaimYouthAdVip(
+    const DeviceInfo& device, const std::string& userId, const std::string& token) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
@@ -439,9 +455,9 @@ nlohmann::json UserService::ClaimYouthAdVip(
       std::chrono::system_clock::now().time_since_epoch()).count();
 
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  const std::string dfid = "-";
-  const std::string mid  = "0";
-  const std::string uuid = "-";
+  const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
+  const std::string mid  = ResolveAndroidMid(device);
+  const std::string uuid = device.guid.empty() ? "-" : device.guid;
 
   std::unordered_map<std::string, std::string> params = {
       {"appid", profile.appid},
@@ -495,6 +511,16 @@ nlohmann::json UserService::ClaimYouthAdVip(
         {"error_msg", json.value("error_msg", "")},
         {"data", json.contains("data") && json["data"].is_object() ? json["data"] : nlohmann::json::object()},
     };
+    
+    // 放宽拦截
+    if (out["status"] == 0 && out["error_msg"] == "") {
+        if (out["error_code"] == 130012) {
+             out["error_msg"] = "今日领取可能已达上限，或存在互斥冲突 (Err: 130012)";
+        } else {
+             out["error_msg"] = "广告 SDK 凭证校验失败或网络问题 (Err: " + std::to_string(out.value("error_code", 0)) + ")";
+        }
+    }
+    
     return out;
   } catch (const nlohmann::json::exception& e) {
     return MakeError(std::string("JSON parse error: ") + e.what());

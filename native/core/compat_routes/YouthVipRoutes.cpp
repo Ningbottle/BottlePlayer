@@ -20,7 +20,7 @@ CompatResponse HandleYouthListenSong(storage::Database& database) {
   }
   const auto& session = ctx.Session();
   UserService userSvc;
-  return JsonResponse(userSvc.ClaimYouthListenSong(session->userId, session->token));
+  return JsonResponse(userSvc.ClaimYouthListenSong(ctx.Device(), session->userId, session->token));
 }
 
 CompatResponse HandleYouthVipAd(storage::Database& database) {
@@ -30,7 +30,7 @@ CompatResponse HandleYouthVipAd(storage::Database& database) {
   }
   const auto& session = ctx.Session();
   UserService userSvc;
-  return JsonResponse(userSvc.ClaimYouthAdVip(session->userId, session->token));
+  return JsonResponse(userSvc.ClaimYouthAdVip(ctx.Device(), session->userId, session->token));
 }
 
 }  // namespace echo::core
