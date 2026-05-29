@@ -1,34 +1,17 @@
 ﻿#include "echo/core/UserService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/DeviceService.h"
+#include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/diagnostics/EchoDiagnostics.h"
 
 #include <chrono>
-#include <algorithm>
-#include <cctype>
 #include <ctime>
 #include <iomanip>
-#include <iostream>
 #include <sstream>
 
 namespace echo::core {
 namespace {
-
-std::string BuildSignedQueryString(
-    const std::string& baseUrl,
-    std::unordered_map<std::string, std::string> params,
-    const std::string& body = "",
-    KuGouSaltKind saltKind = KuGouSaltKind::Lite) {
-  params["signature"] = SignatureAndroidParams(params, body, saltKind);
-  std::ostringstream urlStream;
-  urlStream << baseUrl << "?";
-  bool first = true;
-  for (const auto& [key, value] : params) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << value;
-    first = false;
-  }
-  return urlStream.str();
-}
 
 nlohmann::json MakeError(const std::string& message, long statusCode = 0) {
   return {
@@ -37,18 +20,6 @@ nlohmann::json MakeError(const std::string& message, long statusCode = 0) {
       {"status_code", statusCode},
       {"data", nullptr},
   };
-}
-
-std::string ResolveAndroidMid(const DeviceInfo& device) {
-  const bool storedMidLooksAndroid =
-      device.mid.size() >= 38 &&
-      device.mid.size() <= 39 &&
-      std::all_of(device.mid.begin(), device.mid.end(),
-                  [](unsigned char c) { return std::isdigit(c); });
-  if (storedMidLooksAndroid) return device.mid;
-  if (!device.guid.empty()) return CalculateAndroidMid(device.guid);
-  if (!device.mid.empty()) return CalculateAndroidMid(device.mid);
-  return "0";
 }
 
 }  // namespace
@@ -106,18 +77,18 @@ nlohmann::json UserService::GetUserDetail(
   };
   const std::string body = dataPayload.dump();
 
-  // Android-signed query params.
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  std::unordered_map<std::string, std::string> params = {
-      {"appid", profile.appid},
-      {"clientver", profile.clientver},
-      {"clienttime", clienttime},
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/v3/get_my_info";
+  req.profile = profile;
+  req.params = {
       {"plat", "1"},
       {"userid", userId},
       {"token", token},
   };
-  const std::string url = BuildSignedQueryString(
-      "https://gateway.kugou.com/v3/get_my_info", params, body, profile.saltKind);
+  req.body = body;
+
+  const std::string url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
       url,
@@ -154,55 +125,30 @@ nlohmann::json UserService::GetUserVip(
   const std::string uuid = "-";
 
   auto DoGetVip = [&](const KuGouProfileParams& profile) -> nlohmann::json {
-    std::unordered_map<std::string, std::string> params = {
-        {"appid", profile.appid},
-        {"clientver", profile.clientver},
-        {"clienttime", clienttime},
+    KuGouAndroidRequest req;
+    req.endpoint = "https://kugouvip.kugou.com/v1/get_union_vip";
+    req.profile = profile;
+    req.params = {
         {"busi_type", "concept"},
-        {"dfid", dfid},
-        {"mid", mid},
-        {"uuid", uuid},
         {"userid", userId.empty() ? "0" : userId},
         {"token", token},
         {"opt_product_types", "dvip,qvip"},
         {"product_type", "svip"},
     };
+    req.device = device;
 
-    const std::string url = BuildSignedQueryString(
-        "https://kugouvip.kugou.com/v1/get_union_vip", params, "", profile.saltKind);
+    const std::string url = BuildSignedUrl(req);
+    auto headers = BuildAndroidHeaders(req);
 
-    const auto result = httpGet_(
-        url,
-        {
-            {"Accept", "application/json"},
-            {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
-            {"dfid", dfid},
-            {"clienttime", clienttime},
-            {"mid", mid},
-            {"kg-rc", "1"},
-            {"kg-thash", "5d816a0"},
-            {"kg-rec", "1"},
-            {"kg-rf", "B9EDA08A64250DEFFBCADDEE00F8F25F"},
-        });
-
-    std::cout << "[UserService::GetUserVip] request appid=" << profile.appid
-              << " clientver=" << profile.clientver
-              << " midShape=" << (mid.size() >= 38 && mid.size() <= 39 ? "android_decimal" : "other")
-              << " uuid=" << uuid
-              << " httpStatus=" << result.statusCode
-              << " hasBody=" << (!result.body.empty())
-              << std::endl;
+    const auto result = httpGet_(url, std::move(headers));
 
     if (!result.error.empty()) {
-      std::cout << "[UserService::GetUserVip] network error: " << result.error << std::endl;
+      ECHO_LOG("UserVip", std::string("network error: ") + result.error);
       return MakeError(result.error, result.statusCode);
     }
 
     try {
       auto json = nlohmann::json::parse(result.body);
-      std::cout << "[UserService::GetUserVip] upstream status=" << json.value("status", 0)
-                << " is_vip=" << (json.contains("data") && json["data"].contains("is_vip") ? json["data"]["is_vip"].dump() : "N/A")
-                << std::endl;
       json["debug_profile_appid"] = profile.appid;
       return json;
     } catch (const nlohmann::json::exception& e) {
@@ -241,7 +187,7 @@ nlohmann::json UserService::GetUserVip(
         }
         if (realVip) {
           d["is_vip"] = 1;
-          std::cout << "[UserService::GetUserVip] corrected is_vip to 1 (active busi_vip found)" << std::endl;
+          ECHO_LOG("UserVip", "corrected is_vip to 1 (active busi_vip found)");
         }
       }
     }
@@ -287,22 +233,19 @@ nlohmann::json UserService::ClaimVip(
   //   鈥?android defaults inject dfid, mid, uuid, appid, clientver, clienttime
   //   鈥?signature = md5(salt + sorted(k=v) + body + salt) where body="" here
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  std::unordered_map<std::string, std::string> params = {
-      {"appid", profile.appid},
-      {"clientver", profile.clientver},
-      {"clienttime", clienttime},
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/youth/v1/recharge/receive_vip_listen_song";
+  req.profile = profile;
+  req.params = {
       {"plat", "1"},
-      {"dfid", device.dfid.empty() ? "-" : device.dfid},
-      {"mid", device.mid.empty() ? "0" : device.mid},
-      {"uuid", device.uuid.empty() ? "-" : device.uuid},
       {"userid", userId},
       {"token", token},
       {"source_id", "90139"},
       {"receive_day", receiveDay},
   };
+  req.device = device;
 
-  const std::string url = BuildSignedQueryString(
-      "https://gateway.kugou.com/youth/v1/recharge/receive_vip_listen_song", params, "", profile.saltKind);
+  const std::string url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
       url,
@@ -312,13 +255,6 @@ nlohmann::json UserService::ClaimVip(
           {"Content-Type", "application/json"},
           {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
       });
-
-  // Diagnostic: dump KuGou's real response so we can see WHY status != 1 even
-  // though the phone-side VIP grant actually happened. Once we know the real
-  // success-shape we can broaden the parser.
-  std::cerr << "[ClaimVip] http=" << result.statusCode
-            << " err=" << result.error
-            << " body=" << result.body << std::endl;
 
   if (!result.error.empty()) return MakeError(result.error, result.statusCode);
 
@@ -374,22 +310,19 @@ nlohmann::json UserService::UpgradeVipReward(
   //   params: kugouid=<userid>, ad_type=1
   // android encryptType => params live in URL query, no body.
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  std::unordered_map<std::string, std::string> params = {
-      {"appid", profile.appid},
-      {"clientver", profile.clientver},
-      {"clienttime", clienttime},
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/youth/v1/listen_song/upgrade_vip_reward";
+  req.profile = profile;
+  req.params = {
       {"plat", "1"},
-      {"dfid", device.dfid.empty() ? "-" : device.dfid},
-      {"mid", device.mid.empty() ? "0" : device.mid},
-      {"uuid", device.uuid.empty() ? "-" : device.uuid},
       {"userid", userId},
       {"token", token},
       {"kugouid", userId},
       {"ad_type", "1"},
   };
+  req.device = device;
 
-  const std::string url = BuildSignedQueryString(
-      "https://gateway.kugou.com/youth/v1/listen_song/upgrade_vip_reward", params, "", profile.saltKind);
+  const std::string url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
       url,
@@ -399,12 +332,6 @@ nlohmann::json UserService::UpgradeVipReward(
           {"Content-Type", "application/json"},
           {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
       });
-
-  // Diagnostic: see exactly what KuGou returns even though the phone confirms
-  // VIP was granted. Use this to broaden the success-detection heuristic.
-  std::cerr << "[UpgradeVipReward] http=" << result.statusCode
-            << " err=" << result.error
-            << " body=" << result.body << std::endl;
 
   if (!result.error.empty()) return MakeError(result.error, result.statusCode);
 
@@ -427,22 +354,28 @@ nlohmann::json UserService::UpgradeVipReward(
 }
 
 nlohmann::json UserService::ClaimYouthListenSong(
-    const std::string& userId, const std::string& token) const {
+    const DeviceInfo& device, const std::string& userId, const std::string& token) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
 
-  // kgcheckin actual: POST gateway.kugou.com/youth/v2/report/listen_song
-  // encryptType=android, body={mixsongid: 666075191}, cookie auth.
   const auto clienttime = std::to_string(std::time(nullptr));
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+
+  // listen_song report uses a distinct clientver from the global concept profile.
+  const std::string kListenSongClientver = "10566";
+
+  const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
+  const std::string mid  = ResolveAndroidMid(device);
+  const std::string uuid = "-";
+
   std::unordered_map<std::string, std::string> params = {
       {"appid", profile.appid},
-      {"clientver", profile.clientver},
+      {"clientver", kListenSongClientver},
       {"clienttime", clienttime},
-      {"dfid", "-"},
-      {"mid", "0"},
-      {"uuid", "-"},
+      {"dfid", dfid},
+      {"mid", mid},
+      {"uuid", uuid},
   };
   if (!userId.empty() && userId != "0") params["userid"] = userId;
   if (!token.empty()) params["token"] = token;
@@ -470,40 +403,58 @@ nlohmann::json UserService::ClaimYouthListenSong(
           {"User-Agent", "Android13-1070-10566-201-0-ReportPlaySongToServerProtocol-wifi"},
       });
 
-  if (!result.error.empty()) return MakeError(result.error, result.statusCode);
+  if (!result.error.empty()) {
+    ECHO_LOG("YouthListen", std::string("network error: ") + result.error);
+    return MakeError(result.error, result.statusCode);
+  }
 
   try {
-    return nlohmann::json::parse(result.body);
-  } catch (const nlohmann::json::exception& e) {
-    return {
-        {"status", 0},
-        {"error", std::string("JSON parse error: ") + e.what()},
-        {"status_code", result.statusCode},
-        {"raw_body_prefix", result.body.substr(0, 200)},
+    auto json = nlohmann::json::parse(result.body);
+    nlohmann::json out = {
+        {"status", json.value("status", 0)},
+        {"error_code", json.value("error_code", 0)},
+        {"error_msg", json.value("error_msg", "")},
+        {"data", json.contains("data") && json["data"].is_object() ? json["data"] : nlohmann::json::object()},
     };
+    if (json.contains("data") && json["data"].is_object()) {
+      auto& d = json["data"];
+      out["data"]["ad_vip_end_time"] = d.value("ad_vip_end_time", 0);
+      out["data"]["server_time"]     = d.value("server_time", std::time(nullptr));
+      out["data"]["vip_end_time"]    = d.value("vip_end_time", "");
+    }
+    return out;
+  } catch (const nlohmann::json::exception& e) {
+    return MakeError(std::string("JSON parse error: ") + e.what());
   }
 }
 
-nlohmann::json UserService::ClaimYouthAdVip(
+nlohmann::json UserService::ClaimYouthListenSong(
     const std::string& userId, const std::string& token) const {
+  return ClaimYouthListenSong(DeviceInfo{}, userId, token);
+}
+
+nlohmann::json UserService::ClaimYouthAdVip(
+    const DeviceInfo& device, const std::string& userId, const std::string& token) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
 
-  // kgcheckin actual: POST gateway.kugou.com/youth/v1/ad/play_report
-  // encryptType=android, body={ad_id, play_end, play_start}, cookie auth.
   const auto clienttime = std::to_string(std::time(nullptr));
   const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::system_clock::now().time_since_epoch()).count();
 
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
+  const std::string mid  = ResolveAndroidMid(device);
+  const std::string uuid = "-";
+
   std::unordered_map<std::string, std::string> params = {
       {"appid", profile.appid},
       {"clientver", profile.clientver},
       {"clienttime", clienttime},
-      {"dfid", "-"},
-      {"mid", "0"},
-      {"uuid", "-"},
+      {"dfid", dfid},
+      {"mid", mid},
+      {"uuid", uuid},
   };
   if (!userId.empty() && userId != "0") params["userid"] = userId;
   if (!token.empty()) params["token"] = token;
@@ -536,18 +487,28 @@ nlohmann::json UserService::ClaimYouthAdVip(
           {"User-Agent", "Android13-1070-10566-201-0-ReportPlaySongToServerProtocol-wifi"},
       });
 
-  if (!result.error.empty()) return MakeError(result.error, result.statusCode);
+  if (!result.error.empty()) {
+    ECHO_LOG("YouthAdVip", std::string("network error: ") + result.error);
+    return MakeError(result.error, result.statusCode);
+  }
 
   try {
-    return nlohmann::json::parse(result.body);
-  } catch (const nlohmann::json::exception& e) {
-    return {
-        {"status", 0},
-        {"error", std::string("JSON parse error: ") + e.what()},
-        {"status_code", result.statusCode},
-        {"raw_body_prefix", result.body.substr(0, 200)},
+    auto json = nlohmann::json::parse(result.body);
+    nlohmann::json out = {
+        {"status", json.value("status", 0)},
+        {"error_code", json.value("error_code", 0)},
+        {"error_msg", json.value("error_msg", "")},
+        {"data", json.contains("data") && json["data"].is_object() ? json["data"] : nlohmann::json::object()},
     };
+    return out;
+  } catch (const nlohmann::json::exception& e) {
+    return MakeError(std::string("JSON parse error: ") + e.what());
   }
+}
+
+nlohmann::json UserService::ClaimYouthAdVip(
+    const std::string& userId, const std::string& token) const {
+  return ClaimYouthAdVip(DeviceInfo{}, userId, token);
 }
 
 }  // namespace echo::core
