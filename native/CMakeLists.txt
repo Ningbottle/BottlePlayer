@@ -144,13 +144,6 @@ add_library(EchoWin32Layout STATIC
 target_link_libraries(EchoWin32Layout PUBLIC EchoCore nlohmann_json::nlohmann_json d2d1 d3d11 dxgi dxguid dwrite)
 target_include_directories(EchoWin32Layout PUBLIC include)
 
-add_executable(EchoCompatServer
-  compat_server/CompatServer.cpp
-  compat_server/main.cpp
-)
-target_include_directories(EchoCompatServer PRIVATE include)
-target_link_libraries(EchoCompatServer PRIVATE EchoCore EchoDiagnostics ws2_32)
-
 if(ECHO_NATIVE_BUILD_WIN32_APP)
   add_executable(EchoWin32 WIN32
     win32_app/MainWindow.cpp

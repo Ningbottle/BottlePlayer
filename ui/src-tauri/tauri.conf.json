@@ -36,6 +36,8 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "externalBin": ["binaries/EchoCompatServer"]
+    "resources": {
+      "libs/EchoCAPI.dll": "EchoCAPI.dll"
+    }
   }
 }

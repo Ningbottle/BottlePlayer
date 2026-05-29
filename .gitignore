@@ -22,6 +22,7 @@ Build
 build-*/
 out
 release
+ui/src-tauri/libs/
 *.d
 *.slo
 *.lo
@@ -75,7 +76,13 @@ vcpkg_installed/
 .DS_Store
 Thumbs.db
 
-# Env
+# Temporary files
+*.tmp
+*.bak
+*.dll.old
+temp_full_doc.txt
+.cache/
+.ace-tool/
 .env
 .env.local
 .env.development.local
