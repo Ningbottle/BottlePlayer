@@ -262,6 +262,9 @@ function toggleLyricView() {
   pointer-events: none; /* Let clicks pass through */
   z-index: 1000;
 }
+html.dark .mode-toast {
+  box-shadow: 0 4px 12px rgba(0,0,0,0.45);
+}
 
 .toast-fade-enter-active,
 .toast-fade-leave-active {

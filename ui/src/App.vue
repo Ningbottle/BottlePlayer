@@ -230,6 +230,7 @@ onUnmounted(() => {
         <LyricView 
           v-else-if="currentView === 'lyric'" 
           :is-queue-open="isQueueOpen"
+          :is-drawer-open="!tweaksCollapsed"
         />
         <SettingsView 
           v-else-if="currentView === 'settings'" 

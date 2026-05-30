@@ -47,7 +47,22 @@ export const playerStore = reactive<PlayerState>({
 export function initPlayer() {
   if (playerStore.audio) return;
 
+  // ── 僵尸音频防护 (Zombie Audio，见 PROJECT_LOGIC §13) ──
+  // Vite HMR 热重载会重新求值本模块、生成全新的 playerStore（其 audio 为 null），
+  // 而上一个模块实例创建的 <audio> 仍在后台播放 → 多个实例重音、新代码 pause 不掉。
+  // 把元素挂到 window 上：每次重载先把上一个彻底销毁，再建新的，保证全局只有一个。
+  const g = window as unknown as { __bottlemusic_audio__?: HTMLAudioElement };
+  if (g.__bottlemusic_audio__) {
+    try {
+      const old = g.__bottlemusic_audio__;
+      old.pause();
+      old.removeAttribute('src');
+      old.load();
+    } catch { /* ignore */ }
+  }
+
   const audio = new Audio();
+  g.__bottlemusic_audio__ = audio;
   playerStore.audio = audio;
   audio.volume = playerStore.volume;
 
@@ -114,6 +129,11 @@ export async function playTrack(track: Track) {
   initPlayer();
   const audio = playerStore.audio!;
 
+  // 立刻停掉当前正在播放的音频：点了新歌就该马上停旧的，
+  // 即使新歌取链接失败，也不能让上一首继续在后台响。
+  audio.pause();
+  playerStore.isPlaying = false;
+
   const normalized = normalizeTrack(track);
 
   // Find index in queue
@@ -172,10 +192,13 @@ export async function playTrack(track: Track) {
     }
   } catch (err: any) {
     console.error('Failed to resolve play URL', err);
+    // 取链接失败：彻底清掉音频源，避免之后点“播放”又恢复上一首。
+    audio.removeAttribute('src');
+    audio.load();
     playerStore.isPlaying = false;
     playerStore.isPreview = false;
     playerStore.vipRequired = false;
-    playerStore.errorMsg = err.message || '获取歌曲链接失败（受版权或VIP限制）';
+    playerStore.errorMsg = err.message || '该歌曲不可播放（可能是 Demo / 版权或 VIP 限制）';
   }
 }
 

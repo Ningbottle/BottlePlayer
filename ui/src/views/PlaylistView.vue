@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import { apiGet } from '../api/backend';
-import { playTrack, playAll, playerStore } from '../api/playerStore';
+import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
 
 
@@ -55,7 +55,10 @@ onMounted(() => {
 });
 
 function handlePlay(song: SongInfo) {
-  playTrack(song);
+  // 用整张歌单作为播放队列，从点击的这首开始 —— 这样“下一首”才会沿着歌单走，
+  // 而不是把单曲追加到一个无关的历史队列里。
+  const idx = songs.value.findIndex(s => s.FileHash === song.FileHash);
+  playAll(songs.value, idx >= 0 ? idx : 0);
 }
 
 function handlePlayAll() {
