@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { apiGet } from '../api/backend';
+import { checkLoginStatus } from '../api/userStore';
 
 interface MemoryData {
   working_set_bytes: number;
@@ -142,6 +143,7 @@ async function claimListenVip() {
     const res = await apiGet<any>('/youth/listen/song');
     if (res?.status === 1) {
       listenVipMsg.value = '✓ 听歌领 VIP 成功';
+      await checkLoginStatus(); // 领取成功后刷新持久 VIP 状态/到期时间（权威来源 get_union_vip）
     } else {
       listenVipMsg.value = res?.error_msg || res?.error || '领取失败（需要酷狗官方 App 内领取）';
     }
@@ -159,6 +161,7 @@ async function claimAdVip() {
     const res = await apiGet<any>('/youth/vip/ad');
     if (res?.status === 1) {
       adVipMsg.value = '✓ 领取成功';
+      await checkLoginStatus(); // 领取成功后刷新持久 VIP 状态/到期时间
     } else {
       adVipMsg.value = res?.error_msg || res?.error || '领取失败（需要酷狗官方 App 内领取）';
     }
