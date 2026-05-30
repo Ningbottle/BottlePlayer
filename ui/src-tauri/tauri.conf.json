@@ -38,6 +38,11 @@
     ],
     "resources": {
       "libs/EchoCAPI.dll": "EchoCAPI.dll"
+    },
+    "windows": {
+      "nsis": {
+        "installMode": "both"
+      }
     }
   }
 }
