@@ -8,6 +8,10 @@ interface LyricLine {
   text: string;
 }
 
+defineProps<{
+  isQueueOpen?: boolean;
+}>();
+
 const loading = ref(false);
 const rawLyricText = ref('');
 const parsedLyrics = ref<LyricLine[]>([]);
@@ -145,7 +149,7 @@ onMounted(() => {
     </div>
 
     <!-- Lyric layout -->
-    <div v-else class="lyric-container">
+    <div v-else class="lyric-container" :class="{ 'with-queue': isQueueOpen }">
       <!-- Left cover & name -->
       <div class="lyric-left">
         <div class="big-cover">
@@ -176,5 +180,36 @@ onMounted(() => {
 </template>
 
 <style scoped>
-/* Scoped overrides */
+/* Responsive layout squeeze when Queue is open */
+.lyric-container {
+  transition: padding 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.lyric-container.with-queue {
+  /* Push everything to the left to avoid being covered by QueuePanel */
+  padding-right: 340px; 
+}
+
+/* Big cover overrides */
+.big-cover {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.with-queue .big-cover {
+  width: 200px !important;
+  height: 200px !important;
+}
+
+/* Text overrides */
+.lyric-left h2 {
+  transition: font-size 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.with-queue .lyric-left h2 {
+  font-size: 18px !important;
+}
+
+.with-queue .lyric-left p {
+  font-size: 14px !important;
+}
 </style>

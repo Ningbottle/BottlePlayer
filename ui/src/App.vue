@@ -5,6 +5,7 @@ import Sidebar from './components/Sidebar.vue';
 import Topbar from './components/Topbar.vue';
 import PlayerBar from './components/PlayerBar.vue';
 import Drawer from './components/Drawer.vue';
+import QueuePanel from './components/QueuePanel.vue';
 
 import HomeView from './views/HomeView.vue';
 import SearchView from './views/SearchView.vue';
@@ -23,6 +24,7 @@ const searchQuery = ref('');
 const playlistId = ref('');
 const playlistName = ref('');
 const tweaksCollapsed = ref(true);
+const isQueueOpen = ref(false);
 
 // Memory usage tracking
 const memoryUsage = ref('Working Set: -- / 220 MB');
@@ -227,6 +229,7 @@ onUnmounted(() => {
         />
         <LyricView 
           v-else-if="currentView === 'lyric'" 
+          :is-queue-open="isQueueOpen"
         />
         <SettingsView 
           v-else-if="currentView === 'settings'" 
@@ -242,13 +245,19 @@ onUnmounted(() => {
         :collapsed="tweaksCollapsed" 
         @close="tweaksCollapsed = true" 
       />
+
+      <!-- Pop-up Queue Panel (Positioned Absolute, Pointer-events Auto) -->
+      <QueuePanel
+        :show="isQueueOpen"
+        @close="isQueueOpen = false"
+      />
     </section>
 
     <!-- Bottom player controller bar -->
     <PlayerBar 
       :active-view="currentView"
       @navigate="handleNavigate" 
-      @toggle-queue="tweaksCollapsed = !tweaksCollapsed"
+      @toggle-queue="isQueueOpen = !isQueueOpen"
     />
   </div>
 </template>

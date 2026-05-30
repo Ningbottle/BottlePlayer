@@ -1,7 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { playerStore, playTrack } from '../api/playerStore';
-import { fetchCoverImage } from '../api/normalizer';
 
 defineProps<{
   collapsed: boolean;
@@ -54,34 +52,8 @@ watch([paperWarmth, glassBlur, grainAmount, accent], () => {
 
 onMounted(() => {
   applyTweaks();
-  fetchMissingCovers();
 });
 
-watch(() => playerStore.queue, () => {
-  fetchMissingCovers();
-}, { deep: true });
-
-async function fetchMissingCovers() {
-  for (const item of playerStore.queue) {
-    if (!item.Image) {
-      // Avoid fetching again if we already started or it's empty
-      item.Image = ''; 
-      fetchCoverImage(item.FileHash).then(img => {
-        if (img) {
-          item.Image = img;
-          localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
-        }
-      });
-    }
-  }
-}
-
-const recentArtists = [
-  { name: '周杰伦', color: '#3b3022', textFill: '#e9d7b3' },
-  { name: '陈奕迅', color: '#6a4a32', textFill: '#f3dcb6' },
-  { name: '周深', color: '#4a3a2a', textFill: '#ecd3a8' },
-  { name: '毛不易', color: '#80553a', textFill: '#f6e0bb' }
-];
 </script>
 
 <template>
@@ -127,54 +99,6 @@ const recentArtists = [
               :style="{ background: color.value }"
               @click="accent = color.value"
             ></div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Artists -->
-      <div class="drawer-section">
-        <h4>常听艺人 <span class="en">Artists</span></h4>
-        <div class="artists">
-          <div v-for="art in recentArtists" :key="art.name" class="artist">
-            <div class="ah">
-              <svg viewBox="0 0 50 50">
-                <rect width="50" height="50" :fill="art.color"/>
-                <circle cx="25" cy="20" r="9" :fill="art.textFill"/>
-                <ellipse cx="25" cy="44" rx="14" ry="10" :fill="art.textFill"/>
-              </svg>
-            </div>
-            <div class="nm">{{ art.name }}</div>
-          </div>
-        </div>
-      </div>
-
-      <!-- Queue/Recent -->
-      <div class="drawer-section">
-        <h4>当前播放队列 <span class="en">Queue</span></h4>
-        <div class="recent">
-          <div 
-            v-for="item in playerStore.queue.slice(0, 10)" 
-            :key="item.FileHash" 
-            class="item"
-            @click="playTrack(item)"
-          >
-            <div class="mini">
-              <img v-if="item.Image" :src="item.Image" alt="c" style="width:100%;height:100%;object-fit:cover;" />
-              <svg v-else viewBox="0 0 36 36">
-                <rect width="36" height="36" fill="#a8311b"/>
-                <text x="18" y="22" text-anchor="middle" font-family="EB Garamond, serif" font-style="italic" font-size="12" fill="#f1ead8">
-                  {{ item.SongName.slice(0, 2) }}
-                </text>
-              </svg>
-            </div>
-            <div class="info">
-              <b>{{ item.SongName }}</b>
-              <span>{{ item.SingerName }}</span>
-            </div>
-            <div class="dur">{{ Math.floor(item.Duration / 60) }}:{{ String(item.Duration % 60).padStart(2, '0') }}</div>
-          </div>
-          <div v-if="playerStore.queue.length === 0" style="padding: 16px; text-align: center; color: var(--ink-mute); font-style: italic;">
-            队列为空
           </div>
         </div>
       </div>

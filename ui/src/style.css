@@ -73,6 +73,22 @@ button {
   padding: 0;
 }
 
+/* ---------- Global Scrollbar ---------- */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  background: rgba(34, 27, 18, 0.18);
+  border-radius: 4px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(34, 27, 18, 0.35);
+}
+
 /* ---------- Paper background ---------- */
 .paper-base {
   position: fixed; inset: 0; z-index: 0;
@@ -349,14 +365,13 @@ button {
 
 /* ---------- Content scroll area ---------- */
 .scroll {
-  flex:1;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
   overflow: auto;
   padding: 28px 32px 40px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(34,27,18,0.2) transparent;
 }
-.scroll::-webkit-scrollbar { width:8px; }
-.scroll::-webkit-scrollbar-thumb { background: rgba(34,27,18,0.2); border-radius:4px; }
 
 .page-head {
   display:flex; align-items:flex-end; justify-content:space-between;
@@ -623,7 +638,6 @@ button {
 .drawer-scroll {
   flex:1; overflow:auto;
   padding: 8px 14px 16px;
-  scrollbar-width: thin;
 }
 .drawer-section + .drawer-section { margin-top: 14px; }
 .drawer-section h4 {
@@ -1065,8 +1079,6 @@ svg { display:block; }
   flex: 1.2;
   overflow-y: auto;
   padding-right: 16px;
-  scrollbar-width: thin;
-  scrollbar-color: rgba(34,27,18,0.2) transparent;
   display: flex;
   flex-direction: column;
   position: relative;
