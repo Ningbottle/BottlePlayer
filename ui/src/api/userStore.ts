@@ -65,28 +65,48 @@ export async function checkLoginStatus() {
         userStore.vipLevel = Number(d.svip_level || d.vip_level || 0);
         userStore.vipType = Number(d.vip_type || 0);
 
+        // VIP 到期时间的权威来源是 busi_vip 里 product_type=svip 且未过期的项
+        // （今天领到的免费/广告 SVIP 在这里）。顶层 vip_end_time 可能是过期的历史付费 VIP。
+        // 旧逻辑：顶层 is_vip=1 就短路，导致显示过期的顶层时间、无视 busi_vip 的有效时间
+        // （症状：会员有效但“截止日期”是过去的日期）。
+        // 新逻辑：扫描所有来源，取“最晚且未过期”的到期时间展示。
         let isVip = d.is_vip === 1 || d.is_vip === '1' || Number(d.vip_type) > 0;
-        let endTime = d.vip_end_time || d.end_time || '';
-        if (!isVip && Array.isArray(d.busi_vip)) {
-          const nowSec = Math.floor(Date.now() / 1000);
+        const nowMs = Date.now();
+        // 酷狗返回 "YYYY-MM-DD HH:MM:SS"（北京时间，按本地解析做比较）；0 表示无法解析/永久。
+        const toMs = (s: any): number => {
+          const str = String(s || '');
+          if (!str) return 0;
+          const t = new Date(str.replace(' ', 'T')).getTime();
+          return isNaN(t) ? 0 : t;
+        };
+        let bestStr = '';
+        let bestRank = -1;
+        const consider = (str: string) => {
+          if (!str) return;
+          const ms = toMs(str);
+          const rank = ms === 0 ? Number.MAX_SAFE_INTEGER : ms; // 永久/无法解析 → 最高优先
+          if ((ms === 0 || ms > nowMs) && rank > bestRank) {
+            bestRank = rank;
+            bestStr = str;
+          }
+        };
+        if (Array.isArray(d.busi_vip)) {
           for (const b of d.busi_vip) {
             if (!b) continue;
-            const productType = String(b.product_type || '');
+            const isSvip = String(b.product_type || '') === 'svip';
             const bIsVip = b.is_vip === 1 || b.is_vip === '1';
-            if (productType === 'svip' && bIsVip) {
-              // Verify the end time is still in the future
+            if (isSvip && bIsVip) {
               const endStr = String(b.vip_end_time || '');
-              const endMs = endStr ? new Date(endStr.replace(' ', 'T')).getTime() : 0;
-              if (endMs === 0 || endMs / 1000 > nowSec) {
+              if (!endStr || toMs(endStr) === 0 || toMs(endStr) > nowMs) {
                 isVip = true;
-                endTime = endStr || endTime;
-                break;
+                consider(endStr);
               }
             }
           }
         }
+        consider(String(d.vip_end_time || d.end_time || '')); // 顶层作为候选（过期则不入选）
         userStore.isVip = isVip;
-        userStore.vipEndDate = endTime;
+        userStore.vipEndDate = bestStr || String(d.vip_end_time || d.end_time || '');
 
         // Backfill avatar/nickname if /user/vip/detail surfaced them.
         if (d.nickname && !userStore.username.startsWith(d.nickname)) {
@@ -131,18 +151,16 @@ export async function claimVip() {
   try {
     const listen = await apiGet<any>('/youth/listen/song');
 
-    if (listen?.status === 1 && listen?.data) {
-      const endTime = Number(listen.data.ad_vip_end_time || 0);
-      const serverTime = Number(listen.data.server_time || Math.floor(Date.now() / 1000));
-      if (endTime > serverTime) {
-        const endDate = new Date(endTime * 1000).toLocaleString('zh-CN');
-        userStore.isVip = true;
-        userStore.vipType = 5;
-        userStore.vipEndDate = endDate;
-        userStore.claimMessage = `✓ 已激活每日 VIP，到期：${endDate}`;
-        await checkLoginStatus();
-        return;
-      }
+    // 关键：listen_song 成功响应是 {status:1, data:"", error_msg:""} —— 不携带到期时间。
+    // 成功与否只看 status===1；到期时间的权威来源是 /user/vip/detail (get_union_vip)。
+    // 旧逻辑把成功挂在不存在的 data.ad_vip_end_time 上，导致领取成功却永远显示“领取失败”。
+    if (listen?.status === 1) {
+      await checkLoginStatus(); // 从 get_union_vip 刷新真实到期时间到 userStore.vipEndDate
+      userStore.isVip = true;
+      userStore.claimMessage = userStore.vipEndDate
+        ? `✓ 已激活每日 VIP，到期：${userStore.vipEndDate}`
+        : '✓ 已激活每日 VIP';
+      return;
     }
 
     const errMsg = listen?.error_msg || listen?.error || '';
