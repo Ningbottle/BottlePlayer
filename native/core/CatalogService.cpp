@@ -1,5 +1,7 @@
 #include "echo/core/CatalogService.h"
 
+#include "echo/core/StringUtils.h"
+
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
@@ -26,19 +28,6 @@ std::string Trim(std::string value) {
   return value;
 }
 
-std::string UrlEncode(std::string_view value) {
-  std::ostringstream stream;
-  stream << std::uppercase << std::hex;
-  for (const unsigned char ch : value) {
-    if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') ||
-        ch == '-' || ch == '_' || ch == '.' || ch == '~') {
-      stream << static_cast<char>(ch);
-    } else {
-      stream << '%' << std::setw(2) << std::setfill('0') << static_cast<int>(ch);
-    }
-  }
-  return stream.str();
-}
 
 std::string ExtractJsonBody(std::string body) {
   const auto first = body.find('{');

@@ -17,9 +17,10 @@ namespace {
 
 using namespace std::chrono;
 
-constexpr std::array<std::string_view, 70> kKnownRoutes = {
+constexpr std::array<std::string_view, 71> kKnownRoutes = {
     "/health",
     "/server/now",
+    "/diagnostics/memory",
     "/register/dev",
     "/login/qr/key",
     "/login/qr/create",
@@ -134,6 +135,7 @@ CompatResponse CompatApi::HandleKnownRoute(
   // Diagnostics
   if (path == "/health") return HandleHealth();
   if (path == "/server/now") return HandleServerNow();
+  if (path == "/diagnostics/memory") return HandleDiagnosticsMemory();
 
   // Register
   if (path == "/register/dev") return HandleRegisterDev(database_, query);

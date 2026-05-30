@@ -1,6 +1,9 @@
 #include "echo/core/SongUrlService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/DeviceService.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/core/StringUtils.h"
+#include "echo/diagnostics/EchoDiagnostics.h"
 
 #include <chrono>
 #include <ctime>
@@ -8,7 +11,6 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
-#include <iostream>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -26,20 +28,6 @@ std::string Trim(std::string value) {
   }
   if (first > 0) value.erase(0, first);
   return value;
-}
-
-std::string UrlEncode(std::string_view value) {
-  std::ostringstream stream;
-  stream << std::uppercase << std::hex;
-  for (const unsigned char ch : value) {
-    if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') ||
-        ch == '-' || ch == '_' || ch == '.' || ch == '~') {
-      stream << static_cast<char>(ch);
-    } else {
-      stream << '%' << std::setw(2) << std::setfill('0') << static_cast<int>(ch);
-    }
-  }
-  return stream.str();
 }
 
 std::string ReadString(const nlohmann::json& value, std::string_view key) {
@@ -64,18 +52,6 @@ int ReadInt(const nlohmann::json& value, std::string_view key, int fallback = 0)
     }
   }
   return fallback;
-}
-
-std::string ResolveAndroidMid(const DeviceInfo& device) {
-  const bool storedMidLooksAndroid =
-      device.mid.size() >= 38 &&
-      device.mid.size() <= 39 &&
-      std::all_of(device.mid.begin(), device.mid.end(),
-                  [](unsigned char c) { return std::isdigit(c); });
-  if (storedMidLooksAndroid) return device.mid;
-  if (!device.guid.empty()) return CalculateAndroidMid(device.guid);
-  if (!device.mid.empty()) return CalculateAndroidMid(device.mid);
-  return "0";
 }
 
 std::string ReadStringOrFirstArrayElement(const nlohmann::json& value, std::string_view key) {
@@ -331,10 +307,12 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
   {
     std::string bodyPreview = bodyStr.size() > 600 ? bodyStr.substr(0, 600) + "..." : bodyStr;
     std::string respPreview = result.body.size() > 800 ? result.body.substr(0, 800) + "..." : result.body;
-    std::cerr << "[SongUrl/V6PRIV] http=" << result.statusCode
-              << " err=" << result.error
-              << " body=" << bodyPreview
-              << " resp=" << respPreview << std::endl;
+    std::ostringstream log;
+    log << "[SongUrl/V6PRIV] http=" << result.statusCode
+        << " err=" << result.error
+        << " body=" << bodyPreview
+        << " resp=" << respPreview;
+    ECHO_LOG("SongUrlV6", log.str());
   }
 
   if (!result.error.empty()) {
@@ -473,10 +451,10 @@ nlohmann::json SongUrlService::Resolve(
     auto v6 = ResolveV6PrivUrl(hash, albumAudioId, userId, token,
                                 /*vipToken=*/"", /*vipType=*/0, device);
     if (v6.value("status", 0) == 1) {
-      std::cerr << "[SongUrl/V6PRIV] SUCCESS — using v6 result" << std::endl;
+      ECHO_LOG("SongUrlV6", "SUCCESS — using v6 result");
       return v6;
     }
-    std::cerr << "[SongUrl/V6PRIV] FAILED — falling back to v5" << std::endl;
+    ECHO_LOG("SongUrlV6", "FAILED — falling back to v5");
   }
 
   // ── v5/url fallback ─────────────────────────────────────────────────────
@@ -567,11 +545,14 @@ nlohmann::json SongUrlService::Resolve(
       const char* pathKind = hasToken ? "MAIN" : (isFreePart ? "PREVIEW" : "ANON");
       std::string urlPreview = url.size() > 400 ? url.substr(0, 400) + "..." : url;
       std::string bodyPreview = result.body.size() > 800 ? result.body.substr(0, 800) + "..." : result.body;
-      std::cerr << "[SongUrl/" << pathKind << "] http=" << result.statusCode
-                << " hasUserId=" << (hasUserId ? "Y" : "N")
-                << " hasToken=" << (hasToken ? "Y" : "N")
-                << " url=" << urlPreview
-                << " body=" << bodyPreview << std::endl;
+      std::ostringstream log;
+      log << "phase=" << pathKind
+          << " http=" << result.statusCode
+          << " hasUserId=" << (hasUserId ? "Y" : "N")
+          << " hasToken=" << (hasToken ? "Y" : "N")
+          << " url=" << urlPreview
+          << " body=" << bodyPreview;
+      ECHO_LOG("SongUrlV5", log.str());
     }
     nlohmann::json parsed;
     if (result.error.empty() && result.statusCode >= 200 && result.statusCode < 300) {
