@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref } from 'vue';
 import { playerStore, togglePlay, next, prev, seek, setVolume } from '../api/playerStore';
 
 const props = defineProps<{
@@ -67,10 +67,27 @@ function handleVolumeClick(e: MouseEvent) {
   setVolume(pct);
 }
 
-function toggleLoopMode() {
-  const modes: ('list' | 'single' | 'random')[] = ['list', 'single', 'random'];
-  const nextIdx = (modes.indexOf(loopMode.value) + 1) % modes.length;
-  playerStore.loopMode = modes[nextIdx];
+// Toast notification for mode changes
+const toastMsg = ref('');
+let toastTimer: any = null;
+function showToast(msg: string) {
+  toastMsg.value = msg;
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => { toastMsg.value = ''; }, 2000);
+}
+
+// 随机 / 单曲循环 是互斥三态 loopMode 的两个独立开关：
+// 随机键在 random ⇄ list 间切换；循环键在 single ⇄ list 间切换。
+// （旧的 toggleLoopMode 让两个按钮都三态轮转，极易误入 random 导致“下一首”乱跳。）
+function toggleShuffle() {
+  const isRandom = loopMode.value === 'random';
+  playerStore.loopMode = isRandom ? 'list' : 'random';
+  showToast(isRandom ? '已切换为 列表顺序播放' : '已切换为 随机播放');
+}
+function toggleRepeat() {
+  const isSingle = loopMode.value === 'single';
+  playerStore.loopMode = isSingle ? 'list' : 'single';
+  showToast(isSingle ? '已切换为 列表顺序播放' : '已切换为 单曲循环');
 }
 
 function toggleLyricView() {
@@ -84,6 +101,13 @@ function toggleLyricView() {
 
 <template>
   <footer class="player">
+    <!-- Mode Toast Message -->
+    <transition name="toast-fade">
+      <div v-if="toastMsg" class="mode-toast">
+        {{ toastMsg }}
+      </div>
+    </transition>
+
     <!-- Left: Track info -->
     <div class="np" @click="toggleLyricView" style="cursor: pointer;" title="点击查看歌词 · Click to view lyrics">
       <div class="cv">
@@ -128,8 +152,9 @@ function toggleLyricView() {
         <button 
           class="t-btn" 
           :style="{ color: loopMode === 'random' ? 'var(--accent)' : 'inherit' }"
-          aria-label="shuffle" 
-          @click="toggleLoopMode"
+          aria-label="shuffle"
+          title="随机播放"
+          @click="toggleShuffle"
         >
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M16 3h5v5M4 20l17-17M21 16v5h-5M15 15l6 6M4 4l5 5"/>
@@ -165,8 +190,9 @@ function toggleLyricView() {
         <button 
           class="t-btn"
           :style="{ color: loopMode === 'single' ? 'var(--accent)' : 'inherit' }"
-          aria-label="repeat" 
-          @click="toggleLoopMode"
+          aria-label="repeat"
+          title="单曲循环"
+          @click="toggleRepeat"
         >
           <svg v-if="loopMode === 'single'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
             <path d="M17 1l4 4-4 4 M3 11V9a4 4 0 0 1 4-4h14 M7 23l-4-4 4-4 M21 13v2a4 4 0 0 1-4 4H3"/>
@@ -221,5 +247,31 @@ function toggleLyricView() {
 </template>
 
 <style scoped>
+.mode-toast {
+  position: absolute;
+  top: -48px; /* Appears above the player bar */
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink);
+  color: var(--paper);
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
+  font-weight: 500;
+  box-shadow: 0 4px 12px rgba(40,28,12,0.25);
+  pointer-events: none; /* Let clicks pass through */
+  z-index: 1000;
+}
+
+.toast-fade-enter-active,
+.toast-fade-leave-active {
+  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.toast-fade-enter-from,
+.toast-fade-leave-to {
+  opacity: 0;
+  transform: translate(-50%, 10px);
+}
+
 /* Scoped overrides */
 </style>

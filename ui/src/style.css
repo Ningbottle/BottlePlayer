@@ -759,6 +759,7 @@ button {
 
 /* ---------- Player bar ---------- */
 .player {
+  position: relative;
   grid-row: 3 / 4;
   grid-column: 1 / 3;
   z-index: 6;
