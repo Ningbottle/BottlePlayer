@@ -28,7 +28,11 @@ export function normalizeTrack(raw: any): Track {
   const AlbumName = raw.AlbumName || raw.album_name || raw.albumname || undefined;
   const AlbumID = raw.AlbumID || raw.album_id || raw.albumid || undefined;
   const AlbumAudioID = raw.AlbumAudioID || raw.album_audio_id || raw.mixsongid || raw.MixSongID || undefined;
-  const Duration = Number(raw.Duration || raw.duration || raw.time_length || 0);
+  // KuGou 各接口时长字段单位不统一：duration / time_length 多为秒，timelen 为毫秒。
+  // 统一归一到秒，并对“误标成秒的毫秒值”兜底（正常歌曲不会超过数小时）。
+  let Duration = Number(raw.Duration || raw.duration || raw.time_length || 0);
+  if (!Duration && raw.timelen) Duration = Math.round(Number(raw.timelen) / 1000);
+  if (Duration > 18000) Duration = Math.round(Duration / 1000);
 
   // Cover image extraction — KuGou's many endpoints stash the cover URL in
   // different field names. Walk through them in order of preference.

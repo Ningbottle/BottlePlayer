@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { apiGet } from '../api/backend';
-import { playTrack } from '../api/playerStore';
+import { playTrack, playAll } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
 
 // Subtitle below the date — varies by hour so the "晚刊" feel is honest.
@@ -103,7 +103,9 @@ onMounted(() => {
 });
 
 function handlePlaySong(song: SongInfo) {
-  playTrack(song);
+  // 用整个热门列表作为播放队列，从点击的这首开始。
+  const idx = trendingSongs.value.findIndex(s => s.FileHash === song.FileHash);
+  playAll(trendingSongs.value, idx >= 0 ? idx : 0);
 }
 
 function handlePlaylistClick(playlist: PlaylistInfo) {

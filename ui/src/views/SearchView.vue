@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
 import { apiGet } from '../api/backend';
-import { playTrack, playerStore } from '../api/playerStore';
+import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
 
 
@@ -58,7 +58,9 @@ onMounted(() => {
 });
 
 function handlePlay(song: SongInfo) {
-  playTrack(song);
+  // 用整页搜索结果作为播放队列，从点击的这首开始。
+  const idx = songs.value.findIndex(s => s.FileHash === song.FileHash);
+  playAll(songs.value, idx >= 0 ? idx : 0);
 }
 
 function formatDuration(sec: number) {

@@ -208,11 +208,11 @@ function clearCache() {
       </h3>
 
       <p style="color: var(--ink-soft); font-size: 13px; line-height: 1.7;">
-        酷狗对随机生成的设备指纹会限制 VIP 音频与歌单访问。如果你能从酷狗官方 App 或网页抓到真实的 <code>dfid / mid / uuid</code>（典型格式：dfid 24 位 base64，mid 32 位 hex，uuid 13 位时间戳或 GUID），填进下面三个框，所有 KuGou API 调用都会改用你输入的指纹。
+        登录后 App 会自动生成并通过 <code>/register/dev</code> 注册设备指纹（dfid / mid / uuid），正常播放 VIP 音频与歌单<strong>无需手动设置</strong>。下面三个框是<strong>可选的高级覆盖</strong>——若你想用从酷狗官方 App / 网页抓到的真实指纹替代自动生成的，填进去即可，所有 KuGou API 调用都会改用你输入的指纹。（格式：dfid 24 位 base64，mid 约 32–40 位 hex，uuid 32 位 hex / GUID）
         <br>
         <strong>怎么获取</strong>：浏览器打开 <a href="https://m.kugou.com/" target="_blank" style="color: var(--accent);">m.kugou.com</a> → F12 → Network → 找任意请求里的 query 字符串 → 复制 <code>dfid=</code><code>mid=</code><code>uuid=</code> 三个字段。
         <br>
-        <strong style="color: var(--accent);">注意</strong>：本地生成的指纹永远是 <code>unregistered</code> 占位，不会被当作可信设备上送。只有从官方渠道抓到的真实指纹才能解锁完整 VIP 音频。
+        <strong style="color: var(--accent);">注意</strong>：三个框留空即用 App 自动生成 / 注册的指纹，绝大多数情况够用——随机生成的 dfid 也能正常领 VIP 与播放。仅当个别接口因风控偶发受限（如歌单 20017、song/url 只给 60s 试听）时，再尝试填入官方渠道抓到的真实指纹覆盖。
       </p>
 
       <!-- Use monospace font for these three inputs because dfid contains
@@ -228,14 +228,14 @@ function clearCache() {
       </div>
       <div style="margin-top: 10px;">
         <label style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">
-          <span>mid（32 字符 hex）</span>
+          <span>mid（hex 设备串，约 32–40 字符）</span>
           <span style="font-family: monospace;">{{ midInput.length }} 字符</span>
         </label>
         <input v-model="midInput" type="text" placeholder="0" spellcheck="false" autocorrect="off" autocapitalize="off" style="width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace; font-size: 14px; letter-spacing: 0.5px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
       </div>
       <div style="margin-top: 10px;">
         <label style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">
-          <span>uuid（13 位时间戳数字或 GUID）</span>
+          <span>uuid（32 字符 hex / GUID）</span>
           <span style="font-family: monospace;">{{ uuidInput.length }} 字符</span>
         </label>
         <input v-model="uuidInput" type="text" placeholder="-" spellcheck="false" autocorrect="off" autocapitalize="off" style="width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace; font-size: 14px; letter-spacing: 0.5px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
@@ -255,7 +255,7 @@ function clearCache() {
       <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">领取免费 VIP</h3>
 
       <p style="color: var(--ink-soft); font-size: 13px; line-height: 1.7;">
-        通过酷狗概念版端点领取每日免费 VIP。需要在酷狗官方 App 内完成广告观看才能生效，纯 HTTP 调用无法绕过广告 SDK 凭证校验。
+        通过酷狗概念版「听歌领 VIP / 看广告领 VIP」端点领取每日免费 VIP。每日限领一次，已领取会返回 130012（正常业务限制，非错误）。领取成功后会员到期时间会从 /user/vip/detail 刷新。
       </p>
 
       <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
@@ -287,7 +287,7 @@ function clearCache() {
 
     <!-- Sidecar Diagnostics -->
     <section class="card">
-      <p class="kicker">DIAGNOSTICS · 后端内核自检 (EchoCompatServer)</p>
+      <p class="kicker">DIAGNOSTICS · 后端内核自检 (EchoCAPI.dll · FFI)</p>
       
       <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom: 14px;">
         <h3 style="margin: 0; font-size: 18px; font-weight: 600;">资源内存开销</h3>

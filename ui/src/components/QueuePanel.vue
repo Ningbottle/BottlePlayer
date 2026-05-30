@@ -68,7 +68,6 @@ watch(() => playerStore.queue, () => {
               <b>{{ item.SongName }}</b>
               <span>{{ item.SingerName }}</span>
             </div>
-            <div class="dur">{{ Math.floor(item.Duration / 60) }}:{{ String(item.Duration % 60).padStart(2, '0') }}</div>
           </div>
           <div v-if="playerStore.queue.length === 0" class="empty-state">
             队列为空
@@ -219,5 +218,20 @@ watch(() => playerStore.queue, () => {
 .slide-up-leave-to {
   opacity: 0;
   transform: translateY(20px) scale(0.98);
+}
+
+/* Dark mode overrides */
+html.dark .queue-panel {
+  box-shadow: 0 12px 32px -8px rgba(0,0,0,0.45),
+              0 4px 12px -4px rgba(0,0,0,0.3);
+}
+html.dark .panel-scroll {
+  scrollbar-color: rgba(255,255,255,0.15) transparent;
+}
+html.dark .recent .item:hover {
+  background: rgba(255,255,255,0.06);
+}
+html.dark .recent .item.active {
+  background: rgba(255,255,255,0.1);
 }
 </style>
