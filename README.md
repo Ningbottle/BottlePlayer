@@ -55,10 +55,13 @@ pnpm tauri dev          # 首跑 5-10 分钟，之后 < 30s
 **已解决**（原"已知问题"）：
 - ✅ VIP 领取链路：服务端本就正常发放，根因在前端把成功挂在响应里不存在的 `ad_vip_end_time` 上，已修正。
 - ✅ 设备指纹：mid 经 `ResolveAndroidMid` 派生为 38–39 位 Android decimal，dfid 通过 `/register/dev` 正式注册。
+- ✅ 播放体验：点列表即以整列表为播放队列（"下一首"随列表走）、随机/循环改为独立开关、切歌立即停旧曲、修复 HMR 累积的僵尸音频（全局单例 audio）。
+- ✅ 诊断：补全 `/diagnostics/memory` 路由，设置页内存自检可用。
 
 **当前已知问题**：
-- `PlaybackController`（Media Foundation）仅预留了 ABI 接口，播放核心尚未迁入 DLL；偶发切歌时 MFP 初始化失败。
-- 图片缓存 `EchoImage` 磁盘/内存边界未加容量上限，长期运行可能膨胀。
+- 播放核心仍在 WebView（HTML5 Audio）；C++ `PlaybackController`（Media Foundation）仅预留 ABI、尚未接线。
+- 图片缓存 `EchoImage`：内存有 16MB 预算（`MemoryImageCache`），但磁盘缓存未加容量上限。
+- 部分歌曲（Demo / 受限版）KuGou 返回 `status:3` 无法播放——属歌曲版权限制，非客户端问题（已做"该歌曲不可播放"提示 + 切歌即停）。
 
 ## 技术参考
 
