@@ -153,18 +153,70 @@ pub fn handle_request(
     }
 }
 
+// 日志文件：优先 D:\BottleMusic\logs（固定路径、好找）；若该盘不可写
+// （如别人机器没 D 盘）则回退到可执行文件同级的 logs/。按天分文件避免无限增长。
+fn log_file() -> &'static std::sync::Mutex<Option<std::fs::File>> {
+    static LOG_FILE: OnceLock<std::sync::Mutex<Option<std::fs::File>>> = OnceLock::new();
+    LOG_FILE.get_or_init(|| {
+        let dir = {
+            let preferred = std::path::PathBuf::from("D:\\BottleMusic\\logs");
+            if std::fs::create_dir_all(&preferred).is_ok() {
+                preferred
+            } else {
+                let fallback = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|p| p.join("logs")))
+                    .unwrap_or_else(|| std::path::PathBuf::from("logs"));
+                let _ = std::fs::create_dir_all(&fallback);
+                fallback
+            }
+        };
+        let name = format!("bottlemusic-{}.log", chrono::Local::now().format("%Y%m%d"));
+        let path = dir.join(name);
+        let file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .ok();
+        if file.is_some() {
+            println!("[EchoCAPI] 日志写入: {}", path.display());
+        }
+        std::sync::Mutex::new(file)
+    })
+}
+
+fn write_log_line(line: &str) {
+    use std::io::Write as _;
+    if let Ok(mut guard) = log_file().lock() {
+        if let Some(f) = guard.as_mut() {
+            let _ = writeln!(f, "{}", line);
+            let _ = f.flush();
+        }
+    }
+}
+
 extern "C" fn ffi_log_callback(level: c_int, tag: *const c_char, msg: *const c_char, _ud: *mut c_void) {
     if tag.is_null() || msg.is_null() {
         return;
     }
     let tag_str = unsafe { CStr::from_ptr(tag) }.to_string_lossy();
     let msg_str = unsafe { CStr::from_ptr(msg) }.to_string_lossy();
-    match level {
-        0 => println!("[C++ debug][{}] {}", tag_str, msg_str),
-        1 => println!("[C++ info ][{}] {}", tag_str, msg_str),
-        2 => eprintln!("[C++ warn ][{}] {}", tag_str, msg_str),
-        _ => eprintln!("[C++ error][{}] {}", tag_str, msg_str),
+    let level_str = match level {
+        0 => "debug",
+        1 => "info ",
+        2 => "warn ",
+        _ => "error",
+    };
+    let ts = chrono::Local::now().format("%Y-%m-%d %H:%M:%S%.3f");
+    let line = format!("{} [{}][{}] {}", ts, level_str, tag_str, msg_str);
+    // 控制台（dev 终端可见）
+    if level >= 2 {
+        eprintln!("{}", line);
+    } else {
+        println!("{}", line);
     }
+    // 文件（release 无控制台时也能查）
+    write_log_line(&line);
 }
 
 /// Register a log callback so C++ diagnostic output is forwarded to Rust stdout.
