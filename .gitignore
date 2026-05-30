@@ -105,3 +105,7 @@ temp_full_doc.txt
 docs/
 AGENTS.md
 .windsurf/skills/
+# 内部评估/计划文档（含逆向细节，保留本地、勿入公开仓库）
+PROJECT_EVALUATION.md
+IMPROVEMENT_PLAN.md
+INITIALIZATION_SUMMARY.md
