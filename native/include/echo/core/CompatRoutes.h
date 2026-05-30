@@ -7,6 +7,7 @@ namespace echo::core {
 // DiagnosticsRoutes
 CompatResponse HandleHealth();
 CompatResponse HandleServerNow();
+CompatResponse HandleDiagnosticsMemory();
 
 // LoginRoutes
 CompatResponse HandleLoginQrKey(

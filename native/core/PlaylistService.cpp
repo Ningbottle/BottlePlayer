@@ -1,6 +1,8 @@
 #include "echo/core/PlaylistService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/DeviceService.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/core/StringUtils.h"
 
 #include <windows.h>
 #include <wincrypt.h>
@@ -50,18 +52,6 @@ int Clamp(int value, int minValue, int maxValue) {
   return std::max(minValue, std::min(value, maxValue));
 }
 
-std::string ResolveAndroidMid(const DeviceInfo& device) {
-  const bool storedMidLooksAndroid =
-      device.mid.size() >= 38 &&
-      device.mid.size() <= 39 &&
-      std::all_of(device.mid.begin(), device.mid.end(),
-                  [](unsigned char c) { return std::isdigit(c); });
-  if (storedMidLooksAndroid) return device.mid;
-  if (!device.guid.empty()) return CalculateAndroidMid(device.guid);
-  if (!device.mid.empty()) return CalculateAndroidMid(device.mid);
-  return "0";
-}
-
 std::string Trim(std::string value) {
   while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back()))) {
     value.pop_back();
@@ -72,20 +62,6 @@ std::string Trim(std::string value) {
   }
   if (first > 0) value.erase(0, first);
   return value;
-}
-
-std::string UrlEncode(std::string_view value) {
-  std::ostringstream stream;
-  stream << std::uppercase << std::hex;
-  for (const unsigned char ch : value) {
-    if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') ||
-        ch == '-' || ch == '_' || ch == '.' || ch == '~') {
-      stream << static_cast<char>(ch);
-    } else {
-      stream << '%' << std::setw(2) << std::setfill('0') << static_cast<int>(ch);
-    }
-  }
-  return stream.str();
 }
 
 std::string ReadString(const nlohmann::json& value, std::string_view key) {

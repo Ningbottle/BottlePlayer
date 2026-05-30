@@ -2,8 +2,9 @@
 #include "echo/core/Crypto.h"
 #include "echo/core/KuGouProfile.h"
 
+#include <algorithm>
 #include <array>
-#include <iostream>
+#include <cctype>
 #include <random>
 #include <sstream>
 
@@ -92,6 +93,18 @@ DeviceInfo DeviceService::EnsureDeviceReady() {
   NormalizeDeviceInfo(device);
 
   return device;
+}
+
+std::string ResolveAndroidMid(const DeviceInfo& device) {
+  const bool storedMidLooksAndroid =
+      device.mid.size() >= 38 &&
+      device.mid.size() <= 39 &&
+      std::all_of(device.mid.begin(), device.mid.end(),
+                  [](unsigned char c) { return std::isdigit(c); });
+  if (storedMidLooksAndroid) return device.mid;
+  if (!device.guid.empty()) return CalculateAndroidMid(device.guid);
+  if (!device.mid.empty()) return CalculateAndroidMid(device.mid);
+  return "0";
 }
 
 }  // namespace echo::core

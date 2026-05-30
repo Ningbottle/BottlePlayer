@@ -1,23 +1,14 @@
-#include <algorithm>
-#include <cctype>
 #include "echo/core/KuGouAndroidRequest.h"
+
 #include "echo/core/Crypto.h"
+#include "echo/core/DeviceService.h"
+
 #include <chrono>
+#include <ctime>
+#include <iomanip>
 #include <sstream>
 
 namespace echo::core {
-
-std::string ResolveAndroidMid(const DeviceInfo& device) {
-  const bool storedMidLooksAndroid =
-      device.mid.size() >= 38 &&
-      device.mid.size() <= 39 &&
-      std::all_of(device.mid.begin(), device.mid.end(),
-                  [](unsigned char c) { return std::isdigit(c); });
-  if (storedMidLooksAndroid) return device.mid;
-  if (!device.guid.empty()) return CalculateAndroidMid(device.guid);
-  if (!device.mid.empty()) return CalculateAndroidMid(device.mid);
-  return "0";
-}
 
 std::string BuildSignedUrl(const KuGouAndroidRequest& req) {
   std::unordered_map<std::string, std::string> params;
@@ -73,4 +64,4 @@ std::unordered_map<std::string, std::string> BuildAndroidHeaders(const KuGouAndr
   return headers;
 }
 
-}
+}  // namespace echo::core

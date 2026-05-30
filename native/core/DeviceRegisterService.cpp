@@ -1,7 +1,9 @@
 #include "echo/core/DeviceRegisterService.h"
 
 #include "echo/core/Crypto.h"
+#include "echo/core/DeviceService.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/core/StringUtils.h"
 
 #include <algorithm>
 #include <cctype>
@@ -12,20 +14,6 @@
 namespace echo::core {
 namespace {
 
-std::string UrlEncode(const std::string& value) {
-  std::ostringstream stream;
-  stream << std::uppercase << std::hex;
-  for (const unsigned char ch : value) {
-    if ((ch >= 'A' && ch <= 'Z') || (ch >= 'a' && ch <= 'z') ||
-        (ch >= '0' && ch <= '9') ||
-        ch == '-' || ch == '_' || ch == '.' || ch == '~') {
-      stream << static_cast<char>(ch);
-    } else {
-      stream << '%' << std::setw(2) << std::setfill('0') << static_cast<int>(ch);
-    }
-  }
-  return stream.str();
-}
 
 // Build the fixed Xiaomi-Redmi device fingerprint that KuGou expects in the
 // AES-encrypted body. Field names + defaults mirror MakcRe's register_dev.js.
@@ -66,12 +54,6 @@ nlohmann::json BuildDeviceFingerprint(const DeviceInfo& device) {
       {"temperature",        false},
       {"temperatureValue",   ""},
   };
-}
-
-std::string AndroidMidForDevice(const DeviceInfo& device) {
-  if (!device.guid.empty()) return CalculateAndroidMid(device.guid);
-  if (!device.mid.empty()) return CalculateAndroidMid(device.mid);
-  return "0";
 }
 
 }  // namespace
@@ -133,7 +115,7 @@ std::string DeviceRegisterService::Register(
   // The old comment claimed this endpoint needs SignatureRegisterParams
   // (salt="1014"); that was incorrect — the real traffic uses
   // SignatureAndroidParams + lite salt + appid=3116.
-  const auto androidMid = AndroidMidForDevice(device);
+  const auto androidMid = ResolveAndroidMid(device);
   std::unordered_map<std::string, std::string> params = {
       {"appid",     profile.appid},
       {"clientver", profile.clientver},

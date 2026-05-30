@@ -16,8 +16,7 @@ struct KuGouAndroidRequest {
   std::string body;
 };
 
-std::string ResolveAndroidMid(const DeviceInfo& device);
 std::string BuildSignedUrl(const KuGouAndroidRequest& req);
 std::unordered_map<std::string, std::string> BuildAndroidHeaders(const KuGouAndroidRequest& req);
 
-}
+}  // namespace echo::core

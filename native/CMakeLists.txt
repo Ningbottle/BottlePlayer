@@ -85,6 +85,7 @@ add_library(EchoCore STATIC
   core/RankService.cpp
   core/SearchService.cpp
   core/SongUrlService.cpp
+  core/StringUtils.cpp
   core/UserService.cpp
   core/SongService.cpp
   core/PlayHistoryService.cpp
