@@ -11,6 +11,7 @@ struct KuGouAndroidRequest {
   std::string endpoint;
   KuGouProfileParams profile;
   bool includeSongUrlKey = false;
+  bool skipDeviceDefaults = false;  // If true, don't inject dfid/mid/uuid/clienttime defaults
   std::map<std::string, std::string> params;
   DeviceInfo device;
   std::string body;

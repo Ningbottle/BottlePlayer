@@ -1,42 +1,11 @@
 #include "echo/core/SongService.h"
-#include "echo/core/Crypto.h"
+#include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
-#include "echo/core/StringUtils.h"
 
-#include <ctime>
 #include <sstream>
-#include <iomanip>
 
 namespace echo::core {
 namespace {
-
-
-std::string BuildAndroidSignedUrl(
-    const std::string& baseUrl,
-    std::unordered_map<std::string, std::string> params,
-    const std::string& body = "") {
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  if (params.find("appid") == params.end()) params["appid"] = profile.appid;
-  if (params.find("clientver") == params.end()) params["clientver"] = profile.clientver;
-  if (params.find("clienttime") == params.end()) {
-    params["clienttime"] = std::to_string(std::time(nullptr));
-  }
-  if (params.find("mid") == params.end()) params["mid"] = "0";
-  if (params.find("uuid") == params.end()) params["uuid"] = "-";
-  if (params.find("dfid") == params.end()) params["dfid"] = "-";
-
-  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
-
-  std::ostringstream urlStream;
-  urlStream << baseUrl << "?";
-  bool first = true;
-  for (const auto& [key, value] : params) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << UrlEncode(value);
-    first = false;
-  }
-  return urlStream.str();
-}
 
 nlohmann::json MakeError(const std::string& message, long statusCode = 0) {
   return {
@@ -68,10 +37,12 @@ nlohmann::json SongService::GetClimax(const std::string& hash) const {
     }
   }
 
-  std::unordered_map<std::string, std::string> params;
-  params["data"] = data.dump();
+  KuGouAndroidRequest req;
+  req.endpoint = "https://expendablekmrcdn.kugou.com/v1/audio_climax/audio";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  req.params["data"] = data.dump();
 
-  std::string url = BuildAndroidSignedUrl("https://expendablekmrcdn.kugou.com/v1/audio_climax/audio", params);
+  const std::string url = BuildSignedUrl(req);
   const auto result = httpGet_(url, {
     {"Accept", "application/json"},
     {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"}
@@ -87,10 +58,12 @@ nlohmann::json SongService::GetClimax(const std::string& hash) const {
 }
 
 nlohmann::json SongService::GetRanking(const std::string& albumAudioId) const {
-  std::unordered_map<std::string, std::string> params;
-  params["album_audio_id"] = albumAudioId;
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/grow/v1/song_ranking/play_page/ranking_info";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  req.params["album_audio_id"] = albumAudioId;
 
-  std::string url = BuildAndroidSignedUrl("https://gateway.kugou.com/grow/v1/song_ranking/play_page/ranking_info", params);
+  const std::string url = BuildSignedUrl(req);
   const auto result = httpGet_(url, {
     {"Accept", "application/json"},
     {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"}
@@ -106,12 +79,14 @@ nlohmann::json SongService::GetRanking(const std::string& albumAudioId) const {
 }
 
 nlohmann::json SongService::GetRankingFilter(const std::string& albumAudioId, int page, int pageSize) const {
-  std::unordered_map<std::string, std::string> params;
-  params["album_audio_id"] = albumAudioId;
-  params["page"] = std::to_string(page);
-  params["pagesize"] = std::to_string(pageSize);
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/grow/v1/song_ranking/unlock/v2/ranking_filter";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  req.params["album_audio_id"] = albumAudioId;
+  req.params["page"] = std::to_string(page);
+  req.params["pagesize"] = std::to_string(pageSize);
 
-  std::string url = BuildAndroidSignedUrl("https://gateway.kugou.com/grow/v1/song_ranking/unlock/v2/ranking_filter", params);
+  const std::string url = BuildSignedUrl(req);
   const auto result = httpGet_(url, {
     {"Accept", "application/json"},
     {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"}

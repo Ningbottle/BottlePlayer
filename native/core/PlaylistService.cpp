@@ -1,6 +1,7 @@
 #include "echo/core/PlaylistService.h"
 #include "echo/core/Crypto.h"
 #include "echo/core/DeviceService.h"
+#include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
 #include "echo/core/StringUtils.h"
 
@@ -517,38 +518,20 @@ nlohmann::json PlaylistService::GetTracks(
   const bool isUserCollection = id.rfind("collection_", 0) == 0;
   if (isUserCollection) {
     const auto beginIdx = std::to_string((page - 1) * pageSize);
-    const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-    const std::string appid = profile.appid;
-    const std::string clientver = profile.clientver;
-    const auto clienttime = std::to_string(std::time(nullptr));
-    std::unordered_map<std::string, std::string> params = {
-        {"appid", appid},
-        {"clientver", clientver},
-        {"clienttime", clienttime},
-        {"plat", "1"},
-        {"dfid", device.dfid.empty() ? "-" : device.dfid},
-        {"mid", ResolveAndroidMid(device)},
-        {"uuid", "-"},
-        {"global_collection_id", id},
-        {"begin_idx", beginIdx},
-        {"pagesize", std::to_string(pageSize)},
-        {"area_code", "1"},
-    };
-    params["signature"] = SignatureAndroidParams(params, "", profile.saltKind);
+    KuGouAndroidRequest req;
+    req.endpoint = "https://pubsongs.kugou.com/v2/get_other_list_file_nofilt";
+    req.profile = GetKuGouProfile(KuGouEdition::Concept);
+    req.device = device;
+    req.params["plat"] = "1";
+    req.params["global_collection_id"] = id;
+    req.params["begin_idx"] = beginIdx;
+    req.params["pagesize"] = std::to_string(pageSize);
+    req.params["area_code"] = "1";
 
-    std::ostringstream urlStream;
-    // Note: pubsongs endpoint is hosted on pubsongs.kugou.com directly
-    // (NOT under gateway.kugou.com 鈥?gateway returns 404).
-    urlStream << "https://pubsongs.kugou.com/v2/get_other_list_file_nofilt?";
-    bool first = true;
-    for (const auto& [key, value] : params) {
-      if (!first) urlStream << "&";
-      urlStream << key << "=" << UrlEncode(value);
-      first = false;
-    }
+    const auto url = BuildSignedUrl(req);
 
     const auto result = httpGet_(
-        urlStream.str(),
+        url,
         {
             {"Accept", "application/json"},
             {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
@@ -744,36 +727,21 @@ nlohmann::json PlaylistService::GetPlaylistDetail(
   };
   const std::string body = dataPayload.dump();
 
-  const auto clienttime = std::to_string(std::time(nullptr));
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  const std::string appid = profile.appid;
-  const std::string clientver = profile.clientver;
-  std::unordered_map<std::string, std::string> params = {
-      {"appid", appid},
-      {"clientver", clientver},
-      {"clienttime", clienttime},
-      {"plat", "1"},
-      {"userid", userId.empty() ? "0" : userId},
-      {"token", token}
-  };
-  if (!device.dfid.empty()) params["dfid"] = device.dfid;
-  params["mid"] = ResolveAndroidMid(device);
-  params["uuid"] = "-";
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/v3/get_list_info";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  req.device = device;
+  req.body = body;
+  req.params["plat"] = "1";
+  req.params["userid"] = userId.empty() ? "0" : userId;
+  req.params["token"] = token;
+  // Note: BuildSignedUrl will inject dfid default ("-") when device.dfid is empty.
+  // This is consistent with other migrated endpoints (GetTracks, GetUserPlaylists, etc.).
 
-  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
-
-  std::ostringstream urlStream;
-  // Route via gateway.kugou.com + x-router (see GetUserPlaylists comment).
-  urlStream << "https://gateway.kugou.com/v3/get_list_info?";
-  bool first = true;
-  for (const auto& [key, value] : params) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << value;
-    first = false;
-  }
+  const auto url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
-      urlStream.str(),
+      url,
       body,
       {
           {"Accept", "application/json"},
@@ -824,46 +792,37 @@ nlohmann::json PlaylistService::GetUserPlaylists(
   };
   const std::string body = dataPayload.dump();
 
-  const auto clienttime = std::to_string(std::time(nullptr));
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  const std::string appid = profile.appid;
-  const std::string clientver = profile.clientver;
-  std::unordered_map<std::string, std::string> params = {
-      {"appid", appid},
-      {"clientver", clientver},
-      {"clienttime", clienttime},
-      {"plat", "1"},
-      {"dfid", device.dfid.empty() ? "-" : device.dfid},
-      {"mid", ResolveAndroidMid(device)},
-      {"uuid", "-"},
-      {"userid", userId},
-      {"token", token}
-  };
-  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
+  // Pre-set clienttime so URL and HTTP headers use the same value
+  const std::string clienttime = std::to_string(std::time(nullptr));
+  const std::string mid = ResolveAndroidMid(device);
+  const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
 
-  std::ostringstream urlStream;
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/v7/get_all_list";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  req.device = device;
+  req.body = body;
+  req.params["clienttime"] = clienttime;
+  req.params["plat"] = "1";
+  req.params["userid"] = userId;
+  req.params["token"] = token;
+
   // Reference (MakcRe/KuGouMusicApi util/request.js): the base URL is
   // gateway.kugou.com; the x-router header tells KuGou's gateway which
   // backend service to proxy to. Hitting cloudlist.service.kugou.com
   // directly gives WinHttp 12175 (SSL certificate validation failure).
-  urlStream << "https://gateway.kugou.com/v7/get_all_list?";
-  bool first = true;
-  for (const auto& [key, value] : params) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << value;
-    first = false;
-  }
+  const auto url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
-      urlStream.str(),
+      url,
       body,
       {
           {"Accept", "application/json"},
           {"Content-Type", "application/json"},
           {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
-          {"dfid", device.dfid.empty() ? "-" : device.dfid},
+          {"dfid", dfid},
           {"clienttime", clienttime},
-          {"mid", ResolveAndroidMid(device)},
+          {"mid", mid},
           {"kg-rc", "1"},
           {"kg-thash", "5d816a0"},
           {"kg-rec", "1"},
@@ -924,40 +883,23 @@ nlohmann::json PlaylistService::AddPlaylist(
   }
 
   const std::string body = dataPayload.dump();
-  const auto clienttime = std::to_string(std::time(nullptr));
-
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  const std::string appid = profile.appid;
-  const std::string clientver = profile.clientver;
-
-  std::unordered_map<std::string, std::string> params;
-  params["appid"] = appid;
-  params["clientver"] = clientver;
-  params["clienttime"] = clienttime;
-  params["mid"] = ResolveAndroidMid(device);
-  params["uuid"] = "-";
-  params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
-  if (!userId.empty()) params["userid"] = userId;
-  if (!token.empty()) params["token"] = token;
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/cloudlist.service/v5/add_list";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  req.device = device;
+  req.body = body;
+  if (!userId.empty()) req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
 
   if (type == 0) {
-    params["last_time"] = clienttime;
-    params["last_area"] = "gztx";
+    req.params["last_time"] = std::to_string(std::time(nullptr));
+    req.params["last_area"] = "gztx";
   }
 
-  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
-
-  std::ostringstream urlStream;
-  urlStream << "https://gateway.kugou.com/cloudlist.service/v5/add_list?";
-  bool first = true;
-  for (const auto& [key, value] : params) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << UrlEncode(value);
-    first = false;
-  }
+  const auto url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
-      urlStream.str(),
+      url,
       body,
       {
           {"Accept", "application/json"},
@@ -1133,37 +1075,21 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
       {"data", resource}
   };
   const std::string body = dataPayload.dump();
-  const auto clienttime = std::to_string(std::time(nullptr));
 
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  const std::string appid = profile.appid;
-  const std::string clientver = profile.clientver;
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/cloudlist.service/v6/add_song";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  req.device = device;
+  req.body = body;
+  if (!userId.empty()) req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
+  req.params["last_time"] = std::to_string(std::time(nullptr));
+  req.params["last_area"] = "gztx";
 
-  std::unordered_map<std::string, std::string> params;
-  params["appid"] = appid;
-  params["clientver"] = clientver;
-  params["clienttime"] = clienttime;
-  params["mid"] = ResolveAndroidMid(device);
-  params["uuid"] = "-";
-  params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
-  if (!userId.empty()) params["userid"] = userId;
-  if (!token.empty()) params["token"] = token;
-  params["last_time"] = clienttime;
-  params["last_area"] = "gztx";
-
-  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
-
-  std::ostringstream urlStream;
-  urlStream << "https://gateway.kugou.com/cloudlist.service/v6/add_song?";
-  bool first = true;
-  for (const auto& [key, value] : params) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << UrlEncode(value);
-    first = false;
-  }
+  const auto url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
-      urlStream.str(),
+      url,
       body,
       {
           {"Accept", "application/json"},
@@ -1215,35 +1141,19 @@ nlohmann::json PlaylistService::DeletePlaylistTracks(
       {"list_ver", 0}
   };
   const std::string body = dataPayload.dump();
-  const auto clienttime = std::to_string(std::time(nullptr));
 
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  const std::string appid = profile.appid;
-  const std::string clientver = profile.clientver;
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/v4/delete_songs";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  req.device = device;
+  req.body = body;
+  if (!userId.empty()) req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
 
-  std::unordered_map<std::string, std::string> params;
-  params["appid"] = appid;
-  params["clientver"] = clientver;
-  params["clienttime"] = clienttime;
-  params["mid"] = ResolveAndroidMid(device);
-  params["uuid"] = "-";
-  params["dfid"] = device.dfid.empty() ? "-" : device.dfid;
-  if (!userId.empty()) params["userid"] = userId;
-  if (!token.empty()) params["token"] = token;
-
-  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
-
-  std::ostringstream urlStream;
-  urlStream << "https://gateway.kugou.com/v4/delete_songs?";
-  bool first = true;
-  for (const auto& [key, value] : params) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << UrlEncode(value);
-    first = false;
-  }
+  const auto url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
-      urlStream.str(),
+      url,
       body,
       {
           {"Accept", "application/json"},

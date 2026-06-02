@@ -1,5 +1,6 @@
 #include "echo/core/HomeService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
 #include "echo/core/StringUtils.h"
 
@@ -11,23 +12,6 @@
 namespace echo::core {
 namespace {
 
-
-std::string BuildSignedUrl(
-    const std::string& baseUrl,
-    std::unordered_map<std::string, std::string> params,
-    const std::string& body = "") {
-  params["signature"] = SignatureAndroidParams(params, body);
-  std::ostringstream urlStream;
-  urlStream << baseUrl << "?";
-  bool first = true;
-  for (const auto& [key, value] : params) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << value;
-    first = false;
-  }
-  return urlStream.str();
-}
-
 nlohmann::json MakeError(const std::string& message, long statusCode = 0) {
   return {
       {"status", 0},
@@ -35,21 +19,6 @@ nlohmann::json MakeError(const std::string& message, long statusCode = 0) {
       {"status_code", statusCode},
       {"data", nlohmann::json::array()},
   };
-}
-
-std::unordered_map<std::string, std::string> BaseParams(
-    const std::string& userId,
-    const std::string& token) {
-  const auto clienttime = std::to_string(std::time(nullptr));
-  std::unordered_map<std::string, std::string> params = {
-      {"appid", "1014"},
-      {"clientver", "20000"},
-      {"clienttime", clienttime},
-      {"plat", "1"},
-  };
-  if (!userId.empty() && userId != "0") params["userid"] = userId;
-  if (!token.empty()) params["token"] = token;
-  return params;
 }
 
 }  // namespace
@@ -97,9 +66,20 @@ nlohmann::json HomeService::GetBanners(
   };
   const std::string body = dataPayload.dump();
 
-  auto params = BaseParams(userId, token);
-  const std::string url =
-      BuildSignedUrl("https://gateway.kugou.com/ads.gateway/v3/listen_banner", params, body);
+  // Home ads/recommend endpoints use a special "lite" platform identity:
+  // appid=1014, clientver=20000, saltKind=Lite (default).
+  // This does NOT correspond to KuGouEdition::Standard (1005/20489).
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/ads.gateway/v3/listen_banner";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);  // Use Concept for saltKind=Lite
+  req.profile.appid = "1014";  // Override: lite platform appid
+  req.profile.clientver = "20000";  // Override: lite platform clientver
+  req.body = body;
+  req.params["plat"] = "1";
+  if (!userId.empty() && userId != "0") req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
+
+  const std::string url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
       url,
@@ -125,10 +105,18 @@ nlohmann::json HomeService::GetEverydayRecommend(
   // Empty body — the endpoint uses query params only.
   const std::string body;
 
-  auto params = BaseParams(userId, token);
-  params["platform"] = "ios";
-  const std::string url =
-      BuildSignedUrl("https://gateway.kugou.com/everyday_song_recommend", params, body);
+  // Same lite platform identity as GetBanners.
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/everyday_song_recommend";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);  // Use Concept for saltKind=Lite
+  req.profile.appid = "1014";  // Override: lite platform appid
+  req.profile.clientver = "20000";  // Override: lite platform clientver
+  req.params["plat"] = "1";
+  req.params["platform"] = "ios";
+  if (!userId.empty() && userId != "0") req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
+
+  const std::string url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
       url,
@@ -214,32 +202,17 @@ nlohmann::json HomeService::GetImagesAudio(const std::string& hash,
   }
 
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  std::unordered_map<std::string, std::string> paramsMap;
-  paramsMap["appid"] = profile.appid;
-  paramsMap["clientver"] = profile.clientver;
-  paramsMap["count"] = std::to_string(count);
-  paramsMap["data"] = data.dump();
-  paramsMap["isCdn"] = "1";
-  paramsMap["publish_time"] = "1";
-  paramsMap["show_authors"] = "1";
+  KuGouAndroidRequest req;
+  req.endpoint = "https://expendablekmr.kugou.com/v2/author_image/audio";
+  req.profile = profile;
+  req.skipDeviceDefaults = true;  // This endpoint doesn't use device fingerprint params
+  req.params["count"] = std::to_string(count);
+  req.params["data"] = data.dump();
+  req.params["isCdn"] = "1";
+  req.params["publish_time"] = "1";
+  req.params["show_authors"] = "1";
 
-  const std::string signature = SignatureAndroidParams(paramsMap, "", profile.saltKind);
-
-  std::vector<std::string> keys;
-  keys.reserve(paramsMap.size());
-  for (const auto& [k, _] : paramsMap) keys.push_back(k);
-  std::sort(keys.begin(), keys.end());
-
-  std::ostringstream urlStream;
-  urlStream << "https://expendablekmr.kugou.com/v2/author_image/audio?";
-  bool first = true;
-  for (const auto& key : keys) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << UrlEncode(paramsMap[key]);
-    first = false;
-  }
-  urlStream << "&signature=" << signature;
-  std::string url = urlStream.str();
+  const std::string url = BuildSignedUrl(req);
 
   const auto result = httpGet_(url, {
     {"Accept", "application/json"},

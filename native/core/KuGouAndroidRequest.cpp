@@ -2,6 +2,7 @@
 
 #include "echo/core/Crypto.h"
 #include "echo/core/DeviceService.h"
+#include "echo/core/StringUtils.h"
 
 #include <chrono>
 #include <ctime>
@@ -13,23 +14,28 @@ namespace echo::core {
 std::string BuildSignedUrl(const KuGouAndroidRequest& req) {
   std::unordered_map<std::string, std::string> params;
   
-  std::string clienttime = req.params.count("clienttime") ? req.params.at("clienttime") : std::to_string(std::time(nullptr));
+  // Always inject appid and clientver
+  params["appid"] = req.profile.appid;
+  params["clientver"] = req.profile.clientver;
+
+  // Compute device values (needed for includeSongUrlKey even if skipDeviceDefaults)
   std::string dfid = req.device.dfid.empty() ? "-" : req.device.dfid;
   std::string mid = ResolveAndroidMid(req.device);
   std::string uuid = req.device.guid.empty() ? "-" : req.device.guid;
 
-  params["appid"] = req.profile.appid;
-  params["clientver"] = req.profile.clientver;
-  params["clienttime"] = clienttime;
-  params["dfid"] = dfid;
-  params["mid"] = mid;
-  params["uuid"] = uuid;
+  // Inject device defaults unless skipDeviceDefaults is set
+  if (!req.skipDeviceDefaults) {
+    std::string clienttime = req.params.count("clienttime") ? req.params.at("clienttime") : std::to_string(std::time(nullptr));
+
+    params["clienttime"] = clienttime;
+    params["dfid"] = dfid;
+    params["mid"] = mid;
+    params["uuid"] = uuid;
+  }
 
   for (const auto& [k, v] : req.params) {
     params[k] = v;
   }
-
-  params["signature"] = SignatureAndroidParams(params, req.body, req.profile.saltKind);
 
   if (req.includeSongUrlKey) {
     std::string hash = params.count("hash") ? params["hash"] : "";
@@ -39,12 +45,14 @@ std::string BuildSignedUrl(const KuGouAndroidRequest& req) {
     }
   }
 
+  params["signature"] = SignatureAndroidParams(params, req.body, req.profile.saltKind);
+
   std::ostringstream urlStream;
   urlStream << req.endpoint << "?";
   bool first = true;
   for (const auto& [k, v] : params) {
     if (!first) urlStream << "&";
-    urlStream << k << "=" << v;
+    urlStream << k << "=" << UrlEncode(v);
     first = false;
   }
   return urlStream.str();

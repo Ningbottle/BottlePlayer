@@ -166,8 +166,36 @@ endif()
 
 if(ECHO_NATIVE_BUILD_TESTS)
   enable_testing()
+
+  # Full smoke test (monolithic, 3484 lines)
   add_executable(EchoNativeSmokeTests tests/basic_contract_tests.cpp)
   target_include_directories(EchoNativeSmokeTests PRIVATE include)
   target_link_libraries(EchoNativeSmokeTests PRIVATE EchoCore EchoPlayback EchoAsync EchoImage EchoDiagnostics EchoWin32Layout)
   add_test(NAME EchoNativeSmokeTests COMMAND EchoNativeSmokeTests)
+
+  # Independent contract test targets (P1: split from smoke for faster feedback)
+  add_executable(EchoRouteContractTest tests/route_contract_test.cpp)
+  target_include_directories(EchoRouteContractTest PRIVATE include)
+  target_link_libraries(EchoRouteContractTest PRIVATE EchoCore EchoStorage)
+  add_test(NAME EchoRouteContractTest COMMAND EchoRouteContractTest)
+
+  add_executable(EchoSongUrlContractTest tests/songurl_contract_test.cpp)
+  target_include_directories(EchoSongUrlContractTest PRIVATE include)
+  target_link_libraries(EchoSongUrlContractTest PRIVATE EchoCore)
+  add_test(NAME EchoSongUrlContractTest COMMAND EchoSongUrlContractTest)
+
+  add_executable(EchoPlaylistContractTest tests/playlist_contract_test.cpp)
+  target_include_directories(EchoPlaylistContractTest PRIVATE include)
+  target_link_libraries(EchoPlaylistContractTest PRIVATE EchoCore)
+  add_test(NAME EchoPlaylistContractTest COMMAND EchoPlaylistContractTest)
+
+  add_executable(EchoProfileSignatureContractTest tests/profile_signature_contract_test.cpp)
+  target_include_directories(EchoProfileSignatureContractTest PRIVATE include)
+  target_link_libraries(EchoProfileSignatureContractTest PRIVATE EchoCore)
+  add_test(NAME EchoProfileSignatureContractTest COMMAND EchoProfileSignatureContractTest)
+
+  add_executable(EchoHomeContractTest tests/home_contract_test.cpp)
+  target_include_directories(EchoHomeContractTest PRIVATE include)
+  target_link_libraries(EchoHomeContractTest PRIVATE EchoCore)
+  add_test(NAME EchoHomeContractTest COMMAND EchoHomeContractTest)
 endif()
