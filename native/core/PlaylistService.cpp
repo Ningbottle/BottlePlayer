@@ -223,6 +223,41 @@ std::string ExtractJsonBody(std::string body) {
   return body.substr(first, last - first + 1);
 }
 
+// Shared tracks-output builder: normalizes upstream tracks into the standard
+// {status, error, data: {songs, info, list, songlist, total, page, pagesize, id}, raw} shape.
+nlohmann::json BuildTracksFromUpstream(
+    const nlohmann::json& upstream,
+    const std::string& id,
+    int page,
+    int pageSize,
+    int upstreamStatus = 1) {
+  const auto data = upstream.value("data", nlohmann::json::object());
+  const auto info = data.value("info", data.value("songs", nlohmann::json::array()));
+  nlohmann::json songs = nlohmann::json::array();
+  if (info.is_array()) {
+    for (const auto& raw : info) {
+      if (raw.is_object()) songs.push_back(NormalizeTrack(raw));
+    }
+  }
+  const auto total = data.value("total", data.value("count", data.value("total_count", static_cast<int>(songs.size()))));
+  return {
+      {"status", upstream.value("status", upstreamStatus)},
+      {"error", upstream.value("error", "")},
+      {"data",
+       {
+           {"songs", songs},
+           {"info", songs},
+           {"list", songs},
+           {"songlist", songs},
+           {"total", total},
+           {"page", page},
+           {"pagesize", pageSize},
+           {"id", id},
+       }},
+      {"raw", upstream},
+  };
+}
+
 nlohmann::json NormalizeTag(const nlohmann::json& raw) {
   const auto tagId = ReadInt(raw, "special_tag_id", ReadInt(raw, "tag_id", ReadInt(raw, "id")));
   const auto id = ReadInt(raw, "id", tagId);
@@ -316,7 +351,8 @@ nlohmann::json NormalizeUserPlaylistMeta(const nlohmann::json& raw) {
 
   item["id"] = id;
   item["global_collection_id"] = id;
-  item["listid"] = id;
+  const auto listid = ReadFirstString(raw, {"listid", "list_id"});
+  item["listid"] = listid.empty() ? id : listid;
   item["specialid"] = id;
   item["name"] = name.empty() ? "无标题歌单" : name;
   item["listname"] = item["name"];
@@ -531,31 +567,7 @@ nlohmann::json PlaylistService::GetTracks(
     }
 
     // Response shape: { status:1, data:{ info:[ {hash,filename,...} ], count } }
-    const auto data = upstream.value("data", nlohmann::json::object());
-    const auto info = data.value("info", data.value("songs", nlohmann::json::array()));
-    nlohmann::json songs = nlohmann::json::array();
-    if (info.is_array()) {
-      for (const auto& raw : info) {
-        if (raw.is_object()) songs.push_back(NormalizeTrack(raw));
-      }
-    }
-    const auto total = data.value("count", data.value("total", static_cast<int>(songs.size())));
-    return {
-        {"status", upstream.value("status", 1)},
-        {"error", upstream.value("error", "")},
-        {"data",
-         {
-             {"songs", songs},
-             {"info", songs},
-             {"list", songs},
-             {"songlist", songs},
-             {"total", total},
-             {"page", page},
-             {"pagesize", pageSize},
-             {"id", id},
-         }},
-        {"raw", upstream},
-    };
+    return BuildTracksFromUpstream(upstream, id, page, pageSize);
   }
 
   const auto url = "http://mobilecdn.kugou.com/api/v3/special/song?specialid=" + UrlEncode(id) +
@@ -580,32 +592,7 @@ nlohmann::json PlaylistService::GetTracks(
     return ErrorTracks(id, page, pageSize, std::string("Invalid Kugou playlist JSON: ") + error.what());
   }
 
-  const auto data = upstream.value("data", nlohmann::json::object());
-  const auto info = data.value("info", nlohmann::json::array());
-  nlohmann::json songs = nlohmann::json::array();
-  if (info.is_array()) {
-    for (const auto& raw : info) {
-      if (raw.is_object()) songs.push_back(NormalizeTrack(raw));
-    }
-  }
-
-  const auto total = data.value("total", static_cast<int>(songs.size()));
-  return {
-      {"status", 1},
-      {"error", upstream.value("error", "")},
-      {"data",
-       {
-           {"songs", songs},
-           {"info", songs},
-           {"list", songs},
-           {"songlist", songs},
-           {"total", total},
-           {"page", page},
-           {"pagesize", pageSize},
-           {"id", id},
-       }},
-      {"raw", upstream},
-  };
+  return BuildTracksFromUpstream(upstream, id, page, pageSize);
 }
 
 nlohmann::json PlaylistService::GetTags() const {
@@ -1117,10 +1104,28 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
     resource.push_back(item);
   }
 
+  // 从 collection_3_<userid>_<listid>_0 格式中提取纯数字 listid
+  std::string effectiveListId = listId;
+  if (listId.rfind("collection_", 0) == 0) {
+    std::vector<std::string> parts;
+    std::stringstream pss(listId);
+    std::string part;
+    while (std::getline(pss, part, '_')) {
+      parts.push_back(part);
+    }
+    if (parts.size() >= 4 && !parts[3].empty()) {
+      effectiveListId = parts[3];
+    }
+  }
+
+  auto isNumeric = [](const std::string& s) {
+    return !s.empty() && s.find_first_not_of("0123456789") == std::string::npos;
+  };
+
   nlohmann::json dataPayload = {
       {"userid", userId.empty() ? 0 : std::stoll(userId)},
       {"token", token},
-      {"listid", listId.empty() ? 0 : std::stoll(listId)},
+      {"listid", (!isNumeric(effectiveListId)) ? 0 : std::stoll(effectiveListId)},
       {"list_ver", 0},
       {"type", 0},
       {"slow_upload", 1},

@@ -10,12 +10,15 @@
 
 namespace echo::async {
 
+class RequestScheduler;  // Forward declaration for friend access
+
 class CancellationToken {
  public:
   bool IsCancellationRequested() const;
 
  private:
   friend class CancellationSource;
+  friend class RequestScheduler;  // Allow RequestScheduler templates to construct tokens
   explicit CancellationToken(std::shared_ptr<std::atomic_bool> cancelled);
 
   std::shared_ptr<std::atomic_bool> cancelled_;

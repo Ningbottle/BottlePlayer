@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the main window — allows spawning EchoCompatServer sidecar.",
+  "description": "Capability for the main window — native FFI backend (EchoCAPI.dll) + GitHub auto-update.",
   "windows": ["main"],
   "permissions": [
     "core:default",
@@ -10,20 +10,6 @@
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
     "opener:default",
-    {
-      "identifier": "shell:allow-execute",
-      "allow": [
-        {
-          "name": "binaries/EchoCompatServer",
-          "sidecar": true,
-          "args": [
-            "--host",
-            { "validator": "^127\\.0\\.0\\.1$" },
-            "--port",
-            { "validator": "^\\d{2,5}$" }
-          ]
-        }
-      ]
-    }
+    "updater:default"
   ]
 }

@@ -13,6 +13,7 @@ import PlaylistView from './views/PlaylistView.vue';
 import LyricView from './views/LyricView.vue';
 import SettingsView from './views/SettingsView.vue';
 import LoginView from './views/LoginView.vue';
+import HistoryView from './views/HistoryView.vue';
 
 import { initPlayer } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
@@ -238,6 +239,9 @@ onUnmounted(() => {
         <LoginView 
           v-else-if="currentView === 'login'" 
           @navigate="handleNavigate"
+        />
+        <HistoryView 
+          v-else-if="currentView === 'history'" 
         />
       </div>
 

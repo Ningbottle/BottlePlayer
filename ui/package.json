@@ -10,12 +10,15 @@
     "tauri": "tauri",
     "backend:build": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-backend.ps1",
     "backend:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/sync-backend.ps1",
-    "predev": "pnpm backend:sync"
+    "predev": "pnpm backend:sync",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-shell": "^2",
+    "@tauri-apps/plugin-updater": "^2.10.1",
     "qrcode": "^1.5.4",
     "vue": "^3.5.13"
   },
@@ -23,8 +26,11 @@
     "@tauri-apps/cli": "^2",
     "@types/qrcode": "^1.5.6",
     "@vitejs/plugin-vue": "^5.2.1",
+    "@vue/test-utils": "^2.4.10",
+    "jsdom": "^29.1.1",
     "typescript": "~5.6.2",
     "vite": "^6.0.3",
+    "vitest": "^4.1.7",
     "vue-tsc": "^2.1.10"
   }
 }
