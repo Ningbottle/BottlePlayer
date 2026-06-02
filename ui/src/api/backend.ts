@@ -70,3 +70,12 @@ export async function apiGet<T = unknown>(path: string, query?: Record<string, s
   }
   return r.body as T;
 }
+
+/** 通用 POST（返回 JSON）。 */
+export async function apiPost<T = unknown>(path: string, body?: string, query?: Record<string, string | number>): Promise<T> {
+  const r = await ipcRequest('POST', path, query, undefined, body);
+  if (r.status < 200 || r.status >= 300) {
+    throw new Error("HTTP " + r.status + " (via IPC)");
+  }
+  return r.body as T;
+}

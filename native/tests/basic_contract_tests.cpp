@@ -2407,7 +2407,7 @@ int main() {
       capturedPostBody = body;
       echo::core::HttpResult res;
       res.statusCode = 200;
-      res.body = R"({"errcode":0,"data":{"lists":[{"global_collection_id":"gid42","listname":"My Playlist"}],"total":1}})";
+      res.body = R"({"errcode":0,"data":{"lists":[{"global_collection_id":"collection_3_42_67890_0","listid":"67890","listname":"My Playlist"}],"total":1}})";
       return res;
     };
 
@@ -2415,7 +2415,9 @@ int main() {
     auto userResult = userPlaylistSvc.GetUserPlaylists("42", "tok", 1, 30);
     assert(userResult["status"].get<int>() == 1);
     assert(userResult["data"]["list"].size() == 1);
-    assert(userResult["data"]["list"][0]["id"].get<std::string>() == "gid42");
+    assert(userResult["data"]["list"][0]["id"].get<std::string>() == "collection_3_42_67890_0");
+    assert(userResult["data"]["list"][0]["global_collection_id"].get<std::string>() == "collection_3_42_67890_0");
+    assert(userResult["data"]["list"][0]["listid"].get<std::string>() == "67890");
     assert(userResult["data"]["list"][0]["name"].get<std::string>() == "My Playlist");
     assert(capturedPostUrl.find("gateway.kugou.com/v7/get_all_list") != std::string::npos);
     assert(capturedPostUrl.find("signature=") != std::string::npos);
@@ -3219,6 +3221,260 @@ int main() {
     }
     assert(contentLength == 0);
     std::cout << "  [ok] ParseHttpRequest malformed Content-Length" << std::endl;
+  }
+
+  // ── CompatApi route table contract ────────────────────────────────────
+  // Pins the public route-set so that refactors (P2 route dedup) have a
+  // green baseline.  Any route addition / removal must update this table.
+  std::cout << "[Test] Testing CompatApi route table contract..." << std::endl;
+  {
+    // Every route listed in kKnownRoutes must be recognised.
+    const char* contractRoutes[] = {
+        "/health",
+        "/server/now",
+        "/diagnostics/memory",
+        "/register/dev",
+        "/login/qr/key",
+        "/login/qr/create",
+        "/login/qr/check",
+        "/auth/logout",
+        "/settings/device",
+        "/captcha/sent",
+        "/login/cellphone",
+        "/login/wx/create",
+        "/login/wx/check",
+        "/login/openplat",
+        "/user/detail",
+        "/user/vip/detail",
+        "/youth/day/vip",
+        "/youth/day/vip/upgrade",
+        "/youth/listen/song",
+        "/youth/vip/ad",
+        "/youth/month/vip/record",
+        "/user/history",
+        "/playhistory/upload",
+        "/user/cloud",
+        "/user/cloud/url",
+        "/search",
+        "/search/hot",
+        "/search/default",
+        "/search/suggest",
+        "/search/lyric",
+        "/lyric",
+        "/song/url",
+        "/privilege/lite",
+        "/top/song",
+        "/top/album",
+        "/everyday/recommend",
+        "/song/climax",
+        "/song/ranking",
+        "/song/ranking/filter",
+        "/images/audio",
+        "/playlist/recommend",
+        "/playlist/detail",
+        "/playlist/track/all",
+        "/playlist/track/all/new",
+        "/user/playlist",
+        "/rank/list",
+        "/playlist/tags",
+        "/rank/top",
+        "/top/playlist",
+        "/top/ip",
+        "/rank/audio",
+        "/playlist/tracks/add",
+        "/playlist/tracks/del",
+        "/playlist/add",
+        "/playlist/del",
+        "/album/detail",
+        "/album/songs",
+        "/artist/detail",
+        "/artist/audios",
+        "/artist/albums",
+        "/artist/follow",
+        "/artist/unfollow",
+        "/comment/music",
+        "/comment/music/classify",
+        "/comment/music/hotword",
+        "/comment/playlist",
+        "/comment/album",
+        "/comment/floor",
+        "/comment/count",
+        "/favorite/count",
+        "/video/url",
+    };
+    const size_t contractRouteCount = sizeof(contractRoutes) / sizeof(contractRoutes[0]);
+    for (size_t i = 0; i < contractRouteCount; ++i) {
+      assert(echo::core::IsKnownCompatRoute(contractRoutes[i]));
+    }
+
+    // Hardcoded fallback routes (not in kKnownRoutes but recognised by IsKnownCompatRoute)
+    assert(echo::core::IsKnownCompatRoute("/kmr/audio/mv"));
+    assert(echo::core::IsKnownCompatRoute("/video/privilege"));
+    assert(echo::core::IsKnownCompatRoute("/video/detail"));
+
+    // Unknown routes must NOT be recognised.
+    assert(!echo::core::IsKnownCompatRoute("/nonexistent"));
+    assert(!echo::core::IsKnownCompatRoute("/unknown/route"));
+    assert(!echo::core::IsKnownCompatRoute("/"));
+    assert(!echo::core::IsKnownCompatRoute(""));
+
+    std::cout << "  [ok] IsKnownCompatRoute: " << contractRouteCount << " contract routes + 3 fallback routes recognised, unknown routes rejected" << std::endl;
+  }
+
+  // ── CompatApi unknown-route contract ───────────────────────────────────
+  {
+    std::cout << "[Test] Testing CompatApi unknown-route 404..." << std::endl;
+    echo::storage::Database routeDb;
+    routeDb.Open(TestDbPath());
+    routeDb.Initialize();
+    echo::core::CompatApi routeApi(routeDb);
+
+    auto unknown = routeApi.Handle("GET", "/not/a/route", {}, {}, "");
+    assert(unknown.httpStatus == 404);
+    assert(unknown.body["status"] == 0);
+    assert(unknown.body["error_code"] == 404);
+
+    // POST to unknown route must also 404.
+    auto unknownPost = routeApi.Handle("POST", "/bad/post", {}, {}, "{}");
+    assert(unknownPost.httpStatus == 404);
+
+    std::cout << "  [ok] CompatApi returns 404 for unknown routes" << std::endl;
+  }
+
+  // ── SongUrl public Interface shape contract ────────────────────────────
+  // Pins the normalized output shape so P3 (SongUrlService refactor)
+  // has a contract to validate against.
+  std::cout << "[Test] Testing SongUrl public Interface shape contract..." << std::endl;
+  {
+    echo::core::SongUrlService songUrlContractSvc([](
+        const std::string&,
+        const std::unordered_map<std::string, std::string>&) {
+      return echo::core::HttpResult{
+          200,
+          R"({"status":1,"hash":"ABC123","url":"http://cdn.example/abc.flac","backup_url":["http://cdn.example/bak.flac"],"fileName":"歌手 - 歌名","songName":"歌名","singerName":"歌手","albumid":966846,"album_audio_id":32100650,"audio_id":20505418,"timeLength":269000,"bitRate":320,"extName":"flac","privilege":10,"pay_type":3})",
+          ""};
+    });
+
+    // Public shape contract: every resolve call must return these fields.
+    const auto contractUrl = songUrlContractSvc.Resolve("ABC123", "", "");
+    assert(contractUrl.contains("status"));
+    assert(contractUrl.contains("url"));
+    assert(contractUrl.contains("data"));
+    assert(contractUrl["data"].contains("play_url"));
+    assert(contractUrl["data"]["play_url"] == "http://cdn.example/abc.flac");
+    assert(contractUrl["data"].contains("backup_url"));
+    assert(contractUrl["data"]["backup_url"].is_array());
+    assert(contractUrl["data"].contains("hash"));
+    assert(contractUrl["data"].contains("song_name"));
+    assert(contractUrl["data"].contains("singer_name"));
+    assert(contractUrl["data"].contains("time_length"));
+    assert(contractUrl["data"].contains("bit_rate"));
+    assert(contractUrl["data"].contains("ext_name"));
+    assert(contractUrl["data"].contains("privilege"));
+    assert(contractUrl["data"].contains("pay_type"));
+    assert(contractUrl["data"].contains("album_audio_id"));
+    assert(contractUrl["data"].contains("audio_id"));
+    assert(contractUrl["data"].contains("album_id"));
+
+    // ResolveV6PrivUrl must also conform to the same shape.
+    echo::core::DeviceInfo v6Device;
+    v6Device.dfid = "v6-dfid";
+    v6Device.guid = "v6-guid";
+    const auto v6Url = songUrlContractSvc.ResolveV6PrivUrl(
+        "VIPHASH", "123", "42", "tok", "vipTok", 3, v6Device);
+    assert(v6Url.contains("status"));
+    assert(v6Url.contains("url"));
+    assert(v6Url.contains("data"));
+    assert(v6Url["data"].contains("play_url"));
+    assert(v6Url["data"].contains("hash"));
+
+    echo::core::SongUrlService v6QualitySvc(
+        [](const std::string&,
+           const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{500, "{}", "unexpected v5 fallback"};
+        },
+        [](const std::string&,
+           const std::string&,
+           const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{
+              200,
+              R"({"status":1,"data":[{"url":"http://cdn.example/song-128.mp3","info":{"bitrate":128,"filesize":1000,"extname":"mp3","songName":"歌名","singerName":"歌手","timeLength":269000}},{"url":"http://cdn.example/song-320.mp3","info":{"bitrate":320,"filesize":2000,"extname":"mp3","songName":"歌名","singerName":"歌手","timeLength":269000}}]})",
+              ""};
+        });
+    const auto requested128 = v6QualitySvc.Resolve(
+        "ABC123", "", "32100650", "128", "", "42", "tok", v6Device);
+    assert(requested128["status"] == 1);
+    assert(requested128["url"] == "http://cdn.example/song-128.mp3");
+    assert(requested128["play_url"] == "http://cdn.example/song-128.mp3");
+    assert(requested128["data"]["quality"] == "128");
+    assert(requested128["data"]["available_qualities"].size() == 2);
+
+    std::cout << "  [ok] SongUrl Resolve / ResolveV6PrivUrl output shape contract" << std::endl;
+  }
+
+  // ── Playlist public Interface shape contract ───────────────────────────
+  // Pins the normalized output shape so P4 (PlaylistService normalizer)
+  // has a contract to validate against.
+  std::cout << "[Test] Testing Playlist public Interface shape contract..." << std::endl;
+  {
+    auto mockGet = [](const std::string&,
+                      const std::unordered_map<std::string, std::string>&) -> echo::core::HttpResult {
+      return {200, R"({"status":1,"data":{"info":[{"hash":"h1","filename":"A - Song","duration":240,"album_audio_id":1,"audio_id":2,"album_id":3,"privilege":10,"pay_type":3}],"total":1}})", ""};
+    };
+
+    echo::core::PlaylistService playlistContractSvc(mockGet);
+
+    // GetTracks output shape
+    const auto tracks = playlistContractSvc.GetTracks("1", 1, 10);
+    assert(tracks.contains("status"));
+    assert(tracks.contains("data"));
+    assert(tracks["data"].contains("songs"));
+    assert(tracks["data"]["songs"].is_array());
+    assert(tracks["data"]["songs"].size() == 1);
+    const auto& song = tracks["data"]["songs"][0];
+    assert(song.contains("hash"));
+    assert(song.contains("songname"));
+    assert(song.contains("singername"));
+    assert(song.contains("timelen"));
+    assert(song.contains("album_audio_id"));
+    assert(song.contains("audio_id"));
+    assert(song.contains("album_id"));
+    assert(song.contains("privilege"));
+    assert(song.contains("pay_type"));
+    std::cout << "  [ok] PlaylistService::GetTracks output shape contract" << std::endl;
+  }
+
+  {
+    auto mockPost = [](const std::string&,
+                       const std::string&,
+                       const std::unordered_map<std::string, std::string>&) -> echo::core::HttpResult {
+      return {200, R"({"errcode":0,"data":{"lists":[{"global_collection_id":"c_1","listid":"1","listname":"P1","songcount":5,"img":"img.jpg"}],"total":1}})", ""};
+    };
+
+    echo::core::PlaylistService userPlaylistContractSvc(
+        [](const std::string&, const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{200, "{}", ""};
+        },
+        mockPost);
+
+    // GetUserPlaylists output shape
+    const auto userLists = userPlaylistContractSvc.GetUserPlaylists("42", "tok", 1, 30);
+    assert(userLists.contains("status"));
+    assert(userLists["status"] == 1);
+    assert(userLists.contains("data"));
+    assert(userLists["data"].contains("list"));
+    assert(userLists["data"]["list"].is_array());
+    assert(userLists["data"]["list"].size() == 1);
+    const auto& pl = userLists["data"]["list"][0];
+    assert(pl.contains("id"));
+    assert(pl.contains("global_collection_id"));
+    assert(pl.contains("listid"));
+    assert(pl.contains("name"));
+    assert(pl.contains("songcount"));
+    assert(pl.contains("img"));
+    assert(pl["id"] == "c_1");
+    assert(pl["listid"] == "1");
+    std::cout << "  [ok] PlaylistService::GetUserPlaylists output shape contract" << std::endl;
   }
 
   std::cout << "[Test] All tests completed successfully!" << std::endl;

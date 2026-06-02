@@ -165,6 +165,89 @@ void ClearAuth(std::unordered_map<std::string, std::string>& params) {
   params["uuid"] = "-";
 }
 
+// ── Shared normalization helpers ───────────────────────────────────────
+
+std::string NormalizeHash(std::string hash) {
+  hash = Trim(std::move(hash));
+  std::transform(hash.begin(), hash.end(), hash.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  return hash;
+}
+
+struct SongUrlOutput {
+  std::string hash;
+  std::string reqHash;
+  std::string quality;
+  std::string playUrl;
+  bool isPreview = false;
+  bool vipRequired = false;
+  nlohmann::json backupUrls = nlohmann::json::array();
+  nlohmann::json availableQualities = nlohmann::json::array();
+  nlohmann::json raw;
+  // Error fields
+  std::string error;
+  std::string errorCode;
+  // Metadata
+  std::string fileName;
+  std::string songName;
+  std::string singerName;
+  int timeLength = 0;
+  int bitRate = 0;
+  std::string extName;
+  // Optional (V5 only)
+  int albumid = 0;
+  int albumAudioId = 0;
+  int audioId = 0;
+  int privilege = 0;
+  int payType = 0;
+};
+
+nlohmann::json BuildSongUrlOutput(SongUrlOutput out) {
+  const bool ok = !out.playUrl.empty();
+  return {
+      {"status", ok ? 1 : 0},
+      {"error", out.error},
+      {"error_code", out.errorCode},
+      {"url", out.playUrl},
+      {"play_url", out.playUrl},
+      {"playUrl", out.playUrl},
+      {"is_preview", out.isPreview},
+      {"vip_required", out.vipRequired},
+      {"data",
+       {
+           {"hash", out.hash},
+           {"req_hash", out.reqHash.empty() ? out.hash : out.reqHash},
+           {"quality", out.quality},
+           {"url", out.playUrl},
+           {"play_url", out.playUrl},
+           {"playUrl", out.playUrl},
+           {"is_preview", out.isPreview},
+           {"vip_required", out.vipRequired},
+           {"backup_url", out.backupUrls},
+           {"file_name", out.fileName},
+           {"fileName", out.fileName},
+           {"song_name", out.songName},
+           {"songName", out.songName},
+           {"singer_name", out.singerName},
+           {"singerName", out.singerName},
+           {"album_id", out.albumid},
+           {"albumid", out.albumid},
+           {"album_audio_id", out.albumAudioId},
+           {"audio_id", out.audioId},
+           {"time_length", out.timeLength},
+           {"timeLength", out.timeLength},
+           {"bit_rate", out.bitRate},
+           {"bitRate", out.bitRate},
+           {"ext_name", out.extName},
+           {"extName", out.extName},
+           {"privilege", out.privilege},
+           {"pay_type", out.payType},
+           {"available_qualities", out.availableQualities},
+           {"raw", out.raw},
+       }},
+  };
+}
+
 }  // namespace
 
 SongUrlService::SongUrlService()
@@ -205,9 +288,7 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
     return EmptySongUrl(hash, "", "No HTTP POST handler available");
   }
 
-  hash = Trim(std::move(hash));
-  std::transform(hash.begin(), hash.end(), hash.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  hash = NormalizeHash(std::move(hash));
   if (hash.empty()) {
     return EmptySongUrl(hash, "", "Missing song hash");
   }
@@ -343,16 +424,93 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
 
   std::string playUrl;
   std::string bestQuality;
+  int bestBitRate = -1;  // 跟踪最高 bitrate，用于选择最佳音质
   nlohmann::json backupUrls = nlohmann::json::array();
+  nlohmann::json availableQualities = nlohmann::json::array();
+  // 元数据字段（v6 数组路径和 v5 路径都需要）
+  std::string fileName;
+  std::string songName;
+  std::string singerName;
+  int timeLength = 0;
+  int bitRate = 0;
+  std::string extName;
 
-  if (upstream.contains("data") && upstream["data"].is_object()) {
+  // v6 API 返回格式: data 是数组 [{info: {filesize, extname, bitrate, ...}, ...}]
+  // 需要从 data 数组中提取音质信息
+  if (upstream.contains("data") && upstream["data"].is_array()) {
+    for (const auto& item : upstream["data"]) {
+      if (!item.is_object()) continue;
+      
+      // 提取 URL
+      const auto itemUrl = ReadString(item, "url");
+      const auto itemBackup = ReadString(item, "backupUrl");
+      
+      // 提取音质信息从 info 对象
+      if (item.contains("info") && item["info"].is_object()) {
+        const auto& info = item["info"];
+        const auto itemBitRate = ReadInt(info, "bitrate", 0);
+        // 将 bitrate 转换为语义化标签，与前端 qualityLabels 一致
+        std::string itemQuality;
+        if (itemBitRate >= 2000) itemQuality = "master";
+        else if (itemBitRate >= 1400) itemQuality = "flac";
+        else if (itemBitRate >= 320) itemQuality = "320";
+        else itemQuality = "128";
+        const auto itemSize = ReadInt(info, "filesize", 0);
+        const auto itemExt = ReadString(info, "extname");
+        
+        // 仅在有 URL 时才加入可用音质列表
+        if (!itemUrl.empty() || !itemBackup.empty()) {
+          nlohmann::json qualityEntry = {
+              {"quality", itemQuality},
+              {"url", itemUrl.empty() ? itemBackup : itemUrl},
+              {"fileSize", itemSize},
+              {"bitRate", itemBitRate},
+              {"extName", itemExt},
+          };
+          availableQualities.push_back(qualityEntry);
+        }
+        
+        // 选择最高 bitrate 的音质作为默认播放 URL
+        const auto candidateUrl = itemUrl.empty() ? itemBackup : itemUrl;
+        if (!candidateUrl.empty() && itemBitRate > bestBitRate) {
+          if (!playUrl.empty()) {
+            backupUrls.push_back(playUrl);  // 旧的最佳降级为备份
+          }
+          playUrl = candidateUrl;
+          bestBitRate = itemBitRate;
+          bestQuality = itemQuality;
+          fileName = ReadString(info, "fileName");
+          songName = ReadString(info, "songName");
+          singerName = ReadString(info, "singerName");
+          timeLength = ReadInt(info, "timeLength", 0);
+          bitRate = itemBitRate;
+          extName = itemExt;
+        } else if (!candidateUrl.empty()) {
+          backupUrls.push_back(candidateUrl);
+        }
+      }
+    }
+  }
+  // Fallback: v5 API 返回格式: data 是对象 {url: [...]}
+  else if (upstream.contains("data") && upstream["data"].is_object()) {
     const auto& data = upstream["data"];
+    
     if (data.contains("url") && data["url"].is_array()) {
       for (const auto& item : data["url"]) {
         if (!item.is_object()) continue;
         const auto itemUrl = ReadString(item, "url");
         if (itemUrl.empty()) continue;
         const auto itemQuality = ReadString(item, "quality");
+        const auto itemSize = ReadInt(item, "fileSize", 0);
+        const auto itemBitRate = ReadInt(item, "bitRate", 0);
+        const auto itemExt = ReadString(item, "extName");
+        availableQualities.push_back({
+            {"quality", itemQuality},
+            {"url", itemUrl},
+            {"fileSize", itemSize},
+            {"bitRate", itemBitRate},
+            {"extName", itemExt},
+        });
         if (playUrl.empty()) {
           playUrl = itemUrl;
           bestQuality = itemQuality;
@@ -371,6 +529,34 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
   if (playUrl.empty()) {
     playUrl = ReadStringOrFirstArrayElement(upstream, "url");
   }
+  
+  // v5 API 返回格式: 顶层 url 是字符串数组 ["http://...", ...]
+  if (availableQualities.empty() && upstream.contains("url") && upstream["url"].is_array()) {
+    const auto extNameV5 = ReadString(upstream, "extName");
+    const auto bitRateV5 = ReadInt(upstream, "bitRate", 0);
+    
+    for (const auto& urlItem : upstream["url"]) {
+      if (!urlItem.is_string()) continue;
+      const auto urlStr = urlItem.get<std::string>();
+      if (urlStr.empty()) continue;
+      
+      // 提取 quality 从 URL 参数 (qu128, qu320 等)
+      std::string quality = "128";
+      auto quPos = urlStr.find("_qu");
+      if (quPos != std::string::npos && quPos + 3 < urlStr.size()) {
+        auto endPos = urlStr.find_first_of("_.?&/", quPos + 3);
+        if (endPos == std::string::npos) endPos = urlStr.size();
+        quality = urlStr.substr(quPos + 3, endPos - quPos - 3);
+      }
+      
+      availableQualities.push_back({
+          {"quality", quality},
+          {"url", urlStr},
+          {"bitRate", bitRateV5},
+          {"extName", extNameV5},
+      });
+    }
+  }
 
   const bool ok = !playUrl.empty();
   const bool hasFullSegment = playUrl.find("/yp/full/") != std::string::npos
@@ -378,12 +564,7 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
   const bool isPreview = ok && !hasFullSegment;
 
   // Pass through other useful fields from v6 response
-  std::string fileName;
-  std::string songName;
-  std::string singerName;
-  int timeLength = 0;
-  int bitRate = 0;
-  std::string extName;
+  // 元数据已在 v6 数组路径中提取；以下为 v5 对象路径的 fallback
   if (upstream.contains("data") && upstream["data"].is_object()) {
     const auto& data = upstream["data"];
     fileName = ReadString(data, "fileName");
@@ -394,35 +575,21 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
     extName = ReadString(data, "extName");
   }
 
-  return {
-      {"status", ok ? 1 : 0},
-      {"error", ""},
-      {"error_code", ""},
-      {"url", playUrl},
-      {"play_url", playUrl},
-      {"playUrl", playUrl},
-      {"is_preview", isPreview},
-      {"vip_required", false},
-      {"data",
-       {
-           {"hash", hash},
-           {"req_hash", hash},
-           {"quality", bestQuality.empty() ? "" : bestQuality},
-           {"url", playUrl},
-           {"play_url", playUrl},
-           {"playUrl", playUrl},
-           {"is_preview", isPreview},
-           {"vip_required", false},
-           {"backup_url", backupUrls},
-           {"fileName", fileName},
-           {"songName", songName},
-           {"singerName", singerName},
-           {"timeLength", timeLength},
-           {"bitRate", bitRate},
-           {"extName", extName},
-           {"raw", upstream},
-       }},
-  };
+  return BuildSongUrlOutput(SongUrlOutput{
+      .hash = hash,
+      .quality = bestQuality,
+      .playUrl = playUrl,
+      .isPreview = isPreview,
+      .backupUrls = backupUrls,
+      .availableQualities = availableQualities,
+      .raw = upstream,
+      .fileName = fileName,
+      .songName = songName,
+      .singerName = singerName,
+      .timeLength = timeLength,
+      .bitRate = bitRate,
+      .extName = extName,
+  });
 }
 
 nlohmann::json SongUrlService::Resolve(
@@ -434,13 +601,9 @@ nlohmann::json SongUrlService::Resolve(
     std::string userId,
     std::string token,
     const DeviceInfo& device) const {
-  hash = Trim(std::move(hash));
+  hash = NormalizeHash(std::move(hash));
   quality = Trim(std::move(quality));
   ppageId = Trim(std::move(ppageId));
-
-  // KuGou v5/url requires lowercase hash; search results return uppercase (e.g. "ABC123").
-  std::transform(hash.begin(), hash.end(), hash.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
 
   if (hash.empty()) {
     return EmptySongUrl(hash, quality, "Missing song hash");
@@ -451,6 +614,25 @@ nlohmann::json SongUrlService::Resolve(
     auto v6 = ResolveV6PrivUrl(hash, albumAudioId, userId, token,
                                 /*vipToken=*/"", /*vipType=*/0, device);
     if (v6.value("status", 0) == 1) {
+      if (!quality.empty() && v6.contains("data") && v6["data"].is_object()) {
+        auto& data = v6["data"];
+        if (data.contains("available_qualities") && data["available_qualities"].is_array()) {
+          for (const auto& candidate : data["available_qualities"]) {
+            if (!candidate.is_object()) continue;
+            if (candidate.value("quality", "") != quality) continue;
+            const auto preferredUrl = candidate.value("url", "");
+            if (preferredUrl.empty()) continue;
+            v6["url"] = preferredUrl;
+            v6["play_url"] = preferredUrl;
+            v6["playUrl"] = preferredUrl;
+            data["url"] = preferredUrl;
+            data["play_url"] = preferredUrl;
+            data["playUrl"] = preferredUrl;
+            data["quality"] = quality;
+            break;
+          }
+        }
+      }
       ECHO_LOG("SongUrlV6", "SUCCESS — using v6 result");
       return v6;
     }
@@ -696,40 +878,52 @@ nlohmann::json SongUrlService::Resolve(
   // the fallback paths that previously set isPreview.
   isPreview = isPreview || vipLocked;
 
-  return {
-      {"status", ok ? 1 : 0},
-      {"error", error},
-      {"error_code", errorCode},
-      {"url", playUrl},
-      {"play_url", playUrl},
-      {"playUrl", playUrl},
-      {"is_preview", isPreview},
-      {"vip_required", vipLocked},
-      {"data",
-       {
-           {"hash", upstreamHash.empty() ? hash : upstreamHash},
-           {"req_hash", upstream.value("req_hash", hash)},
-           {"quality", quality},
-           {"url", playUrl},
-           {"play_url", playUrl},
-           {"playUrl", playUrl},
-           {"is_preview", isPreview},
-           {"vip_required", vipLocked},
-           {"backup_url", backupUrl},
-           {"fileName", upstream.value("fileName", "")},
-           {"songName", upstream.value("songName", "")},
-           {"singerName", upstream.value("singerName", "")},
-           {"albumid", upstream.value("albumid", 0)},
-           {"album_audio_id", upstream.value("album_audio_id", 0)},
-           {"audio_id", upstream.value("audio_id", 0)},
-           {"timeLength", upstream.value("timeLength", 0)},
-           {"bitRate", upstream.value("bitRate", 0)},
-           {"extName", upstream.value("extName", "")},
-           {"privilege", upstream.value("privilege", 0)},
-           {"pay_type", upstream.value("pay_type", 0)},
-           {"raw", upstream},
-       }},
-  };
+  // 从 v5 upstream 提取当前音质信息（v5 只返回请求的那一个音质）
+  nlohmann::json v5Qualities = nlohmann::json::array();
+  if (!playUrl.empty()) {
+    const auto extNameV5 = upstream.value("extName", "");
+    const auto bitRateV5 = upstream.value("bitRate", 0);
+    // 从请求参数或 URL 中推断音质标签
+    std::string qLabel = quality.empty() ? "128" : quality;
+    // 也从 URL 的 _qu 参数验证
+    auto quPos = playUrl.find("_qu");
+    if (quPos != std::string::npos && quPos + 3 < playUrl.size()) {
+      auto endPos = playUrl.find_first_of("_.?&/", quPos + 3);
+      if (endPos == std::string::npos) endPos = playUrl.size();
+      qLabel = playUrl.substr(quPos + 3, endPos - quPos - 3);
+    }
+    v5Qualities.push_back({
+        {"quality", qLabel},
+        {"url", playUrl},
+        {"bitRate", bitRateV5},
+        {"extName", extNameV5},
+    });
+  }
+
+  return BuildSongUrlOutput(SongUrlOutput{
+      .hash = upstreamHash.empty() ? hash : upstreamHash,
+      .reqHash = std::string(upstream.value("req_hash", hash)),
+      .quality = quality,
+      .playUrl = playUrl,
+      .isPreview = isPreview,
+      .vipRequired = vipLocked,
+      .backupUrls = backupUrl,
+      .availableQualities = v5Qualities,
+      .raw = upstream,
+      .error = error,
+      .errorCode = errorCode,
+      .fileName = std::string(upstream.value("fileName", "")),
+      .songName = std::string(upstream.value("songName", "")),
+      .singerName = std::string(upstream.value("singerName", "")),
+      .timeLength = upstream.value("timeLength", 0),
+      .bitRate = upstream.value("bitRate", 0),
+      .extName = std::string(upstream.value("extName", "")),
+      .albumid = upstream.value("albumid", 0),
+      .albumAudioId = upstream.value("album_audio_id", 0),
+      .audioId = upstream.value("audio_id", 0),
+      .privilege = upstream.value("privilege", 0),
+      .payType = upstream.value("pay_type", 0),
+  });
 }
 
 nlohmann::json SongUrlService::Resolve(

@@ -3,6 +3,7 @@ import { ref, watch, onMounted } from 'vue';
 import { apiGet } from '../api/backend';
 import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
+import AddToPlaylistModal from '../components/AddToPlaylistModal.vue';
 
 
 const props = defineProps<{
@@ -73,6 +74,31 @@ function formatDuration(sec: number) {
 const isCurrentTrack = (song: SongInfo) => {
   return playerStore.currentTrack?.FileHash === song.FileHash;
 };
+
+// 收藏功能
+const showAddModal = ref(false);
+const trackToAdd = ref<SongInfo | null>(null);
+const favoriteMsg = ref('');
+
+function handleFavorite(e: MouseEvent, song: SongInfo) {
+  e.stopPropagation(); // 阻止冒泡到行点击播放
+  trackToAdd.value = song;
+  showAddModal.value = true;
+}
+
+let favToastTimer: ReturnType<typeof setTimeout> | null = null;
+
+function handleFavoriteSuccess(playlistName: string) {
+  favoriteMsg.value = `已收藏到「${playlistName}」`;
+  if (favToastTimer) clearTimeout(favToastTimer);
+  favToastTimer = setTimeout(() => { favoriteMsg.value = ''; }, 2000);
+}
+
+function handleFavoriteError(msg: string) {
+  favoriteMsg.value = msg;
+  if (favToastTimer) clearTimeout(favToastTimer);
+  favToastTimer = setTimeout(() => { favoriteMsg.value = ''; }, 2000);
+}
 </script>
 
 <template>
@@ -124,7 +150,18 @@ const isCurrentTrack = (song: SongInfo) => {
         @click="handlePlay(song)"
       >
         <span class="index">{{ (page - 1) * 25 + idx + 1 }}</span>
-        <span class="title">{{ song.SongName }}</span>
+        <span class="title">
+          {{ song.SongName }}
+          <button 
+            class="fav-btn" 
+            title="收藏"
+            @click="handleFavorite($event, song)"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+              <path d="M12 2l2.39 6.96H22l-6 4.62L18.18 21 12 16.77 5.82 21 8 13.58 2 8.96h7.61z"/>
+            </svg>
+          </button>
+        </span>
         <span class="artist">{{ song.SingerName }}</span>
         <span class="album">{{ song.AlbumName || '—' }}</span>
         <span class="duration">{{ formatDuration(song.Duration) }}</span>
@@ -151,9 +188,71 @@ const isCurrentTrack = (song: SongInfo) => {
         </button>
       </div>
     </div>
+
+    <!-- 收藏成功提示 -->
+    <div v-if="favoriteMsg" class="toast-msg">
+      {{ favoriteMsg }}
+    </div>
+
+    <!-- 收藏到歌单弹窗 -->
+    <AddToPlaylistModal
+      :show="showAddModal"
+      :track="trackToAdd"
+      @close="showAddModal = false"
+      @success="handleFavoriteSuccess"
+      @error="handleFavoriteError"
+    />
   </div>
 </template>
 
 <style scoped>
-/* Scoped overrides */
+.fav-btn {
+  background: none;
+  border: none;
+  padding: 2px 4px;
+  margin-left: 8px;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s, color 0.2s;
+  color: var(--ink-mute, #8a7e6a);
+  vertical-align: middle;
+}
+
+.fav-btn svg {
+  width: 14px;
+  height: 14px;
+}
+
+.song-row:hover .fav-btn {
+  opacity: 1;
+}
+
+.fav-btn:hover {
+  color: var(--accent, #a8311b);
+}
+
+.toast-msg {
+  position: fixed;
+  bottom: 80px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--ink, #221b12);
+  color: var(--paper, #f1ead8);
+  padding: 10px 24px;
+  border-radius: 8px;
+  font-size: 14px;
+  z-index: 1000;
+  animation: fadeInUp 0.3s ease;
+}
+
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
 </style>

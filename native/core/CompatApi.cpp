@@ -2,8 +2,9 @@
 #include "echo/core/CompatApiUtils.h"
 #include "echo/core/CompatRoutes.h"
 
-#include <array>
+#include <functional>
 #include <sstream>
+#include <unordered_map>
 
 #include "echo/diagnostics/EchoDiagnostics.h"
 #include "echo/diagnostics/ScopedTimer.h"
@@ -17,79 +18,142 @@ namespace {
 
 using namespace std::chrono;
 
-constexpr std::array<std::string_view, 71> kKnownRoutes = {
-    "/health",
-    "/server/now",
-    "/diagnostics/memory",
-    "/register/dev",
-    "/login/qr/key",
-    "/login/qr/create",
-    "/login/qr/check",
-    "/auth/logout",
-    "/settings/device",
-    "/captcha/sent",
-    "/login/cellphone",
-    "/login/wx/create",
-    "/login/wx/check",
-    "/login/openplat",
-    "/user/detail",
-    "/user/vip/detail",
-    "/youth/day/vip",
-    "/youth/day/vip/upgrade",
-    "/youth/listen/song",
-    "/youth/vip/ad",
-    "/youth/month/vip/record",
-    "/user/history",
-    "/playhistory/upload",
-    "/user/cloud",
-    "/user/cloud/url",
-    "/search",
-    "/search/hot",
-    "/search/default",
-    "/search/suggest",
-    "/search/lyric",
-    "/lyric",
-    "/song/url",
-    "/privilege/lite",
-    "/top/song",
-    "/top/album",
-    "/everyday/recommend",
-    "/song/climax",
-    "/song/ranking",
-    "/song/ranking/filter",
-    "/images/audio",
-    "/playlist/recommend",
-    "/playlist/detail",
-    "/playlist/track/all",
-    "/playlist/track/all/new",
-    "/user/playlist",
-    "/rank/list",
-    "/playlist/tags",
-    "/rank/top",
-    "/top/playlist",
-    "/top/ip",
-    "/rank/audio",
-    "/playlist/tracks/add",
-    "/playlist/tracks/del",
-    "/playlist/add",
-    "/playlist/del",
-    "/album/detail",
-    "/album/songs",
-    "/artist/detail",
-    "/artist/audios",
-    "/artist/albums",
-    "/artist/follow",
-    "/artist/unfollow",
-    "/comment/music",
-    "/comment/music/classify",
-    "/comment/music/hotword",
-    "/comment/playlist",
-    "/comment/album",
-    "/comment/floor",
-    "/comment/count",
-    "/favorite/count",
-    "/video/url",
+// ── Unified dispatch types ─────────────────────────────────────────────
+
+struct RouteContext {
+  storage::Database& database;
+  CompatApiHandlers& handlers;
+  const QueryMap& query;
+  const HeaderMap& headers;
+  const std::string& body;
 };
+
+using RouteHandlerFn = std::function<CompatResponse(const RouteContext&, const std::string& path)>;
+
+// ── /song/url inline logic (extracted for dispatch table) ──────────────
+
+CompatResponse DispatchSongUrl(const RouteContext& ctx, const std::string&) {
+  const auto hash = QueryValue(ctx.query, "hash");
+  const auto quality = QueryValue(ctx.query, "quality");
+  const auto ppageId = QueryValue(ctx.query, "ppage_id", QueryValue(ctx.query, "ppageId"));
+
+  if (ctx.handlers.songUrl) {
+    return JsonResponse(ctx.handlers.songUrl(hash, quality, ppageId));
+  }
+
+  CompatRequestContext reqCtx(ctx.database);
+  const auto& device = reqCtx.Device();
+  const std::string userId = reqCtx.UserIdOr("");
+  const std::string token = reqCtx.TokenOrEmpty();
+
+  const auto album_id = QueryValue(ctx.query, "album_id");
+  const auto album_audio_id = QueryValue(ctx.query, "album_audio_id");
+  SongUrlService songUrl;
+  auto result = songUrl.Resolve(hash, album_id, album_audio_id, quality, ppageId, userId, token, device);
+  return JsonResponse(result);
+}
+
+// ── Unified route table ────────────────────────────────────────────────
+// Single source of truth for both route recognition (IsKnownCompatRoute)
+// and dispatch (HandleKnownRoute).  Each route appears exactly once.
+// Paths NOT in this table are unknown (404).  Paths with no handler
+// (commented as "not yet ported") fall through to 501.
+
+const std::unordered_map<std::string, RouteHandlerFn>& GetRouteTable() {
+  static const std::unordered_map<std::string, RouteHandlerFn> table = {
+      // Diagnostics
+      {"/health",             [](const RouteContext&, const std::string&) { return HandleHealth(); }},
+      {"/server/now",        [](const RouteContext&, const std::string&) { return HandleServerNow(); }},
+      {"/diagnostics/memory",[](const RouteContext&, const std::string&) { return HandleDiagnosticsMemory(); }},
+
+      // Register
+      {"/register/dev", [](const RouteContext& ctx, const std::string&) { return HandleRegisterDev(ctx.database, ctx.query); }},
+
+      // Login
+      {"/login/qr/key",   [](const RouteContext& ctx, const std::string&) { return HandleLoginQrKey(ctx.database, ctx.handlers.loginQrKey); }},
+      {"/login/qr/create",[](const RouteContext& ctx, const std::string&) { return HandleLoginQrCreate(ctx.query); }},
+      {"/login/qr/check", [](const RouteContext& ctx, const std::string&) { return HandleLoginQrCheck(ctx.database, ctx.query, ctx.handlers.loginQrCheck); }},
+      {"/auth/logout",    [](const RouteContext& ctx, const std::string&) { return HandleAuthLogout(ctx.database); }},
+      {"/settings/device",[](const RouteContext& ctx, const std::string&) { return HandleSettingsDevice(ctx.database, ctx.query); }},
+      {"/captcha/sent",   nullptr},  // not yet ported
+      {"/login/cellphone",nullptr},  // not yet ported
+      {"/login/wx/create",nullptr},  // not yet ported
+      {"/login/wx/check", nullptr},  // not yet ported
+      {"/login/openplat", nullptr},  // not yet ported
+
+      // Search & Discovery
+      {"/search/hot",    [](const RouteContext& ctx, const std::string&) { return HandleSearchHot(ctx.query); }},
+      {"/search/default",[](const RouteContext&, const std::string&) { return HandleSearchDefault(); }},
+      {"/search/suggest",[](const RouteContext& ctx, const std::string&) { return HandleSearchSuggest(ctx.query); }},
+      {"/search",        [](const RouteContext& ctx, const std::string&) { return HandleSearch(ctx.query, ctx.handlers.search); }},
+      {"/rank/list",     [](const RouteContext&, const std::string&) { return HandleRankList(); }},
+      {"/top/song",      [](const RouteContext& ctx, const std::string&) { return HandleTopSong(ctx.query); }},
+      {"/rank/audio",    [](const RouteContext& ctx, const std::string&) { return HandleRankAudio(ctx.query); }},
+      {"/everyday/recommend", [](const RouteContext& ctx, const std::string&) { return HandleEverydayRecommend(ctx.database, ctx.handlers.everydayRecommend); }},
+      // Grouped: /top/album, /playlist/recommend, /rank/top, /top/ip share a handler
+      {"/top/album",         [](const RouteContext&, const std::string& path) { return HandleTopAlbumPlaylistRecommendRankTopTopIp(path); }},
+      {"/playlist/recommend",[](const RouteContext&, const std::string& path) { return HandleTopAlbumPlaylistRecommendRankTopTopIp(path); }},
+      {"/rank/top",          [](const RouteContext&, const std::string& path) { return HandleTopAlbumPlaylistRecommendRankTopTopIp(path); }},
+      {"/top/ip",            [](const RouteContext&, const std::string& path) { return HandleTopAlbumPlaylistRecommendRankTopTopIp(path); }},
+
+      // Song & Lyric
+      {"/song/url",     DispatchSongUrl},
+      {"/privilege/lite",[](const RouteContext& ctx, const std::string&) { return HandlePrivilegeLite(ctx.query); }},
+      {"/search/lyric", [](const RouteContext& ctx, const std::string&) { return HandleSearchLyric(ctx.query, ctx.handlers.lyricSearch); }},
+      {"/lyric",        [](const RouteContext& ctx, const std::string&) { return HandleLyric(ctx.query, ctx.handlers.lyricDetail); }},
+      {"/song/climax",  [](const RouteContext& ctx, const std::string&) { return HandleSongClimax(ctx.query); }},
+      {"/song/ranking", [](const RouteContext& ctx, const std::string&) { return HandleSongRanking(ctx.query); }},
+      {"/song/ranking/filter",[](const RouteContext& ctx, const std::string&) { return HandleSongRankingFilter(ctx.query); }},
+      {"/images/audio", [](const RouteContext& ctx, const std::string&) { return HandleImagesAudio(ctx.query); }},
+
+      // Playlist
+      {"/playlist/add",        [](const RouteContext& ctx, const std::string&) { return HandlePlaylistAdd(ctx.database, ctx.query); }},
+      {"/playlist/del",        [](const RouteContext& ctx, const std::string&) { return HandlePlaylistDel(ctx.database, ctx.query); }},
+      {"/playlist/tracks/add", [](const RouteContext& ctx, const std::string&) { return HandlePlaylistTracksAdd(ctx.database, ctx.query, ctx.body); }},
+      {"/playlist/tracks/del", [](const RouteContext& ctx, const std::string&) { return HandlePlaylistTracksDel(ctx.database, ctx.query); }},
+      {"/playlist/detail",     [](const RouteContext& ctx, const std::string&) { return HandlePlaylistDetail(ctx.database, ctx.query, ctx.handlers.playlistDetail); }},
+      {"/playlist/track/all",  [](const RouteContext& ctx, const std::string&) { return HandlePlaylistTrackAll(ctx.database, ctx.query, ctx.handlers.playlistTracks); }},
+      {"/playlist/track/all/new",[](const RouteContext& ctx, const std::string&) { return HandlePlaylistTrackAllNew(ctx.database, ctx.query, ctx.handlers.playlistTracks); }},
+      {"/playlist/tags",  [](const RouteContext& ctx, const std::string&) { return HandlePlaylistTags(ctx.database); }},
+      {"/top/playlist",  [](const RouteContext& ctx, const std::string&) { return HandleTopPlaylist(ctx.database, ctx.query); }},
+
+      // User
+      {"/user/detail",     [](const RouteContext& ctx, const std::string&) { return HandleUserDetail(ctx.database, ctx.handlers.userDetail); }},
+      {"/user/vip/detail", [](const RouteContext& ctx, const std::string&) { return HandleUserVipDetail(ctx.database, ctx.handlers.userVip); }},
+      {"/user/playlist",   [](const RouteContext& ctx, const std::string&) { return HandleUserPlaylist(ctx.database, ctx.query, ctx.handlers.userPlaylist); }},
+      {"/user/history",    [](const RouteContext& ctx, const std::string&) { return HandleUserHistory(ctx.database, ctx.query); }},
+      {"/user/cloud",      [](const RouteContext& ctx, const std::string&) { return HandleUserCloud(ctx.database, ctx.query); }},
+      {"/user/cloud/url",  nullptr},  // not yet ported
+      {"/playhistory/upload",[](const RouteContext& ctx, const std::string&) { return HandlePlayHistoryUpload(ctx.database, ctx.query); }},
+
+      // Youth / VIP
+      {"/youth/day/vip",        [](const RouteContext&, const std::string&) { return HandleYouthDayVip(); }},
+      {"/youth/day/vip/upgrade",[](const RouteContext&, const std::string&) { return HandleYouthDayVip(); }},
+      {"/youth/listen/song",   [](const RouteContext& ctx, const std::string&) { return HandleYouthListenSong(ctx.database); }},
+      {"/youth/vip/ad",        [](const RouteContext& ctx, const std::string&) { return HandleYouthVipAd(ctx.database); }},
+      {"/youth/month/vip/record",nullptr},  // not yet ported
+
+      // Catalog
+      {"/album/detail",  [](const RouteContext& ctx, const std::string&) { return HandleAlbumDetail(ctx.query); }},
+      {"/album/songs",   [](const RouteContext& ctx, const std::string&) { return HandleAlbumSongs(ctx.query); }},
+      {"/artist/detail", [](const RouteContext& ctx, const std::string&) { return HandleArtistDetail(ctx.query); }},
+      {"/artist/audios", [](const RouteContext& ctx, const std::string&) { return HandleArtistAudios(ctx.query); }},
+      {"/artist/albums", [](const RouteContext& ctx, const std::string&) { return HandleArtistAlbums(ctx.query); }},
+      {"/artist/follow",  nullptr},  // not yet ported
+      {"/artist/unfollow",nullptr},  // not yet ported
+      // Grouped: /comment/music, /comment/playlist, /comment/album share a handler
+      {"/comment/music",   [](const RouteContext&, const std::string& path) { return HandleCommentMusicPlaylistAlbum(path); }},
+      {"/comment/playlist",[](const RouteContext&, const std::string& path) { return HandleCommentMusicPlaylistAlbum(path); }},
+      {"/comment/album",  [](const RouteContext&, const std::string& path) { return HandleCommentMusicPlaylistAlbum(path); }},
+      {"/comment/music/classify",nullptr},  // not yet ported
+      {"/comment/music/hotword", nullptr},  // not yet ported
+      {"/comment/floor",  nullptr},  // not yet ported
+      {"/comment/count",  nullptr},  // not yet ported
+      {"/favorite/count", nullptr},  // not yet ported
+      {"/video/url",      nullptr},  // not yet ported
+  };
+  return table;
+}
 
 }  // namespace
 
@@ -129,112 +193,23 @@ CompatResponse CompatApi::HandleKnownRoute(
     const HeaderMap& headers,
     const std::string& body) {
   (void)method;
-  (void)query;
-  (void)headers;
 
-  // Diagnostics
-  if (path == "/health") return HandleHealth();
-  if (path == "/server/now") return HandleServerNow();
-  if (path == "/diagnostics/memory") return HandleDiagnosticsMemory();
-
-  // Register
-  if (path == "/register/dev") return HandleRegisterDev(database_, query);
-
-  // Search & Discovery
-  if (path == "/search/hot") return HandleSearchHot(query);
-  if (path == "/search/default") return HandleSearchDefault();
-  if (path == "/search/suggest") return HandleSearchSuggest(query);
-  if (path == "/search") return HandleSearch(query, handlers_.search);
-  if (path == "/top/album" || path == "/playlist/recommend" ||
-      path == "/rank/top" || path == "/top/ip") {
-    return HandleTopAlbumPlaylistRecommendRankTopTopIp(path);
-  }
-  if (path == "/rank/list") return HandleRankList();
-  if (path == "/top/song") return HandleTopSong(query);
-  if (path == "/rank/audio") return HandleRankAudio(query);
-  if (path == "/everyday/recommend") return HandleEverydayRecommend(database_, handlers_.everydayRecommend);
-
-  // Song & Lyric
-  if (path == "/song/url") {
-    const auto hash = QueryValue(query, "hash");
-    const auto quality = QueryValue(query, "quality");
-    const auto ppageId = QueryValue(query, "ppage_id", QueryValue(query, "ppageId"));
-
-    if (handlers_.songUrl) {
-      return JsonResponse(handlers_.songUrl(hash, quality, ppageId));
-    }
-
-    CompatRequestContext ctx(database_);
-    const auto& device = ctx.Device();
-    const std::string userId = ctx.UserIdOr("");
-    const std::string token = ctx.TokenOrEmpty();
-
-    const auto album_id = QueryValue(query, "album_id");
-    const auto album_audio_id = QueryValue(query, "album_audio_id");
-    SongUrlService songUrl;
-    auto result = songUrl.Resolve(hash, album_id, album_audio_id, quality, ppageId, userId, token, device);
-    return JsonResponse(result);
+  const auto& table = GetRouteTable();
+  auto it = table.find(path);
+  if (it != table.end() && it->second) {
+    RouteContext ctx{database_, handlers_, query, headers, body};
+    return it->second(ctx, path);
   }
 
-  if (path == "/privilege/lite") return HandlePrivilegeLite(query);
-  if (path == "/search/lyric") return HandleSearchLyric(query, handlers_.lyricSearch);
-  if (path == "/lyric") return HandleLyric(query, handlers_.lyricDetail);
-  if (path == "/song/climax") return HandleSongClimax(query);
-  if (path == "/song/ranking") return HandleSongRanking(query);
-  if (path == "/song/ranking/filter") return HandleSongRankingFilter(query);
-  if (path == "/images/audio") return HandleImagesAudio(query);
-
-  // Playlist
-  if (path == "/playlist/add") return HandlePlaylistAdd(database_, query);
-  if (path == "/playlist/del") return HandlePlaylistDel(database_, query);
-  if (path == "/playlist/tracks/add") return HandlePlaylistTracksAdd(database_, query, body);
-  if (path == "/playlist/tracks/del") return HandlePlaylistTracksDel(database_, query);
-  if (path == "/playlist/detail") return HandlePlaylistDetail(database_, query, handlers_.playlistDetail);
-  if (path == "/playlist/track/all") return HandlePlaylistTrackAll(database_, query, handlers_.playlistTracks);
-  if (path == "/playlist/track/all/new") return HandlePlaylistTrackAllNew(database_, query, handlers_.playlistTracks);
-  if (path == "/playlist/tags") return HandlePlaylistTags(database_);
-  if (path == "/top/playlist") return HandleTopPlaylist(database_, query);
-
-  // User
-  if (path == "/user/detail") {
-    return HandleUserDetail(database_, handlers_.userDetail);
-  }
-  if (path == "/user/vip/detail") return HandleUserVipDetail(database_, handlers_.userVip);
-  if (path == "/user/playlist") return HandleUserPlaylist(database_, query, handlers_.userPlaylist);
-  if (path == "/user/history") return HandleUserHistory(database_, query);
-  if (path == "/user/cloud") return HandleUserCloud(database_, query);
-  if (path == "/playhistory/upload") return HandlePlayHistoryUpload(database_, query);
-
-  // Youth / VIP
-  if (path == "/youth/day/vip" || path == "/youth/day/vip/upgrade") return HandleYouthDayVip();
-  if (path == "/youth/listen/song") return HandleYouthListenSong(database_);
-  if (path == "/youth/vip/ad") return HandleYouthVipAd(database_);
-
-  // Login
-  if (path == "/login/qr/key") return HandleLoginQrKey(database_, handlers_.loginQrKey);
-  if (path == "/login/qr/create") return HandleLoginQrCreate(query);
-  if (path == "/login/qr/check") return HandleLoginQrCheck(database_, query, handlers_.loginQrCheck);
-  if (path == "/auth/logout") return HandleAuthLogout(database_);
-  if (path == "/settings/device") return HandleSettingsDevice(database_, query);
-
-  // Catalog
-  if (path == "/album/detail") return HandleAlbumDetail(query);
-  if (path == "/album/songs") return HandleAlbumSongs(query);
-  if (path == "/artist/detail") return HandleArtistDetail(query);
-  if (path == "/artist/audios") return HandleArtistAudios(query);
-  if (path == "/artist/albums") return HandleArtistAlbums(query);
-  if (path == "/comment/music" || path == "/comment/playlist" ||
-      path == "/comment/album") {
-    return HandleCommentMusicPlaylistAlbum(path);
-  }
-
+  // Route recognized (in table) but handler not yet ported, OR
+  // fallback route recognized by IsKnownCompatRoute but not in table.
   return JsonResponse(NativeNotImplementedPayload(path), 501);
 }
 
 bool IsKnownCompatRoute(const std::string& path) {
-  for (const auto route : kKnownRoutes) {
-    if (path == route) return true;
-  }
+  const auto& table = GetRouteTable();
+  if (table.count(path)) return true;
+  // Legacy fallback routes (not dispatched but recognized)
   return path == "/kmr/audio/mv" || path == "/video/privilege" || path == "/video/detail";
 }
 

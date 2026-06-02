@@ -2,6 +2,7 @@
 import { ref, onMounted } from 'vue';
 import { apiGet } from '../api/backend';
 import { checkLoginStatus } from '../api/userStore';
+import { check } from '@tauri-apps/plugin-updater';
 
 interface MemoryData {
   working_set_bytes: number;
@@ -29,6 +30,81 @@ const listenVipLoading = ref(false);
 const listenVipMsg = ref('');
 const adVipLoading = ref(false);
 const adVipMsg = ref('');
+
+// Auto-update state
+const updateStatus = ref('');
+const updateLoading = ref(false);
+const updateVersion = ref('');
+const updateBody = ref('');
+const updateDownloading = ref(false);
+const updateProgress = ref(0);
+// 缓存 check() 结果，避免下载时重复请求
+let cachedUpdate: any = null;
+
+async function checkForUpdate() {
+  updateLoading.value = true;
+  updateStatus.value = '正在检查更新…';
+  updateVersion.value = '';
+  updateBody.value = '';
+  cachedUpdate = null;
+  try {
+    const update = await check();
+    cachedUpdate = update || null;
+    if (update) {
+      updateVersion.value = update.version;
+      updateBody.value = update.body || '';
+      updateStatus.value = `发现新版本 v${update.version}`;
+    } else {
+      updateStatus.value = '✓ 已是最新版本';
+    }
+  } catch (e: any) {
+    updateStatus.value = '检查更新失败：' + (e?.message || String(e));
+  } finally {
+    updateLoading.value = false;
+  }
+}
+
+async function downloadAndInstall() {
+  updateDownloading.value = true;
+  updateProgress.value = 0;
+  updateStatus.value = '正在下载更新…';
+  let downloadedBytes = 0;
+  let totalBytes = 0;
+  try {
+    // 优先使用缓存的更新信息，避免重复请求 GitHub API
+    const update = cachedUpdate || await check();
+    if (!update) {
+      updateStatus.value = '没有可用更新';
+      updateDownloading.value = false;
+      return;
+    }
+    await update.downloadAndInstall((event: any) => {
+      switch (event.event) {
+        case 'Started':
+          // contentLength 只在 Started 事件给（Progress 只有 chunkLength），
+          // 必须在这里抓住总大小，否则进度条永远算不出、卡 0%。
+          totalBytes = event.data?.contentLength || 0;
+          downloadedBytes = 0;
+          updateProgress.value = 0;
+          break;
+        case 'Progress':
+          downloadedBytes += event.data.chunkLength;
+          if (totalBytes > 0) {
+            updateProgress.value = Math.round((downloadedBytes / totalBytes) * 100);
+          }
+          break;
+        case 'Finished':
+          updateProgress.value = 100;
+          break;
+      }
+    });
+    updateStatus.value = '✓ 更新已安装，重启应用生效';
+  } catch (e: any) {
+    updateStatus.value = '下载失败：' + (e?.message || String(e));
+  } finally {
+    updateDownloading.value = false;
+  }
+}
 
 // Custom device fingerprint (used to unlock VIP audio when KuGou's risk
 // service rejects randomly-generated dfids).
@@ -270,6 +346,33 @@ function clearCache() {
           {{ adVipLoading ? '领取中…' : '看广告领 VIP' }}
         </button>
         <span v-if="adVipMsg" style="font-size: 12px; color: var(--ink-soft);">{{ adVipMsg }}</span>
+      </div>
+    </section>
+
+    <!-- Auto Update -->
+    <section class="card" style="margin-bottom: 24px;">
+      <p class="kicker">UPDATE · 版本更新</p>
+      <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">检查更新</h3>
+
+      <p style="color: var(--ink-soft); font-size: 13px; line-height: 1.7;">
+        从 GitHub Releases 拉取最新版本。发现新版本后可一键下载安装，重启应用即可生效。
+      </p>
+
+      <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <button class="cta" @click="checkForUpdate" :disabled="updateLoading || updateDownloading">
+          {{ updateLoading ? '检查中…' : '检查更新' }}
+        </button>
+        <button 
+          v-if="updateVersion" 
+          class="cta" 
+          style="background: var(--accent);" 
+          @click="downloadAndInstall" 
+          :disabled="updateDownloading"
+        >
+          {{ updateDownloading ? `下载中 ${updateProgress}%` : `下载并安装 v${updateVersion}` }}
+        </button>
+        <span v-if="updateStatus" style="font-size: 12px; color: var(--ink-soft); flex-basis: 100%;">{{ updateStatus }}</span>
+        <div v-if="updateBody" style="flex-basis: 100%; margin-top: 4px; padding: 10px; background: var(--paper-edge); border-radius: 6px; font-size: 12px; color: var(--ink-soft); white-space: pre-wrap; max-height: 200px; overflow-y: auto;">{{ updateBody }}</div>
       </div>
     </section>
 

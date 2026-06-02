@@ -1,11 +1,31 @@
 import { reactive, watch } from 'vue';
 import { apiGet } from './backend';
 import { Track, normalizeTrack, fetchCoverImage } from './normalizer';
+import { userStore } from './userStore';
 
 export type { Track };
 
 
 export type LoopMode = 'list' | 'single' | 'random';
+
+/** 上传播放历史到酷狗服务器（静默失败，不影响播放） */
+async function uploadPlayHistory(track: Track) {
+  try {
+    if (!userStore.isLoggedIn) return; // 未登录不上传
+    const mxid = track.AlbumAudioID || track.MixSongID;
+    if (!mxid) return;
+    const numMxid = Number(mxid);
+    if (!Number.isFinite(numMxid) || numMxid <= 0) return;
+    await apiGet('/playhistory/upload', {
+      mxid: numMxid,
+      time: Math.floor(Date.now() / 1000),
+      pc: 1
+    });
+  } catch (e) {
+    // 静默失败：播放历史上传不是关键路径，网络错误不应打断用户体验
+    console.warn('播放历史上传失败（可忽略）:', e);
+  }
+}
 
 interface PlayerState {
   currentTrack: Track | null;
@@ -18,14 +38,20 @@ interface PlayerState {
   loopMode: LoopMode;
   audio: HTMLAudioElement | null;
   errorMsg: string;
-  // True when the current track's URL is the 60s free preview, not the full song.
-  // Stays true across pause/play; only resets when a new track is loaded.
   isPreview: boolean;
-  // True specifically when KuGou rejected the request because the account has
-  // no VIP entitlement (fail_process contains "pkg"/"buy"). vipRequired implies
-  // isPreview but adds the "you need VIP" semantic so the UI can say so
-  // explicitly instead of the generic "试听版本" hedge.
   vipRequired: boolean;
+  /** 当前音质等级，如 '128', '320', 'flac' 等 */
+  quality: string;
+  /** 当前歌曲可用的音质选项列表 */
+  availableQualities: QualityOption[];
+}
+
+interface QualityOption {
+  quality: string;
+  url: string;
+  fileSize?: number;
+  bitRate?: number;
+  extName?: string;
 }
 
 export const playerStore = reactive<PlayerState>({
@@ -41,6 +67,8 @@ export const playerStore = reactive<PlayerState>({
   errorMsg: '',
   isPreview: false,
   vipRequired: false,
+  quality: localStorage.getItem('player_quality') || '128',
+  availableQualities: [],
 });
 
 // Setup audio listeners
@@ -171,20 +199,39 @@ export async function playTrack(track: Track) {
       error?: string;
       is_preview?: boolean;
       vip_required?: boolean;
+      data?: {
+        available_qualities?: QualityOption[];
+        [key: string]: any;
+      };
     }>('/song/url', {
       hash: normalized.FileHash,
       album_id: normalized.AlbumID || '',
       album_audio_id: normalized.AlbumAudioID || '',
+      quality: playerStore.quality,
     });
 
     if (res.status === 1 && res.url) {
-      audio.src = res.url;
+      // 存储可用音质选项
+      playerStore.availableQualities = res.data?.available_qualities || [];
+      
+      // 如果有用户选择的音质且可用，切换到该音质
+      let finalUrl = res.url;
+      if (playerStore.quality && playerStore.availableQualities.length > 0) {
+        const preferred = playerStore.availableQualities.find(q => q.quality === playerStore.quality);
+        if (preferred?.url) {
+          finalUrl = preferred.url;
+        }
+      }
+      
+      audio.src = finalUrl;
       // Set preview state BEFORE play() so the 'play' event listener doesn't
       // clobber it. The listener only clears `errorMsg`, not `isPreview`.
       playerStore.isPreview = !!res.is_preview;
       playerStore.vipRequired = !!res.vip_required;
       playerStore.errorMsg = '';
       await audio.play();
+      // 播放成功后异步上传播放历史（静默失败，不阻塞播放）
+      uploadPlayHistory(normalized);
     } else {
       playerStore.isPreview = false;
       playerStore.vipRequired = false;
@@ -199,6 +246,45 @@ export async function playTrack(track: Track) {
     playerStore.isPreview = false;
     playerStore.vipRequired = false;
     playerStore.errorMsg = err.message || '该歌曲不可播放（可能是 Demo / 版权或 VIP 限制）';
+  }
+}
+
+// 音质切换请求序号，用于防止快速连续切换导致的竞态
+let qualityRequestId = 0;
+
+/** 切换音质等级 */
+export function setQuality(quality: string) {
+  playerStore.quality = quality;
+  localStorage.setItem('player_quality', quality);
+  
+  // 如果当前有歌曲在播放，尝试切换到新音质
+  if (playerStore.currentTrack) {
+    // 先检查缓存的 availableQualities 中是否有目标音质
+    if (playerStore.availableQualities.length > 0) {
+      const preferred = playerStore.availableQualities.find(q => q.quality === quality);
+      if (preferred?.url && playerStore.audio) {
+        const wasPlaying = playerStore.isPlaying;
+        const savedTime = playerStore.currentTime;
+        playerStore.audio.src = preferred.url;
+        if (savedTime > 0) playerStore.audio.currentTime = savedTime;
+        if (wasPlaying) {
+          playerStore.audio.play().catch(e => console.error('Quality switch play failed', e));
+        }
+        return;
+      }
+    }
+    // 缓存中没有目标音质，重新请求（playTrack 会使用新的 quality 参数）
+    // 保存播放进度，请求完成后恢复
+    const reqId = ++qualityRequestId;
+    const savedTime = playerStore.currentTime;
+    const wasPlaying = playerStore.isPlaying;
+    playTrack(playerStore.currentTrack).then(() => {
+      if (reqId !== qualityRequestId) return; // 已被更新的请求取代
+      if (playerStore.audio && savedTime > 0) {
+        playerStore.audio.currentTime = savedTime;
+        if (wasPlaying) playerStore.audio.play().catch(() => {});
+      }
+    });
   }
 }
 

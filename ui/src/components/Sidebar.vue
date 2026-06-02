@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, onMounted } from 'vue';
+import { check } from '@tauri-apps/plugin-updater';
 import { apiGet } from '../api/backend';
 import { userStore } from '../api/userStore';
+import { normalizePlaylists, UserPlaylist } from '../api/favorite';
 
 defineProps<{
   activeView: string;
@@ -13,113 +15,28 @@ const emit = defineEmits<{
 
 const sidebarNav = [
   { id: 'home', name: '首页', icon: 'M3 11l9-8 9 8v10a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2V11z' },
+  { id: 'history', name: '最近播放', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
 ];
 
-interface SidebarPlaylist {
-  id: string;
-  name: string;
-}
-
-type RawRecord = Record<string, unknown>;
+type SidebarPlaylist = Pick<UserPlaylist, 'id' | 'name'>;
 
 const playlists = ref<SidebarPlaylist[]>([]);
-const playlistArrayKeys = [
-  'list',
-  'lists',
-  'info',
-  'special_list',
-  'specialList',
-  'cloud_list',
-  'cloudList',
-  'playlist',
-  'playlists',
-  'data',
-];
-const playlistIdKeys = [
-  'global_collection_id',
-  'global_collectionid',
-  'listid',
-  'list_id',
-  'specialid',
-  'special_id',
-  'id',
-  'list_create_listid',
-  'collection_id',
-  'gid',
-];
-const playlistNameKeys = [
-  'name',
-  'listname',
-  'list_name',
-  'specialname',
-  'special_name',
-  'title',
-  'filename',
-];
 
-function asRecord(value: unknown): RawRecord | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as RawRecord : null;
-}
-
-function readField(source: RawRecord, keys: string[]) {
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-    if (typeof value === 'bigint') return value.toString();
-  }
-  return '';
-}
-
-function looksLikePlaylist(value: unknown) {
-  const record = asRecord(value);
-  if (!record) return false;
-  return !!readField(record, playlistIdKeys) || !!readField(record, playlistNameKeys);
-}
-
-function collectPlaylistCandidates(value: unknown, output: RawRecord[], depth = 0) {
-  if (depth > 5 || value == null) return;
-
-  if (Array.isArray(value)) {
-    const records = value.map(asRecord).filter((item): item is RawRecord => !!item);
-    if (records.some(looksLikePlaylist)) {
-      output.push(...records.filter(looksLikePlaylist));
-      return;
+// 自动更新提示：启动时静默 check() 一次；发现新版本才在 logo 下冒标记，点击去设置页安装。
+const updateAvailable = ref(false);
+const updateVersion = ref('');
+onMounted(async () => {
+  try {
+    const update = await check();
+    if (update) {
+      updateAvailable.value = true;
+      updateVersion.value = update.version;
     }
-    records.forEach((item) => collectPlaylistCandidates(item, output, depth + 1));
-    return;
+  } catch (e) {
+    // 检查更新失败不打扰用户（无网络 / 端点不可达 / 非打包环境都静默）
+    console.warn('Update check failed', e);
   }
-
-  const record = asRecord(value);
-  if (!record) return;
-
-  if (looksLikePlaylist(record)) {
-    output.push(record);
-  }
-
-  for (const key of playlistArrayKeys) {
-    if (key in record) {
-      collectPlaylistCandidates(record[key], output, depth + 1);
-    }
-  }
-}
-
-function normalizePlaylists(payload: unknown): SidebarPlaylist[] {
-  const candidates: RawRecord[] = [];
-  collectPlaylistCandidates(payload, candidates);
-
-  const seen = new Set<string>();
-  return candidates
-    .map((item) => ({
-      id: readField(item, playlistIdKeys),
-      name: readField(item, playlistNameKeys) || '无标题歌单',
-    }))
-    .filter((item) => {
-      if (!item.id || seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
-    });
-}
+});
 
 async function loadUserPlaylists() {
   if (!userStore.isLoggedIn) {
@@ -175,6 +92,21 @@ function handlePlaylist(playlist: { id: string; name: string }) {
     <div class="masthead">
       <span class="logo"><i>The</i> Player</span>
     </div>
+
+    <!-- 检查更新（常驻入口；启动静默 check() 检测到新版本时自动高亮，点击去设置页检查/安装） -->
+    <a
+      class="update-entry"
+      @click="handleNav('settings')"
+      :title="updateAvailable ? `发现新版本 v${updateVersion}，点击前往安装` : '点击前往设置检查更新'"
+      :style="updateAvailable
+        ? 'display:flex; align-items:center; gap:6px; margin:0 0 10px; padding:4px 8px; font-size:11px; color:var(--paper); background:var(--accent); border-radius:4px; cursor:pointer; width:fit-content;'
+        : 'display:flex; align-items:center; gap:6px; margin:0 0 10px; padding:4px 8px; font-size:11px; color:var(--ink-soft); border:1px solid var(--rule); border-radius:4px; cursor:pointer; width:fit-content;'"
+    >
+      <span :style="updateAvailable
+        ? 'width:6px; height:6px; border-radius:50%; background:var(--paper);'
+        : 'width:6px; height:6px; border-radius:50%; background:var(--ink-mute);'"></span>
+      {{ updateAvailable ? `有新版本 v${updateVersion}` : '检查更新' }}
+    </a>
 
     <!-- User Section -->
     <div class="user" @click="handleNav('login')" style="cursor: pointer;">
