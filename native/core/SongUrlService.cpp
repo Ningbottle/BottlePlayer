@@ -1,8 +1,8 @@
 #include "echo/core/SongUrlService.h"
 #include "echo/core/Crypto.h"
 #include "echo/core/DeviceService.h"
+#include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
-#include "echo/core/StringUtils.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 
 #include <chrono>
@@ -62,43 +62,8 @@ std::string ReadStringOrFirstArrayElement(const nlohmann::json& value, std::stri
   return "";
 }
 
-std::string BuildV5Url(
-    const std::string& baseUrl,
-    std::unordered_map<std::string, std::string> params) {
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  if (params.find("appid") == params.end()) params["appid"] = profile.appid;
-  if (params.find("clientver") == params.end()) {
-    params["clientver"] = profile.clientver;
-  }
-  if (params.find("clienttime") == params.end()) {
-    params["clienttime"] = std::to_string(std::time(nullptr));
-  }
-  if (params.find("mid") == params.end()) params["mid"] = "0";
-  if (params.find("uuid") == params.end()) params["uuid"] = "0";
-  if (params.find("dfid") == params.end()) params["dfid"] = "-";
-
-  std::string hash = params.count("hash") ? params["hash"] : "";
-  std::string appid = params["appid"];
-  std::string mid = params["mid"];
-  std::string userid = params.count("userid") ? params["userid"] : "0";
-
-  // Concept (3116) and lite (1014) both use the lite key salt. Empirically the
-  // user's concept-edition mid only validates with this salt; switching 3116 to
-  // standard salt produces errcode 31833 "illegal key".
-  params["key"] = SignKey(hash, mid, userid, appid, profile.saltKind);
-  
-  params["signature"] = SignatureAndroidParams(params, "", profile.saltKind);
-
-  std::ostringstream urlStream;
-  urlStream << baseUrl << "?";
-  bool first = true;
-  for (const auto& [key, value] : params) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << UrlEncode(value);
-    first = false;
-  }
-  return urlStream.str();
-}
+// BuildV5Url removed: /v5/url signing now handled by KAR BuildSignedUrl
+// with includeSongUrlKey=true, profile.clientver=V5UrlClientver.
 
 nlohmann::json EmptySongUrl(std::string hash, std::string quality, std::string error) {
   return {
@@ -293,21 +258,24 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
     return EmptySongUrl(hash, "", "Missing song hash");
   }
 
-  // ── 1. Signed query params ───────────────────────────────────────────────
+  // ── 1. Build signed URL via KAR ──────────────────────────────────────────
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  KuGouAndroidRequest req;
+  req.endpoint = "http://tracker.kugou.com/v6/priv_url";
+  req.profile = profile;
+  req.device = device;
+  req.body = ""; // set after body construction
+  req.includeSongUrlKey = true;
+  if (!userId.empty()) req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
+
+  // Pre-set clienttime so URL and HTTP headers use the same value
   const std::string clienttime = std::to_string(std::time(nullptr));
+  req.params["clienttime"] = clienttime;
+
+  // mid still needed explicitly for SignKey in body's tracker_param (line below)
   const std::string mid = ResolveAndroidMid(device);
   const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
-
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  std::unordered_map<std::string, std::string> queryParams;
-  queryParams["appid"] = profile.appid;
-  queryParams["clientver"] = profile.clientver;
-  queryParams["clienttime"] = clienttime;
-  queryParams["dfid"] = dfid;
-  queryParams["mid"] = mid;
-  queryParams["uuid"] = "-";
-  if (!userId.empty()) queryParams["userid"] = userId;
-  if (!token.empty()) queryParams["token"] = token;
 
   // ── 2. Build JSON body ───────────────────────────────────────────────────
   const auto collectTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
@@ -353,20 +321,8 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
   };
 
   const std::string bodyStr = body.dump();
-
-  // ── 3. Compute signature over query params + body ────────────────────────
-  queryParams["signature"] = SignatureAndroidParams(queryParams, bodyStr, profile.saltKind);
-
-  // ── 4. Build full URL ────────────────────────────────────────────────────
-  std::ostringstream urlStream;
-  urlStream << "http://tracker.kugou.com/v6/priv_url?";
-  bool first = true;
-  for (const auto& [k, v] : queryParams) {
-    if (!first) urlStream << "&";
-    urlStream << k << "=" << UrlEncode(v);
-    first = false;
-  }
-  const std::string url = urlStream.str();
+  req.body = bodyStr;
+  const std::string url = BuildSignedUrl(req);
 
   // ── 5. HTTP POST ─────────────────────────────────────────────────────────
   auto result = httpPost_(
@@ -687,14 +643,22 @@ nlohmann::json SongUrlService::Resolve(
 
   auto callUpstream = [&](std::unordered_map<std::string, std::string> p)
       -> std::pair<HttpResult, nlohmann::json> {
-    if (p.find("clienttime") == p.end()) {
-      p["clienttime"] = std::to_string(std::time(nullptr));
+    KuGouAndroidRequest v5req;
+    v5req.endpoint = "https://gateway.kugou.com/v5/url";
+    v5req.profile = GetKuGouProfile(KuGouEdition::Concept);
+    v5req.profile.clientver = V5UrlClientver;
+    v5req.device = device;
+    v5req.includeSongUrlKey = true;
+    v5req.params = std::map<std::string, std::string>(p.begin(), p.end());
+    // Pre-set clienttime so URL and HTTP headers use the same value
+    if (!v5req.params.count("clienttime")) {
+      v5req.params["clienttime"] = std::to_string(std::time(nullptr));
     }
-    const std::string requestDfid = p.find("dfid") != p.end() ? p["dfid"] : "-";
-    const std::string requestMid = p.find("mid") != p.end() ? p["mid"] : "0";
-    const std::string requestClientTime =
-        p.find("clienttime") != p.end() ? p["clienttime"] : std::to_string(std::time(nullptr));
-    const std::string url = BuildV5Url("https://gateway.kugou.com/v5/url", std::move(p));
+    const std::string url = BuildSignedUrl(v5req);
+    // Extract request-level headers from params (consistent with URL values)
+    const std::string requestDfid = v5req.params.count("dfid") ? v5req.params.at("dfid") : "-";
+    const std::string requestMid = v5req.params.count("mid") ? v5req.params.at("mid") : "0";
+    const std::string requestClientTime = v5req.params.at("clienttime");
     auto result = httpGet_(
         url,
         {

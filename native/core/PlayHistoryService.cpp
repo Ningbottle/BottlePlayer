@@ -1,42 +1,11 @@
 #include "echo/core/PlayHistoryService.h"
-#include "echo/core/Crypto.h"
+#include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
-#include "echo/core/StringUtils.h"
 
 #include <ctime>
-#include <sstream>
-#include <iomanip>
 
 namespace echo::core {
 namespace {
-
-
-std::string BuildAndroidSignedUrl(
-    const std::string& baseUrl,
-    std::unordered_map<std::string, std::string> params,
-    const std::string& body = "") {
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  if (params.find("appid") == params.end()) params["appid"] = profile.appid;
-  if (params.find("clientver") == params.end()) params["clientver"] = profile.clientver;
-  if (params.find("clienttime") == params.end()) {
-    params["clienttime"] = std::to_string(std::time(nullptr));
-  }
-  if (params.find("mid") == params.end()) params["mid"] = "0";
-  if (params.find("uuid") == params.end()) params["uuid"] = "-";
-  if (params.find("dfid") == params.end()) params["dfid"] = "-";
-
-  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
-
-  std::ostringstream urlStream;
-  urlStream << baseUrl << "?";
-  bool first = true;
-  for (const auto& [key, value] : params) {
-    if (!first) urlStream << "&";
-    urlStream << key << "=" << UrlEncode(value);
-    first = false;
-  }
-  return urlStream.str();
-}
 
 nlohmann::json MakeError(const std::string& message, long statusCode = 0) {
   return {
@@ -83,12 +52,15 @@ nlohmann::json PlayHistoryService::UploadSong(
   };
   const std::string body = dataMap.dump();
 
-  std::unordered_map<std::string, std::string> params;
-  params["plat"] = "3";
-  if (!userId.empty() && userId != "0") params["userid"] = userId;
-  if (!token.empty()) params["token"] = token;
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/playhistory/v1/upload_songs";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  req.body = body;
+  req.params["plat"] = "3";
+  if (!userId.empty() && userId != "0") req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
 
-  std::string url = BuildAndroidSignedUrl("https://gateway.kugou.com/playhistory/v1/upload_songs", params, body);
+  const std::string url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
       url,
@@ -123,11 +95,14 @@ nlohmann::json PlayHistoryService::GetUserHistory(
   }
   const std::string body = dataMap.dump();
 
-  std::unordered_map<std::string, std::string> params;
-  if (!userId.empty() && userId != "0") params["userid"] = userId;
-  if (!token.empty()) params["token"] = token;
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/playhistory/v1/get_songs";
+  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  req.body = body;
+  if (!userId.empty() && userId != "0") req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
 
-  std::string url = BuildAndroidSignedUrl("https://gateway.kugou.com/playhistory/v1/get_songs", params, body);
+  const std::string url = BuildSignedUrl(req);
 
   const auto result = httpPost_(
       url,

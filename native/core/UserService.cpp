@@ -364,43 +364,26 @@ nlohmann::json UserService::ClaimYouthListenSong(
     return MakeError("not logged in");
   }
 
-  const auto clienttime = std::to_string(std::time(nullptr));
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  const std::string body = R"({"mixsongid":666075191})";
 
   // listen_song report uses a distinct clientver from the global concept profile.
-  const std::string kListenSongClientver = "10566";
+  auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  profile.clientver = "10566";
 
-  const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
-  const std::string mid  = ResolveAndroidMid(device);
-  const std::string uuid = device.guid.empty() ? "-" : device.guid;
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/youth/v2/report/listen_song";
+  req.profile = profile;
+  req.device = device;
+  req.body = body;
+  // Note: old code didn't send 'plat' param, so we don't add it here
+  if (!userId.empty() && userId != "0") req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
 
-  std::unordered_map<std::string, std::string> params = {
-      {"appid", profile.appid},
-      {"clientver", kListenSongClientver},
-      {"clienttime", clienttime},
-      {"dfid", dfid},
-      {"mid", mid},
-      {"uuid", uuid},
-  };
-  if (!userId.empty() && userId != "0") params["userid"] = userId;
-  if (!token.empty()) params["token"] = token;
-
-  const std::string body = R"({"mixsongid":666075191})";
-  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
-
-  std::ostringstream urlStream;
-  urlStream << "https://gateway.kugou.com/youth/v2/report/listen_song?";
-  bool first = true;
-  for (const auto& [k, v] : params) {
-    if (!first) urlStream << "&";
-    urlStream << k << "=" << v;
-    first = false;
-  }
-
+  const std::string url = BuildSignedUrl(req);
   const std::string cookie = "token=" + token + "; userid=" + userId + "; KugooID=" + userId;
 
   const auto result = httpPost_(
-      urlStream.str(),
+      url,
       body,
       {
           {"Cookie", cookie},
@@ -450,25 +433,8 @@ nlohmann::json UserService::ClaimYouthAdVip(
     return MakeError("not logged in");
   }
 
-  const auto clienttime = std::to_string(std::time(nullptr));
   const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::system_clock::now().time_since_epoch()).count();
-
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  const std::string dfid = device.dfid.empty() ? "-" : device.dfid;
-  const std::string mid  = ResolveAndroidMid(device);
-  const std::string uuid = device.guid.empty() ? "-" : device.guid;
-
-  std::unordered_map<std::string, std::string> params = {
-      {"appid", profile.appid},
-      {"clientver", profile.clientver},
-      {"clienttime", clienttime},
-      {"dfid", dfid},
-      {"mid", mid},
-      {"uuid", uuid},
-  };
-  if (!userId.empty() && userId != "0") params["userid"] = userId;
-  if (!token.empty()) params["token"] = token;
 
   nlohmann::json bodyJson = {
       {"ad_id", 12307537187},
@@ -476,21 +442,22 @@ nlohmann::json UserService::ClaimYouthAdVip(
       {"play_start", nowMs - 30000},
   };
   const std::string body = bodyJson.dump();
-  params["signature"] = SignatureAndroidParams(params, body, profile.saltKind);
 
-  std::ostringstream urlStream;
-  urlStream << "https://gateway.kugou.com/youth/v1/ad/play_report?";
-  bool first = true;
-  for (const auto& [k, v] : params) {
-    if (!first) urlStream << "&";
-    urlStream << k << "=" << v;
-    first = false;
-  }
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/youth/v1/ad/play_report";
+  req.profile = profile;
+  req.device = device;
+  req.body = body;
+  // Note: old code didn't send 'plat' param, so we don't add it here
+  if (!userId.empty() && userId != "0") req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
 
+  const std::string url = BuildSignedUrl(req);
   const std::string cookie = "token=" + token + "; userid=" + userId + "; KugooID=" + userId;
 
   const auto result = httpPost_(
-      urlStream.str(),
+      url,
       body,
       {
           {"Cookie", cookie},
