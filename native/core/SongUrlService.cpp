@@ -4,6 +4,7 @@
 #include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
+#include "echo/diagnostics/Redaction.h"
 
 #include <chrono>
 #include <ctime>
@@ -340,10 +341,11 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
           {"kg-rf", "B9EDA08A64250DEFFBCADDEE00F8F25F"},
       });
 
-  // Diagnostic log
+  // Diagnostic log — 脱敏：body/resp 可能携带 token 与签名 play_url，
+  // 经 FFI 日志回调写盘时会泄漏，统一走 RedactSensitive + TruncateForLog。
   {
-    std::string bodyPreview = bodyStr.size() > 600 ? bodyStr.substr(0, 600) + "..." : bodyStr;
-    std::string respPreview = result.body.size() > 800 ? result.body.substr(0, 800) + "..." : result.body;
+    std::string bodyPreview = diagnostics::TruncateForLog(diagnostics::RedactSensitive(bodyStr));
+    std::string respPreview = diagnostics::TruncateForLog(diagnostics::RedactSensitive(result.body));
     std::ostringstream log;
     log << "[SongUrl/V6PRIV] http=" << result.statusCode
         << " err=" << result.error
@@ -689,8 +691,9 @@ nlohmann::json SongUrlService::Resolve(
                          || url.find("?token=") != std::string::npos;
       const bool isFreePart = url.find("IsFreePart=1") != std::string::npos;
       const char* pathKind = hasToken ? "MAIN" : (isFreePart ? "PREVIEW" : "ANON");
-      std::string urlPreview = url.size() > 400 ? url.substr(0, 400) + "..." : url;
-      std::string bodyPreview = result.body.size() > 800 ? result.body.substr(0, 800) + "..." : result.body;
+      // 脱敏：URL 带 token/userid，resp 带签名 play_url，写盘会泄漏。
+      std::string urlPreview = diagnostics::TruncateForLog(diagnostics::RedactSensitive(url), 400);
+      std::string bodyPreview = diagnostics::TruncateForLog(diagnostics::RedactSensitive(result.body));
       std::ostringstream log;
       log << "phase=" << pathKind
           << " http=" << result.statusCode
