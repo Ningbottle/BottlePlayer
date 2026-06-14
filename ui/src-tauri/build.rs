@@ -54,9 +54,15 @@ fn main() {
         println!("cargo:rerun-if-changed={}", src.display());
     } else {
         println!(
-            "cargo:warning=Native DLL not found at {}. Skipping copy.",
+            "cargo:warning=Native DLL not found at {}. Skipping copy. Creating an empty dummy DLL to satisfy tauri.conf.json resources check.",
             src.display()
         );
+        let staging_dir = manifest_dir.join("libs");
+        let _ = std::fs::create_dir_all(&staging_dir);
+        let staging_dst = staging_dir.join(dll_name);
+        if !staging_dst.exists() {
+            let _ = std::fs::File::create(&staging_dst);
+        }
     }
 
     tauri_build::build();

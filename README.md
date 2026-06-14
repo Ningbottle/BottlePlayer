@@ -18,17 +18,39 @@ BottleMusic/
 └── docs/       ← 本地项目文档（不进 Git）
 ```
 
+## 环境前置
+
+| 工具 | 版本 | 用途 |
+|---|---|---|
+| Node.js | ≥ 20（建议 22） | 前端运行时 |
+| pnpm | 11（`npm i -g pnpm`） | 前端包管理 |
+| Rust | stable（含 cargo/rustc） | Tauri 壳 + FFI 加载层（`ui/src-tauri/`） |
+| CMake | ≥ 3.24 | C++ DLL 构建配置 |
+| Visual Studio | 2022 或更高（含 MSVC C++20） | C++ 编译器（Win SDK / vcpkg 依赖） |
+
+> 国内网络环境下，建议给 pnpm/cargo 配置镜像（如 `pnpm config set registry https://registry.npmmirror.com`），并设置 `COREPACK_NPM_REGISTRY` 环境变量以避免 corepack 激活失败。
+
 ## 快速开始
 
 ```powershell
+# 0. 克隆（含 server 子模块）
+git clone --recurse-submodules https://github.com/Ningbottle/BottlePlayer.git
+#   # 若已克隆但未带子模块：
+#   git submodule update --init --recursive
+
 # 1. 先编译 C++ DLL（VS Developer PowerShell，仅首次或改 native/ 后需要）
-cmake --build native/out/bottlemusic-check --target EchoCAPI
+cd ui
+pnpm backend:build         # = cmake configure + build EchoCAPI + 同步 DLL
+#   或手动：
+#   cmake -S ../native --preset bottlemusic-check
+#   cmake --build ../native/out/bottlemusic-check --config Debug --target EchoCAPI
 
 # 2. 前端开发（DLL 会由 build.rs 自动拷入 target/debug/）
-cd ui
 pnpm install
-pnpm tauri dev          # 首跑 5-10 分钟，之后 < 30s
+pnpm tauri dev             # 首跑 5-10 分钟，之后 < 30s
 ```
+
+> **纯前端开发**（不依赖 C++/Rust，只调 Vue 界面）：`cd ui && pnpm install && pnpm dev`，浏览器访问 `http://localhost:1420`。Tauri 原生调用（`native_request` 等）会因 DLL 缺失而失败，但 UI 可正常预览。
 
 > **注**：`pnpm tauri dev` 的终端窗口即日志来源，C++ 诊断输出格式为 `[C++ debug][Tag] message`。
 

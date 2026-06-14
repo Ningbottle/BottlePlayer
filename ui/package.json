@@ -10,7 +10,6 @@
     "tauri": "tauri",
     "backend:build": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-backend.ps1",
     "backend:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/sync-backend.ps1",
-    "predev": "pnpm backend:sync",
     "test": "vitest run",
     "test:watch": "vitest"
   },

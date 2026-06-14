@@ -1,37 +1,38 @@
-# 把 EchoCompatServer.exe 同步到 src-tauri/binaries/，加 target-triple 后缀。
+# 把构建产物 EchoCAPI.dll 同步到 src-tauri（Rust 通过 libloading 加载它）。
 # 用法：pnpm backend:sync
+# 说明：当前是 FFI 架构，不再是 sidecar exe；build.rs 也会做同样的拷贝，
+#       这个脚本主要给“只重建了 C++、没重建 Rust”的场景手动兜底。
 $ErrorActionPreference = 'Stop'
 
 $root = Split-Path -Parent $PSScriptRoot   # ui/
 
-# 候选路径：worktree 自带 build 优先，回退到主 worktree 标准路径
+# DLL 候选路径：本仓库构建产物优先，兼容多种 preset
 $candidates = @(
-  (Join-Path $root '..\native\out\bottlemusic-check\EchoCompatServer.exe'),
-  'D:\KuGouMusic\EchoMusic-main\native\out\bottlemusic-check\EchoCompatServer.exe'
+    (Join-Path $root '..\native\out\bottlemusic-check\EchoCAPI.dll'),
+    (Join-Path $root '..\native\out\bottlemusic-release\EchoCAPI.dll')
 )
 
 $src = $null
-foreach ($c in $candidates) {
-  if (Test-Path $c) { $src = $c; break }
-}
+foreach ($c in $candidates) { if (Test-Path $c) { $src = $c; break } }
 
 if (-not $src) {
-  Write-Warning "EchoCompatServer.exe not found. Tried:"
-  foreach ($c in $candidates) { Write-Warning "  $c" }
-  Write-Warning "Skipping sync. Run 'pnpm backend:build' or do a CMake build manually."
-  exit 0
+    Write-Warning 'EchoCAPI.dll not found. Tried:'
+    foreach ($c in $candidates) { Write-Warning "  $c" }
+    Write-Warning "Skipping sync. Run 'pnpm backend:build' or build native/ via CMake manually."
+    exit 0
 }
 
-$triple = (rustc -vV | Select-String 'host:' | ForEach-Object { ($_.ToString().Split(':')[1]).Trim() })
-$dstDir = Join-Path $root 'src-tauri\binaries'
+# Rust 在 debug 跑时从 target/debug/ 加载 DLL（见 lib.rs 的 exe_dir 候选），
+# 但开发期最稳的是直接放进 src-tauri 便于 build.rs 与 IDE 一致引用。
+$dstDir = Join-Path $root 'src-tauri\libs'
 New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
-$dst = Join-Path $dstDir "EchoCompatServer-$triple.exe"
+$dst = Join-Path $dstDir 'EchoCAPI.dll'
 
 if ((Test-Path $dst) -and ((Get-Item $src).LastWriteTime -eq (Get-Item $dst).LastWriteTime)) {
-  Write-Host "[backend:sync] already up-to-date"
-  exit 0
+    Write-Host '[backend:sync] already up-to-date'
+    exit 0
 }
 
 Copy-Item -Path $src -Destination $dst -Force
 $size = (Get-Item $dst).Length / 1MB
-Write-Host ("[backend:sync] {0:N2} MB <- {1}" -f $size, $src)
+Write-Host ('[backend:sync] {0:N2} MB <- {1}' -f $size, $src)
