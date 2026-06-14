@@ -1,5 +1,6 @@
 import { reactive } from 'vue';
 import { apiGet } from './backend';
+import { resolveVip } from './vipResolver';
 
 interface UserState {
   isLoggedIn: boolean;
@@ -43,77 +44,23 @@ export async function checkLoginStatus() {
       // idempotent — re-calls are cheap once registered=true.
       apiGet('/register/dev').catch(e => console.warn('Device upgrade failed', e));
 
-      // Load VIP details. KuGou's get_union_vip returns:
-      //   {
-      //     data: {
-      //       is_vip: 0/1,                     ← top-level paid-VIP flag
-      //       vip_type, vip_end_time,
-      //       svip_level, svip_score,          // historical/decorative
-      //       busi_vip: [
-      //         { product_type: "svip", is_vip: 0/1, vip_end_time, ... },  ← real song-unlock VIP
-      //         { product_type: "tvip", is_vip: 0/1, vip_end_time, ... },  ← trial marker, doesn't unlock songs
-      //       ],
-      //     }
-      //   }
-      // VIP detection rules (in order of trust):
-      //   1) top-level is_vip=1 OR vip_type>0  → paid VIP
-      //   2) busi_vip[].product_type=="svip" && is_vip=1 && vip_end_time in future  → ad-reward / temp SVIP (unlocks songs)
-      //   3) Otherwise the tvip-only state means free user
+      // VIP 解析抽到 vipResolver.resolveVip（纯函数，有单元测试覆盖）。
+      // 规则摘要：顶层 is_vip/vip_type → 付费；busi_vip[svip] 未过期 → 临时 SVIP；
+      // 到期时间取所有来源里"最晚且未过期"的。旧"顶层短路"bug 已由测试锁定。
       const vip = await apiGet<any>('/user/vip/detail');
       if (vip && vip.status === 1 && vip.data) {
-        const d = vip.data;
-        userStore.vipLevel = Number(d.svip_level || d.vip_level || 0);
-        userStore.vipType = Number(d.vip_type || 0);
-
-        // VIP 到期时间的权威来源是 busi_vip 里 product_type=svip 且未过期的项
-        // （今天领到的免费/广告 SVIP 在这里）。顶层 vip_end_time 可能是过期的历史付费 VIP。
-        // 旧逻辑：顶层 is_vip=1 就短路，导致显示过期的顶层时间、无视 busi_vip 的有效时间
-        // （症状：会员有效但“截止日期”是过去的日期）。
-        // 新逻辑：扫描所有来源，取“最晚且未过期”的到期时间展示。
-        let isVip = d.is_vip === 1 || d.is_vip === '1' || Number(d.vip_type) > 0;
-        const nowMs = Date.now();
-        // 酷狗返回 "YYYY-MM-DD HH:MM:SS"（北京时间，按本地解析做比较）；0 表示无法解析/永久。
-        const toMs = (s: any): number => {
-          const str = String(s || '');
-          if (!str) return 0;
-          const t = new Date(str.replace(' ', 'T')).getTime();
-          return isNaN(t) ? 0 : t;
-        };
-        let bestStr = '';
-        let bestRank = -1;
-        const consider = (str: string) => {
-          if (!str) return;
-          const ms = toMs(str);
-          const rank = ms === 0 ? Number.MAX_SAFE_INTEGER : ms; // 永久/无法解析 → 最高优先
-          if ((ms === 0 || ms > nowMs) && rank > bestRank) {
-            bestRank = rank;
-            bestStr = str;
-          }
-        };
-        if (Array.isArray(d.busi_vip)) {
-          for (const b of d.busi_vip) {
-            if (!b) continue;
-            const isSvip = String(b.product_type || '') === 'svip';
-            const bIsVip = b.is_vip === 1 || b.is_vip === '1';
-            if (isSvip && bIsVip) {
-              const endStr = String(b.vip_end_time || '');
-              if (!endStr || toMs(endStr) === 0 || toMs(endStr) > nowMs) {
-                isVip = true;
-                consider(endStr);
-              }
-            }
-          }
-        }
-        consider(String(d.vip_end_time || d.end_time || '')); // 顶层作为候选（过期则不入选）
-        userStore.isVip = isVip;
-        userStore.vipEndDate = bestStr || String(d.vip_end_time || d.end_time || '');
+        const r = resolveVip(vip.data, Date.now());
+        userStore.vipLevel = r.vipLevel;
+        userStore.vipType = r.vipType;
+        userStore.isVip = r.isVip;
+        userStore.vipEndDate = r.vipEndDate;
 
         // Backfill avatar/nickname if /user/vip/detail surfaced them.
-        if (d.nickname && !userStore.username.startsWith(d.nickname)) {
-          userStore.username = d.nickname;
+        if (r.nickname && !userStore.username.startsWith(r.nickname)) {
+          userStore.username = r.nickname;
         }
-        if (d.pic && !userStore.avatar) {
-          userStore.avatar = d.pic;
+        if (r.pic && !userStore.avatar) {
+          userStore.avatar = r.pic;
         }
       }
     } else {
