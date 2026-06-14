@@ -100,6 +100,9 @@ pub fn run() {
                             path.display(),
                             app_data_dir
                         );
+                        // 日志目录必须在注册 log callback 之前设定：callback 一旦
+                        // 触发就会惰性初始化 LOG_FILE，而路径由 LOG_DIR 决定。
+                        backend_api::set_log_dir(&app_data_dir);
                         if let Err(e) = backend_api::set_log_callback() {
                             eprintln!("[EchoCAPI WARN] Failed to set log callback: {}", e);
                         }

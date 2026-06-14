@@ -153,24 +153,43 @@ pub fn handle_request(
     }
 }
 
-// 日志文件：优先 D:\BottleMusic\logs（固定路径、好找）；若该盘不可写
-// （如别人机器没 D 盘）则回退到可执行文件同级的 logs/。按天分文件避免无限增长。
+// 由宿主（lib.rs setup）在初始化时指定的可写日志目录，通常是 Tauri 的
+// app_data_dir（跨平台、用户可写、与 SQLite 同根）。空表示未设置，会走回退。
+static LOG_DIR: OnceLock<std::path::PathBuf> = OnceLock::new();
+
+/// 设置日志目录。应在 `init_with_paths` 之后、`set_log_callback` 之前调用一次。
+/// 接收与 C++ 后端相同的 app_data_dir；日志落在 `<app_data_dir>/logs/`。
+/// 若未调用或传入空串，`log_file()` 会回退到 exe 同级 / 当前目录。
+pub fn set_log_dir(dir: &str) {
+    if dir.is_empty() {
+        return;
+    }
+    // 已设置则忽略后续调用 —— 第一次写入决定路径（与 log_file 的 OnceLock 语义对齐）。
+    let _ = LOG_DIR.set(std::path::PathBuf::from(dir));
+}
+
+// 日志文件：优先用宿主指定的 app_data_dir/logs（跨平台、用户可写、与 DB 同根，
+// 也是安装版唯一可靠的写入位置）；若未指定或不可写，回退到 exe 同级 logs/，
+// 最后回退到当前工作目录 logs/。按天分文件避免无限增长。
 fn log_file() -> &'static std::sync::Mutex<Option<std::fs::File>> {
     static LOG_FILE: OnceLock<std::sync::Mutex<Option<std::fs::File>>> = OnceLock::new();
     LOG_FILE.get_or_init(|| {
-        let dir = {
-            let preferred = std::path::PathBuf::from("D:\\BottleMusic\\logs");
-            if std::fs::create_dir_all(&preferred).is_ok() {
-                preferred
-            } else {
-                let fallback = std::env::current_exe()
-                    .ok()
-                    .and_then(|p| p.parent().map(|p| p.join("logs")))
-                    .unwrap_or_else(|| std::path::PathBuf::from("logs"));
-                let _ = std::fs::create_dir_all(&fallback);
-                fallback
-            }
-        };
+        // 按优先级枚举候选根目录，第一个 create_dir_all 成功的胜出。
+        let mut candidates: Vec<std::path::PathBuf> = Vec::new();
+        if let Some(host_dir) = LOG_DIR.get() {
+            candidates.push(host_dir.join("logs"));
+        }
+        if let Some(exe) = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf())) {
+            candidates.push(exe.join("logs"));
+        }
+        candidates.push(std::path::PathBuf::from("logs"));
+
+        let (dir, _) = candidates
+            .iter()
+            .map(|d| (d.clone(), std::fs::create_dir_all(d)))
+            .find(|(_, r)| r.is_ok())
+            .unwrap_or_else(|| (candidates[0].clone(), Ok(())));
+
         let name = format!("bottlemusic-{}.log", chrono::Local::now().format("%Y%m%d"));
         let path = dir.join(name);
         let file = std::fs::OpenOptions::new()
