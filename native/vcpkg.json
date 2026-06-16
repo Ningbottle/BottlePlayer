@@ -1,6 +1,6 @@
 {
   "name": "bottlemusic-native",
-  "version-string": "0.1.0",
+  "version-string": "1.0.0",
   "dependencies": [
     "cpp-httplib",
     "nlohmann-json",

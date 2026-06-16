@@ -82,7 +82,18 @@ nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
 
   try {
     auto j = nlohmann::json::parse(result.body);
-    j["debug_url"] = url;
+    // 移除 debug_url，因为它包含设备指纹和签名，会泄露安全信息
+    // j["debug_url"] = url;
+    
+    // 添加脱敏的调试信息（不含敏感参数）
+    #ifdef _DEBUG
+    nlohmann::json debug_info = {
+      {"endpoint", "qrcode"},
+      {"status", j.value("status", 0)}
+    };
+    j["_debug"] = debug_info;
+    #endif
+    
     return j;
   } catch (const nlohmann::json::exception& e) {
     return MakeErrorJson(std::string("JSON parse error: ") + e.what(), result.statusCode);

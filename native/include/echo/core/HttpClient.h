@@ -23,5 +23,9 @@ class HttpClient {
       const std::unordered_map<std::string, std::string>& headers = {}) const;
 };
 
+/// Graceful shutdown: close all pooled WinHTTP session/connect handles.
+/// Safe to call multiple times (idempotent). Call from EchoShutdown.
+void CloseHttpConnectionPool();
+
 }  // namespace echo::core
 

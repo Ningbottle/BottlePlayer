@@ -1,6 +1,7 @@
 #include "echo/core/UserCloudService.h"
 #include "echo/core/Crypto.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/core/SafeStoll.h"
 #include "echo/core/StringUtils.h"
 
 #include <windows.h>
@@ -89,7 +90,7 @@ nlohmann::json UserCloudService::GetList(
   // 2. Prepare RSA encrypted p parameter
   nlohmann::json rsaPayload = {
       {"aes", aesKeyPair.key},
-      {"uid", userId.empty() ? 0 : std::stoll(userId)},
+      {"uid", SafeStoll(userId)},
       {"token", token}
   };
   std::string p = RsaPkcs1Encrypt(rsaPayload.dump());

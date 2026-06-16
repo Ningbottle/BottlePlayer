@@ -150,6 +150,9 @@ void Database::InitializeSchema() {
           "created_at INTEGER NOT NULL"
           ");");
   Execute("PRAGMA user_version=1;");
+
+  // Index for PruneExpiredApiCache and GetApiCache time-based lookups.
+  Execute("CREATE INDEX IF NOT EXISTS idx_api_cache_expires ON api_cache(expires_at);");
 }
 
 void Database::Execute(const std::string& sql) {

@@ -3,6 +3,7 @@
 #include "echo/core/Crypto.h"
 #include "echo/core/DeviceService.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/core/SafeStoll.h"
 #include "echo/core/StringUtils.h"
 
 #include <algorithm>
@@ -96,7 +97,7 @@ std::string DeviceRegisterService::Register(
   //    the signature differs from KuGou's and we get error_code 20010.
   nlohmann::json wrapper = {
       {"aes",   aes.key},
-      {"uid",   userId.empty() ? 0 : std::stoll(userId)},
+      {"uid",   SafeStoll(userId)},
       {"token", token},
   };
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);

@@ -20,9 +20,13 @@ static std::size_t ci_find(const std::string& haystack, const std::string& needl
   return it == haystack.end() ? std::string::npos : static_cast<std::size_t>(std::distance(haystack.begin(), it));
 }
 
-// Find value after key= (up to space, &, ; or end)
+// Find value after key= (up to space, &, ; or end). When prefix==suffix==0
+// the caller wants total masking; MaskMiddle would yield "..." (empty prefix
+// + "..." + empty suffix) which looks like truncation, so return "***" to
+// signal a fully-redacted value instead.
 static void mask_param(std::string& text, const std::string& key, std::size_t prefix, std::size_t suffix) {
   const std::string param = key + "=";
+  const bool total_mask = (prefix == 0 && suffix == 0);
   std::size_t pos = 0;
   while (true) {
     std::size_t found = ci_find(text.substr(pos), param);
@@ -33,11 +37,71 @@ static void mask_param(std::string& text, const std::string& key, std::size_t pr
     if (end == std::string::npos) end = text.size();
     std::size_t vlen = end - pos;
     if (vlen > 0) {
-      std::string masked = MaskMiddle(text.substr(pos, vlen), prefix, suffix);
+      std::string masked = total_mask ? "***" : MaskMiddle(text.substr(pos, vlen), prefix, suffix);
       text.replace(pos, vlen, masked);
       pos += masked.size();
     } else {
-      break;  // 防止空值导致无限循环
+      // Empty value (e.g. "token="): skip past it but keep scanning so a later
+      // non-empty occurrence of the same key is still masked. The previous
+      // `break` here would abandon the whole string and leak later values.
+      if (end >= text.size()) break;  // 已到字符串末尾，无法继续
+      pos = end + 1;
+      continue;
+    }
+  }
+}
+
+// Scrub the query string of every http(s):// URL found in `text`. KuGou signs
+// the play URL itself (auth=/ssig=/expires=/token= in the query string) rather
+// than carrying a token under a separate key, so a key-list redactor would
+// leave those values in the log. We keep the query keys (so the log stays
+// legible) but mask every value with "***". The URL path before `?` is left
+// intact, and a URL with no query string is returned unchanged.
+static void mask_url_queries(std::string& text) {
+  const std::string schemes[] = {"https://", "http://"};
+  const std::string kUrlEnd = " \"\n\t";
+
+  for (const std::string& scheme : schemes) {
+    std::size_t search = 0;
+    while (true) {
+      std::size_t url_start = ci_find(text.substr(search), scheme);
+      if (url_start == std::string::npos) break;
+      url_start += search;
+      search = url_start + scheme.size();
+
+      // Find where this URL ends (whitespace/quote/newline) or fall through
+      // to the end of the string.
+      std::size_t url_end = text.find_first_of(kUrlEnd, url_start);
+      if (url_end == std::string::npos) url_end = text.size();
+
+      // Only the query portion (after '?') needs scrubbing; the path is
+      // not secret. If there is no '?', the URL has no query to scrub.
+      std::size_t q = text.find('?', url_start);
+      if (q == std::string::npos || q >= url_end) continue;
+
+      // Walk each key=value pair in [q+1, url_end), masking values.
+      std::size_t cur = q + 1;
+      while (cur < url_end) {
+        std::size_t eq = text.find('=', cur);
+        std::size_t amp = text.find('&', cur);
+        if (amp == std::string::npos || amp > url_end) amp = url_end;
+        // No '=' before the next separator: nothing to mask (bare fragment).
+        if (eq == std::string::npos || eq >= amp) {
+          cur = amp + 1;
+          continue;
+        }
+        std::size_t val = eq + 1;
+        std::size_t vlen = amp - val;
+        if (vlen > 0) {
+          text.replace(val, vlen, "***");
+          // The replacement shrank/kept the segment; re-anchor to the next '&'.
+          url_end = text.find_first_of(kUrlEnd, url_start);
+          if (url_end == std::string::npos) url_end = text.size();
+          amp = text.find('&', val + 3);
+          if (amp == std::string::npos || amp > url_end) amp = url_end;
+        }
+        cur = amp + 1;
+      }
     }
   }
 }
@@ -45,6 +109,10 @@ static void mask_param(std::string& text, const std::string& key, std::size_t pr
 std::string RedactSensitive(std::string_view text) {
   std::string out(text);
 
+  // http(s)://...?query=value — signed CDN play_url values carry auth in the
+  // URL itself; scrub the query string before any key-based masking so the
+  // key-list below never sees (and logs) the raw signed URL value.
+  mask_url_queries(out);
   // token=...
   mask_param(out, "token", 0, 0);
   // "token": "..."

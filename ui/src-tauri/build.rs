@@ -29,7 +29,7 @@ fn main() {
 
         if dst.exists() {
             // On Windows, if the DLL is currently loaded by the app, we cannot overwrite it.
-            // However, we CAN rename it. By renaming the old DLL out of the way, we allow 
+            // However, we CAN rename it. By renaming the old DLL out of the way, we allow
             // the new copy to succeed.
             let _ = std::fs::rename(&dst, target_profile_dir.join(format!("{}.old", dll_name)));
         }
@@ -53,16 +53,12 @@ fn main() {
 
         println!("cargo:rerun-if-changed={}", src.display());
     } else {
-        println!(
-            "cargo:warning=Native DLL not found at {}. Skipping copy. Creating an empty dummy DLL to satisfy tauri.conf.json resources check.",
+        // 找不到原生 DLL 时直接失败：空占位会让打包通过，但运行时只能崩。
+        // 先执行 `cd ui && pnpm backend:build`，让 Rust/Tauri 总是绑定真实 EchoCAPI。
+        panic!(
+            "Native DLL not found at {}. Build the C++ backend first: cd ui && pnpm backend:build",
             src.display()
         );
-        let staging_dir = manifest_dir.join("libs");
-        let _ = std::fs::create_dir_all(&staging_dir);
-        let staging_dst = staging_dir.join(dll_name);
-        if !staging_dst.exists() {
-            let _ = std::fs::File::create(&staging_dst);
-        }
     }
 
     tauri_build::build();

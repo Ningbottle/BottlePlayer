@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
@@ -81,51 +82,85 @@ bool CrackUrl(const std::wstring& wideUrl, ParsedUrl& out) {
   return true;
 }
 
+using HandlePtr = std::shared_ptr<void>;
+
+HandlePtr WrapHandle(HINTERNET h) {
+  return HandlePtr(h, [](void* p) {
+    if (p) WinHttpCloseHandle(static_cast<HINTERNET>(p));
+  });
+}
+
 class HttpConnectionPool {
  public:
   // 返回进程级共享 session（首次调用惰性创建）。connect 池依附于该 session。
-  HINTERNET Session() {
-    std::call_once(session_once_, [this] {
-      session_ = WinHttpOpen(
-          L"EchoMusicNative/0.1",
-          WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
-          WINHTTP_NO_PROXY_NAME,
-          WINHTTP_NO_PROXY_BYPASS,
-          0);
-      if (session_) {
-        // 进程级默认超时：解析 5s / 连接 5s / 发送 10s / 接收 10s。
-        WinHttpSetTimeouts(session_, 5000, 5000, 10000, 10000);
-      }
-    });
+  // 如果初始化失败，后续调用会重试（不再永久缓存失败状态）。
+  HandlePtr Session() {
+    std::lock_guard<std::mutex> lock(session_mutex_);
+    if (session_) return session_;
+
+    HINTERNET raw = WinHttpOpen(
+        L"EchoMusicNative/0.1",
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+        WINHTTP_NO_PROXY_NAME,
+        WINHTTP_NO_PROXY_BYPASS,
+        0);
+    if (raw) {
+      // 进程级默认超时：解析 5s / 连接 5s / 发送 10s / 接收 10s。
+      WinHttpSetTimeouts(raw, 5000, 5000, 10000, 10000);
+      session_ = WrapHandle(raw);
+    }
     return session_;
   }
 
-  // 取（或创建并缓存）指定 host:port 的 connect 句柄。失败返回 nullptr。
-  HINTERNET Connect(const std::wstring& host, INTERNET_PORT port) {
-    if (!Session()) return nullptr;
+  // 取（或创建并缓存）指定 host:port 的 connect 句柄。
+  // 返回 shared_ptr；请求持有 lease 直到析构。
+  // 失败返回 nullptr。
+  HandlePtr Connect(const std::wstring& host, INTERNET_PORT port) {
+    auto sess = Session();
+    if (!sess) return nullptr;
     const std::wstring key = host + L":" + std::to_wstring(port);
     std::lock_guard<std::mutex> lock(mutex_);
 
     auto it = connects_.find(key);
-    if (it != connects_.end() && it->second) return it->second;
+    if (it != connects_.end()) return it->second;
 
-    HINTERNET connect = WinHttpConnect(Session(), host.c_str(), port, 0);
-    if (!connect) return nullptr;
-    connects_[key] = connect;  // 缓存；后续同 host 请求复用，WinHTTP 自动 keep-alive
-    return connect;
+    HINTERNET raw = WinHttpConnect(
+        static_cast<HINTERNET>(sess.get()), host.c_str(), port, 0);
+    if (!raw) return nullptr;
+    auto entry = WrapHandle(raw);
+    connects_[key] = entry;
+    return entry;
+  }
+
+  // 剔除指定 host:port 的 connect：从 map 中移除，标记退役。
+  // 实际关闭延迟到最后一个 shared_ptr 引用释放（即最后一个使用该 connect
+  // 的请求结束）。这确保不会并发关闭正在被其他请求使用的 WinHTTP 句柄。
+  void Evict(const std::wstring& host, INTERNET_PORT port) {
+    const std::wstring key = host + L":" + std::to_wstring(port);
+    std::lock_guard<std::mutex> lock(mutex_);
+    connects_.erase(key);
+  }
+
+  // 优雅关闭所有句柄（保留对象壳）。
+  // 清空 map/session → shared_ptr 引用计数降零时自动 WinHttpCloseHandle。
+  // 使用 std::lock 同时锁定两把 mutex，消除 TOCTOU 窗口。
+  // 关闭后 Session()/Connect() 会尝试重新创建，实现优雅降级。
+  void CloseAll() {
+    std::lock(mutex_, session_mutex_);
+    std::lock_guard<std::mutex> lock(mutex_, std::adopt_lock);
+    std::lock_guard<std::mutex> slock(session_mutex_, std::adopt_lock);
+    connects_.clear();
+    session_.reset();
   }
 
   ~HttpConnectionPool() {
     // 析构顺序：先 connect 后 session（WinHTTP 要求子句柄先于父句柄关闭）。
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (auto& [_, h] : connects_) {
-      if (h) WinHttpCloseHandle(h);
-    }
+    // shared_ptr 保证：connects_ 中的引用先于 session_ 释放。
+    std::lock(mutex_, session_mutex_);
+    std::lock_guard<std::mutex> lock(mutex_, std::adopt_lock);
+    std::lock_guard<std::mutex> slock(session_mutex_, std::adopt_lock);
     connects_.clear();
-    if (session_) {
-      WinHttpCloseHandle(session_);
-      session_ = nullptr;
-    }
+    session_.reset();
   }
 
   // 单例：进程内一份，随全局析构销毁。
@@ -140,10 +175,10 @@ class HttpConnectionPool {
  private:
   HttpConnectionPool() = default;
 
-  std::once_flag session_once_;
-  HINTERNET session_ = nullptr;
-  std::unordered_map<std::wstring, HINTERNET> connects_;
-  std::mutex mutex_;  // 保护 connects_（session_ 由 call_once 保护）
+  std::mutex session_mutex_;
+  HandlePtr session_;  // shared_ptr: WrapHandle → WinHttpCloseHandle on last release
+  std::unordered_map<std::wstring, HandlePtr> connects_;
+  std::mutex mutex_;  // 保护 connects_（session_ 由 session_mutex_ 保护）
 };
 
 // 一次请求的公共执行逻辑：Get/Post 共用。
@@ -158,11 +193,12 @@ HttpResult ExecuteRequest(
   HttpResult result;
   auto& pool = HttpConnectionPool::Instance();
 
-  HINTERNET connect = pool.Connect(url.host, url.port);
-  if (!connect) {
+  auto conn = pool.Connect(url.host, url.port);
+  if (!conn) {
     result.error = LastErrorText("WinHttpConnect");
     return result;
   }
+  HINTERNET connect = static_cast<HINTERNET>(conn.get());
 
   const DWORD flags = url.scheme == INTERNET_SCHEME_HTTPS ? WINHTTP_FLAG_SECURE : 0;
   HINTERNET request = WinHttpOpenRequest(
@@ -170,7 +206,7 @@ HttpResult ExecuteRequest(
       WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, flags);
   if (!request) {
     result.error = LastErrorText("WinHttpOpenRequest");
-    return result;  // connect/session 由池持有，不在此关闭
+    return result;  // conn lease 由 shared_ptr 管理，析构时自动回收
   }
 
   // CDN 30x 跳转必须显式跟随，否则封面/签名媒体 URL 会静默退化为占位/播放失败。
@@ -202,6 +238,7 @@ HttpResult ExecuteRequest(
   if (!sent || !WinHttpReceiveResponse(request, nullptr)) {
     result.error = LastErrorText("WinHttpSendRequest/WinHttpReceiveResponse");
     WinHttpCloseHandle(request);
+    pool.Evict(url.host, url.port);  // 剔除坏 connect，避免永久复用中毒句柄
     return result;
   }
 
@@ -230,6 +267,10 @@ HttpResult ExecuteRequest(
 }
 
 }  // namespace
+
+void CloseHttpConnectionPool() {
+  HttpConnectionPool::Instance().CloseAll();
+}
 
 HttpResult HttpClient::Get(
     const std::string& url,

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.24)
 
-project(BottleMusicNative VERSION 0.1.0 LANGUAGES CXX)
+project(BottleMusicNative VERSION 1.0.0 LANGUAGES CXX)
 
 option(ECHO_NATIVE_BUILD_TESTS "Build native smoke tests" ON)
 
@@ -157,4 +157,17 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_include_directories(EchoHomeContractTest PRIVATE include)
   target_link_libraries(EchoHomeContractTest PRIVATE EchoCore)
   add_test(NAME EchoHomeContractTest COMMAND EchoHomeContractTest)
+
+  set(ECHO_NATIVE_TESTS
+    EchoNativeSmokeTests
+    EchoRouteContractTest
+    EchoSongUrlContractTest
+    EchoPlaylistContractTest
+    EchoProfileSignatureContractTest
+    EchoHomeContractTest
+  )
+  # 测试进程也需要找到 vcpkg 的动态库；把 bin 目录临时挂到 PATH，
+  # 避免普通 PowerShell/CTest 启动时报 0xc0000135。
+  set_tests_properties(${ECHO_NATIVE_TESTS} PROPERTIES
+    ENVIRONMENT_MODIFICATION "PATH=path_list_prepend:${ECHO_NATIVE_VCPKG_INSTALLED_DIR}/bin")
 endif()

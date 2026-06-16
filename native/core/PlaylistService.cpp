@@ -3,6 +3,7 @@
 #include "echo/core/DeviceService.h"
 #include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/core/SafeStoll.h"
 #include "echo/core/StringUtils.h"
 
 #include <windows.h>
@@ -783,7 +784,7 @@ nlohmann::json PlaylistService::GetUserPlaylists(
   pageSize = std::max(1, std::min(pageSize, 100));
 
   nlohmann::json dataPayload = {
-      {"userid", userId.empty() ? 0 : std::stoll(userId)},
+      {"userid", SafeStoll(userId)},
       {"token", token},
       {"total_ver", 979},
       {"type", 2},
@@ -865,15 +866,15 @@ nlohmann::json PlaylistService::AddPlaylist(
     const std::string& createGid) const {
   
   nlohmann::json dataPayload = {
-      {"userid", userId.empty() ? 0 : std::stoll(userId)},
+      {"userid", SafeStoll(userId)},
       {"token", token},
       {"total_ver", 0},
       {"name", name},
       {"type", type},
       {"source", source},
       {"is_pri", 0},
-      {"list_create_userid", createUserId.empty() ? 0 : std::stoll(createUserId)},
-      {"list_create_listid", createListId.empty() ? 0 : std::stoll(createListId)},
+      {"list_create_userid", SafeStoll(createUserId)},
+      {"list_create_listid", SafeStoll(createListId)},
       {"list_create_gid", createGid},
       {"from_shupinmv", 0}
   };
@@ -944,7 +945,7 @@ nlohmann::json PlaylistService::DeletePlaylist(
 
   nlohmann::json rsaPayload = {
       {"aes", aesKeyPair.key},
-      {"uid", userId.empty() ? 0 : std::stoll(userId)},
+      {"uid", SafeStoll(userId)},
       {"token", token}
   };
   std::string p = RsaPkcs1Encrypt(rsaPayload.dump());
@@ -1040,8 +1041,8 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
         {"sort", 0},
         {"timelen", 0},
         {"bitrate", 0},
-        {"album_id", (parts.size() > 2 && !parts[2].empty()) ? std::stoll(parts[2]) : 0},
-        {"mixsongid", (parts.size() > 3 && !parts[3].empty()) ? std::stoll(parts[3]) : 0}
+        {"album_id", SafeStoll(parts.size() > 2 ? parts[2] : "")},
+        {"mixsongid", SafeStoll(parts.size() > 3 ? parts[3] : "")}
     };
     resource.push_back(item);
   }
@@ -1065,9 +1066,9 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
   };
 
   nlohmann::json dataPayload = {
-      {"userid", userId.empty() ? 0 : std::stoll(userId)},
+      {"userid", SafeStoll(userId)},
       {"token", token},
-      {"listid", (!isNumeric(effectiveListId)) ? 0 : std::stoll(effectiveListId)},
+      {"listid", SafeStoll(effectiveListId)},
       {"list_ver", 0},
       {"type", 0},
       {"slow_upload", 1},
@@ -1128,13 +1129,13 @@ nlohmann::json PlaylistService::DeletePlaylistTracks(
   std::string idStr;
   while (std::getline(ss, idStr, ',')) {
     if (!idStr.empty()) {
-      resource.push_back({{"fileid", std::stoll(idStr)}});
+      resource.push_back({{"fileid", SafeStoll(idStr)}});
     }
   }
 
   nlohmann::json dataPayload = {
-      {"listid", listId.empty() ? 0 : std::stoll(listId)},
-      {"userid", userId.empty() ? 0 : std::stoll(userId)},
+      {"listid", SafeStoll(listId)},
+      {"userid", SafeStoll(userId)},
       {"data", resource},
       {"type", 0},
       {"token", token},

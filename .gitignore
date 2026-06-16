@@ -89,6 +89,9 @@ temp_full_doc.txt
 .env.test.local
 .env.production.local
 
+# IDE/Editor specific files
+.zcode_*
+
 # Vite
 *.local
 

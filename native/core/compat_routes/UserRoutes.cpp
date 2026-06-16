@@ -1,6 +1,7 @@
 #include "echo/core/CompatApiUtils.h"
 #include "echo/core/CompatRequestContext.h"
 #include "echo/core/PlayHistoryService.h"
+#include "echo/core/SafeStoll.h"
 #include "echo/storage/SessionRepository.h"
 #include "echo/core/PlaylistService.h"
 #include "echo/core/UserCloudService.h"
@@ -222,8 +223,11 @@ CompatResponse HandlePlayHistoryUpload(
   int pc = QueryInt(query, "pc", 1);
 
   PlayHistoryService playSvc;
-  long long mxidVal = mxidStr.empty() ? 0 : std::stoll(mxidStr);
-  long long timeVal = timeStr.empty() ? 0 : std::stoll(timeStr);
+  long long mxidVal = SafeStollStrict(mxidStr);
+  if (mxidVal < 0 && !mxidStr.empty()) {
+    return JsonResponse({{"status", 0}, {"error", "invalid mxid"}}, 400);
+  }
+  long long timeVal = SafeStoll(timeStr);  // 0 = use current time (safe default)
   return JsonResponse(playSvc.UploadSong(userId, token, mxidVal, timeVal, pc));
 }
 

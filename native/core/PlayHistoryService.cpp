@@ -1,6 +1,7 @@
 #include "echo/core/PlayHistoryService.h"
 #include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/core/SafeStoll.h"
 
 #include <ctime>
 
@@ -48,7 +49,7 @@ nlohmann::json PlayHistoryService::UploadSong(
   nlohmann::json dataMap = {
       {"songs", songsArray},
       {"token", token},
-      {"userid", userId.empty() ? 0 : std::stoll(userId)}
+      {"userid", SafeStoll(userId)}
   };
   const std::string body = dataMap.dump();
 
@@ -86,7 +87,7 @@ nlohmann::json PlayHistoryService::GetUserHistory(
     const std::string& bp) const {
   nlohmann::json dataMap = {
       {"token", token},
-      {"userid", userId.empty() ? 0 : std::stoll(userId)},
+      {"userid", SafeStoll(userId)},
       {"source_classify", "app"},
       {"to_subdivide_sr", 1}
   };

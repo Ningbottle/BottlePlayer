@@ -63,6 +63,7 @@ const std::unordered_map<std::string, RouteHandlerFn>& GetRouteTable() {
   static const std::unordered_map<std::string, RouteHandlerFn> table = {
       // Diagnostics
       {"/health",             [](const RouteContext&, const std::string&) { return HandleHealth(); }},
+      {"/healthz",            [](const RouteContext&, const std::string&) { return HandleHealth(); }},  // alias for /health
       {"/server/now",        [](const RouteContext&, const std::string&) { return HandleServerNow(); }},
       {"/diagnostics/memory",[](const RouteContext&, const std::string&) { return HandleDiagnosticsMemory(); }},
 

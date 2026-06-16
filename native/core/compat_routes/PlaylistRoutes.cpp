@@ -2,6 +2,7 @@
 #include "echo/core/CompatRequestContext.h"
 #include "echo/core/DeviceService.h"
 #include "echo/core/PlaylistService.h"
+#include "echo/core/SafeStoll.h"
 #include "echo/storage/DeviceRepository.h"
 #include "echo/storage/SessionRepository.h"
 
@@ -30,7 +31,10 @@ CompatResponse HandlePlaylistDel(storage::Database& database, const QueryMap& qu
   const std::string userId = ctx.UserIdOr("");
   const std::string token = ctx.TokenOrEmpty();
   const std::string listIdStr = QueryValue(query, "listid", QueryValue(query, "id"));
-  const long long listId = listIdStr.empty() ? 0 : std::stoll(listIdStr);
+  const long long listId = SafeStollStrict(listIdStr);
+  if (listId < 0 && !listIdStr.empty()) {
+    return JsonResponse({{"status", 0}, {"error", "invalid listid"}}, 400);
+  }
 
   const auto& device = ctx.Device();
 

@@ -3,6 +3,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <list>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -51,6 +52,7 @@ class MemoryImageCache {
   std::size_t byteCount_ = 0;
   std::list<Entry> lru_;
   std::unordered_map<std::string, std::list<Entry>::iterator> index_;
+  mutable std::mutex mutex_;  // exclusive lock: Get() uses lru_.splice() which is mutating
 };
 
 }  // namespace echo::image

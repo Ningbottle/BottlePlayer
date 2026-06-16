@@ -1,5 +1,6 @@
 #include "echo/core/C_API.h"
 #include "echo/core/CompatApi.h"
+#include "echo/core/HttpClient.h"
 #include "echo/storage/Database.h"
 #include "echo/storage/AppPaths.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
@@ -47,7 +48,18 @@ static void EnsureInitializedLocked(const char* app_data_dir) {
 
 void EchoInitializeWithPaths(const char* app_data_dir) {
     std::unique_lock<std::shared_mutex> lock(g_api_rwlock);
-    EnsureInitializedLocked(app_data_dir);
+    g_shutdown = false;  // Explicit reset: allow re-init after shutdown (defensive)
+    try {
+        EnsureInitializedLocked(app_data_dir);
+    } catch (const std::exception& e) {
+        // Never let C++ exceptions cross the extern "C" FFI boundary.
+        // Log and leave g_api null — subsequent requests will get 500.
+        g_api.reset();
+        g_db.reset();
+    } catch (...) {
+        g_api.reset();
+        g_db.reset();
+    }
 }
 
 void EchoInitialize() {
@@ -61,6 +73,7 @@ void EchoShutdown() {
     g_shutdown = true;
     g_api.reset();
     g_db.reset();
+    echo::core::CloseHttpConnectionPool();  // 关闭所有 WinHTTP 句柄，释放网络资源
 }
 
 void EchoHandleRequest(const char* method, const char* path, const char* query_json, const char* headers_json, const char* body, char** out_response) {

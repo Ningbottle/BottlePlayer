@@ -20,11 +20,11 @@ const signatureAndroidParams = (params) => {
 
 const hash = '90B8469459CBA58A5DDEDD9350286DD8'; // 十面埋伏 VIP song
 const appid = '1005'; 
-const mid = '1446519bce783449ac6432a309284fb7';
-const dfid = '73c87af2d09b907c41553134ed14869f';
+const mid = 'your_mid_here';
+const dfid = 'your_dfid_here';
 const clientver = '11430';
-const userid = '1977926089'; 
-const token = '78bc44df787f34d58fcb9b95de62f763686f0f3e098f5a2e806c183685eed876';
+const userid = '0'; // testing without login first
+const token = 'your_token_here';
 
 const params = {
     album_id: 0,

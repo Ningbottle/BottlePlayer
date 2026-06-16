@@ -1,5 +1,6 @@
-﻿#include <cassert>
+#include <cassert>
 #include <atomic>
+#include <chrono>
 #include <cmath>
 #include <fstream>
 #include <filesystem>
@@ -9,7 +10,6 @@
 #if defined(_MSC_VER)
 #include <crtdbg.h>
 #endif
-
 
 #include "echo/async/EventQueue.h"
 #include "echo/async/RequestScheduler.h"
@@ -116,7 +116,7 @@ int main() {
     assert(echo::core::ResolveAndroidMid(device) == "0");
   }
 
-  // 鈹€鈹€ KuGouAndroidRequest BuildSignedUrl contract 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── KuGouAndroidRequest BuildSignedUrl contract ──────────────────────────
   {
     echo::core::KuGouAndroidRequest req;
     req.endpoint = "https://gateway.kugou.com/v5/url";
@@ -145,13 +145,16 @@ int main() {
     assert(headers.count("dfid") && headers.at("dfid") == "dfid-test");
     assert(headers.count("mid"));
     assert(headers.count("clienttime") && headers.at("clienttime") == "1700000000");
+    // KuGou anti-crawl headers (kg-rc / kg-thash / kg-rec) are fixed constants
+    // emitted on every request, matching the reference implementation
+    // (MakcRe/KuGouMusicApi util/request.js:41).
     assert(headers.at("kg-rc") == "1");
     assert(headers.at("kg-thash") == "5d816a0");
     assert(headers.at("kg-rec") == "1");
     assert(headers.at("kg-rf") == "B9EDA08A64250DEFFBCADDEE00F8F25F");
     assert(headers.at("Accept") == "application/json");
 
-    // 杈圭晫锛氭棤 hash 鏃朵笉鐢熸垚 key
+    // 边界：无 hash 时不生成 key
     {
       echo::core::KuGouAndroidRequest noHashReq;
       noHashReq.endpoint = "https://gateway.kugou.com/v3/get_my_info";
@@ -164,7 +167,7 @@ int main() {
       assert(url.find("dfid=dfid42") != std::string::npos);
     }
 
-    // 杈圭晫锛氱┖ device 鏃?mid 鍥為€€鍒?"0"
+    // 边界：空 device 时 mid 回退到 "0"
     {
       echo::core::KuGouAndroidRequest emptyDeviceReq;
       emptyDeviceReq.endpoint = "https://gateway.kugou.com/v5/url";
@@ -190,10 +193,17 @@ int main() {
       explicitIdentityReq.device.guid = "real-guid";
       const auto url = echo::core::BuildSignedUrl(explicitIdentityReq);
       const auto headers = echo::core::BuildAndroidHeaders(explicitIdentityReq);
+      // Both BuildSignedUrl and BuildAndroidHeaders must honor explicit
+      // params[mid]/params[dfid] overrides, so the URL query string and the
+      // HTTP headers stay consistent.
+      const auto expectedOverrideKey = echo::core::SignKey(
+          "fallbackhash", "0", "0", explicitIdentityReq.profile.appid, explicitIdentityReq.profile.saltKind);
       assert(url.find("mid=0") != std::string::npos);
       assert(url.find("dfid=-") != std::string::npos);
       assert(url.find("uuid=-") != std::string::npos);
       assert(url.find("clienttime=1700000001") != std::string::npos);
+      // 匿名回退的 key 也必须按 mid=0 签名，不能偷偷使用真实设备 MID。
+      assert(url.find("key=" + expectedOverrideKey) != std::string::npos);
       assert(headers.at("mid") == "0");
       assert(headers.at("dfid") == "-");
       assert(headers.at("clienttime") == "1700000001");
@@ -286,7 +296,7 @@ int main() {
   auto loginQrKey = api.Handle("GET", "/login/qr/key", {}, {}, "");
   assert(loginQrKey.httpStatus == 200);
   assert(loginQrKey.body.contains("status"));
-  // The route is now live 鈥?it must NOT return native_not_implemented.
+  // The route is now live — it must NOT return native_not_implemented.
   assert(!loginQrKey.body.contains("error_code") ||
          loginQrKey.body["error_code"].get<std::string>() != "native_not_implemented");
 
@@ -295,7 +305,7 @@ int main() {
       {"status", 1},
       {"data",
        {
-           {"song", "鏅村ぉ"},
+           {"song", "晴天"},
            {"timestamp", 111},
            {"play_url", "https://node.example/signed-a"},
            {"items", nlohmann::json::array({{{"hash", "abc123"}, {"url", "https://node.example/item-a"}}})},
@@ -305,7 +315,7 @@ int main() {
       {"status", 1},
       {"data",
        {
-           {"song", "鏅村ぉ"},
+           {"song", "晴天"},
            {"timestamp", 222},
            {"play_url", "https://native.example/signed-b"},
            {"items", nlohmann::json::array({{{"hash", "abc123"}, {"url", "https://native.example/item-b"}}})},
@@ -320,7 +330,7 @@ int main() {
   assert(contractMismatches.empty());
 
   auto changedNativeFixture = nativeFixture;
-  changedNativeFixture["data"]["song"] = "涓冮噷棣?;
+  changedNativeFixture["data"]["song"] = "七里香";
   assert(!echo::core::ContractJsonMatches(
       contractFixture,
       changedNativeFixture,
@@ -362,7 +372,7 @@ int main() {
                               int page,
                               int pageSize) {
     ++compatSearchCalls;
-    assert(keywords == "鏅村ぉ");
+    assert(keywords == "晴天");
     assert(type == "song");
     assert(page == 2);
     assert(pageSize == 7);
@@ -374,7 +384,7 @@ int main() {
              {"type", type},
              {"page", page},
              {"pagesize", pageSize},
-             {"lists", nlohmann::json::array({{{"SongName", "鏅村ぉ"}, {"FileHash", "abc123"}}})},
+             {"lists", nlohmann::json::array({{{"SongName", "晴天"}, {"FileHash", "abc123"}}})},
          }},
     };
   };
@@ -407,7 +417,7 @@ int main() {
     assert(accessKey == "ak");
     return nlohmann::json{
         {"status", 200},
-        {"decodeContent", "[00:01.00]鏅村ぉ"},
+        {"decodeContent", "[00:01.00]晴天"},
         {"data", {{"id", id}, {"accesskey", accessKey}}},
     };
   };
@@ -423,7 +433,7 @@ int main() {
              {"id", id},
              {"page", page},
              {"pagesize", pageSize},
-             {"songs", nlohmann::json::array({{{"hash", "trackhash"}, {"songname", "鏅村ぉ"}}})},
+             {"songs", nlohmann::json::array({{{"hash", "trackhash"}, {"songname", "晴天"}}})},
          }},
     };
   };
@@ -431,12 +441,12 @@ int main() {
   const auto compatSearch = compatApiWithHandlers.Handle(
       "GET",
       "/search",
-      {{"keyword", "鏅村ぉ"}, {"type", "song"}, {"page", "2"}, {"pageSize", "7"}},
+      {{"keyword", "晴天"}, {"type", "song"}, {"page", "2"}, {"pageSize", "7"}},
       {},
       "");
   assert(compatSearch.httpStatus == 200);
   assert(compatSearch.body["status"] == 1);
-  assert(compatSearch.body["data"]["keywords"] == "鏅村ぉ");
+  assert(compatSearch.body["data"]["keywords"] == "晴天");
   assert(compatSearch.body["data"]["pagesize"] == 7);
   assert(compatSearchCalls == 1);
 
@@ -468,7 +478,7 @@ int main() {
       {},
       "");
   assert(compatLyricDetail.body["status"] == 200);
-  assert(compatLyricDetail.body["decodeContent"] == "[00:01.00]鏅村ぉ");
+  assert(compatLyricDetail.body["decodeContent"] == "[00:01.00]晴天");
   assert(compatLyricDetailCalls == 1);
 
   const auto compatPlaylistTracks = compatApiWithHandlers.Handle(
@@ -522,14 +532,14 @@ int main() {
     assert(url.find("keyword=%E6%99%B4%E5%A4%A9") != std::string::npos);
     return echo::core::HttpResult{
         200,
-        R"({"status":1,"error":"","data":{"total":1,"info":[{"hash":"abc123","songname":"鏅村ぉ","filename":"鍛ㄦ澃浼?- 鏅村ぉ","singername":"鍛ㄦ澃浼?,"album_name":"鍙舵儬缇?,"album_id":"966846","duration":269,"album_audio_id":32100650,"audio_id":20505418,"mvhash":"mv123","privilege":10,"old_cpy":0,"pay_type":3,"320hash":"hq123","sqhash":"sq123","trans_param":{"union_cover":"http://imge.kugou.com/stdmusic/{size}/cover.jpg"}}]}})",
+        R"({"status":1,"error":"","data":{"total":1,"info":[{"hash":"abc123","songname":"晴天","filename":"周杰伦 - 晴天","singername":"周杰伦","album_name":"叶惠美","album_id":"966846","duration":269,"album_audio_id":32100650,"audio_id":20505418,"mvhash":"mv123","privilege":10,"old_cpy":0,"pay_type":3,"320hash":"hq123","sqhash":"sq123","trans_param":{"union_cover":"http://imge.kugou.com/stdmusic/{size}/cover.jpg"}}]}})",
         ""};
   });
-  const auto searchResult = searchService.Search("鏅村ぉ", "song", 1, 30);
+  const auto searchResult = searchService.Search("晴天", "song", 1, 30);
   assert(searchResult["status"] == 1);
   assert(searchResult["data"]["total"] == 1);
   assert(searchResult["data"]["lists"].size() == 1);
-  assert(searchResult["data"]["lists"][0]["SongName"] == "鏅村ぉ");
+  assert(searchResult["data"]["lists"][0]["SongName"] == "晴天");
   assert(searchResult["data"]["lists"][0]["FileHash"] == "abc123");
   assert(searchResult["data"]["lists"][0]["HQ"]["Hash"] == "hq123");
 
@@ -540,7 +550,7 @@ int main() {
       assert(url.find("count=2") != std::string::npos);
       return echo::core::HttpResult{
           200,
-          R"({"status":1,"data":{"info":[{"keyword":"鐙棣栧彂","sort":1,"jumpurl":"https://activity.example"},{"keyword":"鍎挎瓕澶у叏","sort":2}]}})",
+          R"({"status":1,"data":{"info":[{"keyword":"独家首发","sort":1,"jumpurl":"https://activity.example"},{"keyword":"儿歌大全","sort":2}]}})",
           ""};
     }
 
@@ -549,22 +559,22 @@ int main() {
     assert(url.find("pagesize=2") != std::string::npos);
     return echo::core::HttpResult{
         200,
-        R"({"status":1,"data":{"total":2,"info":[{"hash":"abc123","songname":"鏅村ぉ","filename":"鍛ㄦ澃浼?- 鏅村ぉ","singername":"鍛ㄦ澃浼?,"duration":269},{"hash":"def456","songname":"鏅村ぉ濞冨▋","filename":"姹熻鏅?- 鏅村ぉ濞冨▋","singername":"姹熻鏅?,"duration":242}]}})",
+        R"({"status":1,"data":{"total":2,"info":[{"hash":"abc123","songname":"晴天","filename":"周杰伦 - 晴天","singername":"周杰伦","duration":269},{"hash":"def456","songname":"晴天娃娃","filename":"江语晨 - 晴天娃娃","singername":"江语晨","duration":242}]}})",
         ""};
   });
   const auto hotSearch = discoverySearchService.Hot(2);
   assert(hotSearch["status"] == 1);
   assert(hotSearch["data"]["list"].size() == 1);
-  assert(hotSearch["data"]["list"][0]["name"] == "鐑棬鎼滅储");
-  assert(hotSearch["data"]["list"][0]["keywords"][0]["keyword"] == "鐙棣栧彂");
+  assert(hotSearch["data"]["list"][0]["name"] == "热门搜索");
+  assert(hotSearch["data"]["list"][0]["keywords"][0]["keyword"] == "独家首发");
   assert(hotSearch["data"]["info"].size() == 2);
 
-  const auto suggestSearch = discoverySearchService.Suggest("鏅村ぉ", 2);
+  const auto suggestSearch = discoverySearchService.Suggest("晴天", 2);
   assert(suggestSearch["status"] == 1);
   assert(suggestSearch["data"].size() == 1);
-  assert(suggestSearch["data"][0]["LableName"] == "鍗曟洸");
+  assert(suggestSearch["data"][0]["LableName"] == "单曲");
   assert(suggestSearch["data"][0]["RecordDatas"].size() == 2);
-  assert(suggestSearch["data"][0]["RecordDatas"][0]["HintInfo"] == "鍛ㄦ澃浼?- 鏅村ぉ");
+  assert(suggestSearch["data"][0]["RecordDatas"][0]["HintInfo"] == "周杰伦 - 晴天");
 
   echo::core::SearchService typedSearchService([](
                                                     const std::string& url,
@@ -572,38 +582,38 @@ int main() {
     if (url.find("/search/special") != std::string::npos) {
       return echo::core::HttpResult{
           200,
-          R"({"status":1,"data":{"total":1,"info":[{"specialid":6409645,"specialname":"鍛ㄦ澃浼﹀繀鍚儹姝?,"imgurl":"http://img.example/{size}/playlist.jpg","playcount":1000,"songcount":150,"nickname":"閰蜂箰鎺ㄨ崘"}]}})",
+          R"({"status":1,"data":{"total":1,"info":[{"specialid":6409645,"specialname":"周杰伦必听热歌","imgurl":"http://img.example/{size}/playlist.jpg","playcount":1000,"songcount":150,"nickname":"酷乐推荐"}]}})",
           ""};
     }
 
     if (url.find("/search/album") != std::string::npos) {
       return echo::core::HttpResult{
           200,
-          R"({"status":1,"data":{"total":1,"info":[{"albumid":960399,"albumname":"榄旀澃搴?,"singername":"鍛ㄦ澃浼?,"singerid":3520,"songcount":11,"publishtime":"2008-10-15 00:00:00","imgurl":"http://img.example/{size}/album.jpg"}]}})",
+          R"({"status":1,"data":{"total":1,"info":[{"albumid":960399,"albumname":"魔杰座","singername":"周杰伦","singerid":3520,"songcount":11,"publishtime":"2008-10-15 00:00:00","imgurl":"http://img.example/{size}/album.jpg"}]}})",
           ""};
     }
 
     assert(url.find("/search/singer") != std::string::npos);
     return echo::core::HttpResult{
         200,
-        R"({"status":1,"data":[{"singername":"鍛ㄦ澃浼?,"singerid":3520}]})",
+        R"({"status":1,"data":[{"singername":"周杰伦","singerid":3520}]})",
         ""};
   });
-  const auto specialSearch = typedSearchService.Search("鍛ㄦ澃浼?, "special", 1, 2);
+  const auto specialSearch = typedSearchService.Search("周杰伦", "special", 1, 2);
   assert(specialSearch["status"] == 1);
   assert(specialSearch["data"]["info"].size() == 1);
   assert(specialSearch["data"]["info"][0]["specialid"] == 6409645);
-  assert(specialSearch["data"]["info"][0]["name"] == "鍛ㄦ澃浼﹀繀鍚儹姝?);
+  assert(specialSearch["data"]["info"][0]["name"] == "周杰伦必听热歌");
 
-  const auto albumSearch = typedSearchService.Search("鍛ㄦ澃浼?, "album", 1, 2);
+  const auto albumSearch = typedSearchService.Search("周杰伦", "album", 1, 2);
   assert(albumSearch["status"] == 1);
   assert(albumSearch["data"]["info"][0]["AlbumId"] == 960399);
-  assert(albumSearch["data"]["info"][0]["AlbumName"] == "榄旀澃搴?);
+  assert(albumSearch["data"]["info"][0]["AlbumName"] == "魔杰座");
 
-  const auto authorSearch = typedSearchService.Search("鍛ㄦ澃浼?, "author", 1, 2);
+  const auto authorSearch = typedSearchService.Search("周杰伦", "author", 1, 2);
   assert(authorSearch["status"] == 1);
   assert(authorSearch["data"]["info"][0]["AuthorId"] == 3520);
-  assert(authorSearch["data"]["info"][0]["AuthorName"] == "鍛ㄦ澃浼?);
+  assert(authorSearch["data"]["info"][0]["AuthorName"] == "周杰伦");
 
   echo::core::SongUrlService songUrlService([](
                                                 const std::string& url,
@@ -611,7 +621,7 @@ int main() {
     assert(url.find("hash=abc123") != std::string::npos);
     return echo::core::HttpResult{
         200,
-        R"({"status":1,"hash":"ABC123","url":"http://audio.example/song.mp3","backup_url":["http://audio.example/backup.mp3"],"fileName":"鍛ㄦ澃浼?- 鏅村ぉ","songName":"鏅村ぉ","singerName":"鍛ㄦ澃浼?,"albumid":966846,"album_audio_id":32100650,"audio_id":20505418,"timeLength":269000,"bitRate":128,"extName":"mp3","privilege":0,"pay_type":0})",
+        R"({"status":1,"hash":"ABC123","url":"http://audio.example/song.mp3","backup_url":["http://audio.example/backup.mp3"],"fileName":"周杰伦 - 晴天","songName":"晴天","singerName":"周杰伦","albumid":966846,"album_audio_id":32100650,"audio_id":20505418,"timeLength":269000,"bitRate":128,"extName":"mp3","privilege":0,"pay_type":0})",
         ""};
   });
   const auto songUrl = songUrlService.Resolve("abc123", "", "");
@@ -714,12 +724,12 @@ int main() {
   echo::core::SongUrlService paidSongUrlService([](
                                                     const std::string&,
                                                     const std::unordered_map<std::string, std::string>&) {
-    return echo::core::HttpResult{200, R"({"status":0,"url":"","error":"闇€瑕佷粯璐?})", ""};
+    return echo::core::HttpResult{200, R"({"status":0,"url":"","error":"需要付费"})", ""};
   });
   const auto paidSongUrl = paidSongUrlService.Resolve("paidhash", "", "");
   assert(paidSongUrl["status"] == 0);
   assert(paidSongUrl["url"] == "");
-  assert(paidSongUrl["error"] == "闇€瑕佷粯璐?);
+  assert(paidSongUrl["error"] == "需要付费");
 
   echo::core::PrivilegeService privilegeService([](
                                                     const std::string& url,
@@ -786,7 +796,7 @@ int main() {
     assert(url.find("pagesize=2") != std::string::npos);
     return echo::core::HttpResult{
         200,
-        R"({"status":1,"error":"","data":{"total":14,"info":[{"hash":"trackhash","filename":"闄堟槑鐪?- 鎴戠敤鑷繁鐨勬柟寮忕埍浣?,"duration":288,"album_audio_id":32045535,"audio_id":156435,"album_id":960714,"mvhash":"mv123","privilege":10,"pay_type":3,"old_cpy":0,"320hash":"hqtrack","sqhash":"sqtrack","trans_param":{"union_cover":"http://imge.kugou.com/stdmusic/{size}/cover.jpg"}}]}})",
+        R"({"status":1,"error":"","data":{"total":14,"info":[{"hash":"trackhash","filename":"陈明真 - 我用自己的方式爱你","duration":288,"album_audio_id":32045535,"audio_id":156435,"album_id":960714,"mvhash":"mv123","privilege":10,"pay_type":3,"old_cpy":0,"320hash":"hqtrack","sqhash":"sqtrack","trans_param":{"union_cover":"http://imge.kugou.com/stdmusic/{size}/cover.jpg"}}]}})",
         ""};
   });
   const auto playlistTracks = playlistService.GetTracks("125032", 1, 2);
@@ -794,8 +804,8 @@ int main() {
   assert(playlistTracks["data"]["total"] == 14);
   assert(playlistTracks["data"]["songs"].size() == 1);
   assert(playlistTracks["data"]["songs"][0]["hash"] == "trackhash");
-  assert(playlistTracks["data"]["songs"][0]["songname"] == "鎴戠敤鑷繁鐨勬柟寮忕埍浣?);
-  assert(playlistTracks["data"]["songs"][0]["singername"] == "闄堟槑鐪?);
+  assert(playlistTracks["data"]["songs"][0]["songname"] == "我用自己的方式爱你");
+  assert(playlistTracks["data"]["songs"][0]["singername"] == "陈明真");
   assert(playlistTracks["data"]["songs"][0]["timelen"] == 288000);
   assert(playlistTracks["data"]["info"].size() == 1);
 
@@ -805,7 +815,7 @@ int main() {
     if (url.find("/tag/recommend") != std::string::npos) {
       return echo::core::HttpResult{
           200,
-          R"(<!--KG_TAG_RES_START-->{"status":1,"data":{"info":[{"special_tag_id":1150,"id":1561,"name":"鍥借缁忓吀","bannerurl":"http://img.example/banner.jpg"},{"special_tag_id":583,"id":2245,"name":"鐫″墠鎺ㄨ崘"}]}}<!--KG_TAG_RES_END-->)",
+          R"(<!--KG_TAG_RES_START-->{"status":1,"data":{"info":[{"special_tag_id":1150,"id":1561,"name":"国语经典","bannerurl":"http://img.example/banner.jpg"},{"special_tag_id":583,"id":2245,"name":"睡前推荐"}]}}<!--KG_TAG_RES_END-->)",
           ""};
     }
 
@@ -815,23 +825,23 @@ int main() {
     assert(url.find("pagesize=2") != std::string::npos);
     return echo::core::HttpResult{
         200,
-        R"({"status":1,"data":{"total":522,"info":[{"specialid":8380112,"playcount":100,"songcount":40,"specialname":"榛勯湋鍏堢敓璇炶景鍏崄浜斿懆骞村吀钘忛泦","imgurl":"http://img.example/{size}/cover.jpg","intro":"缁忓吀鍥借","username":"閰蜂箰鎺ㄨ崘","publishtime":"2026-04-29"}]}})",
+        R"({"status":1,"data":{"total":522,"info":[{"specialid":8380112,"playcount":100,"songcount":40,"specialname":"黄霑先生诞辰八十五周年典藏集","imgurl":"http://img.example/{size}/cover.jpg","intro":"经典国语","username":"酷乐推荐","publishtime":"2026-04-29"}]}})",
         ""};
   });
   const auto playlistTags = playlistDiscoveryService.GetTags();
   assert(playlistTags["status"] == 1);
   assert(playlistTags["data"]["list"].size() == 1);
-  assert(playlistTags["data"]["list"][0]["tag_name"] == "鎺ㄨ崘");
+  assert(playlistTags["data"]["list"][0]["tag_name"] == "推荐");
   assert(playlistTags["data"]["list"][0]["son"].size() == 2);
   assert(playlistTags["data"]["list"][0]["son"][0]["tag_id"] == 1150);
-  assert(playlistTags["data"]["list"][0]["son"][0]["name"] == "鍥借缁忓吀");
+  assert(playlistTags["data"]["list"][0]["son"][0]["name"] == "国语经典");
 
   const auto topPlaylists = playlistDiscoveryService.GetTopPlaylists(1150, 1, 2, 2);
   assert(topPlaylists["status"] == 1);
   assert(topPlaylists["data"]["total"] == 522);
   assert(topPlaylists["data"]["info"].size() == 1);
   assert(topPlaylists["data"]["info"][0]["specialid"] == 8380112);
-  assert(topPlaylists["data"]["info"][0]["name"] == "榛勯湋鍏堢敓璇炶景鍏崄浜斿懆骞村吀钘忛泦");
+  assert(topPlaylists["data"]["info"][0]["name"] == "黄霑先生诞辰八十五周年典藏集");
   assert(topPlaylists["data"]["special_list"].size() == 1);
 
   echo::core::CatalogService catalogService([](
@@ -841,61 +851,61 @@ int main() {
       assert(url.find("albumid=960399") != std::string::npos);
       return echo::core::HttpResult{
           200,
-          R"({"status":1,"data":{"albumid":960399,"albumname":"榄旀澃搴?,"singername":"鍛ㄦ澃浼?,"singerid":3520,"imgurl":"http://img.example/{size}/album.jpg","intro":"涓撹緫绠€浠?,"songcount":11,"publishtime":"2008-10-15 00:00:00"}})",
+          R"({"status":1,"data":{"albumid":960399,"albumname":"魔杰座","singername":"周杰伦","singerid":3520,"imgurl":"http://img.example/{size}/album.jpg","intro":"专辑简介","songcount":11,"publishtime":"2008-10-15 00:00:00"}})",
           ""};
     }
 
     if (url.find("/album/song") != std::string::npos) {
       return echo::core::HttpResult{
           200,
-          R"(<!--KG_TAG_RES_START-->{"status":1,"data":{"total":11,"info":[{"hash":"albumhash","filename":"鍛ㄦ澃浼?- 榫欐垬楠戝＋","duration":268,"album_id":"960399","album_name":"榄旀澃搴?,"audio_id":154262,"album_audio_id":32042818,"320hash":"albumhq","sqhash":"albumsq"}]}}<!--KG_TAG_RES_END-->)",
+          R"(<!--KG_TAG_RES_START-->{"status":1,"data":{"total":11,"info":[{"hash":"albumhash","filename":"周杰伦 - 龙战骑士","duration":268,"album_id":"960399","album_name":"魔杰座","audio_id":154262,"album_audio_id":32042818,"320hash":"albumhq","sqhash":"albumsq"}]}}<!--KG_TAG_RES_END-->)",
           ""};
     }
 
     if (url.find("/singer/info") != std::string::npos) {
       return echo::core::HttpResult{
           200,
-          R"({"status":1,"data":{"singerid":3520,"singername":"鍛ㄦ澃浼?,"profile":"姝屾墜绠€浠?,"imgurl":"http://img.example/artist.jpg","songcount":1754,"albumcount":49,"mvcount":10}})",
+          R"({"status":1,"data":{"singerid":3520,"singername":"周杰伦","profile":"歌手简介","imgurl":"http://img.example/artist.jpg","songcount":1754,"albumcount":49,"mvcount":10}})",
           ""};
     }
 
     if (url.find("/singer/song") != std::string::npos) {
       return echo::core::HttpResult{
           200,
-          R"(<!--KG_TAG_RES_START-->{"status":1,"data":{"total":1754,"info":[{"hash":"artisthash","filename":"鍛ㄦ澃浼?- 鏅村ぉ","duration":269,"album_id":"966846","album_name":"鍙舵儬缇?,"audio_id":20505418,"album_audio_id":32100650,"320hash":"artisthq","sqhash":"artistsq"}]}}<!--KG_TAG_RES_END-->)",
+          R"(<!--KG_TAG_RES_START-->{"status":1,"data":{"total":1754,"info":[{"hash":"artisthash","filename":"周杰伦 - 晴天","duration":269,"album_id":"966846","album_name":"叶惠美","audio_id":20505418,"album_audio_id":32100650,"320hash":"artisthq","sqhash":"artistsq"}]}}<!--KG_TAG_RES_END-->)",
           ""};
     }
 
     assert(url.find("/singer/album") != std::string::npos);
     return echo::core::HttpResult{
         200,
-        R"({"status":1,"data":{"total":49,"info":[{"albumid":179652761,"albumname":"澶槼涔嬪瓙","singername":"鍛ㄦ澃浼?,"singerid":3520,"songcount":13,"imgurl":"http://img.example/{size}/sun.jpg"}]}})",
+        R"({"status":1,"data":{"total":49,"info":[{"albumid":179652761,"albumname":"太阳之子","singername":"周杰伦","singerid":3520,"songcount":13,"imgurl":"http://img.example/{size}/sun.jpg"}]}})",
         ""};
   });
   const auto albumDetail = catalogService.GetAlbumDetail("960399");
   assert(albumDetail["status"] == 1);
-  assert(albumDetail["data"]["info"][0]["AlbumName"] == "榄旀澃搴?);
-  assert(albumDetail["data"]["info"][0]["SingerName"] == "鍛ㄦ澃浼?);
+  assert(albumDetail["data"]["info"][0]["AlbumName"] == "魔杰座");
+  assert(albumDetail["data"]["info"][0]["SingerName"] == "周杰伦");
 
   const auto albumSongs = catalogService.GetAlbumSongs("960399", 1, 2);
   assert(albumSongs["status"] == 1);
   assert(albumSongs["data"]["total"] == 11);
-  assert(albumSongs["data"]["info"][0]["songname"] == "榫欐垬楠戝＋");
+  assert(albumSongs["data"]["info"][0]["songname"] == "龙战骑士");
   assert(albumSongs["data"]["info"][0]["timelen"] == 268000);
 
   const auto artistDetail = catalogService.GetArtistDetail("3520");
   assert(artistDetail["status"] == 1);
-  assert(artistDetail["data"]["info"][0]["AuthorName"] == "鍛ㄦ澃浼?);
-  assert(artistDetail["data"]["info"][0]["intro"] == "姝屾墜绠€浠?);
+  assert(artistDetail["data"]["info"][0]["AuthorName"] == "周杰伦");
+  assert(artistDetail["data"]["info"][0]["intro"] == "歌手简介");
 
   const auto artistSongs = catalogService.GetArtistSongs("3520", 1, 2, "hot");
   assert(artistSongs["status"] == 1);
-  assert(artistSongs["data"]["info"][0]["songname"] == "鏅村ぉ");
+  assert(artistSongs["data"]["info"][0]["songname"] == "晴天");
 
   const auto artistAlbums = catalogService.GetArtistAlbums("3520", 1, 2, "hot");
   assert(artistAlbums["status"] == 1);
   assert(artistAlbums["data"]["total"] == 49);
-  assert(artistAlbums["data"]["info"][0]["AlbumName"] == "澶槼涔嬪瓙");
+  assert(artistAlbums["data"]["info"][0]["AlbumName"] == "太阳之子");
 
   echo::core::RankService rankService([](
                                           const std::string& url,
@@ -903,7 +913,7 @@ int main() {
     if (url.find("/rank/list") != std::string::npos) {
       return echo::core::HttpResult{
           200,
-          R"({"status":1,"error":"","data":{"total":1,"info":[{"rankid":8888,"rankname":"TOP500","imgurl":"http://img.example/top.jpg","ranktype":2,"updatefrequency":"姣忓ぉ"}]}})",
+          R"({"status":1,"error":"","data":{"total":1,"info":[{"rankid":8888,"rankname":"TOP500","imgurl":"http://img.example/top.jpg","ranktype":2,"updatefrequency":"每天"}]}})",
           ""};
     }
 
@@ -913,7 +923,7 @@ int main() {
     assert(url.find("pagesize=2") != std::string::npos);
     return echo::core::HttpResult{
         200,
-        R"({"status":1,"error":"","data":{"total":500,"info":[{"hash":"rankhash","songname":"浜虹敓璺极婕?,"filename":"鐧藉皬鐧?- 浜虹敓璺极婕?,"duration":235,"album_audio_id":855779725,"audio_id":548404459,"album_id":179917533,"album_sizable_cover":"http://imge.kugou.com/stdmusic/{size}/cover.jpg","privilege":8,"pay_type":3,"old_cpy":0,"320hash":"rankhq","sqhash":"ranksq"}]}})",
+        R"({"status":1,"error":"","data":{"total":500,"info":[{"hash":"rankhash","songname":"人生路漫漫","filename":"白小白 - 人生路漫漫","duration":235,"album_audio_id":855779725,"audio_id":548404459,"album_id":179917533,"album_sizable_cover":"http://imge.kugou.com/stdmusic/{size}/cover.jpg","privilege":8,"pay_type":3,"old_cpy":0,"320hash":"rankhq","sqhash":"ranksq"}]}})",
         ""};
   });
   const auto rankList = rankService.List();
@@ -1100,17 +1110,16 @@ int main() {
   assert(!remoteFetchCalled);
 
 
-  // 鈹€鈹€ Diagnostics contract tests 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── Diagnostics contract tests ────────────────────────────────────────
   {
     // Stopwatch: elapsed must be non-negative and increase over time
     auto sw = echo::diagnostics::Stopwatch::Start();
     assert(sw.ElapsedMs() >= 0);
-    // Sleep a tiny bit to ensure elapsed > 0 on most systems
-    #if defined(_WIN32)
-    Sleep(15);
-    #else
-    usleep(15000);
-    #endif
+    // Sleep a tiny bit to ensure elapsed > 0 on most systems.
+    // Use std::this_thread::sleep_for instead of the Win32 Sleep()/POSIX
+    // usleep() so the test does not pull in <windows.h> via a transitively-
+    // included header (the old win32_app includes used to provide it).
+    std::this_thread::sleep_for(std::chrono::milliseconds(15));
     assert(sw.ElapsedMs() >= 10);
     std::cout << "  [ok] Stopwatch elapsed_ms >= 10 after 15ms sleep" << std::endl;
   }
@@ -1136,9 +1145,51 @@ int main() {
     assert(redacted.find("url=https://example.test") != std::string::npos);
     assert(redacted.find("json-secret") == std::string::npos);
     assert(redacted.find("query-secret") == std::string::npos);
+    // JSON "token":"..." path replaces the value with literal "***".
     assert(redacted.find(R"("token":"***")") != std::string::npos);
+    // token=... path (mask_param with total_mask) also yields "***".
     assert(redacted.find("token=***") != std::string::npos);
     std::cout << "  [ok] RedactSensitive preserves post-Cookie fields and masks JSON token" << std::endl;
+  }
+
+  {
+    // RedactSensitive: signed CDN play_url with auth in the query string must
+    // not leak the auth params. KuGou signs the *URL itself* (auth=, ssig=,
+    // expires=, token=...) rather than carrying the token under a separate
+    // token= key, so a key-list redactor leaves it in the log file.
+    std::string raw =
+        R"(play_url=https://trackcdn.example/audio.flac?auth=SECRETKEY&ssig=ABCDEF&expires=1700000000)";
+    auto redacted = echo::diagnostics::RedactSensitive(raw);
+    // Every secret query value must be gone.
+    assert(redacted.find("SECRETKEY") == std::string::npos);
+    assert(redacted.find("ABCDEF") == std::string::npos);
+    // The path (no secret) is preserved so the log stays useful.
+    assert(redacted.find("https://trackcdn.example/audio.flac") != std::string::npos);
+    std::cout << "  [ok] RedactSensitive scrubs play_url query-string secrets" << std::endl;
+  }
+
+  {
+    // RedactSensitive: a plain URL with no query string is left untouched, so
+    // the non-secret URL in the existing fixture behavior is not regressed.
+    std::string raw = "url=https://example.test";
+    auto redacted = echo::diagnostics::RedactSensitive(raw);
+    assert(redacted == "url=https://example.test");
+    std::cout << "  [ok] RedactSensitive leaves query-less URL intact" << std::endl;
+  }
+
+  {
+    // RedactSensitive: an empty-valued token= must NOT terminate scanning of
+    // later occurrences. Previously mask_param did `break` on vlen==0, so
+    // "token=&... token=LEAKED" left LEAKED in the log. The empty first value
+    // is skipped and the second is still masked.
+    std::string raw = "token=&junk=1 token=LEAKED";
+    auto redacted = echo::diagnostics::RedactSensitive(raw);
+    assert(redacted.find("LEAKED") == std::string::npos);
+    // The empty occurrence stays empty (no value to mask) and the populated
+    // one becomes "***".
+    assert(redacted.find("token=&") != std::string::npos);
+    assert(redacted.find("token=***") != std::string::npos);
+    std::cout << "  [ok] RedactSensitive continues past empty-valued token= and masks later values" << std::endl;
   }
 
   {
@@ -1170,7 +1221,7 @@ int main() {
     // Comma -> %2C
     assert(UrlEncode("a,b") == "a%2Cb");
     // UTF-8 Chinese
-    assert(UrlEncode("涓枃") == "%E4%B8%AD%E6%96%87");
+    assert(UrlEncode("中文") == "%E4%B8%AD%E6%96%87");
     // Already-encoded percent gets double-encoded
     assert(UrlEncode("100%") == "100%25");
     std::cout << "  [ok] UrlEncode contract (safe/special/UTF-8/double-encode)" << std::endl;
@@ -1249,7 +1300,7 @@ int main() {
   }
 
   {
-    // RequestScheduler: bounded concurrency 鈥?worker count limits parallel execution.
+    // RequestScheduler: bounded concurrency — worker count limits parallel execution.
     std::cout << "[Test] Testing RequestScheduler bounded concurrency..." << std::endl;
     echo::async::RequestScheduler scheduler(2);
     std::atomic<int> active{0};
@@ -1273,7 +1324,7 @@ int main() {
   }
 
   {
-    // RequestScheduler: latest-wins 鈥?only the most recent SubmitLatest result survives.
+    // RequestScheduler: latest-wins — only the most recent SubmitLatest result survives.
     std::cout << "[Test] Testing RequestScheduler latest-wins..." << std::endl;
     echo::async::RequestScheduler scheduler(2);
     std::vector<std::future<int>> futures;
@@ -1299,7 +1350,7 @@ int main() {
   }
 
   {
-    // RequestScheduler: Cancel 鈥?explicit Cancel cancels an in-flight or pending job.
+    // RequestScheduler: Cancel — explicit Cancel cancels an in-flight or pending job.
     std::cout << "[Test] Testing RequestScheduler Cancel..." << std::endl;
     echo::async::RequestScheduler scheduler(2);
     std::atomic<bool> started{false};
@@ -1322,7 +1373,7 @@ int main() {
   }
 
   {
-    // RequestScheduler: Submit exception safety 鈥?promise is fulfilled via set_exception,
+    // RequestScheduler: Submit exception safety — promise is fulfilled via set_exception,
     // so future.get() propagates the exception rather than hanging or crashing.
     std::cout << "[Test] Testing RequestScheduler exception safety..." << std::endl;
     echo::async::RequestScheduler scheduler(2);
@@ -1388,7 +1439,7 @@ int main() {
     std::cout << "  [ok] ParseHttpRequest malformed Content-Length" << std::endl;
   }
 
-  // 鈹€鈹€ CompatApi route table contract 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── CompatApi route table contract ────────────────────────────────────
   // Pins the public route-set so that refactors (P2 route dedup) have a
   // green baseline.  Any route addition / removal must update this table.
   std::cout << "[Test] Testing CompatApi route table contract..." << std::endl;
@@ -1486,7 +1537,7 @@ int main() {
     std::cout << "  [ok] IsKnownCompatRoute: " << contractRouteCount << " contract routes + 3 fallback routes recognised, unknown routes rejected" << std::endl;
   }
 
-  // 鈹€鈹€ CompatApi unknown-route contract 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── CompatApi unknown-route contract ───────────────────────────────────
   {
     std::cout << "[Test] Testing CompatApi unknown-route 404..." << std::endl;
     echo::storage::Database routeDb;
@@ -1506,7 +1557,7 @@ int main() {
     std::cout << "  [ok] CompatApi returns 404 for unknown routes" << std::endl;
   }
 
-  // 鈹€鈹€ SongUrl public Interface shape contract 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── SongUrl public Interface shape contract ────────────────────────────
   // Pins the normalized output shape so P3 (SongUrlService refactor)
   // has a contract to validate against.
   std::cout << "[Test] Testing SongUrl public Interface shape contract..." << std::endl;
@@ -1516,7 +1567,7 @@ int main() {
         const std::unordered_map<std::string, std::string>&) {
       return echo::core::HttpResult{
           200,
-          R"({"status":1,"hash":"ABC123","url":"http://cdn.example/abc.flac","backup_url":["http://cdn.example/bak.flac"],"fileName":"姝屾墜 - 姝屽悕","songName":"姝屽悕","singerName":"姝屾墜","albumid":966846,"album_audio_id":32100650,"audio_id":20505418,"timeLength":269000,"bitRate":320,"extName":"flac","privilege":10,"pay_type":3})",
+          R"({"status":1,"hash":"ABC123","url":"http://cdn.example/abc.flac","backup_url":["http://cdn.example/bak.flac"],"fileName":"歌手 - 歌名","songName":"歌名","singerName":"歌手","albumid":966846,"album_audio_id":32100650,"audio_id":20505418,"timeLength":269000,"bitRate":320,"extName":"flac","privilege":10,"pay_type":3})",
           ""};
     });
 
@@ -1563,7 +1614,7 @@ int main() {
            const std::unordered_map<std::string, std::string>&) {
           return echo::core::HttpResult{
               200,
-              R"({"status":1,"data":[{"url":"http://cdn.example/song-128.mp3","info":{"bitrate":128,"filesize":1000,"extname":"mp3","songName":"姝屽悕","singerName":"姝屾墜","timeLength":269000}},{"url":"http://cdn.example/song-320.mp3","info":{"bitrate":320,"filesize":2000,"extname":"mp3","songName":"姝屽悕","singerName":"姝屾墜","timeLength":269000}}]})",
+              R"({"status":1,"data":[{"url":"http://cdn.example/song-128.mp3","info":{"bitrate":128,"filesize":1000,"extname":"mp3","songName":"歌名","singerName":"歌手","timeLength":269000}},{"url":"http://cdn.example/song-320.mp3","info":{"bitrate":320,"filesize":2000,"extname":"mp3","songName":"歌名","singerName":"歌手","timeLength":269000}}]})",
               ""};
         });
     const auto requested128 = v6QualitySvc.Resolve(
@@ -1577,7 +1628,7 @@ int main() {
     std::cout << "  [ok] SongUrl Resolve / ResolveV6PrivUrl output shape contract" << std::endl;
   }
 
-  // 鈹€鈹€ Playlist public Interface shape contract 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+  // ── Playlist public Interface shape contract ───────────────────────────
   // Pins the normalized output shape so P4 (PlaylistService normalizer)
   // has a contract to validate against.
   std::cout << "[Test] Testing Playlist public Interface shape contract..." << std::endl;

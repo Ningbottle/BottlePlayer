@@ -3,6 +3,7 @@
 #include "echo/core/DeviceService.h"
 #include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/core/SafeStoll.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 
 #include <chrono>
@@ -70,10 +71,10 @@ nlohmann::json UserService::GetUserDetail(
 
   // POST body as JSON.
   nlohmann::json dataPayload = {
-      {"visit_time", std::stoll(clienttime)},
+      {"visit_time", SafeStoll(clienttime)},
       {"usertype", 1},
       {"p", pk},
-      {"userid", std::stoll(userId)},
+      {"userid", SafeStoll(userId)},
   };
   const std::string body = dataPayload.dump();
 
@@ -104,7 +105,19 @@ nlohmann::json UserService::GetUserDetail(
 
   try {
     auto json = nlohmann::json::parse(result.body);
-    json["debug_url"] = url;
+    // 移除 debug_url，因为它包含 token 和 userid，会泄露用户凭证
+    // json["debug_url"] = url;
+
+    // 添加脱敏的调试信息（不含敏感参数）
+    #ifdef _DEBUG
+    // 仅在 Debug 模式下添加请求摘要（不含 token/userid）
+    nlohmann::json debug_info = {
+      {"endpoint", "get_my_info"},
+      {"status", json.value("status", 0)}
+    };
+    json["_debug"] = debug_info;
+    #endif
+
     return json;
   } catch (const nlohmann::json::exception& e) {
     return MakeError(std::string("JSON parse error: ") + e.what());
@@ -134,6 +147,11 @@ nlohmann::json UserService::GetUserVip(
         {"token", token},
         {"opt_product_types", "dvip,qvip"},
         {"product_type", "svip"},
+        // Pin clienttime in params so BuildSignedUrl and BuildAndroidHeaders
+        // (called as separate statements below) share one value instead of
+        // each calling std::time(nullptr) and straddling a second boundary —
+        // clienttime feeds the signature digest, so skew would break signing.
+        {"clienttime", clienttime},
     };
     req.device = device;
 
@@ -149,7 +167,9 @@ nlohmann::json UserService::GetUserVip(
 
     try {
       auto json = nlohmann::json::parse(result.body);
-      json["debug_profile_appid"] = profile.appid;
+      #ifdef _DEBUG
+      json["_debug_profile_appid"] = profile.appid;
+      #endif
       return json;
     } catch (const nlohmann::json::exception& e) {
       return MakeError(std::string("JSON parse error: ") + e.what());

@@ -2,6 +2,7 @@
 #include "echo/core/Crypto.h"
 #include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/core/SafeStoll.h"
 #include "echo/core/StringUtils.h"
 
 #include <ctime>
@@ -56,7 +57,7 @@ nlohmann::json HomeService::GetBanners(
       {"channel", 201},
       {"operator", 7},
       {"networktype", 2},
-      {"userid", userId.empty() ? 0 : std::stoll(userId)},
+      {"userid", SafeStoll(userId)},
       {"vip_type", 0},
       {"m_type", 0},
       {"tags", nlohmann::json::array()},
@@ -169,7 +170,7 @@ nlohmann::json HomeService::GetImagesAudio(const std::string& hash,
     size_t index = 0;
     while (std::getline(ss, s, ',') && index < data.size()) {
       try {
-        data[index]["audio_id"] = s.empty() ? 0 : std::stoll(s);
+        data[index]["audio_id"] = SafeStoll(s);
       } catch (...) {
         data[index]["audio_id"] = 0;
       }
@@ -183,7 +184,7 @@ nlohmann::json HomeService::GetImagesAudio(const std::string& hash,
     size_t index = 0;
     while (std::getline(ss, s, ',') && index < data.size()) {
       try {
-        data[index]["album_audio_id"] = s.empty() ? 0 : std::stoll(s);
+        data[index]["album_audio_id"] = SafeStoll(s);
       } catch (...) {
         data[index]["album_audio_id"] = 0;
       }
