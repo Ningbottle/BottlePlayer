@@ -13,6 +13,11 @@ const qrCodeImg = ref('');
 const loginStatus = ref(0); // 0: loading, 1: waiting, 2: scanned, 3: expired, 4: success, -1: error
 const statusMessage = ref('正在生成登录二维码…');
 let pollTimer: any = null;
+let pollAbort = false;
+let pollFailures = 0;
+
+const POLL_BASE_MS = 2_000;
+const POLL_MAX_MS = 10_000;
 
 async function generateQrCode() {
   loginStatus.value = 0;
@@ -48,48 +53,63 @@ async function generateQrCode() {
   }
 }
 
+function handleQrResponse(res: any) {
+  if (!res || res.status !== 1 || !res.data) return;
+  const remoteStatus = res.data.status;
+  if (remoteStatus === 0 || remoteStatus === 1) {
+    loginStatus.value = 1;
+    statusMessage.value = '请使用酷狗音乐手机 App 扫码登录';
+  } else if (remoteStatus === 2) {
+    loginStatus.value = 2;
+    statusMessage.value = '扫码成功！请在手机上确认登录';
+  } else if (remoteStatus === 3 || remoteStatus === 5 || remoteStatus === 6) {
+    loginStatus.value = 3;
+    statusMessage.value = '二维码已过期，请点击刷新';
+    stopPolling();
+  } else if (remoteStatus === 4) {
+    loginStatus.value = 4;
+    statusMessage.value = '登录成功，正在同步档案…';
+    stopPolling();
+
+    setTimeout(async () => {
+      await checkLoginStatus();
+      if (userStore.isLoggedIn) {
+        emit('navigate', 'home');
+      }
+    }, 1000);
+  }
+}
+
+async function pollLoop() {
+  if (!qrKey.value || pollAbort) return;
+  try {
+    const res = await apiGet<any>('/login/qr/check', { key: qrKey.value });
+    pollFailures = 0;
+    handleQrResponse(res);
+  } catch (e) {
+    pollFailures += 1;
+    console.error('Polling QR status error', e);
+    if (pollFailures >= 5) {
+      statusMessage.value = '网络连接异常，请稍后刷新二维码重试';
+      return;
+    }
+  }
+  if (pollAbort) return;
+  const delay = Math.min(POLL_BASE_MS * (1 + pollFailures), POLL_MAX_MS);
+  pollTimer = setTimeout(pollLoop, delay);
+}
+
 function startPolling() {
   stopPolling();
-  pollTimer = setInterval(async () => {
-    if (!qrKey.value) return;
-    try {
-      const res = await apiGet<any>('/login/qr/check', { key: qrKey.value });
-      if (res && res.status === 1 && res.data) {
-        const remoteStatus = res.data.status;
-        if (remoteStatus === 0 || remoteStatus === 1) {
-          loginStatus.value = 1;
-          statusMessage.value = '请使用酷狗音乐手机 App 扫码登录';
-        } else if (remoteStatus === 2) {
-          loginStatus.value = 2;
-          statusMessage.value = '扫码成功！请在手机上确认登录';
-        } else if (remoteStatus === 3 || remoteStatus === 5 || remoteStatus === 6) {
-          loginStatus.value = 3;
-          statusMessage.value = '二维码已过期，请点击刷新';
-          stopPolling();
-        } else if (remoteStatus === 4) {
-          loginStatus.value = 4;
-          statusMessage.value = '登录成功，正在同步档案…';
-          stopPolling();
-          
-          // Wait a short moment then refresh user details
-          setTimeout(async () => {
-            await checkLoginStatus();
-            if (userStore.isLoggedIn) {
-              // Redirect to home or refresh
-              emit('navigate', 'home');
-            }
-          }, 1000);
-        }
-      }
-    } catch (e) {
-      console.error('Polling QR status error', e);
-    }
-  }, 2000);
+  pollAbort = false;
+  pollFailures = 0;
+  pollLoop();
 }
 
 function stopPolling() {
+  pollAbort = true;
   if (pollTimer) {
-    clearInterval(pollTimer);
+    clearTimeout(pollTimer);
     pollTimer = null;
   }
 }
