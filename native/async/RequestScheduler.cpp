@@ -1,5 +1,7 @@
 #include "echo/async/RequestScheduler.h"
 
+#include <chrono>
+
 namespace echo::async {
 
 RequestScheduler::RequestScheduler(std::size_t workerCount)
@@ -52,21 +54,15 @@ std::shared_ptr<std::atomic_bool> RequestScheduler::PrepareLatestToken(
   return newFlag;
 }
 
-void RequestScheduler::EnqueueJob(Job job) {
+bool RequestScheduler::EnqueueJob(Job job) {
   {
     std::unique_lock<std::mutex> lock(mutex_);
-    cv_.wait(lock, [this] { return shutdown_ || queue_.size() < maxQueueSize_; });
-    if (shutdown_) {
-      // Fallback: execute synchronously so the promise is always fulfilled.
-      lock.unlock();
-      if (job.execute) {
-        job.execute();
-      }
-      return;
-    }
+    if (shutdown_) return false;
+    if (queue_.size() >= maxQueueSize_) return false;
     queue_.push_back(std::move(job));
   }
   cv_.notify_one();
+  return true;
 }
 
 void RequestScheduler::Cancel(RequestKind kind) {
@@ -90,7 +86,14 @@ void RequestScheduler::Shutdown() {
   cv_.notify_all();
   for (auto& worker : workers_) {
     if (worker.joinable()) {
-      worker.join();
+      // Bounded join: wait up to 2 seconds per worker, then detach.
+      auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      while (worker.joinable() && std::chrono::steady_clock::now() < deadline) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      }
+      if (worker.joinable()) {
+        worker.detach();
+      }
     }
   }
 }

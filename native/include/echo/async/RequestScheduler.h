@@ -39,7 +39,13 @@ class RequestScheduler {
   RequestScheduler& operator=(const RequestScheduler&) = delete;
 
   template <class Fn>
-  auto Submit(RequestKind kind, Fn fn) -> std::future<std::invoke_result_t<Fn, CancellationToken>>;
+  auto Submit(RequestKind kind, Fn fn) -> std::future<std::invoke_result_t<Fn, CancellationToken>> {
+    return SubmitWithDeadline(kind, std::move(fn), 0);
+  }
+
+  template <class Fn>
+  auto SubmitWithDeadline(RequestKind kind, Fn fn, long deadlineMs)
+      -> std::future<std::invoke_result_t<Fn, CancellationToken>>;
 
   template <class Fn>
   auto SubmitLatest(RequestKind kind, Fn fn) -> std::future<std::invoke_result_t<Fn, CancellationToken>>;
@@ -61,7 +67,7 @@ class RequestScheduler {
 
   void WorkerLoop();
   std::shared_ptr<std::atomic_bool> PrepareLatestToken(RequestKind kind, std::uint64_t& outGen);
-  void EnqueueJob(Job job);
+  bool EnqueueJob(Job job);
 
   std::size_t workerCount_;
   std::vector<std::thread> workers_;
@@ -78,13 +84,30 @@ class RequestScheduler {
 };
 
 template <class Fn>
-auto RequestScheduler::Submit(RequestKind kind, Fn fn)
+auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadlineMs)
     -> std::future<std::invoke_result_t<Fn, CancellationToken>> {
   using ReturnType = std::invoke_result_t<Fn, CancellationToken>;
   auto promise = std::make_shared<std::promise<ReturnType>>();
   auto future = promise->get_future();
   auto tokenFlag = std::make_shared<std::atomic_bool>(false);
   auto enqueueStopwatch = std::make_shared<diagnostics::Stopwatch>(diagnostics::Stopwatch::Start());
+  auto promiseForWatcher = promise;
+
+  // Deadline watcher: a detached thread that fires an exception on the
+  // promise if the job doesn't complete in time. This frees the future
+  // consumer (and effectively the worker, since the promise is fulfilled)
+  // even if the fn is blocked in kernel I/O and cannot poll the token.
+  if (deadlineMs > 0) {
+    std::thread([promiseForWatcher, deadlineMs]() {
+      std::this_thread::sleep_for(std::chrono::milliseconds(deadlineMs));
+      try {
+        promiseForWatcher->set_exception(
+            std::make_exception_ptr(std::runtime_error("job_deadline")));
+      } catch (...) {
+        // Promise already satisfied (job completed in time) — ignore.
+      }
+    }).detach();
+  }
 
   auto execute = [fn = std::move(fn), promise, tokenFlag, kind,
                   enqueueStopwatch = std::move(enqueueStopwatch)]() mutable {
@@ -96,12 +119,12 @@ auto RequestScheduler::Submit(RequestKind kind, Fn fn)
     try {
       if constexpr (std::is_void_v<ReturnType>) {
         fn(CancellationToken(tokenFlag));
-        promise->set_value();
+        try { promise->set_value(); } catch (...) {}
       } else {
-        promise->set_value(fn(CancellationToken(tokenFlag)));
+        try { promise->set_value(fn(CancellationToken(tokenFlag))); } catch (...) {}
       }
     } catch (...) {
-      promise->set_exception(std::current_exception());
+      try { promise->set_exception(std::current_exception()); } catch (...) {}
     }
 
     const auto runMs = runStopwatch.ElapsedMs();

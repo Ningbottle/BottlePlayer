@@ -163,6 +163,11 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoHttpClientResilienceTest PRIVATE EchoCore)
   add_test(NAME EchoHttpClientResilienceTest COMMAND EchoHttpClientResilienceTest)
 
+  add_executable(EchoRequestSchedulerResilienceTest tests/request_scheduler_resilience_test.cpp)
+  target_include_directories(EchoRequestSchedulerResilienceTest PRIVATE include)
+  target_link_libraries(EchoRequestSchedulerResilienceTest PRIVATE EchoCore EchoAsync)
+  add_test(NAME EchoRequestSchedulerResilienceTest COMMAND EchoRequestSchedulerResilienceTest)
+
   set(ECHO_NATIVE_TESTS
     EchoNativeSmokeTests
     EchoRouteContractTest
@@ -171,6 +176,7 @@ if(ECHO_NATIVE_BUILD_TESTS)
     EchoProfileSignatureContractTest
     EchoHomeContractTest
     EchoHttpClientResilienceTest
+    EchoRequestSchedulerResilienceTest
   )
   # 测试进程也需要找到 vcpkg 的动态库；把 bin 目录临时挂到 PATH，
   # 避免普通 PowerShell/CTest 启动时报 0xc0000135。
