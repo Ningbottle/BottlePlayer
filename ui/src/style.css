@@ -40,6 +40,79 @@
     "Inter", "Microsoft YaHei UI", "PingFang SC", system-ui, -apple-system, sans-serif;
   --font-cute:
     "ZCOOL XiaoWei", "Noto Serif SC", "PingFang SC", cursive;
+
+  /* Previously-undefined tokens (fixes leaks in AddToPlaylistModal/LoginView/PlayerBar) */
+  --paper-alt: var(--paper-2);
+  --ink-light: var(--ink-faint);
+  --ink-soft-10: rgba(34, 27, 18, 0.1);
+}
+
+/* ─── Aurora skin (v2 — Apple Music light style) ─── */
+:root[data-skin="aurora"] {
+  --paper:       #ffffff;
+  --paper-2:     #f5f5f7;
+  --paper-edge:  #e8e8ed;
+  --paper-alt:   #f5f5f7;
+
+  --ink:        #1d1d1f;
+  --ink-soft:   #6e6e73;
+  --ink-mute:   #86868b;
+  --ink-faint:  #aeaeb2;
+  --ink-light:  #aeaeb2;
+  --ink-soft-10: rgba(0, 0, 0, 0.06);
+
+  --rule:       rgba(0, 0, 0, 0.06);
+  --rule-soft:  rgba(0, 0, 0, 0.03);
+
+  --accent:      #fa233b;
+  --accent-deep: #d70015;
+
+  --glass-tint:   rgba(255, 255, 255, 0.72);
+  --glass-tint-2: rgba(255, 255, 255, 0.85);
+  --glass-edge:   rgba(0, 0, 0, 0.04);
+  --glass-shadow: 0 1px 3px rgba(0,0,0,0.04),
+                  0 4px 12px rgba(0,0,0,0.04),
+                  inset 0 1px 0 rgba(255,255,255,0.8);
+
+  --glass-blur: 20px;
+  --grain: 0;
+
+  --font-serif:
+    "SF Pro Display", -apple-system, "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-sans:
+    "SF Pro Text", -apple-system, "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-cute:
+    "SF Pro Text", -apple-system, "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+}
+
+/* ─── Dark mode (orthogonal to skin) ─── */
+:root[data-mode="dark"] {
+  --paper:       #1c1c1e;
+  --paper-2:     #2c2c2e;
+  --paper-edge:  #3a3a3c;
+  --paper-alt:   #2c2c2e;
+
+  --ink:        #ffffff;
+  --ink-soft:   rgba(235, 235, 245, 0.6);
+  --ink-mute:   rgba(235, 235, 245, 0.33);
+  --ink-faint:  rgba(235, 235, 245, 0.25);
+  --ink-light:  rgba(235, 235, 245, 0.25);
+  --ink-soft-10: rgba(255, 255, 255, 0.08);
+
+  --rule:       rgba(255, 255, 255, 0.08);
+  --rule-soft:  rgba(255, 255, 255, 0.04);
+
+  --glass-tint:   rgba(28, 28, 30, 0.72);
+  --glass-tint-2: rgba(28, 28, 30, 0.85);
+  --glass-edge:   rgba(255, 255, 255, 0.06);
+}
+
+/* ─── Background layers: Newsprint-only ─── */
+:root[data-skin="aurora"] .paper-base,
+:root[data-skin="aurora"] .paper-fibers,
+:root[data-skin="aurora"] .paper-grain,
+:root[data-skin="aurora"] .paper-vignette {
+  display: none;
 }
 
 * {

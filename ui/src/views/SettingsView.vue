@@ -4,6 +4,9 @@ import { apiGet } from '../api/backend';
 import { checkLoginStatus } from '../api/userStore';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { useThemeStore } from '../api/themeStore';
+
+const themeStore = useThemeStore();
 
 interface MemoryData {
   working_set_bytes: number;
@@ -283,6 +286,32 @@ function clearCache() {
         C++20 内核调测器
       </div>
     </div>
+
+    <!-- Appearance -->
+    <section class="card" style="margin-bottom: 24px;">
+      <p class="kicker">APPEARANCE · 外观</p>
+      <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">Skin & Mode</h3>
+      <p style="color: var(--ink-soft); font-size: 13px;">选择皮肤和明暗模式。Newsprint 是 v1 报纸风；Aurora 是 v2 全新苹果风。</p>
+      <div style="margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap;">
+        <button
+          v-for="s in [{id:'aurora',label:'Aurora (v2)'},{id:'newsprint',label:'Newsprint (v1)'}]"
+          :key="s.id"
+          class="cta"
+          :style="themeStore.skinId.value === s.id ? 'background: var(--accent);' : 'background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);'"
+          @click="themeStore.setSkin(s.id as any)"
+        >{{ s.label }}</button>
+        <button
+          class="cta"
+          :style="themeStore.mode.value === 'light' ? 'background: var(--accent);' : 'background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);'"
+          @click="themeStore.setMode('light')"
+        >☀️ 浅色</button>
+        <button
+          class="cta"
+          :style="themeStore.mode.value === 'dark' ? 'background: var(--accent);' : 'background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);'"
+          @click="themeStore.setMode('dark')"
+        >🌙 深色</button>
+      </div>
+    </section>
 
     <!-- Custom Device Fingerprint -->
     <section class="card" style="margin-bottom: 24px;">

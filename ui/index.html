@@ -8,6 +8,15 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=ZCOOL+XiaoWei&display=swap" rel="stylesheet" />
     <title>The Player</title>
+    <script>
+      // FOUC prevention: apply skin/mode before Vue mounts
+      (function() {
+        var s = localStorage.getItem('tweak_skin') || 'aurora';
+        var m = localStorage.getItem('tweak_mode') || 'light';
+        document.documentElement.dataset.skin = s;
+        document.documentElement.dataset.mode = m;
+      })();
+    </script>
   </head>
 
   <body>
