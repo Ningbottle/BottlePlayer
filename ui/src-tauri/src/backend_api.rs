@@ -31,7 +31,7 @@ fn get_handle() -> &'static RwLock<Option<CApiHandle>> {
 /// Load the DLL and initialize C++ backend with an explicit app data directory.
 /// `app_data_dir` controls where SQLite (`bottlemusic.db`) is created.
 pub fn init_with_paths(dll_path: &str, app_data_dir: Option<&str>) -> Result<(), String> {
-    let mut guard = get_handle().write().unwrap();
+    let mut guard = get_handle().write().unwrap_or_else(|p| p.into_inner());
     if guard.is_some() {
         return Ok(());
     }
@@ -78,22 +78,43 @@ pub fn init_with_paths(dll_path: &str, app_data_dir: Option<&str>) -> Result<(),
 }
 
 pub fn shutdown_c_api() {
-    // Write guard: blocks until every in-flight handle_request read guard is
-    // released, so the library is never unloaded while a C++ call is running.
-    let mut guard = get_handle().write().unwrap();
+    // Bounded shutdown: try to acquire the write guard for up to 5 seconds.
+    // If in-flight requests don't drain in time, force-take the handle so
+    // residual reads immediately fail with "C API not loaded" and the
+    // process can exit instead of hanging forever.
+    let mut guard = bounded_write(5);
     if let Some(handle) = guard.take() {
-        // Call C++ shutdown before dropping the library
         unsafe {
-            // We re-resolve the symbol because shutdown is rarely called
-            // and keeping it in the vtable is not worth the extra field.
             if let Ok(shutdown_func) =
                 handle._lib.get::<Symbol<unsafe extern "C" fn()>>(b"EchoShutdown")
             {
                 shutdown_func();
             }
         }
-        // Library is dropped here automatically
         drop(handle);
+    }
+}
+
+/// Try to acquire a write guard on the C API handle, waiting up to `secs`
+/// seconds. If the lock cannot be acquired in time, force-recover it via
+/// `into_inner()` (poison recovery) so shutdown can proceed.
+fn bounded_write(secs: u64) -> std::sync::RwLockWriteGuard<'static, Option<CApiHandle>> {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(secs);
+    loop {
+        match get_handle().try_write() {
+            Ok(g) => return g,
+            Err(std::sync::TryLockError::WouldBlock) => {
+                if std::time::Instant::now() >= deadline {
+                    // Force-acquire even if poisoned or still locked by
+                    // draining readers. This is safe because we're exiting.
+                    return get_handle().write().unwrap_or_else(|p| p.into_inner());
+                }
+                std::thread::sleep(std::time::Duration::from_millis(50));
+            }
+            Err(std::sync::TryLockError::Poisoned(p)) => {
+                return p.into_inner();
+            }
+        }
     }
 }
 
@@ -127,7 +148,7 @@ pub fn handle_request(
     // Hold the read guard for the whole C++ call. Multiple requests can hold the
     // read guard at once (concurrent calls), but shutdown's write guard waits for
     // them all to release — so the library can never be unloaded mid-call.
-    let guard = get_handle().read().unwrap();
+    let guard = get_handle().read().unwrap_or_else(|p| p.into_inner());
     let handle = guard.as_ref().ok_or("C API not loaded")?;
 
     unsafe {
@@ -241,7 +262,7 @@ extern "C" fn ffi_log_callback(level: c_int, tag: *const c_char, msg: *const c_c
 /// Register a log callback so C++ diagnostic output is forwarded to Rust stdout.
 /// Call this after `init_with_paths` succeeds.
 pub fn set_log_callback() -> Result<(), String> {
-    let lib_guard = get_handle().read().unwrap();
+    let lib_guard = get_handle().read().unwrap_or_else(|p| p.into_inner());
     let handle = lib_guard.as_ref().ok_or("C API not loaded")?;
     unsafe {
         let set_cb: Symbol<unsafe extern "C" fn(
