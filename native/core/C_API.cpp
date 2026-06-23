@@ -1,10 +1,12 @@
 #include "echo/core/C_API.h"
 #include "echo/core/CompatApi.h"
 #include "echo/core/HttpClient.h"
+#include "echo/async/RequestScheduler.h"
 #include "echo/storage/Database.h"
 #include "echo/storage/AppPaths.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 #include <nlohmann/json.hpp>
+#include <chrono>
 #include <memory>
 #include <cstring>
 #include <filesystem>
@@ -13,16 +15,33 @@
 
 static std::unique_ptr<echo::storage::Database> g_db;
 static std::unique_ptr<echo::core::CompatApi> g_api;
-// Shared/exclusive lock guarding g_db/g_api:
-//   - EchoHandleRequest holds it SHARED  → many requests run Handle() in parallel;
-//   - EchoInitialize*/EchoShutdown hold it EXCLUSIVE → mutate the globals alone,
-//     and (for shutdown) wait for all in-flight requests to drain first.
-// Concurrency inside Handle() is provided by Database's own mutex and by the
-// per-request service objects, so no per-request work is serialized here.
+static echo::async::RequestScheduler g_scheduler(4);
 static std::shared_mutex g_api_rwlock;
-// Set once EchoShutdown runs; prevents a late request from resurrecting the
-// backend after an explicit shutdown (e.g. during window-close teardown).
 static bool g_shutdown = false;
+
+// Map a request path to a RequestKind for per-kind deadlines.
+static echo::async::RequestKind KindForPath(const std::string& path) {
+    if (path.rfind("/song/url", 0) == 0) return echo::async::RequestKind::SongUrl;
+    if (path.rfind("/search", 0) == 0) return echo::async::RequestKind::Search;
+    if (path.rfind("/images/", 0) == 0) return echo::async::RequestKind::Image;
+    if (path.rfind("/login/qr/", 0) == 0) return echo::async::RequestKind::LoginPoll;
+    if (path.rfind("/playlist", 0) == 0 || path.rfind("/rank", 0) == 0 ||
+        path.rfind("/top/", 0) == 0 || path.rfind("/album", 0) == 0 ||
+        path.rfind("/artist", 0) == 0) return echo::async::RequestKind::Playlist;
+    return echo::async::RequestKind::Generic;
+}
+
+static long DeadlineMsForKind(echo::async::RequestKind kind) {
+    switch (kind) {
+        case echo::async::RequestKind::SongUrl:   return 10000;
+        case echo::async::RequestKind::Image:     return 8000;
+        case echo::async::RequestKind::LoginPoll: return 6000;
+        case echo::async::RequestKind::Search:
+        case echo::async::RequestKind::Playlist:
+        case echo::async::RequestKind::Generic:   return 12000;
+    }
+    return 12000;
+}
 
 // Initialize g_db/g_api if needed. PRECONDITION: caller holds g_api_rwlock
 // EXCLUSIVELY (unique_lock). Mutation of the globals only ever happens under the
@@ -67,13 +86,21 @@ void EchoInitialize() {
 }
 
 void EchoShutdown() {
-    // Exclusive lock: blocks until every in-flight EchoHandleRequest shared-lock
-    // holder has finished, so the backend is never torn down mid-request.
-    std::unique_lock<std::shared_mutex> lock(g_api_rwlock);
+    // Bounded shutdown: try to acquire the exclusive lock for up to 3 seconds.
+    // If in-flight requests don't drain in time, force-proceed to tear down
+    // anyway so the process can exit instead of hanging forever.
     g_shutdown = true;
+    std::unique_lock<std::shared_mutex> lock(g_api_rwlock, std::defer_lock);
+    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    while (std::chrono::steady_clock::now() < deadline) {
+        if (lock.try_lock()) break;
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    // Whether we got the lock or timed out, proceed to tear down.
+    g_scheduler.Shutdown();
     g_api.reset();
     g_db.reset();
-    echo::core::CloseHttpConnectionPool();  // 关闭所有 WinHTTP 句柄，释放网络资源
+    echo::core::CloseHttpConnectionPool();
 }
 
 void EchoHandleRequest(const char* method, const char* path, const char* query_json, const char* headers_json, const char* body, char** out_response) {
@@ -105,17 +132,36 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
     }
 
     echo::core::CompatResponse r;
+    std::string methodStr = method ? method : "GET";
+    std::string pathStr = path ? path : "/";
+    std::string bodyStr = body ? body : "";
+
+    auto kind = KindForPath(pathStr);
+    long deadlineMs = DeadlineMsForKind(kind);
+
     try {
-        // Shared lock: concurrent requests execute Handle() in parallel. g_api is
-        // guaranteed non-null here once EchoInitialize[WithPaths] ran at startup;
-        // if init never ran or shutdown already happened, g_api is null → 500.
-        std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
-        if (!g_api) {
-            r.httpStatus = 500;
-            r.body = {{"error", "C API is not initialized or was shut down"}};
-        } else {
-            r = g_api->Handle(method ? method : "GET", path ? path : "/", q, h, body ? body : "");
-        }
+        // Route through the RequestScheduler with a per-kind deadline.
+        // The scheduler provides bounded concurrency (4 workers + queue cap)
+        // and the deadline ensures a hung WinHTTP call frees the future even
+        // if it can't be interrupted cooperatively.
+        auto fut = g_scheduler.SubmitWithDeadline(
+            kind,
+            [&](echo::async::CancellationToken token) -> echo::core::CompatResponse {
+                std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
+                if (!g_api) {
+                    echo::core::CompatResponse err;
+                    err.httpStatus = 500;
+                    err.body = {{"error", "C API is not initialized or was shut down"}};
+                    return err;
+                }
+                return g_api->Handle(methodStr, pathStr, q, h, bodyStr);
+            },
+            deadlineMs);
+        r = fut.get();
+    } catch(const std::runtime_error& e) {
+        // Deadline or queue-full
+        r.httpStatus = 504;
+        r.body = {{"error", e.what()}};
     } catch(std::exception& e) {
         r.httpStatus = 500;
         r.body = {{"error", e.what()}};

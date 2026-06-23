@@ -86,14 +86,7 @@ void RequestScheduler::Shutdown() {
   cv_.notify_all();
   for (auto& worker : workers_) {
     if (worker.joinable()) {
-      // Bounded join: wait up to 2 seconds per worker, then detach.
-      auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-      while (worker.joinable() && std::chrono::steady_clock::now() < deadline) {
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-      }
-      if (worker.joinable()) {
-        worker.detach();
-      }
+      worker.join();
     }
   }
 }

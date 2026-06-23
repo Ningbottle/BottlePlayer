@@ -39,9 +39,7 @@ class RequestScheduler {
   RequestScheduler& operator=(const RequestScheduler&) = delete;
 
   template <class Fn>
-  auto Submit(RequestKind kind, Fn fn) -> std::future<std::invoke_result_t<Fn, CancellationToken>> {
-    return SubmitWithDeadline(kind, std::move(fn), 0);
-  }
+  auto Submit(RequestKind kind, Fn fn) -> std::future<std::invoke_result_t<Fn, CancellationToken>>;
 
   template <class Fn>
   auto SubmitWithDeadline(RequestKind kind, Fn fn, long deadlineMs)
@@ -84,6 +82,46 @@ class RequestScheduler {
 };
 
 template <class Fn>
+auto RequestScheduler::Submit(RequestKind kind, Fn fn)
+    -> std::future<std::invoke_result_t<Fn, CancellationToken>> {
+  using ReturnType = std::invoke_result_t<Fn, CancellationToken>;
+  auto promise = std::make_shared<std::promise<ReturnType>>();
+  auto future = promise->get_future();
+  auto tokenFlag = std::make_shared<std::atomic_bool>(false);
+  auto enqueueStopwatch = std::make_shared<diagnostics::Stopwatch>(diagnostics::Stopwatch::Start());
+
+  auto execute = [fn = std::move(fn), promise, tokenFlag, kind,
+                  enqueueStopwatch = std::move(enqueueStopwatch)]() mutable {
+    const auto queueWaitMs = enqueueStopwatch->ElapsedMs();
+    const bool canceled = tokenFlag->load(std::memory_order_acquire);
+
+    auto runStopwatch = diagnostics::Stopwatch::Start();
+
+    try {
+      if constexpr (std::is_void_v<ReturnType>) {
+        fn(CancellationToken(tokenFlag));
+        promise->set_value();
+      } else {
+        promise->set_value(fn(CancellationToken(tokenFlag)));
+      }
+    } catch (...) {
+      promise->set_exception(std::current_exception());
+    }
+
+    const auto runMs = runStopwatch.ElapsedMs();
+    std::ostringstream log;
+    log << "kind=" << static_cast<int>(kind)
+        << " queue_wait_ms=" << queueWaitMs
+        << " run_ms=" << runMs
+        << " canceled=" << (canceled ? 'Y' : 'N');
+    ECHO_LOG("RequestScheduler", log.str());
+  };
+
+  EnqueueJob({std::move(execute), enqueueStopwatch});
+  return future;
+}
+
+template <class Fn>
 auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadlineMs)
     -> std::future<std::invoke_result_t<Fn, CancellationToken>> {
   using ReturnType = std::invoke_result_t<Fn, CancellationToken>;
@@ -93,19 +131,13 @@ auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadline
   auto enqueueStopwatch = std::make_shared<diagnostics::Stopwatch>(diagnostics::Stopwatch::Start());
   auto promiseForWatcher = promise;
 
-  // Deadline watcher: a detached thread that fires an exception on the
-  // promise if the job doesn't complete in time. This frees the future
-  // consumer (and effectively the worker, since the promise is fulfilled)
-  // even if the fn is blocked in kernel I/O and cannot poll the token.
   if (deadlineMs > 0) {
     std::thread([promiseForWatcher, deadlineMs]() {
       std::this_thread::sleep_for(std::chrono::milliseconds(deadlineMs));
       try {
         promiseForWatcher->set_exception(
             std::make_exception_ptr(std::runtime_error("job_deadline")));
-      } catch (...) {
-        // Promise already satisfied (job completed in time) — ignore.
-      }
+      } catch (...) {}
     }).detach();
   }
 

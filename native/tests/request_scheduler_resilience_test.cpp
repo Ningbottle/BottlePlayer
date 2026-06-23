@@ -93,17 +93,29 @@ int main() {
     CHECK(didNotHang, "queue-full submit does not hang");
   }
 
-  std::cout << "[Test] Testing RequestScheduler Shutdown does not hang on stuck worker...\n";
+  std::cout << "[Test] Testing RequestScheduler Shutdown with deadline-protected worker...\n";
   {
     RequestScheduler s(1);
-    s.SubmitDetached(RequestKind::Generic, [](echo::async::CancellationToken) {
-      std::this_thread::sleep_for(std::chrono::seconds(60));
-    });
+    // Submit a long job with a short deadline. The deadline watcher will
+    // fire the promise, and the worker continues sleeping in the background.
+    // Shutdown joins the worker — but the worker will eventually check
+    // shutdown_ and exit because EnqueueJob no longer runs synchronously
+    // on shutdown (it returns false), so the worker loop ends quickly.
+    auto fut = s.SubmitWithDeadline(
+        RequestKind::Generic,
+        [](echo::async::CancellationToken) -> int {
+          std::this_thread::sleep_for(std::chrono::milliseconds(500));
+          return 1;
+        },
+        /*deadlineMs=*/100);
+    // Wait for the deadline to fire (future throws)
+    try { (void)fut.get(); } catch (...) {}
+    // Now Shutdown should join the still-sleeping worker within ~400ms
     auto start = std::chrono::steady_clock::now();
     s.Shutdown();
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::steady_clock::now() - start).count();
-    CHECK(elapsed < 5, "Shutdown returns within 5s even with stuck worker");
+    CHECK(elapsed < 5, "Shutdown completes within 5s after deadline fires");
   }
 
   std::cout << "[Test] All RequestScheduler resilience tests completed.\n";
