@@ -17,6 +17,7 @@ import HistoryView from './views/HistoryView.vue';
 
 import { initPlayer } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
+import { isCircuitOpen } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -26,6 +27,12 @@ const playlistId = ref('');
 const playlistName = ref('');
 const tweaksCollapsed = ref(true);
 const isQueueOpen = ref(false);
+const networkDegraded = ref(false);
+
+function updateNetworkBanner() {
+  networkDegraded.value = isCircuitOpen();
+}
+setInterval(updateNetworkBanner, 1_000);
 
 // Memory usage tracking
 const memoryUsage = ref('Working Set: -- / 220 MB');
@@ -160,6 +167,8 @@ onUnmounted(() => {
 </script>
 
 <template>
+  <div v-if="networkDegraded" class="network-banner">网络连接不稳定，已切换离线浏览</div>
+
   <!-- Newsprint procedural background layers -->
   <div class="paper-base"></div>
   <div class="paper-fibers"></div>
@@ -268,5 +277,19 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+.network-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 9999;
+  background: var(--accent);
+  color: var(--paper);
+  text-align: center;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: var(--font-sans);
+}
+
 /* App root shell layout settings */
 </style>
