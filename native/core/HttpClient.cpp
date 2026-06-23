@@ -5,10 +5,12 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <memory>
 #include <mutex>
 #include <sstream>
 #include <string>
+#include <thread>
 #include <unordered_map>
 #include <vector>
 
@@ -189,9 +191,12 @@ HttpResult ExecuteRequest(
     const std::unordered_map<std::string, std::string>& headers,
     const void* postBody,
     DWORD postLen,
-    bool ensureJsonContentType) {
+    bool ensureJsonContentType,
+    long totalTimeoutMs,
+    std::size_t maxBodyBytes) {
   HttpResult result;
   auto& pool = HttpConnectionPool::Instance();
+  auto startTime = std::chrono::steady_clock::now();
 
   auto conn = pool.Connect(url.host, url.port);
   if (!conn) {
@@ -253,6 +258,19 @@ HttpResult ExecuteRequest(
 
   DWORD available = 0;
   while (WinHttpQueryDataAvailable(request, &available) && available > 0) {
+    // Total receive deadline check
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - startTime).count();
+    if (elapsed >= totalTimeoutMs) {
+      result.timedOut = true;
+      result.error = "total_receive_timeout";
+      break;
+    }
+    // Max body size guard
+    if (result.body.size() + available > maxBodyBytes) {
+      result.error = "max_body_exceeded";
+      break;
+    }
     std::vector<char> buffer(available);
     DWORD read = 0;
     if (!WinHttpReadData(request, buffer.data(), available, &read)) {
@@ -274,29 +292,59 @@ void CloseHttpConnectionPool() {
 
 HttpResult HttpClient::Get(
     const std::string& url,
-    const std::unordered_map<std::string, std::string>& headers) const {
-  HttpResult result;
+    const std::unordered_map<std::string, std::string>& headers,
+    long totalTimeoutMs,
+    std::size_t maxBodyBytes) const {
   ParsedUrl parsed;
   if (!CrackUrl(ToWide(url), parsed)) {
-    result.error = LastErrorText("WinHttpCrackUrl");
-    return result;
+    HttpResult r;
+    r.error = LastErrorText("WinHttpCrackUrl");
+    return r;
   }
-  return ExecuteRequest(parsed, L"GET", headers, nullptr, 0, /*ensureJsonContentType=*/false);
+  // Bounded retry: up to 2 retries on transient failures (timeout/connection
+  // reset) with exponential backoff 500ms / 2s. No retry on 4xx.
+  static const long backoffMs[] = {500, 2000};
+  for (int attempt = 0; attempt <= 2; ++attempt) {
+    auto res = ExecuteRequest(parsed, L"GET", headers, nullptr, 0,
+                              /*ensureJsonContentType=*/false,
+                              totalTimeoutMs, maxBodyBytes);
+    bool transient = res.timedOut ||
+                     (!res.error.empty() && res.statusCode == 0);
+    if (!transient || attempt == 2) return res;
+    std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs[attempt]));
+  }
+  return ExecuteRequest(parsed, L"GET", headers, nullptr, 0,
+                        /*ensureJsonContentType=*/false,
+                        totalTimeoutMs, maxBodyBytes);
 }
 
 HttpResult HttpClient::Post(
     const std::string& url,
     const std::string& body,
-    const std::unordered_map<std::string, std::string>& headers) const {
-  HttpResult result;
+    const std::unordered_map<std::string, std::string>& headers,
+    long totalTimeoutMs,
+    std::size_t maxBodyBytes) const {
   ParsedUrl parsed;
   if (!CrackUrl(ToWide(url), parsed)) {
-    result.error = LastErrorText("WinHttpCrackUrl");
-    return result;
+    HttpResult r;
+    r.error = LastErrorText("WinHttpCrackUrl");
+    return r;
+  }
+  static const long backoffMs[] = {500, 2000};
+  for (int attempt = 0; attempt <= 2; ++attempt) {
+    auto res = ExecuteRequest(
+        parsed, L"POST", headers, body.data(), static_cast<DWORD>(body.size()),
+        /*ensureJsonContentType=*/true,
+        totalTimeoutMs, maxBodyBytes);
+    bool transient = res.timedOut ||
+                     (!res.error.empty() && res.statusCode == 0);
+    if (!transient || attempt == 2) return res;
+    std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs[attempt]));
   }
   return ExecuteRequest(
       parsed, L"POST", headers, body.data(), static_cast<DWORD>(body.size()),
-      /*ensureJsonContentType=*/true);
+      /*ensureJsonContentType=*/true,
+      totalTimeoutMs, maxBodyBytes);
 }
 
 }  // namespace echo::core
