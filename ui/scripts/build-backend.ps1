@@ -1,12 +1,14 @@
 # 构建原生后端 EchoCAPI.dll（FFI 架构，由 Rust 通过 libloading 加载）。
-# 用法：pnpm backend:build
-# 说明：实际目标是 CMakeLists.txt 里的 `EchoCAPI`（SHARED DLL），
-#       build.rs 会把它拷入 target/debug 供 Rust 运行时加载。
+# 用法：pnpm backend:build  或  pnpm backend:build -- -Preset bottlemusic-release
+param(
+    [string]$Preset = 'bottlemusic-check'
+)
 $ErrorActionPreference = 'Stop'
 
 $root      = Split-Path -Parent $PSScriptRoot                   # ui/
 $nativeDir = Resolve-Path "$root\..\native"
-$preset    = 'bottlemusic-check'
+$preset    = $Preset
+$config    = if ($preset -eq 'bottlemusic-release') { 'Release' } else { 'Debug' }
 $buildDir  = Join-Path $nativeDir "out\$preset"
 
 # 自动探测 Visual Studio 开发环境（仅配置一次时需要，用于把 MSVC 编译器喂给 CMake）
@@ -68,7 +70,7 @@ if (-not (Test-Path (Join-Path $buildDir 'CMakeCache.txt'))) {
 
 # 2. 构建 EchoCAPI（SHARED DLL）
 Write-Host "[backend:build] building EchoCAPI.dll..."
-Invoke-VsDevCmd "`"$cmake`" --build `"$buildDir`" --config Debug --target EchoCAPI"
+Invoke-VsDevCmd "`"$cmake`" --build `"$buildDir`" --config $config --target EchoCAPI"
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed (exit $LASTEXITCODE)" }
 
 # 3. 同步 DLL（由 sync-backend.ps1 处理）

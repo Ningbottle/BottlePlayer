@@ -1,0 +1,65 @@
+name: CI
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ui/src-tauri
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 750a3529ea2b4f5c6d1dc0b1a2ab0bed5d7b1174
+
+      - name: Install vcpkg deps
+        run: |
+          & $env:VCPKG_ROOT/vcpkg.exe install --x-manifest-root=native --x-install-root=native/vcpkg_installed
+
+      - name: Build C++
+        run: |
+          cmake -S native --preset bottlemusic-check
+          cmake --build native/out/bottlemusic-check --config Debug
+
+      - name: Run CTest
+        run: ctest --preset bottlemusic-check
+        working-directory: native
+
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+        working-directory: ui
+
+      - name: Run Vitest
+        run: pnpm test
+        working-directory: ui
+
+      - name: Typecheck
+        run: npx vue-tsc --noEmit
+        working-directory: ui
+
+      - name: Cargo clippy
+        run: cargo clippy -- -D warnings
+        working-directory: ui/src-tauri

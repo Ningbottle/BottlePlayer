@@ -1,0 +1,67 @@
+name: Release
+on:
+  push:
+    tags: ['v*']
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: ui/pnpm-lock.yaml
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ui/src-tauri
+
+      - uses: ilammy/msvc-dev-cmd@v1
+
+      - name: Setup vcpkg
+        uses: lukka/run-vcpkg@v11
+        with:
+          vcpkgGitCommitId: 750a3529ea2b4f5c6d1dc0b1a2ab0bed5d7b1174
+
+      - name: Install vcpkg deps
+        run: |
+          & $env:VCPKG_ROOT/vcpkg.exe install --x-manifest-root=native --x-install-root=native/vcpkg_installed
+
+      - name: Sync version
+        run: node scripts/sync-version.mjs
+        working-directory: ui
+
+      - name: Build C++ Release
+        run: |
+          cmake -S native --preset bottlemusic-release
+          cmake --build native/out/bottlemusic-release --config Release --target EchoCAPI
+
+      - name: Sync DLL
+        run: |
+          New-Item -ItemType Directory -Force -Path ui/src-tauri/libs
+          Copy-Item native/out/bottlemusic-release/EchoCAPI.dll ui/src-tauri/libs/EchoCAPI.dll
+
+      - uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'BottleMusic ${{ github.ref_name }}'
+          releaseDraft: false
+          prerelease: false
+          projectPath: ui

@@ -29,11 +29,13 @@ onMounted(async () => {
   try {
     const update = await check();
     if (update) {
-      updateAvailable.value = true;
-      updateVersion.value = update.version;
+      const skipped = localStorage.getItem('tweak_skipped_version');
+      if (skipped !== update.version) {
+        updateAvailable.value = true;
+        updateVersion.value = update.version;
+      }
     }
   } catch (e) {
-    // 检查更新失败不打扰用户（无网络 / 端点不可达 / 非打包环境都静默）
     console.warn('Update check failed', e);
   }
 });

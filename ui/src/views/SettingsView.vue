@@ -3,6 +3,7 @@ import { ref, onMounted } from 'vue';
 import { apiGet } from '../api/backend';
 import { checkLoginStatus } from '../api/userStore';
 import { check } from '@tauri-apps/plugin-updater';
+import { relaunch } from '@tauri-apps/plugin-process';
 
 interface MemoryData {
   working_set_bytes: number;
@@ -71,7 +72,6 @@ async function downloadAndInstall() {
   let downloadedBytes = 0;
   let totalBytes = 0;
   try {
-    // 优先使用缓存的更新信息，避免重复请求 GitHub API
     const update = cachedUpdate || await check();
     if (!update) {
       updateStatus.value = '没有可用更新';
@@ -81,8 +81,6 @@ async function downloadAndInstall() {
     await update.downloadAndInstall((event: any) => {
       switch (event.event) {
         case 'Started':
-          // contentLength 只在 Started 事件给（Progress 只有 chunkLength），
-          // 必须在这里抓住总大小，否则进度条永远算不出、卡 0%。
           totalBytes = event.data?.contentLength || 0;
           downloadedBytes = 0;
           updateProgress.value = 0;
@@ -98,11 +96,22 @@ async function downloadAndInstall() {
           break;
       }
     });
-    updateStatus.value = '✓ 更新已安装，重启应用生效';
+    updateStatus.value = '✓ 更新已安装，正在重启…';
+    await relaunch();
   } catch (e: any) {
     updateStatus.value = '下载失败：' + (e?.message || String(e));
   } finally {
     updateDownloading.value = false;
+  }
+}
+
+function skipVersion() {
+  if (updateVersion.value) {
+    localStorage.setItem('tweak_skipped_version', updateVersion.value);
+    updateStatus.value = `已跳过 v${updateVersion.value}（下次有新版本再提醒）`;
+    updateVersion.value = '';
+    updateBody.value = '';
+    cachedUpdate = null;
   }
 }
 
@@ -370,6 +379,14 @@ function clearCache() {
           :disabled="updateDownloading"
         >
           {{ updateDownloading ? `下载中 ${updateProgress}%` : `下载并安装 v${updateVersion}` }}
+        </button>
+        <button
+          v-if="updateVersion && !updateDownloading"
+          class="cta"
+          style="background: transparent; color: var(--ink-mute); border: 1px solid var(--rule);"
+          @click="skipVersion"
+        >
+          跳过此版本
         </button>
         <span v-if="updateStatus" style="font-size: 12px; color: var(--ink-soft); flex-basis: 100%;">{{ updateStatus }}</span>
         <div v-if="updateBody" style="flex-basis: 100%; margin-top: 4px; padding: 10px; background: var(--paper-edge); border-radius: 6px; font-size: 12px; color: var(--ink-soft); white-space: pre-wrap; max-height: 200px; overflow-y: auto;">{{ updateBody }}</div>
