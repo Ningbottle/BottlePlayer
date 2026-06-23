@@ -30,10 +30,27 @@ const emit = defineEmits<{
   (e: 'navigate', view: string, params?: any): void;
 }>();
 
-const loading = ref(true);
-const trendingSongs = ref<SongInfo[]>([]);
-const recommendedPlaylists = ref<PlaylistInfo[]>([]);
-const newAlbums = ref<PlaylistInfo[]>([]);
+interface SectionState<T> {
+  loading: boolean;
+  error: string;
+  data: T;
+}
+
+const trendingSongs = ref<SectionState<SongInfo[]>>({
+  loading: true,
+  error: '',
+  data: [],
+});
+const recommendedPlaylists = ref<SectionState<PlaylistInfo[]>>({
+  loading: true,
+  error: '',
+  data: [],
+});
+const newAlbums = ref<SectionState<PlaylistInfo[]>>({
+  loading: true,
+  error: '',
+  data: [],
+});
 
 // A solid default track to play for the Headline
 const headlineTrack = {
@@ -43,59 +60,77 @@ const headlineTrack = {
   Duration: 249,
 };
 
-async function loadHomeData() {
-  loading.value = true;
+async function loadTrending() {
+  trendingSongs.value.loading = true;
+  trendingSongs.value.error = '';
   try {
-    // 1. Fetch trending songs for the sidebar list
-    const songRes = await apiGet<any>('/everyday/recommend', {
-      pagesize: 6
-    });
+    const songRes = await apiGet<any>('/everyday/recommend', { pagesize: 6 });
     const songData = songRes.data?.data || songRes.data || {};
     const songList = songData.song_list || songData.info || songData.list;
     if (songRes.status === 1 && songList && songList.length > 0) {
-      trendingSongs.value = songList.slice(0, 6).map(normalizeTrack);
+      trendingSongs.value.data = songList.slice(0, 6).map(normalizeTrack);
     } else {
-      // Fallback if everyday recommend is empty (e.g. not logged in)
       const fallbackRes = await apiGet<any>('/top/song', { pagesize: 6 });
       const fData = fallbackRes.data?.data || fallbackRes.data || {};
       const fList = fData.info || fData.list;
       if (fallbackRes.status === 1 && fList) {
-        trendingSongs.value = fList.slice(0, 6).map(normalizeTrack);
+        trendingSongs.value.data = fList.slice(0, 6).map(normalizeTrack);
       }
     }
+  } catch (e) {
+    trendingSongs.value.error = '加载失败';
+    console.error('Failed to load trending songs', e);
+  } finally {
+    trendingSongs.value.loading = false;
+  }
+}
 
-    // 2. Fetch playlists for Editor's Picks
-    const plRes = await apiGet<any>('/top/playlist', {
-      pagesize: 5,
-      sort: 2
-    });
+async function loadRecommended() {
+  recommendedPlaylists.value.loading = true;
+  recommendedPlaylists.value.error = '';
+  try {
+    const plRes = await apiGet<any>('/top/playlist', { pagesize: 5, sort: 2 });
     const plData = plRes.data?.data || plRes.data || {};
     const plList = plData.info || plData.list;
     if (plRes.status === 1 && plList) {
-      recommendedPlaylists.value = plList.slice(0, 5).map((pl: any) => ({
-        ...pl,
-        imgurl: pl.imgurl ? pl.imgurl.replace('{size}', '400') : pl.pic_url ? pl.pic_url.replace('{size}', '400') : ''
-      }));
-    }
-
-    // 3. Fetch newly pressed playlists
-    const newRes = await apiGet<any>('/top/playlist', {
-      pagesize: 5,
-      sort: 5 // Newest
-    });
-    const newPlData = newRes.data?.data || newRes.data || {};
-    const newPlList = newPlData.info || newPlData.list;
-    if (newRes.status === 1 && newPlList) {
-      newAlbums.value = newPlList.slice(0, 5).map((pl: any) => ({
+      recommendedPlaylists.value.data = plList.slice(0, 5).map((pl: any) => ({
         ...pl,
         imgurl: pl.imgurl ? pl.imgurl.replace('{size}', '400') : pl.pic_url ? pl.pic_url.replace('{size}', '400') : ''
       }));
     }
   } catch (e) {
-    console.error('Failed to load home data, fallback to mock', e);
+    recommendedPlaylists.value.error = '加载失败';
+    console.error('Failed to load recommended playlists', e);
   } finally {
-    loading.value = false;
+    recommendedPlaylists.value.loading = false;
   }
+}
+
+async function loadNewAlbums() {
+  newAlbums.value.loading = true;
+  newAlbums.value.error = '';
+  try {
+    const newRes = await apiGet<any>('/top/playlist', { pagesize: 5, sort: 5 });
+    const newPlData = newRes.data?.data || newRes.data || {};
+    const newPlList = newPlData.info || newPlData.list;
+    if (newRes.status === 1 && newPlList) {
+      newAlbums.value.data = newPlList.slice(0, 5).map((pl: any) => ({
+        ...pl,
+        imgurl: pl.imgurl ? pl.imgurl.replace('{size}', '400') : pl.pic_url ? pl.pic_url.replace('{size}', '400') : ''
+      }));
+    }
+  } catch (e) {
+    newAlbums.value.error = '加载失败';
+    console.error('Failed to load new albums', e);
+  } finally {
+    newAlbums.value.loading = false;
+  }
+}
+
+function loadHomeData() {
+  loadTrending();
+  loadRecommended();
+  loadNewAlbums();
 }
 
 onMounted(() => {
@@ -103,9 +138,8 @@ onMounted(() => {
 });
 
 function handlePlaySong(song: SongInfo) {
-  // 用整个热门列表作为播放队列，从点击的这首开始。
-  const idx = trendingSongs.value.findIndex(s => s.FileHash === song.FileHash);
-  playAll(trendingSongs.value, idx >= 0 ? idx : 0);
+  const idx = trendingSongs.value.data.findIndex(s => s.FileHash === song.FileHash);
+  playAll(trendingSongs.value.data, idx >= 0 ? idx : 0);
 }
 
 function handlePlaylistClick(playlist: PlaylistInfo) {
@@ -114,8 +148,8 @@ function handlePlaylistClick(playlist: PlaylistInfo) {
 
 function playHeadline() {
   // Try to play first trending song, or fallback to mock headline
-  if (trendingSongs.value.length > 0) {
-    handlePlaySong(trendingSongs.value[0]);
+  if (trendingSongs.value.data.length > 0) {
+    handlePlaySong(trendingSongs.value.data[0]);
   } else {
     playTrack(headlineTrack);
   }
@@ -175,7 +209,7 @@ function playHeadline() {
           <span class="more" @click="loadHomeData">刷新自检 ↻</span>
         </div>
         
-        <div v-if="loading && trendingSongs.length === 0" class="spinner">
+        <div v-if="trendingSongs.loading && trendingSongs.data.length === 0" class="spinner">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="12" cy="12" r="10" stroke="rgba(34,27,18,0.1)"></circle>
             <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
@@ -184,8 +218,8 @@ function playHeadline() {
         </div>
         
         <ol v-else>
-          <li 
-            v-for="(song, idx) in trendingSongs" 
+          <li
+            v-for="(song, idx) in trendingSongs.data"
             :key="song.FileHash"
             @click="handlePlaySong(song)"
           >
@@ -196,7 +230,10 @@ function playHeadline() {
             </span>
             <span class="dur">{{ Math.floor(song.Duration / 60) }}:{{ String(song.Duration % 60).padStart(2, '0') }}</span>
           </li>
-          <li v-if="trendingSongs.length === 0" style="padding: 10px; font-style: italic; color: var(--ink-mute);">
+          <li v-if="trendingSongs.error" style="padding: 10px; font-style: italic; color: var(--accent);">
+            {{ trendingSongs.error }} · <span class="more" @click="loadTrending">重试</span>
+          </li>
+          <li v-else-if="trendingSongs.data.length === 0" style="padding: 10px; font-style: italic; color: var(--ink-mute);">
             暂时没有热门歌曲
           </li>
         </ol>
@@ -209,14 +246,18 @@ function playHeadline() {
       <span class="more">本周精选 →</span>
     </div>
 
-    <div v-if="loading && recommendedPlaylists.length === 0" class="spinner">
+    <div v-if="recommendedPlaylists.loading && recommendedPlaylists.data.length === 0" class="spinner">
       加载推荐歌单中…
     </div>
-    
+
+    <div v-else-if="recommendedPlaylists.error" style="text-align: center; color: var(--accent); padding: 20px;">
+      {{ recommendedPlaylists.error }} · <span class="more" @click="loadRecommended">重试</span>
+    </div>
+
     <div v-else class="grid">
-      <article 
-        v-for="pl in recommendedPlaylists" 
-        :key="pl.specialid" 
+      <article
+        v-for="pl in recommendedPlaylists.data"
+        :key="pl.specialid"
         class="card"
         @click="handlePlaylistClick(pl)"
       >
@@ -243,7 +284,7 @@ function playHeadline() {
       </article>
       
       <!-- Mock cards if list empty -->
-      <template v-if="recommendedPlaylists.length === 0">
+      <template v-if="recommendedPlaylists.data.length === 0">
         <div style="grid-column: span 5; text-align: center; color: var(--ink-mute); font-style: italic; padding: 20px;">
           暂无歌单推荐
         </div>
@@ -256,14 +297,18 @@ function playHeadline() {
       <span class="more">全部歌单 →</span>
     </div>
 
-    <div v-if="loading && newAlbums.length === 0" class="spinner">
+    <div v-if="newAlbums.loading && newAlbums.data.length === 0" class="spinner">
       新近发布更新中…
     </div>
-    
+
+    <div v-else-if="newAlbums.error" style="text-align: center; color: var(--accent); padding: 20px;">
+      {{ newAlbums.error }} · <span class="more" @click="loadNewAlbums">重试</span>
+    </div>
+
     <div v-else class="grid">
-      <article 
-        v-for="pl in newAlbums" 
-        :key="pl.specialid" 
+      <article
+        v-for="pl in newAlbums.data"
+        :key="pl.specialid"
         class="card"
         @click="handlePlaylistClick(pl)"
       >
@@ -289,7 +334,7 @@ function playHeadline() {
         </div>
       </article>
       
-      <template v-if="newAlbums.length === 0">
+      <template v-if="newAlbums.data.length === 0">
         <div style="grid-column: span 5; text-align: center; color: var(--ink-mute); font-style: italic; padding: 20px;">
           暂无最新发布
         </div>
