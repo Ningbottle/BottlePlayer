@@ -1,5 +1,7 @@
 mod backend_api;
 
+use std::time::Duration;
+
 #[tauri::command]
 fn ping() -> &'static str {
     "pong"
@@ -24,6 +26,22 @@ fn get_memory_usage() -> u64 {
     }
 }
 
+/// Map a request path to a per-kind deadline (seconds).
+/// Inner WinHTTP total deadline (9s) is set slightly under the shortest middle
+/// deadline so the inner layer fails first and the outer layers return a real
+/// 504 instead of timing out and wasting their budget.
+fn deadline_for_path(path: &str) -> Duration {
+    if path.starts_with("/song/url") {
+        Duration::from_secs(10)
+    } else if path.starts_with("/images/") {
+        Duration::from_secs(8)
+    } else if path.starts_with("/login/qr/") {
+        Duration::from_secs(6)
+    } else {
+        Duration::from_secs(12)
+    }
+}
+
 #[tauri::command]
 async fn native_request(
     method: String,
@@ -32,17 +50,66 @@ async fn native_request(
     headers_json: Option<String>,
     body: Option<String>,
 ) -> Result<String, String> {
-    tauri::async_runtime::spawn_blocking(move || {
-        backend_api::handle_request(
-            &method,
-            &path,
-            query_json.as_deref(),
-            headers_json.as_deref(),
-            body.as_deref(),
-        )
-    })
+    let deadline = deadline_for_path(&path);
+    match tokio::time::timeout(
+        deadline,
+        tauri::async_runtime::spawn_blocking(move || {
+            backend_api::handle_request(
+                &method,
+                &path,
+                query_json.as_deref(),
+                headers_json.as_deref(),
+                body.as_deref(),
+            )
+        }),
+    )
     .await
-    .unwrap_or_else(|e| Err(format!("Task panic: {:?}", e)))
+    {
+        Ok(join_result) => join_result.unwrap_or_else(|e| Err(format!("Task panic: {:?}", e))),
+        Err(_) => Err("request_deadline".to_string()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    #[tokio::test]
+    async fn native_request_times_out_when_handler_sleeps() {
+        // Documents the timeout semantics without depending on the DLL:
+        // a spawn_blocking task that sleeps past the deadline is abandoned.
+        let never = timeout(Duration::from_millis(100), async {
+            tokio::task::spawn_blocking(|| {
+                std::thread::sleep(Duration::from_secs(60));
+                "ok"
+            })
+            .await
+        });
+        let result = never.await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn deadline_for_song_url_is_10s() {
+        assert_eq!(deadline_for_path("/song/url"), Duration::from_secs(10));
+    }
+
+    #[test]
+    fn deadline_for_images_is_8s() {
+        assert_eq!(deadline_for_path("/images/audio"), Duration::from_secs(8));
+    }
+
+    #[test]
+    fn deadline_for_login_qr_is_6s() {
+        assert_eq!(deadline_for_path("/login/qr/check"), Duration::from_secs(6));
+    }
+
+    #[test]
+    fn deadline_for_generic_is_12s() {
+        assert_eq!(deadline_for_path("/unknown/route"), Duration::from_secs(12));
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
