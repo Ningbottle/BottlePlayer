@@ -21,7 +21,11 @@ bool PlaybackController::Initialize(Backend backend) {
     case Backend::MFS: impl_ = CreateMfsImpl(); break;
   }
   if (!impl_) return false;
-  return impl_->Initialize();
+  if (!impl_->Initialize()) {
+    impl_.reset();
+    return false;
+  }
+  return true;
 }
 
 bool PlaybackController::PlayUrl(const std::string& url) {

@@ -21,7 +21,7 @@ class PlaybackController {
   PlaybackController(const PlaybackController&) = delete;
   PlaybackController& operator=(const PlaybackController&) = delete;
 
-  bool Initialize(Backend backend = Backend::MFP);
+  bool Initialize(Backend backend = Backend::MFS);
   bool PlayUrl(const std::string& url);
   void Pause();
   void Resume();

@@ -942,7 +942,7 @@ int main() {
   const std::string localPlaybackFixture = "file:///C:/Windows/Media/Windows%20Notify.wav";
 
   echo::playback::PlaybackController playback;
-  assert(playback.Initialize());
+  assert(playback.Initialize(echo::playback::PlaybackController::Backend::MFP));
   assert(playback.PlayUrl(localPlaybackFixture));
   assert(playback.GetState().kind == echo::core::PlaybackStateKind::Opening);
   playback.Pause();
