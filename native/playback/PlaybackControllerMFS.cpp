@@ -363,6 +363,32 @@ void PlaybackControllerMFS::SetRate(double rate) {
   }
 }
 
+void PlaybackControllerMFS::SetEqEnabled(bool enabled) {
+  std::lock_guard lock(mutex_);
+  eqEnabled_ = enabled;
+  if (eqMft_) eqMft_->SetEnabled(enabled);
+}
+
+void PlaybackControllerMFS::SetEqBand(int bandIndex, double gainDb) {
+  if (bandIndex < 0 || bandIndex >= 5) return;
+  std::lock_guard lock(mutex_);
+  eqGains_[bandIndex] = gainDb;
+  if (eqMft_) eqMft_->SetBandGain(bandIndex, gainDb);
+}
+
+void PlaybackControllerMFS::SetEqBands(const double gainsDb[5]) {
+  std::lock_guard lock(mutex_);
+  for (int i = 0; i < 5; ++i) {
+    eqGains_[i] = gainsDb[i];
+    if (eqMft_) eqMft_->SetBandGain(i, gainsDb[i]);
+  }
+}
+
+void PlaybackControllerMFS::GetEqBands(double outGainsDb[5]) const {
+  std::lock_guard lock(mutex_);
+  for (int i = 0; i < 5; ++i) outGainsDb[i] = eqGains_[i];
+}
+
 void PlaybackControllerMFS::SetEventCallback(
     PlaybackController::EventCallback cb, void* userData) {
   std::lock_guard lock(mutex_);

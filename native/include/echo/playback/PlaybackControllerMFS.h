@@ -37,6 +37,11 @@ class PlaybackControllerMFS final : public PlaybackControllerImpl {
   void SetEventCallback(PlaybackController::EventCallback cb,
                         void* userData) override;
 
+  void SetEqEnabled(bool enabled) override;
+  void SetEqBand(int bandIndex, double gainDb) override;
+  void SetEqBands(const double gainsDb[5]) override;
+  void GetEqBands(double outGainsDb[5]) const override;
+
  private:
   bool comInitialized_ = false;
   bool mfStarted_ = false;
@@ -52,6 +57,8 @@ class PlaybackControllerMFS final : public PlaybackControllerImpl {
   IMFRateControl* rateControl_ = nullptr;
   IMFPresentationClock* clock_ = nullptr;
   EqualizerMFT* eqMft_ = nullptr;
+  bool eqEnabled_ = false;
+  double eqGains_[5] = {0, 0, 0, 0, 0};
 
   std::thread positionThread_;
   std::atomic<bool> positionStop_{false};
