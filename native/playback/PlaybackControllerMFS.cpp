@@ -5,6 +5,9 @@
 #include <mfidl.h>
 #include <mfreadwrite.h>
 
+#include <cstdio>
+#include <future>
+
 #include "echo/diagnostics/EchoDiagnostics.h"
 
 namespace echo::playback {
@@ -65,6 +68,39 @@ class MfsEventCallback final : public IMFAsyncCallback {
 PlaybackControllerMFS::PlaybackControllerMFS() = default;
 
 PlaybackControllerMFS::~PlaybackControllerMFS() {
+  positionStop_.store(true, std::memory_order_release);
+  if (positionThread_.joinable()) {
+    // Bounded join: 1s deadline. Mirrors RequestScheduler::Shutdown(maxWait):
+    // a helper thread owns the std::thread lifetime via new/delete, so the
+    // main thread can detach the helper on timeout without leaving the
+    // std::thread in a joinable state at scope exit.
+    auto done = std::make_shared<std::promise<void>>();
+    auto fut = done->get_future();
+    auto* thr = new std::thread(std::move(positionThread_));
+    std::thread helper([thr, done] {
+      thr->join();
+      done->set_value();
+      delete thr;
+    });
+    if (fut.wait_for(std::chrono::milliseconds(1000)) !=
+        std::future_status::ready) {
+      helper.detach();
+    } else {
+      helper.join();
+    }
+  }
+  if (clock_) {
+    clock_->Release();
+    clock_ = nullptr;
+  }
+  if (audioVolume_) {
+    audioVolume_->Release();
+    audioVolume_ = nullptr;
+  }
+  if (rateControl_) {
+    rateControl_->Release();
+    rateControl_ = nullptr;
+  }
   if (session_) {
     session_->Close();
     session_->Shutdown();
@@ -105,6 +141,21 @@ bool PlaybackControllerMFS::Initialize() {
   if (FAILED(hr)) {
     ECHO_LOG("PlaybackMFS", "BeginGetEvent failed");
     return false;
+  }
+  // Service accessors. Failures are non-fatal: the controller still plays,
+  // it just cannot adjust volume/rate or query the presentation clock.
+  if (session_) {
+    if (FAILED(MFGetService(session_, MR_AUDIO_POLICY_SERVICE,
+                            IID_PPV_ARGS(&audioVolume_)))) {
+      audioVolume_ = nullptr;
+    }
+    if (FAILED(MFGetService(session_, MF_RATE_CONTROL_SERVICE,
+                            IID_PPV_ARGS(&rateControl_)))) {
+      rateControl_ = nullptr;
+    }
+    if (FAILED(session_->GetPresentationClock(&clock_))) {
+      clock_ = nullptr;
+    }
   }
   return true;
 }
@@ -219,10 +270,6 @@ void PlaybackControllerMFS::OnSessionEvent(MediaEventType metype) {
   }
 }
 
-void PlaybackControllerMFS::EmitEvent(const char*, double, double, const char*) {
-  // Real implementation in Task 8
-}
-
 void PlaybackControllerMFS::Pause() {
   std::lock_guard lock(mutex_);
   if (!session_) return;
@@ -256,8 +303,70 @@ void PlaybackControllerMFS::Seek(double seconds) {
   if (FAILED(hr)) ECHO_LOG("PlaybackMFS", "Seek failed");
 }
 
-void PlaybackControllerMFS::SetVolume(double) {}
-void PlaybackControllerMFS::SetRate(double) {}
+void PlaybackControllerMFS::EmitEvent(const char* type, double position,
+                                      double duration, const char* state) {
+  PlaybackController::EventCallback cb;
+  void* userData;
+  {
+    std::lock_guard lock(mutex_);
+    cb = eventCb_;
+    userData = eventUserData_;
+  }
+  if (!cb) return;
+  char buf[256];
+  std::snprintf(buf, sizeof(buf),
+                "{\"type\":\"%s\",\"position\":%.3f,\"duration\":%.3f,"
+                "\"state\":\"%s\"}",
+                type, position, duration, state);
+  cb(buf, userData);
+}
+
+void PlaybackControllerMFS::SetVolume(double volume) {
+  std::lock_guard lock(mutex_);
+  if (audioVolume_) {
+    audioVolume_->SetMasterVolume(static_cast<float>(volume));
+  }
+}
+
+void PlaybackControllerMFS::SetRate(double rate) {
+  std::lock_guard lock(mutex_);
+  if (rateControl_) {
+    rateControl_->SetRate(FALSE, static_cast<float>(rate));
+  }
+}
+
+void PlaybackControllerMFS::SetEventCallback(
+    PlaybackController::EventCallback cb, void* userData) {
+  std::lock_guard lock(mutex_);
+  eventCb_ = cb;
+  eventUserData_ = userData;
+  if (cb && !positionThread_.joinable()) {
+    positionStop_.store(false, std::memory_order_release);
+    positionThread_ = std::thread([this] { PositionPollLoop(); });
+  }
+}
+
+void PlaybackControllerMFS::PositionPollLoop() {
+  while (!positionStop_.load(std::memory_order_acquire)) {
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    PlaybackController::EventCallback cb;
+    void* userData;
+    echo::core::PlaybackStateKind curKind;
+    {
+      std::lock_guard lock(mutex_);
+      if (!clock_ || !eventCb_) continue;
+      cb = eventCb_;
+      userData = eventUserData_;
+      curKind = state_.kind;
+    }
+    if (curKind != echo::core::PlaybackStateKind::Playing) continue;
+    MFTIME pos = 0;
+    if (SUCCEEDED(clock_->GetTime(&pos))) {
+      EmitEvent("position", pos / 1e7, duration_, "playing");
+    }
+  }
+}
+
 echo::core::PlaybackState PlaybackControllerMFS::GetState() const { return state_; }
 
 std::unique_ptr<PlaybackControllerImpl> CreateMfsImpl() {
