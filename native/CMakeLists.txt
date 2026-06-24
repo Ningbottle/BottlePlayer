@@ -186,6 +186,11 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoBiquadFilterTest PRIVATE EchoCore EchoPlayback)
   add_test(NAME EchoBiquadFilterTest COMMAND EchoBiquadFilterTest)
 
+  add_executable(EchoPlayStatsTest tests/play_stats_test.cpp)
+  target_include_directories(EchoPlayStatsTest PRIVATE include)
+  target_link_libraries(EchoPlayStatsTest PRIVATE EchoCore EchoPlayback)
+  add_test(NAME EchoPlayStatsTest COMMAND EchoPlayStatsTest)
+
   set(ECHO_NATIVE_TESTS
     EchoNativeSmokeTests
     EchoRouteContractTest
@@ -195,6 +200,7 @@ if(ECHO_NATIVE_BUILD_TESTS)
     EchoHomeContractTest
     EchoHttpClientResilienceTest
     EchoRequestSchedulerResilienceTest
+    EchoPlayStatsTest
   )
   # 测试进程也需要找到 vcpkg 的动态库；把 bin 目录临时挂到 PATH，
   # 避免普通 PowerShell/CTest 启动时报 0xc0000135。
