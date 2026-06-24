@@ -89,6 +89,7 @@ add_library(EchoCore STATIC
   core/SongService.cpp
   core/PlayHistoryService.cpp
   core/UserCloudService.cpp
+  stats/PlayStatsService.cpp
   core/C_API.cpp
 )
 target_include_directories(EchoCore PUBLIC include)
