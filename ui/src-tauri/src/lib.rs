@@ -1,3 +1,4 @@
+mod ai_analysis;
 mod backend_api;
 mod playback;
 
@@ -218,6 +219,7 @@ pub fn run() {
             playback::playback_set_eq_enabled,
             playback::playback_set_eq_bands,
             playback::playback_get_eq_bands,
+            ai_analysis::ai_analyze,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BottleMusic Tauri app");
