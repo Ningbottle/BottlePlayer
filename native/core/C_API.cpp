@@ -259,9 +259,10 @@ void EchoSetLogCallback(EchoLogCallback cb, void* user_data) {
 }
 
 void EchoSetEventCallback(EchoEventCallback cb, void* user_data) {
-    // ABI placeholder — not yet wired. Reserved for playback / download events.
-    (void)cb;
-    (void)user_data;
+    std::lock_guard lock(g_playback_mutex);
+    if (!g_playback) return;
+    using PcbCallback = echo::playback::PlaybackController::EventCallback;
+    g_playback->SetEventCallback(reinterpret_cast<PcbCallback>(cb), user_data);
 }
 
 // ── Playback C API ──────────────────────────────────────────────────────────
