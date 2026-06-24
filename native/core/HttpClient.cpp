@@ -214,9 +214,54 @@ HttpResult ExecuteRequest(
     return result;  // conn lease 由 shared_ptr 管理，析构时自动回收
   }
 
+  // Watchdog: WinHttpSendRequest/WinHttpReceiveResponse don't always honor
+  // per-op timeouts on older Windows. To guarantee the total budget is
+  // respected, spawn a detached thread that calls WinHttpCloseHandle on
+  // the request handle after the deadline. The close aborts any
+  // in-flight WinHTTP call, returning an error we can detect as a
+  // timeout. On normal completion we set watchdogCancelled = true so
+  // the watchdog is a no-op.
+  auto watchdogCancelled = std::make_shared<std::atomic_bool>(false);
+  if (totalTimeoutMs > 0) {
+    std::thread([request, totalTimeoutMs, watchdogCancelled]() {
+      std::this_thread::sleep_for(std::chrono::milliseconds(totalTimeoutMs));
+      if (!watchdogCancelled->load(std::memory_order_acquire)) {
+        // Force-close the request handle. ExecuteRequest's early-exit
+        // branch sets watchdogCancelled = true BEFORE WinHttpCloseHandle
+        // (line ~260), so we never double-close in the normal path.
+        WinHttpCloseHandle(request);
+      }
+    }).detach();
+  }
+
   // CDN 30x 跳转必须显式跟随，否则封面/签名媒体 URL 会静默退化为占位/播放失败。
   DWORD redirectPolicy = WINHTTP_OPTION_REDIRECT_POLICY_ALWAYS;
   WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
+
+  // Bound per-op timeouts so a hung server can't block past the total
+  // budget. WinHttpSendRequest / WinHttpReceiveResponse each have their own
+  // timeout option; without these, the default is 30s per op, which can
+  // exceed the 9s (or 500ms) total budget the caller asked for. We split
+  // the total budget roughly in thirds: connect / send / receive.
+  if (totalTimeoutMs > 0) {
+    // Connect timeout applies to the connection, not the request handle.
+    // Reuse the same budget as a conservative cap; the connect itself is
+    // typically fast when reusing a pooled connection.
+    DWORD connectTimeout = static_cast<DWORD>(std::min<long>(totalTimeoutMs / 2, 6000));
+    WinHttpSetOption(connect, WINHTTP_OPTION_CONNECT_TIMEOUT,
+                     &connectTimeout, sizeof(connectTimeout));
+    DWORD opTimeout = static_cast<DWORD>(std::min<long>(
+        std::max<long>(totalTimeoutMs / 3, 100), 10000));
+    WinHttpSetOption(request, WINHTTP_OPTION_SEND_TIMEOUT, &opTimeout, sizeof(opTimeout));
+    WinHttpSetOption(request, WINHTTP_OPTION_RECEIVE_TIMEOUT, &opTimeout, sizeof(opTimeout));
+    // WINHTTP_OPTION_RESPONSE_TIMEOUT bounds the WinHttpReceiveResponse
+    // wait for response headers. Available on Windows 8.1+; defined here
+    // as 7 because older Windows SDKs may not export the constant.
+    DWORD responseTimeout = opTimeout;
+    constexpr DWORD kResponseTimeoutOption = 7;
+    WinHttpSetOption(request, kResponseTimeoutOption,
+                     &responseTimeout, sizeof(responseTimeout));
+  }
 
   // 组装 header 块；POST 在缺省时补 Content-Type: application/json。
   std::wstring headerBlock;
@@ -241,11 +286,16 @@ HttpResult ExecuteRequest(
       request, headerPtr, headerLength,
       const_cast<void*>(postBody), postLen, postLen, 0);
   if (!sent || !WinHttpReceiveResponse(request, nullptr)) {
+    // Watchdog fired if watchdogCancelled is still false here.
+    result.timedOut = !watchdogCancelled->load(std::memory_order_acquire);
     result.error = LastErrorText("WinHttpSendRequest/WinHttpReceiveResponse");
+    watchdogCancelled->store(true, std::memory_order_release);
     WinHttpCloseHandle(request);
     pool.Evict(url.host, url.port);  // 剔除坏 connect，避免永久复用中毒句柄
     return result;
   }
+  // Normal completion: disarm the watchdog.
+  watchdogCancelled->store(true, std::memory_order_release);
 
   DWORD statusCode = 0;
   DWORD statusSize = sizeof(statusCode);
@@ -310,18 +360,19 @@ HttpResult HttpClient::Get(
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - budgetStart).count();
     long remaining = totalTimeoutMs - static_cast<long>(elapsed);
-    if (remaining < 500 && attempt > 0) {
-      // Not enough budget left for another attempt — return last error.
+    // Don't retry if there isn't enough budget left to even attempt
+    // (we need at least totalTimeoutMs/3 for per-op timeouts, plus some
+    // overhead). On the first attempt, always run.
+    if (attempt > 0 && remaining < totalTimeoutMs / 3 + 100) {
       HttpResult r;
       r.timedOut = true;
       r.error = "total_budget_exhausted";
       return r;
     }
-    long attemptTimeout = (attempt < 2) ? remaining : remaining;
-    if (attemptTimeout < 100) attemptTimeout = 100;
+    if (remaining < 100) remaining = 100;
     auto res = ExecuteRequest(parsed, L"GET", headers, nullptr, 0,
                               /*ensureJsonContentType=*/false,
-                              attemptTimeout, maxBodyBytes);
+                              remaining, maxBodyBytes);
     bool transient = res.timedOut ||
                      (!res.error.empty() && res.statusCode == 0);
     if (!transient || attempt == 2) return res;
@@ -350,7 +401,7 @@ HttpResult HttpClient::Post(
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - budgetStart).count();
     long remaining = totalTimeoutMs - static_cast<long>(elapsed);
-    if (remaining < 500 && attempt > 0) {
+    if (attempt > 0 && remaining < totalTimeoutMs / 3 + 100) {
       HttpResult r;
       r.timedOut = true;
       r.error = "total_budget_exhausted";

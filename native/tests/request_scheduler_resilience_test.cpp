@@ -34,7 +34,7 @@ int main() {
     auto fut = s.SubmitWithDeadline(
         RequestKind::Generic,
         [](echo::async::CancellationToken) -> int {
-          std::this_thread::sleep_for(std::chrono::seconds(60));
+          std::this_thread::sleep_for(std::chrono::seconds(10));
           return 42;
         },
         /*deadlineMs=*/100);
@@ -45,7 +45,9 @@ int main() {
       gotException = true;
     }
     CHECK(gotException, "job that exceeds deadlineMs throws runtime_error");
-    s.Shutdown();
+    // Use bounded Shutdown so the test doesn't wait the full 10s for the
+    // worker to finish its uninterruptible sleep.
+    s.Shutdown(std::chrono::milliseconds(500));
   }
 
   std::cout << "[Test] Testing RequestScheduler normal job completes...\n";
@@ -113,6 +115,30 @@ int main() {
     auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(
         std::chrono::steady_clock::now() - start).count();
     CHECK(elapsed < 5, "Shutdown completes within 5s after deadline fires");
+  }
+
+  std::cout << "[Test] Testing bounded Shutdown(3s) abandons hung workers...\n";
+  {
+    // Contract: a worker stuck in a long uninterruptible job (no deadline,
+    // no cancellation) must NOT block Shutdown beyond the configured
+    // deadline. The process is exiting so abandoning the worker is safe.
+    // We use a 10s sleep instead of 60s to keep the test fast — the
+    // 3s deadline still proves that Shutdown doesn't wait for the job.
+    RequestScheduler s(1);
+    std::atomic<bool> jobStarted{false};
+    s.SubmitDetached(RequestKind::Generic,
+        [&jobStarted](echo::async::CancellationToken) {
+          jobStarted.store(true);
+          std::this_thread::sleep_for(std::chrono::seconds(10));
+        });
+    while (!jobStarted.load()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    auto start = std::chrono::steady_clock::now();
+    s.Shutdown(std::chrono::milliseconds(3000));
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start).count();
+    CHECK(elapsed < 3500,
+          "Bounded Shutdown(3s) returns within 3.5s despite a 10s hung job");
   }
 
   std::cout << "[Test] All RequestScheduler resilience tests completed.\n";

@@ -4,6 +4,7 @@ import { check } from '@tauri-apps/plugin-updater';
 import { apiGet } from '../api/backend';
 import { userStore } from '../api/userStore';
 import { normalizePlaylists, UserPlaylist } from '../api/favorite';
+import { useSkippedVersion, getSkippedVersion } from '../api/skippedVersion';
 
 defineProps<{
   activeView: string;
@@ -25,11 +26,21 @@ const playlists = ref<SidebarPlaylist[]>([]);
 // 自动更新提示：启动时静默 check() 一次；发现新版本才在 logo 下冒标记，点击去设置页安装。
 const updateAvailable = ref(false);
 const updateVersion = ref('');
+// Reactive watch on the shared "skipped version" store: if the user
+// clicks "跳过此版本" in Settings, the badge clears immediately
+// without needing to remount this component.
+const skippedVersion = useSkippedVersion();
+watch(skippedVersion, () => {
+  if (skippedVersion.value && updateVersion.value &&
+      skippedVersion.value === updateVersion.value) {
+    updateAvailable.value = false;
+  }
+}, { immediate: true });
 onMounted(async () => {
   try {
     const update = await check();
     if (update) {
-      const skipped = localStorage.getItem('tweak_skipped_version');
+      const skipped = getSkippedVersion();
       if (skipped !== update.version) {
         updateAvailable.value = true;
         updateVersion.value = update.version;

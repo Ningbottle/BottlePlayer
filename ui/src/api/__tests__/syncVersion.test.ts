@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync, writeFileSync, mkdtempSync, existsSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdtempSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { execSync } from 'node:child_process';

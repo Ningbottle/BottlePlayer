@@ -79,18 +79,22 @@ int main() {
   {
     HttpClient client;
     std::string url = "http://127.0.0.1:" + std::to_string(g_listenPort) + "/test";
-    // 500ms total timeout — the unresponsive server will block until our
-    // total-timeout check in the read loop fires.
+    // 500ms total timeout — the unresponsive server will block past our
+    // per-op timeouts (which are derived from this budget). The total
+    // time MUST be under 2s — anything else means per-op timeouts
+    // are not being enforced.
     auto start = std::chrono::steady_clock::now();
     auto res = client.Get(url, {}, /*totalTimeoutMs=*/500);
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start).count();
-    // Must have timed out (not just gotten a network error)
     CHECK(res.timedOut || !res.error.empty(),
           "unresponsive server produces timeout or error");
-    // Must not have taken longer than 5s (per-op timeout is 10s, but our
-    // total timeout + retry budget should be well under that)
-    CHECK(elapsed < 15000, "total time under 15s");
+    // Tight bound: with per-op timeouts capped at total/3 (~150ms), the
+    // worst case is one full attempt + one retry = ~600ms. Anything
+    // over 2s proves the per-op timeouts are not being honored.
+    std::cout << "  [debug] elapsed=" << elapsed << "ms\n";
+    CHECK(elapsed < 2000,
+          "500ms budget enforced within 2s wall clock (per-op timeouts work)");
   }
 
   std::cout << "[Test] Testing HttpClient max body size guard...\n";

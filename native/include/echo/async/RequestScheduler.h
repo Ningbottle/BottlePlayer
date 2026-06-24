@@ -55,7 +55,14 @@ class RequestScheduler {
   void SubmitLatestDetached(RequestKind kind, Fn fn);
 
   void Cancel(RequestKind kind);
+  // Unbounded Shutdown — joins all workers, may block indefinitely on long
+  // jobs. Prefer Shutdown(maxWait) for process-exit paths.
   void Shutdown();
+  // Bounded Shutdown — sets shutdown_ + cancels active tokens, then waits
+  // up to maxWait for workers to finish. Workers that don't finish in time
+  // are detached; the process is expected to be exiting so resource leaks
+  // are acceptable. Returns the number of workers that had to be detached.
+  std::size_t Shutdown(std::chrono::milliseconds maxWait);
 
  private:
   struct Job {

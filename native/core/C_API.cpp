@@ -86,14 +86,17 @@ void EchoInitialize() {
 }
 
 void EchoShutdown() {
-    // Phase 1: stop accepting new jobs and drain the scheduler.
-    // This MUST happen before acquiring the exclusive lock, because workers
-    // executing in-flight jobs try to acquire the shared lock inside their
-    // lambda. If we held the exclusive lock and then called Shutdown()->join(),
-    // we'd deadlock: join waits for worker, worker waits for shared lock,
-    // shared lock waits for our exclusive lock.
+    // Phase 1: stop accepting new jobs and drain the scheduler with a hard
+    // 3s deadline. This MUST happen before acquiring the exclusive lock,
+    // because workers executing in-flight jobs try to acquire the shared
+    // lock inside their lambda. If we held the exclusive lock and then
+    // called Shutdown()->join(), we'd deadlock. If we used the unbounded
+    // Shutdown() and a worker was stuck in a 60s uninterruptible job,
+    // EchoShutdown would block for 60s+ — violating the "close within
+    // 3-5s" contract. Bounded Shutdown detaches hung workers (safe since
+    // the process is exiting).
     g_shutdown = true;
-    g_scheduler.Shutdown();
+    g_scheduler.Shutdown(std::chrono::milliseconds(3000));
 
     // Phase 2: acquire exclusive lock (bounded) to safely tear down g_api/g_db.
     // In-flight jobs that haven't finished yet will see g_api == null (or

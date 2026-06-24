@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick } from 'vue';
 import LoginView from '../LoginView.vue';
 
 const mockApiGet = vi.fn();

@@ -37,7 +37,7 @@ jobs:
 
       - name: Install vcpkg deps
         run: |
-          & $env:VCPKG_ROOT/vcpkg.exe install --x-manifest-root=native --x-install-root=native/vcpkg_installed
+          & $env:VCPKG_ROOT/vcpkg.exe install --triplet=x64-windows --x-manifest-root=native --x-install-root=native/vcpkg_installed
 
       - name: Build C++
         run: |

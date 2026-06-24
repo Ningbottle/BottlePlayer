@@ -5,6 +5,7 @@ import { checkLoginStatus } from '../api/userStore';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { useThemeStore } from '../api/themeStore';
+import { setSkippedVersion } from '../api/skippedVersion';
 
 const themeStore = useThemeStore();
 
@@ -110,7 +111,7 @@ async function downloadAndInstall() {
 
 function skipVersion() {
   if (updateVersion.value) {
-    localStorage.setItem('tweak_skipped_version', updateVersion.value);
+    setSkippedVersion(updateVersion.value);
     updateStatus.value = `已跳过 v${updateVersion.value}（下次有新版本再提醒）`;
     updateVersion.value = '';
     updateBody.value = '';
