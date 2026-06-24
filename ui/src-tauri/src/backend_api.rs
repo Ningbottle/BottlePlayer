@@ -73,6 +73,16 @@ fn get_handle() -> &'static RwLock<Option<CApiHandle>> {
     C_API_HANDLE.get_or_init(|| RwLock::new(None))
 }
 
+/// Get a read guard on the C API handle. Multiple concurrent readers are
+/// allowed; the guard must be held for the duration of any C API call.
+pub fn api_handle() -> Result<std::sync::RwLockReadGuard<'static, Option<CApiHandle>>, String> {
+    let guard = get_handle().read().unwrap_or_else(|p| p.into_inner());
+    if guard.is_none() {
+        return Err("C API not loaded".into());
+    }
+    Ok(guard)
+}
+
 /// Load the DLL and initialize C++ backend with an explicit app data directory.
 /// `app_data_dir` controls where SQLite (`bottlemusic.db`) is created.
 pub fn init_with_paths(dll_path: &str, app_data_dir: Option<&str>) -> Result<(), String> {
