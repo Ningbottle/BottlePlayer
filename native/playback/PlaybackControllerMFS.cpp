@@ -192,29 +192,63 @@ bool PlaybackControllerMFS::PlayUrl(const std::string& url) {
 
 void PlaybackControllerMFS::OnSessionEvent(MediaEventType metype) {
   std::lock_guard lock(mutex_);
+  const char* stateStr = nullptr;
   switch (metype) {
     case MESessionStarted:
       state_.kind = echo::core::PlaybackStateKind::Playing;
+      stateStr = "playing";
       break;
     case MESessionPaused:
       state_.kind = echo::core::PlaybackStateKind::Paused;
+      stateStr = "paused";
       break;
     case MESessionStopped:
     case MESessionEnded:
       state_.kind = echo::core::PlaybackStateKind::Stopped;
+      stateStr = "stopped";
       break;
     default: break;
   }
+  if (stateStr) EmitEvent("state", 0, 0, stateStr);
 }
 
 void PlaybackControllerMFS::EmitEvent(const char*, double, double, const char*) {
   // Real implementation in Task 8
 }
 
-void PlaybackControllerMFS::Pause() {}
-void PlaybackControllerMFS::Resume() {}
-void PlaybackControllerMFS::Stop() {}
-void PlaybackControllerMFS::Seek(double) {}
+void PlaybackControllerMFS::Pause() {
+  std::lock_guard lock(mutex_);
+  if (!session_) return;
+  HRESULT hr = session_->Pause();
+  if (FAILED(hr)) ECHO_LOG("PlaybackMFS", "Pause failed");
+}
+
+void PlaybackControllerMFS::Resume() {
+  std::lock_guard lock(mutex_);
+  if (!session_) return;
+  HRESULT hr = session_->Start(GUID_NULL, nullptr);
+  if (FAILED(hr)) ECHO_LOG("PlaybackMFS", "Resume failed");
+}
+
+void PlaybackControllerMFS::Stop() {
+  std::lock_guard lock(mutex_);
+  if (!session_) return;
+  HRESULT hr = session_->Stop();
+  if (FAILED(hr)) ECHO_LOG("PlaybackMFS", "Stop failed");
+}
+
+void PlaybackControllerMFS::Seek(double seconds) {
+  std::lock_guard lock(mutex_);
+  if (!session_) return;
+  PROPVARIANT var;
+  PropVariantInit(&var);
+  var.vt = VT_I8;
+  var.hVal.QuadPart = static_cast<LONGLONG>(seconds * 1e7);
+  HRESULT hr = session_->Start(GUID_NULL, &var);
+  PropVariantClear(&var);
+  if (FAILED(hr)) ECHO_LOG("PlaybackMFS", "Seek failed");
+}
+
 void PlaybackControllerMFS::SetVolume(double) {}
 void PlaybackControllerMFS::SetRate(double) {}
 echo::core::PlaybackState PlaybackControllerMFS::GetState() const { return state_; }
