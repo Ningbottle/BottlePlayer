@@ -101,7 +101,10 @@ add_library(EchoCAPI SHARED core/C_API.cpp)
 target_include_directories(EchoCAPI PUBLIC include)
 target_link_libraries(EchoCAPI PUBLIC EchoCore)
 
-add_library(EchoPlayback STATIC playback/PlaybackController.cpp)
+add_library(EchoPlayback STATIC
+  playback/PlaybackController.cpp
+  playback/PlaybackControllerMFP.cpp
+)
 target_include_directories(EchoPlayback PUBLIC include)
 target_link_libraries(EchoPlayback
   PUBLIC nlohmann_json::nlohmann_json
