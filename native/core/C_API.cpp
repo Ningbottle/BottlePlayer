@@ -330,6 +330,7 @@ void EchoPlaybackSetRate(double rate) {
 }
 
 const char* EchoPlaybackGetState(void) {
+    std::lock_guard lock(g_playback_mutex);
     if (!g_playback) {
         // Caller must free via EchoFreeString
         char* out = new char[64];
