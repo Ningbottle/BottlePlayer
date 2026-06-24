@@ -1,7 +1,13 @@
 #include "echo/playback/EqualizerMFT.h"
 #include <cstring>
 #include <mfapi.h>
+#include <mferror.h>
 #include <mfobjects.h>
+#include <mftransform.h>
+
+#ifndef MF_SET_ALL_TYPES
+#define MF_SET_ALL_TYPES ((DWORD)0xffffffff)
+#endif
 
 namespace echo::playback {
 
