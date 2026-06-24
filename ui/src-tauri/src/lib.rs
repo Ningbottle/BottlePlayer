@@ -1,6 +1,7 @@
 mod ai_analysis;
 mod backend_api;
 mod playback;
+mod stats;
 
 use std::time::Duration;
 
@@ -220,6 +221,12 @@ pub fn run() {
             playback::playback_set_eq_bands,
             playback::playback_get_eq_bands,
             ai_analysis::ai_analyze,
+            stats::stats_record_play,
+            stats::stats_get_summary,
+            stats::stats_get_top,
+            stats::stats_get_timeline,
+            stats::stats_get_recent,
+            stats::stats_get_recommendations,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BottleMusic Tauri app");
