@@ -1,4 +1,5 @@
 mod backend_api;
+mod playback;
 
 use std::time::Duration;
 
@@ -203,7 +204,20 @@ pub fn run() {
             ping,
             backend_base_url,
             get_memory_usage,
-            native_request
+            native_request,
+            playback::playback_initialize,
+            playback::playback_play_url,
+            playback::playback_pause,
+            playback::playback_resume,
+            playback::playback_stop,
+            playback::playback_seek,
+            playback::playback_set_volume,
+            playback::playback_set_rate,
+            playback::playback_get_state,
+            playback::playback_shutdown,
+            playback::playback_set_eq_enabled,
+            playback::playback_set_eq_bands,
+            playback::playback_get_eq_bands,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BottleMusic Tauri app");

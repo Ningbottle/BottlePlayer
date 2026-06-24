@@ -38,7 +38,7 @@ pub unsafe extern "C" fn ffi_event_callback(
 pub struct CApiHandle {
     #[allow(dead_code)]
     _lib: Library,
-    handle_req: unsafe extern "C" fn(
+    pub(crate) handle_req: unsafe extern "C" fn(
         method: *const c_char,
         path: *const c_char,
         query_json: *const c_char,
@@ -46,22 +46,22 @@ pub struct CApiHandle {
         body: *const c_char,
         out_response: *mut *mut c_char,
     ),
-    free_str: unsafe extern "C" fn(str: *mut c_char),
+    pub(crate) free_str: unsafe extern "C" fn(str: *mut c_char),
     // S4: EchoPlayback C API exports
-    playback_initialize: unsafe extern "C" fn(c_int) -> bool,
-    playback_play_url: unsafe extern "C" fn(*const c_char) -> bool,
-    playback_pause: unsafe extern "C" fn(),
-    playback_resume: unsafe extern "C" fn(),
-    playback_stop: unsafe extern "C" fn(),
-    playback_seek: unsafe extern "C" fn(f64),
-    playback_set_volume: unsafe extern "C" fn(f64),
-    playback_set_rate: unsafe extern "C" fn(f64),
-    playback_get_state: unsafe extern "C" fn() -> *mut c_char,
-    playback_shutdown: unsafe extern "C" fn(),
-    playback_set_eq_enabled: unsafe extern "C" fn(c_int),
-    playback_set_eq_bands: unsafe extern "C" fn(*const f64),
-    playback_get_eq_bands: unsafe extern "C" fn(*mut f64),
-    set_event_callback: unsafe extern "C" fn(
+    pub(crate) playback_initialize: unsafe extern "C" fn(c_int) -> bool,
+    pub(crate) playback_play_url: unsafe extern "C" fn(*const c_char) -> bool,
+    pub(crate) playback_pause: unsafe extern "C" fn(),
+    pub(crate) playback_resume: unsafe extern "C" fn(),
+    pub(crate) playback_stop: unsafe extern "C" fn(),
+    pub(crate) playback_seek: unsafe extern "C" fn(f64),
+    pub(crate) playback_set_volume: unsafe extern "C" fn(f64),
+    pub(crate) playback_set_rate: unsafe extern "C" fn(f64),
+    pub(crate) playback_get_state: unsafe extern "C" fn() -> *mut c_char,
+    pub(crate) playback_shutdown: unsafe extern "C" fn(),
+    pub(crate) playback_set_eq_enabled: unsafe extern "C" fn(c_int),
+    pub(crate) playback_set_eq_bands: unsafe extern "C" fn(*const f64),
+    pub(crate) playback_get_eq_bands: unsafe extern "C" fn(*mut f64),
+    pub(crate) set_event_callback: unsafe extern "C" fn(
         Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
         *mut c_void,
     ),
