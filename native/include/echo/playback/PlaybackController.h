@@ -14,6 +14,8 @@ class MediaPlayerCallback;
 
 class PlaybackController {
  public:
+  using EventCallback = void (*)(const char* jsonPayload, void* userData);
+
   PlaybackController();
   ~PlaybackController();
 
