@@ -1,5 +1,6 @@
 #pragma once
 #include <mftransform.h>
+#include <mfobjects.h>
 #include <mutex>
 #include "echo/playback/BiquadFilter.h"
 
@@ -53,6 +54,14 @@ class EqualizerMFT : public IMFTransform {
   std::mutex mutex_;
   BiquadFilter bands_[5];
   bool enabled_ = false;
+
+  IMFMediaType* inputType_ = nullptr;
+  IMFMediaType* outputType_ = nullptr;
+  double sampleRate_ = 44100.0;
+  UINT32 channels_ = 2;
+  bool typesSet_ = false;
+
+  bool ValidateAudioType(IMFMediaType* mt) const;
 
   static constexpr double kBandFreqs[5] = {60.0, 230.0, 910.0, 3600.0, 14000.0};
   static constexpr double kQ = 0.70710678;
