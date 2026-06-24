@@ -14,6 +14,7 @@ import LyricView from './views/LyricView.vue';
 import SettingsView from './views/SettingsView.vue';
 import LoginView from './views/LoginView.vue';
 import HistoryView from './views/HistoryView.vue';
+import StatsView from './views/StatsView.vue';
 
 import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
@@ -253,6 +254,9 @@ onUnmounted(() => {
         />
         <HistoryView 
           v-else-if="currentView === 'history'" 
+        />
+        <StatsView
+          v-else-if="currentView === 'stats'"
         />
       </div>
 
