@@ -3,9 +3,9 @@ import { apiGet } from './backend';
 import { Track, normalizeTrack, fetchCoverImage } from './normalizer';
 import { userStore } from './userStore';
 import { Html5AudioBackend } from './html5Backend';
-import { NativePlaybackBackend } from './nativeBackend';
+// import { NativePlaybackBackend } from './nativeBackend';  // TODO(s4-fix): re-enable after MFS deadlock fix
 import type { PlayerBackend, PlaybackEvent } from './playerBackend';
-import { invoke } from '@tauri-apps/api/core';
+// import { invoke } from '@tauri-apps/api/core';  // unused after HTML5 default switch
 
 export type { Track };
 
@@ -153,30 +153,17 @@ export function initPlayer() {
 export async function initPlayerBackend() {
   if (activeBackend) return;
 
-  const native = new NativePlaybackBackend();
-  const ok = await native.initialize().catch((e) => {
-    console.warn('Native playback init failed:', e);
-    return false;
-  });
-
-  if (ok) {
-    activeBackend = native;
-    playerStore.backend = 'native';
-  } else {
-    if (!playerStore.audio) {
-      console.error('No HTML5 audio element available for fallback');
-      return;
-    }
-    activeBackend = new Html5AudioBackend(playerStore.audio);
-    playerStore.backend = 'html5';
+  // MFS native playback is disabled — topology resolution + deadlock issues.
+  // Fall back to HTML5 audio which works reliably.
+  // TODO(s4-fix): re-enable native after fixing BuildTopology + deadlock.
+  if (!playerStore.audio) {
+    console.error('No HTML5 audio element available');
+    return;
   }
+  activeBackend = new Html5AudioBackend(playerStore.audio);
+  playerStore.backend = 'html5';
 
   eventUnsub = activeBackend.onEvent(handlePlaybackEvent);
-
-  if (playerStore.backend === 'native' && playerStore.eqEnabled) {
-    await invoke('playback_set_eq_enabled', { enabled: true }).catch(() => {});
-    await invoke('playback_set_eq_bands', { gains: playerStore.eqBands }).catch(() => {});
-  }
 }
 
 function handlePlaybackEvent(e: PlaybackEvent) {

@@ -6,10 +6,8 @@ import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { useThemeStore } from '../api/themeStore';
 import { setSkippedVersion } from '../api/skippedVersion';
-import EqualizerPanel from '../components/EqualizerPanel.vue';
 
 const themeStore = useThemeStore();
-const eqExpanded = ref(false);
 
 interface MemoryData {
   working_set_bytes: number;
@@ -313,9 +311,6 @@ function clearCache() {
           :style="themeStore.mode.value === 'dark' ? 'background: var(--accent);' : 'background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);'"
           @click="themeStore.setMode('dark')"
         >🌙 深色</button>
-      </div>
-      <div style="margin-top: 16px;">
-        <EqualizerPanel v-model="eqExpanded" />
       </div>
     </section>
     <section class="card" style="margin-bottom: 24px;">
