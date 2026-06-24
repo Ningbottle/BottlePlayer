@@ -1,6 +1,10 @@
 #pragma once
 #include "echo/playback/PlaybackControllerImpl.h"
 
+#include <mfapi.h>
+#include <mfidl.h>
+#include <mfreadwrite.h>
+
 #include <memory>
 #include <mutex>
 #include <string>
@@ -9,7 +13,11 @@
 
 namespace echo::playback {
 
+class MfsEventCallback;
+
 class PlaybackControllerMFS final : public PlaybackControllerImpl {
+  friend class MfsEventCallback;
+
  public:
   PlaybackControllerMFS();
   ~PlaybackControllerMFS() override;
@@ -29,6 +37,16 @@ class PlaybackControllerMFS final : public PlaybackControllerImpl {
   bool mfStarted_ = false;
   mutable std::mutex mutex_;
   echo::core::PlaybackState state_;
+
+  IMFMediaSession* session_ = nullptr;
+  IMFMediaSource* mediaSource_ = nullptr;
+  IMFTopology* topology_ = nullptr;
+  MfsEventCallback* eventCallback_ = nullptr;
+
+  HRESULT BuildTopology(const std::string& url, IMFTopology** out);
+  void OnSessionEvent(MediaEventType metype);
+  void EmitEvent(const char* type, double position, double duration,
+                 const char* state);
 };
 
 std::unique_ptr<PlaybackControllerImpl> CreateMfsImpl();
