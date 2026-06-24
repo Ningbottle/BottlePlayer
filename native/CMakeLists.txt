@@ -106,6 +106,7 @@ add_library(EchoPlayback STATIC
   playback/PlaybackControllerMFP.cpp
   playback/PlaybackControllerMFS.cpp
   playback/BiquadFilter.cpp
+  playback/EqualizerMFT.cpp
 )
 target_include_directories(EchoPlayback PUBLIC include)
 target_link_libraries(EchoPlayback
