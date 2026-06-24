@@ -6,8 +6,10 @@ import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { useThemeStore } from '../api/themeStore';
 import { setSkippedVersion } from '../api/skippedVersion';
+import EqualizerPanel from '../components/EqualizerPanel.vue';
 
 const themeStore = useThemeStore();
+const eqExpanded = ref(false);
 
 interface MemoryData {
   working_set_bytes: number;
@@ -312,9 +314,10 @@ function clearCache() {
           @click="themeStore.setMode('dark')"
         >🌙 深色</button>
       </div>
+      <div style="margin-top: 16px;">
+        <EqualizerPanel v-model="eqExpanded" />
+      </div>
     </section>
-
-    <!-- Custom Device Fingerprint -->
     <section class="card" style="margin-bottom: 24px;">
       <p class="kicker">ADVANCED · 自定义设备指纹</p>
       <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">
