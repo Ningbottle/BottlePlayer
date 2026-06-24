@@ -247,7 +247,7 @@ HRESULT PlaybackControllerMFS::BuildTopology(const std::string& url,
 }
 
 bool PlaybackControllerMFS::PlayUrl(const std::string& url) {
-  std::lock_guard lock(mutex_);
+  std::unique_lock lock(mutex_);
   if (!session_) return false;
   if (topology_) {
     topology_->Release();
@@ -258,9 +258,19 @@ bool PlaybackControllerMFS::PlayUrl(const std::string& url) {
     ECHO_LOG("PlaybackMFS", "BuildTopology failed");
     return false;
   }
+  topologyReady_ = false;
   hr = session_->SetTopology(0, topology_);
   if (FAILED(hr)) {
     ECHO_LOG("PlaybackMFS", "SetTopology failed");
+    return false;
+  }
+  // Wait for MESessionTopologyReady (signaled by OnSessionEvent).
+  // Unlock so the MFS callback thread can acquire mutex_ to set the flag.
+  bool ready = topologyCv_.wait_for(lock, std::chrono::seconds(5), [this] {
+    return topologyReady_;
+  });
+  if (!ready) {
+    ECHO_LOG("PlaybackMFS", "Topology ready timeout");
     return false;
   }
   return true;
@@ -271,6 +281,10 @@ void PlaybackControllerMFS::OnSessionEvent(MediaEventType metype) {
   {
     std::lock_guard lock(mutex_);
     switch (metype) {
+      case MESessionTopologyReady:
+        topologyReady_ = true;
+        topologyCv_.notify_all();
+        break;
       case MESessionStarted:
         state_.kind = echo::core::PlaybackStateKind::Playing;
         stateStr = "playing";

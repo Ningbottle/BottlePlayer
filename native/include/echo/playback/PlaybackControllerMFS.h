@@ -7,6 +7,8 @@
 #include <mfreadwrite.h>
 
 #include <atomic>
+#include <chrono>
+#include <condition_variable>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -59,6 +61,9 @@ class PlaybackControllerMFS final : public PlaybackControllerImpl {
   EqualizerMFT* eqMft_ = nullptr;
   bool eqEnabled_ = false;
   double eqGains_[5] = {0, 0, 0, 0, 0};
+
+  bool topologyReady_ = false;
+  std::condition_variable topologyCv_;
 
   std::thread positionThread_;
   std::atomic<bool> positionStop_{false};
