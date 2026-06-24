@@ -2,6 +2,33 @@ use libloading::{Library, Symbol};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::sync::{OnceLock, RwLock};
+use tauri::{AppHandle, Emitter};
+
+// Tauri AppHandle for emitting events to the frontend.
+static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
+
+/// Store the Tauri AppHandle so `ffi_event_callback` can emit events.
+/// Safe to call multiple times — only the first call takes effect.
+pub fn set_app_handle(handle: AppHandle) {
+    let _ = APP_HANDLE.set(handle);
+}
+
+/// C-callable event callback that forwards JSON payloads from the C++ backend
+/// to all Tauri frontend windows via the `playback_event` channel.
+pub unsafe extern "C" fn ffi_event_callback(
+    json: *const c_char,
+    _user: *mut c_void,
+) {
+    if json.is_null() {
+        return;
+    }
+    let cstr = unsafe { CStr::from_ptr(json) };
+    if let Ok(s) = cstr.to_str() {
+        if let Some(handle) = APP_HANDLE.get() {
+            let _ = handle.emit("playback_event", s.to_string());
+        }
+    }
+}
 
 // Resolved entry points from the DLL. The Library handle is kept alive so the
 // function pointers stay valid. A read guard is held for the duration of each
@@ -372,6 +399,17 @@ pub fn set_log_callback() -> Result<(), String> {
             *mut c_void,
         )> = handle._lib.get(b"EchoSetLogCallback").map_err(|e| e.to_string())?;
         set_cb(ffi_log_callback, std::ptr::null_mut());
+    }
+    Ok(())
+}
+
+/// Register the event callback so C++ playback events are forwarded to the
+/// Tauri frontend via `ffi_event_callback`. Call after `set_log_callback`.
+pub fn set_event_callback() -> Result<(), String> {
+    let lib_guard = get_handle().read().unwrap_or_else(|p| p.into_inner());
+    let handle = lib_guard.as_ref().ok_or("C API not loaded")?;
+    unsafe {
+        (handle.set_event_callback)(Some(ffi_event_callback), std::ptr::null_mut());
     }
     Ok(())
 }

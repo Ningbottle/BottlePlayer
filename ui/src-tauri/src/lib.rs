@@ -122,6 +122,9 @@ pub fn run() {
         .setup(|app| {
             use tauri::Manager;
 
+            // Store AppHandle for event emission from C++ callbacks.
+            backend_api::set_app_handle(app.handle().clone());
+
             let dll_name = if cfg!(target_os = "windows") {
                 "EchoCAPI.dll"
             } else {
@@ -173,6 +176,9 @@ pub fn run() {
                         backend_api::set_log_dir(&app_data_dir);
                         if let Err(e) = backend_api::set_log_callback() {
                             eprintln!("[EchoCAPI WARN] Failed to set log callback: {}", e);
+                        }
+                        if let Err(e) = backend_api::set_event_callback() {
+                            eprintln!("[EchoCAPI WARN] Failed to set event callback: {}", e);
                         }
                         loaded = true;
                         break;
