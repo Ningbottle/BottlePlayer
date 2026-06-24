@@ -104,8 +104,12 @@ PlaybackControllerMFS::~PlaybackControllerMFS() {
   if (session_) {
     session_->Close();
     session_->Shutdown();
-    ULONG refCount = session_->Release();
-    while (refCount > 0) refCount = session_->Release();
+    // Release the controller's reference once. If outstanding references
+    // (e.g. a pending BeginGetEvent callback) keep the session alive briefly,
+    // the next GC pass on the work queue will collect it. A tight Release()
+    // loop would dereference a dangling pointer once the ref count hits 0.
+    session_->Release();
+    session_ = nullptr;
   }
   if (eventCallback_) {
     eventCallback_->Detach();
@@ -153,8 +157,15 @@ bool PlaybackControllerMFS::Initialize() {
                             IID_PPV_ARGS(&rateControl_)))) {
       rateControl_ = nullptr;
     }
-    if (FAILED(session_->GetPresentationClock(&clock_))) {
-      clock_ = nullptr;
+    {
+      // IMFMediaSession exposes IMFClock; QI to the presentation-clock interface.
+      IMFClock* baseClock = nullptr;
+      if (SUCCEEDED(session_->GetClock(&baseClock))) {
+        baseClock->QueryInterface(IID_PPV_ARGS(&clock_));
+        baseClock->Release();
+      } else {
+        clock_ = nullptr;
+      }
     }
   }
   return true;
@@ -282,7 +293,8 @@ void PlaybackControllerMFS::Pause() {
 void PlaybackControllerMFS::Resume() {
   std::lock_guard lock(mutex_);
   if (!session_) return;
-  HRESULT hr = session_->Start(GUID_NULL, nullptr);
+  // pguidTimeFormat = nullptr -> use the default time format.
+  HRESULT hr = session_->Start(nullptr, nullptr);
   if (FAILED(hr)) ECHO_LOG("PlaybackMFS", "Resume failed");
 }
 
@@ -300,7 +312,7 @@ void PlaybackControllerMFS::Seek(double seconds) {
   PropVariantInit(&var);
   var.vt = VT_I8;
   var.hVal.QuadPart = static_cast<LONGLONG>(seconds * 1e7);
-  HRESULT hr = session_->Start(GUID_NULL, &var);
+  HRESULT hr = session_->Start(nullptr, &var);
   PropVariantClear(&var);
   if (FAILED(hr)) ECHO_LOG("PlaybackMFS", "Seek failed");
 }
