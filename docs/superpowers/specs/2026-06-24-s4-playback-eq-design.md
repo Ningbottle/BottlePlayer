@@ -1,11 +1,41 @@
 # S4 — C++ Playback Core + Equalizer Design
 
 **Date**: 2026-06-24
-**Status**: Ready for implementation plan
+**Status**: ⚠️ Partially implemented — MFS abandoned, Web Audio API EQ in production
 **Depends on**: S1 (FFI boundary discipline)
 **Feeds**: S5 (play events come from PlaybackController)
 
-## 1. Goal
+## Post-Implementation Status (2026-06-24)
+
+### What was built
+- C++ Pimpl refactor (PlaybackController + MFP + MFS abstract base) — ✅ code exists
+- BiquadFilter pure math (RBJ Audio EQ Cookbook) — ✅ tested, works
+- EqualizerMFT (IMFTransform) — ✅ code exists, unit-testable, NOT inserted into MF topology
+- C API 14 EchoPlayback exports — ✅ exist, but frontend doesn't use them
+- Rust FFI 13 Tauri commands — ✅ registered, but frontend doesn't call them
+- Frontend PlayerBackend interface — ✅ Html5AudioBackend + NativePlaybackBackend
+- **Web Audio API EQ** — ✅ 5 BiquadFilterNode chain, working in production
+- **EqualizerPanel.vue** — ✅ in Drawer, skin-integrated, 5 sliders + 4 presets
+
+### What was abandoned
+- **MFS (IMFMediaSession) native playback** — ❌ broken: incomplete topology (only source nodes), deadlock (mutex + CV), COM lifecycle leaks. HTML5 Audio is the default backend.
+- **EqualizerMFT topology insertion** — ❌ MFT not inserted into MF topology. EQ works via Web Audio API instead.
+- **Native playback via C API** — ❌ disabled. `initPlayerBackend()` uses HTML5 directly.
+
+### Why MFS was abandoned
+1. `BuildTopology` only creates source nodes; MF topology loader cannot resolve incomplete topology
+2. `PlayUrl` holds mutex while waiting for topology event; `OnSessionEvent` needs same mutex → deadlock
+3. COM objects (topology, mediaSource) not properly released → memory leaks + exit hangs
+4. Web Audio API provides the same EQ functionality with zero C++ complexity
+5. User confirmed Web Audio EQ works ("可以的，不错")
+
+### What works right now
+- HTML5 Audio playback (default, reliable)
+- Web Audio API EQ (5 bands, 4 presets, real-time)
+- EqualizerPanel in Drawer (skin-integrated)
+- Play/pause/seek/volume/queue (all via HTML5 Audio)
+
+## 1. Goal (Original)
 
 Replace the high-level MFPlay-based `PlaybackController` with an `IMFMediaSession` pipeline that can accept a custom DSP `IMFTransform`, then insert a 5-band biquad equalizer into that pipeline. The existing HTML5 Audio path is preserved as a fallback.
 
