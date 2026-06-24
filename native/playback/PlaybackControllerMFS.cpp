@@ -210,6 +210,13 @@ void PlaybackControllerMFS::OnSessionEvent(MediaEventType metype) {
     default: break;
   }
   if (stateStr) EmitEvent("state", 0, 0, stateStr);
+
+  if (session_ && eventCallback_) {
+    HRESULT hr = session_->BeginGetEvent(eventCallback_, nullptr);
+    if (FAILED(hr)) {
+      ECHO_LOG("PlaybackMFS", "BeginGetEvent re-arm failed");
+    }
+  }
 }
 
 void PlaybackControllerMFS::EmitEvent(const char*, double, double, const char*) {
