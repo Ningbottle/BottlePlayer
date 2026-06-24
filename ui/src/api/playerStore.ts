@@ -86,6 +86,78 @@ export const playerStore = reactive<PlayerState>({
   activePreset: localStorage.getItem('player_eq_preset') || 'Flat',
 });
 
+// ── Web Audio API EQ chain (works with HTML5 <audio>) ──
+// Replaces the native MFS EQ. Routes the <audio> element through a
+// BiquadFilter chain so EQ works for the HTML5 backend too.
+// Frequencies match the C++ MFT equalizer: 60 / 230 / 910 / 3600 / 14000 Hz.
+const EQ_FREQS = [60, 230, 910, 3600, 14000];
+
+let audioContext: AudioContext | null = null;
+let eqFilters: BiquadFilterNode[] = [];
+let eqGainNode: GainNode | null = null;
+let eqSourceNode: MediaElementAudioSourceNode | null = null;
+
+export function initWebAudioEQ(audio: HTMLAudioElement) {
+  if (audioContext) return; // already initialized
+  try {
+    const Ctx = window.AudioContext
+      || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+    audioContext = new Ctx();
+    // crossOrigin must be set before loading cross-origin sources so the
+    // Web Audio graph receives real samples instead of silence.
+    audio.crossOrigin = 'anonymous';
+    eqSourceNode = audioContext.createMediaElementSource(audio);
+
+    eqFilters = EQ_FREQS.map((freq, i) => {
+      const filter = audioContext!.createBiquadFilter();
+      filter.type = 'peaking';
+      filter.frequency.value = freq;
+      filter.Q.value = 1 / Math.SQRT2;
+      filter.gain.value = playerStore.eqEnabled ? (playerStore.eqBands[i] || 0) : 0;
+      return filter;
+    });
+
+    eqGainNode = audioContext.createGain();
+    eqGainNode.gain.value = 1.0;
+
+    // source → filter[0] → ... → filter[4] → gain → destination
+    eqSourceNode.connect(eqFilters[0]);
+    for (let i = 0; i < eqFilters.length - 1; i++) {
+      eqFilters[i].connect(eqFilters[i + 1]);
+    }
+    eqFilters[eqFilters.length - 1].connect(eqGainNode);
+    eqGainNode.connect(audioContext.destination);
+  } catch (e) {
+    console.warn('Web Audio API EQ init failed:', e);
+    audioContext = null;
+    eqFilters = [];
+    eqGainNode = null;
+    eqSourceNode = null;
+  }
+}
+
+export function setWebAudioEqBand(index: number, gainDb: number) {
+  if (!audioContext || index < 0 || index >= eqFilters.length) return;
+  if (!playerStore.eqEnabled) return; // bypass when disabled
+  if (eqFilters[index]) {
+    eqFilters[index].gain.value = gainDb;
+  }
+}
+
+export function setWebAudioEqEnabled(enabled: boolean) {
+  if (!audioContext) return;
+  eqFilters.forEach((filter, i) => {
+    filter.gain.value = enabled ? (playerStore.eqBands[i] || 0) : 0;
+  });
+}
+
+/** Resume the AudioContext after a user gesture (autoplay policy). */
+export function resumeAudioContext() {
+  if (audioContext && audioContext.state === 'suspended') {
+    audioContext.resume().catch(() => {});
+  }
+}
+
 // Setup audio listeners
 export function initPlayer() {
   if (playerStore.audio) return;
@@ -109,7 +181,11 @@ export function initPlayer() {
   playerStore.audio = audio;
   audio.volume = playerStore.volume;
 
+  // Wire up Web Audio API EQ chain (HTML5 backend EQ).
+  initWebAudioEQ(audio);
+
   audio.addEventListener('play', () => {
+    resumeAudioContext();
     playerStore.isPlaying = true;
     playerStore.errorMsg = '';
   });

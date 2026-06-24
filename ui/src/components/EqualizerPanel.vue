@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
-import { playerStore } from '../api/playerStore';
+import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled } from '../api/playerStore';
 
 const props = defineProps<{ modelValue: boolean }>();
 const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>();
@@ -23,26 +22,16 @@ const BAND_FREQS = ['60Hz', '230Hz', '910Hz', '3.6kHz', '14kHz'];
 const bandGains = ref<number[]>([...playerStore.eqBands]);
 watch(() => playerStore.eqBands, (v) => { bandGains.value = [...v]; });
 
-const disabled = computed(() => playerStore.backend !== 'native');
-
-async function onSliderInput() {
+function onSliderInput() {
   playerStore.eqBands = [...bandGains.value];
   localStorage.setItem('player_eq_bands', JSON.stringify(bandGains.value));
-  if (playerStore.backend === 'native') {
-    try {
-      await invoke('playback_set_eq_bands', { gains: bandGains.value });
-    } catch (e) { console.warn('set_eq_bands failed', e); }
-  }
+  bandGains.value.forEach((g, i) => setWebAudioEqBand(i, g));
 }
 
-async function toggleEnabled() {
+function toggleEnabled() {
   playerStore.eqEnabled = !playerStore.eqEnabled;
   localStorage.setItem('player_eq_enabled', String(playerStore.eqEnabled));
-  if (playerStore.backend === 'native') {
-    try {
-      await invoke('playback_set_eq_enabled', { enabled: playerStore.eqEnabled });
-    } catch (e) { console.warn('set_eq_enabled failed', e); }
-  }
+  setWebAudioEqEnabled(playerStore.eqEnabled);
 }
 
 function applyPreset(name: string) {
@@ -60,7 +49,7 @@ function formatGain(g: number) {
 </script>
 
 <template>
-  <div class="eq-panel" :class="{ expanded, disabled }">
+  <div class="eq-panel" :class="{ expanded }">
     <button class="eq-toggle" @click="expanded = !expanded">
       <span class="eq-status">EQ {{ playerStore.eqEnabled ? 'ON' : 'OFF' }}</span>
       <span class="chevron">{{ expanded ? '▾' : '▸' }}</span>
@@ -71,7 +60,6 @@ function formatGain(g: number) {
           <input
             type="checkbox"
             :checked="playerStore.eqEnabled"
-            :disabled="disabled"
             @change="toggleEnabled"
           />
           Enable Equalizer
@@ -79,7 +67,7 @@ function formatGain(g: number) {
         <select
           class="eq-preset"
           :value="playerStore.activePreset"
-          :disabled="disabled || !playerStore.eqEnabled"
+          :disabled="!playerStore.eqEnabled"
           @change="applyPreset(($event.target as HTMLSelectElement).value)"
         >
           <option v-for="(_, name) in PRESETS" :key="name" :value="name">{{ name }}</option>
@@ -93,7 +81,7 @@ function formatGain(g: number) {
             max="12"
             step="0.5"
             v-model.number="bandGains[i]"
-            :disabled="disabled || !playerStore.eqEnabled"
+            :disabled="!playerStore.eqEnabled"
             orient="vertical"
             class="band-slider"
             @input="onSliderInput"
@@ -102,18 +90,15 @@ function formatGain(g: number) {
           <span class="band-gain">{{ formatGain(gain) }}</span>
         </div>
       </div>
-      <p v-if="disabled" class="eq-hint">
-        Native backend not available — EQ disabled. Using HTML5 fallback.
-      </p>
     </div>
   </div>
 </template>
 
 <style scoped>
 .eq-panel {
-  border: 1px solid var(--border-color, #2a2a2a);
+  border: 1px solid var(--rule);
   border-radius: 8px;
-  background: var(--panel-bg, #1a1a1a);
+  background: var(--paper-2);
   overflow: hidden;
 }
 
@@ -125,27 +110,30 @@ function formatGain(g: number) {
   padding: 10px 14px;
   background: none;
   border: none;
-  color: var(--text-primary, #e0e0e0);
+  color: var(--ink);
   cursor: pointer;
+  font-family: var(--font-serif);
   font-size: 13px;
-  font-weight: 500;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  transition: background 0.15s;
 }
 
 .eq-toggle:hover {
-  background: var(--hover-bg, rgba(255, 255, 255, 0.05));
+  background: var(--rule-soft);
 }
 
 .eq-status {
-  letter-spacing: 0.5px;
+  letter-spacing: 0.08em;
 }
 
 .chevron {
   font-size: 14px;
-  opacity: 0.6;
+  color: var(--ink-mute);
 }
 
 .eq-controls {
-  padding: 0 14px 14px;
+  padding: 4px 14px 14px;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -162,23 +150,34 @@ function formatGain(g: number) {
   display: flex;
   align-items: center;
   gap: 6px;
+  font-family: var(--font-serif);
   font-size: 12px;
-  color: var(--text-secondary, #999);
+  color: var(--ink-soft);
   cursor: pointer;
 }
 
 .eq-enable input[type="checkbox"] {
-  accent-color: var(--accent-color, #1db954);
+  accent-color: var(--accent);
+  width: 15px;
+  height: 15px;
+  cursor: pointer;
 }
 
 .eq-preset {
   padding: 4px 8px;
-  border: 1px solid var(--border-color, #2a2a2a);
+  border: 1px solid var(--rule);
   border-radius: 4px;
-  background: var(--input-bg, #222);
-  color: var(--text-primary, #e0e0e0);
+  background: var(--paper);
+  color: var(--ink-soft);
+  font-family: var(--font-serif);
   font-size: 12px;
   cursor: pointer;
+  transition: border-color 0.15s, color 0.15s;
+}
+
+.eq-preset:hover:not(:disabled) {
+  border-color: var(--ink-mute);
+  color: var(--ink);
 }
 
 .eq-preset:disabled {
@@ -190,7 +189,7 @@ function formatGain(g: number) {
   display: flex;
   justify-content: space-around;
   gap: 8px;
-  padding: 8px 0;
+  padding: 8px 0 4px;
 }
 
 .eq-band {
@@ -205,7 +204,7 @@ function formatGain(g: number) {
   direction: rtl;
   width: 24px;
   height: 100px;
-  accent-color: var(--accent-color, #1db954);
+  accent-color: var(--accent);
   cursor: pointer;
 }
 
@@ -215,28 +214,19 @@ function formatGain(g: number) {
 }
 
 .band-freq {
+  font-family: var(--font-serif);
+  font-style: italic;
   font-size: 10px;
-  color: var(--text-secondary, #777);
+  color: var(--ink-mute);
   white-space: nowrap;
 }
 
 .band-gain {
+  font-family: var(--font-sans);
   font-size: 10px;
-  color: var(--text-primary, #e0e0e0);
+  color: var(--ink);
   font-variant-numeric: tabular-nums;
   min-width: 42px;
   text-align: center;
-}
-
-.eq-hint {
-  font-size: 11px;
-  color: var(--text-secondary, #777);
-  margin: 0;
-  text-align: center;
-  padding: 4px 0;
-}
-
-.disabled {
-  opacity: 0.7;
 }
 </style>
