@@ -1,4 +1,4 @@
-#include "echo/playback/EqualizerMFT.h"
+﻿#include "echo/playback/EqualizerMFT.h"
 #include <cstring>
 #include <mfapi.h>
 #include <mferror.h>
@@ -242,7 +242,7 @@ void EqualizerMFT::SetBandGain(int bandIndex, double gainDb) {
   if (gainDb > kMaxGainDb) gainDb = kMaxGainDb;
   if (gainDb < -kMaxGainDb) gainDb = -kMaxGainDb;
   std::lock_guard lock(mutex_);
-  bands_[bandIndex].SetParams(44100.0, kBandFreqs[bandIndex], gainDb, kQ);
+  bands_[bandIndex].SetParams(sampleRate_, kBandFreqs[bandIndex], gainDb, kQ);
 }
 
 void EqualizerMFT::SetAllBandGains(const double gainsDb[5]) {
@@ -252,3 +252,4 @@ void EqualizerMFT::SetAllBandGains(const double gainsDb[5]) {
 }
 
 }  // namespace echo::playback
+

@@ -1,4 +1,4 @@
-#include "echo/core/C_API.h"
+﻿#include "echo/core/C_API.h"
 #include "echo/core/CompatApi.h"
 #include "echo/core/HttpClient.h"
 #include "echo/async/RequestScheduler.h"
@@ -84,7 +84,7 @@ void EchoInitializeWithPaths(const char* app_data_dir) {
         EnsureInitializedLocked(app_data_dir);
     } catch (const std::exception& e) {
         // Never let C++ exceptions cross the extern "C" FFI boundary.
-        // Log and leave g_api null — subsequent requests will get 500.
+        // Log and leave g_api null 鈥?subsequent requests will get 500.
         g_api.reset();
         g_db.reset();
     } catch (...) {
@@ -104,7 +104,7 @@ void EchoShutdown() {
     // lock inside their lambda. If we held the exclusive lock and then
     // called Shutdown()->join(), we'd deadlock. If we used the unbounded
     // Shutdown() and a worker was stuck in a 60s uninterruptible job,
-    // EchoShutdown would block for 60s+ — violating the "close within
+    // EchoShutdown would block for 60s+ 鈥?violating the "close within
     // 3-5s" contract. Bounded Shutdown detaches hung workers (safe since
     // the process is exiting).
     g_shutdown = true;
@@ -193,7 +193,7 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
     long deadlineMs = DeadlineMsForKind(kind);
 
     // Acquire a strong reference to g_api under the rwlock so the object
-    // stays alive for the entire scheduled call — even if EchoShutdown
+    // stays alive for the entire scheduled call 鈥?even if EchoShutdown
     // runs concurrently and resets the global g_api pointer. The
     // rwlock gates the pointer swap; the object's lifetime is now
     // ref-counted via shared_ptr.
@@ -265,7 +265,7 @@ void EchoSetEventCallback(EchoEventCallback cb, void* user_data) {
     g_playback->SetEventCallback(reinterpret_cast<PcbCallback>(cb), user_data);
 }
 
-// ── Playback C API ──────────────────────────────────────────────────────────
+// 鈹€鈹€ Playback C API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 static const char* PlaybackStateKindToString(echo::core::PlaybackStateKind kind) {
     switch (kind) {
@@ -360,9 +360,9 @@ void EchoPlaybackShutdown(void) {
     g_playback.reset();
 }
 
-void EchoPlaybackSetEqEnabled(bool enabled) {
+void EchoPlaybackSetEqEnabled(int enabled) {
     std::lock_guard lock(g_playback_mutex);
-    if (g_playback) g_playback->SetEqEnabled(enabled);
+    if (g_playback) g_playback->SetEqEnabled(enabled != 0);
 }
 
 void EchoPlaybackSetEqBand(int bandIndex, double gainDb) {
@@ -383,3 +383,5 @@ void EchoPlaybackGetEqBands(double outGainsDb[5]) {
         for (int i = 0; i < 5; ++i) outGainsDb[i] = 0.0;
     }
 }
+
+

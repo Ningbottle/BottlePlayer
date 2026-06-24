@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 
 #ifdef _WIN32
 #define ECHO_C_API __declspec(dllexport)
@@ -20,12 +20,12 @@ ECHO_C_API void EchoFreeString(char* str);
 typedef void (*EchoLogCallback)(int level, const char* tag, const char* msg, void* user_data);
 ECHO_C_API void EchoSetLogCallback(EchoLogCallback cb, void* user_data);
 
-// ABI placeholder for future C++ → Rust async event channel (playback state, download progress).
+// ABI placeholder for future C++ 鈫?Rust async event channel (playback state, download progress).
 // Not yet wired; reserved so ABI surface is stable.
 typedef void (*EchoEventCallback)(const char* event_json, void* user_data);
 ECHO_C_API void EchoSetEventCallback(EchoEventCallback cb, void* user_data);
 
-// ── Playback C API ──────────────────────────────────────────────────────────
+// 鈹€鈹€ Playback C API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
 
 typedef enum EchoPlaybackBackend {
   ECHO_PLAYBACK_MFP = 0,
@@ -43,7 +43,7 @@ ECHO_C_API void EchoPlaybackSetRate(double rate);
 ECHO_C_API const char* EchoPlaybackGetState(void);
 ECHO_C_API void EchoPlaybackShutdown(void);
 
-ECHO_C_API void EchoPlaybackSetEqEnabled(bool enabled);
+ECHO_C_API void EchoPlaybackSetEqEnabled(int enabled);
 ECHO_C_API void EchoPlaybackSetEqBand(int bandIndex, double gainDb);
 ECHO_C_API void EchoPlaybackSetEqBands(const double gainsDb[5]);
 ECHO_C_API void EchoPlaybackGetEqBands(double outGainsDb[5]);
@@ -51,3 +51,4 @@ ECHO_C_API void EchoPlaybackGetEqBands(double outGainsDb[5]);
 #ifdef __cplusplus
 }
 #endif
+
