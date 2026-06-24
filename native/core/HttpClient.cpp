@@ -301,21 +301,35 @@ HttpResult HttpClient::Get(
     r.error = LastErrorText("WinHttpCrackUrl");
     return r;
   }
-  // Bounded retry: up to 2 retries on transient failures (timeout/connection
-  // reset) with exponential backoff 500ms / 2s. No retry on 4xx.
+  // Bounded retry with shared budget: the totalTimeoutMs is the *entire*
+  // budget across all attempts + backoff, not per-attempt. This prevents
+  // retry from amplifying 9s into 27s+.
+  auto budgetStart = std::chrono::steady_clock::now();
   static const long backoffMs[] = {500, 2000};
   for (int attempt = 0; attempt <= 2; ++attempt) {
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - budgetStart).count();
+    long remaining = totalTimeoutMs - static_cast<long>(elapsed);
+    if (remaining < 500 && attempt > 0) {
+      // Not enough budget left for another attempt — return last error.
+      HttpResult r;
+      r.timedOut = true;
+      r.error = "total_budget_exhausted";
+      return r;
+    }
+    long attemptTimeout = (attempt < 2) ? remaining : remaining;
+    if (attemptTimeout < 100) attemptTimeout = 100;
     auto res = ExecuteRequest(parsed, L"GET", headers, nullptr, 0,
                               /*ensureJsonContentType=*/false,
-                              totalTimeoutMs, maxBodyBytes);
+                              attemptTimeout, maxBodyBytes);
     bool transient = res.timedOut ||
                      (!res.error.empty() && res.statusCode == 0);
     if (!transient || attempt == 2) return res;
     std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs[attempt]));
   }
-  return ExecuteRequest(parsed, L"GET", headers, nullptr, 0,
-                        /*ensureJsonContentType=*/false,
-                        totalTimeoutMs, maxBodyBytes);
+  HttpResult r;
+  r.error = "retry_exhausted";
+  return r;
 }
 
 HttpResult HttpClient::Post(
@@ -330,21 +344,31 @@ HttpResult HttpClient::Post(
     r.error = LastErrorText("WinHttpCrackUrl");
     return r;
   }
+  auto budgetStart = std::chrono::steady_clock::now();
   static const long backoffMs[] = {500, 2000};
   for (int attempt = 0; attempt <= 2; ++attempt) {
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - budgetStart).count();
+    long remaining = totalTimeoutMs - static_cast<long>(elapsed);
+    if (remaining < 500 && attempt > 0) {
+      HttpResult r;
+      r.timedOut = true;
+      r.error = "total_budget_exhausted";
+      return r;
+    }
+    if (remaining < 100) remaining = 100;
     auto res = ExecuteRequest(
         parsed, L"POST", headers, body.data(), static_cast<DWORD>(body.size()),
         /*ensureJsonContentType=*/true,
-        totalTimeoutMs, maxBodyBytes);
+        remaining, maxBodyBytes);
     bool transient = res.timedOut ||
                      (!res.error.empty() && res.statusCode == 0);
     if (!transient || attempt == 2) return res;
     std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs[attempt]));
   }
-  return ExecuteRequest(
-      parsed, L"POST", headers, body.data(), static_cast<DWORD>(body.size()),
-      /*ensureJsonContentType=*/true,
-      totalTimeoutMs, maxBodyBytes);
+  HttpResult r;
+  r.error = "retry_exhausted";
+  return r;
 }
 
 }  // namespace echo::core

@@ -117,7 +117,12 @@ auto RequestScheduler::Submit(RequestKind kind, Fn fn)
     ECHO_LOG("RequestScheduler", log.str());
   };
 
-  EnqueueJob({std::move(execute), enqueueStopwatch});
+  if (!EnqueueJob({std::move(execute), enqueueStopwatch})) {
+    try {
+      promise->set_exception(
+          std::make_exception_ptr(std::runtime_error("queue_full")));
+    } catch (...) {}
+  }
   return future;
 }
 
@@ -168,7 +173,14 @@ auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadline
     ECHO_LOG("RequestScheduler", log.str());
   };
 
-  EnqueueJob({std::move(execute), enqueueStopwatch});
+  if (!EnqueueJob({std::move(execute), enqueueStopwatch})) {
+    // Queue full or shutting down — fulfill the promise immediately
+    // with an overload error so the future doesn't hang forever.
+    try {
+      promise->set_exception(
+          std::make_exception_ptr(std::runtime_error("queue_full")));
+    } catch (...) {}
+  }
   return future;
 }
 

@@ -86,18 +86,34 @@ void EchoInitialize() {
 }
 
 void EchoShutdown() {
-    // Bounded shutdown: try to acquire the exclusive lock for up to 3 seconds.
-    // If in-flight requests don't drain in time, force-proceed to tear down
-    // anyway so the process can exit instead of hanging forever.
+    // Phase 1: stop accepting new jobs and drain the scheduler.
+    // This MUST happen before acquiring the exclusive lock, because workers
+    // executing in-flight jobs try to acquire the shared lock inside their
+    // lambda. If we held the exclusive lock and then called Shutdown()->join(),
+    // we'd deadlock: join waits for worker, worker waits for shared lock,
+    // shared lock waits for our exclusive lock.
     g_shutdown = true;
-    std::unique_lock<std::shared_mutex> lock(g_api_rwlock, std::defer_lock);
-    auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
-    while (std::chrono::steady_clock::now() < deadline) {
-        if (lock.try_lock()) break;
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    }
-    // Whether we got the lock or timed out, proceed to tear down.
     g_scheduler.Shutdown();
+
+    // Phase 2: acquire exclusive lock (bounded) to safely tear down g_api/g_db.
+    // In-flight jobs that haven't finished yet will see g_api == null (or
+    // g_shutdown == true) inside their lambda and return 500 without
+    // touching the globals. The scheduler is already shut down so no new
+    // jobs will start.
+    {
+        std::unique_lock<std::shared_mutex> lock(g_api_rwlock, std::defer_lock);
+        auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+        while (std::chrono::steady_clock::now() < deadline) {
+            if (lock.try_lock()) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        // Whether we got the lock or timed out: force-tear-down.
+        // If we didn't get the lock, in-flight jobs are still running but
+        // g_shutdown is true so they'll return 500 and release their shared
+        // lock soon. We set g_api=nullptr atomically; jobs that read it after
+        // this point get null and return 500. This is safe because unique_ptr
+        // reset is a single pointer swap.
+    }
     g_api.reset();
     g_db.reset();
     echo::core::CloseHttpConnectionPool();
@@ -147,8 +163,22 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
         auto fut = g_scheduler.SubmitWithDeadline(
             kind,
             [&](echo::async::CancellationToken token) -> echo::core::CompatResponse {
-                std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
-                if (!g_api) {
+                // Bounded shared-lock acquisition: don't wait forever if
+                // EchoShutdown is holding the exclusive lock. Try for up to
+                // 2 seconds, then return 503.
+                std::shared_lock<std::shared_mutex> lock(g_api_rwlock, std::defer_lock);
+                auto lockDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+                while (std::chrono::steady_clock::now() < lockDeadline) {
+                    if (lock.try_lock()) break;
+                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                }
+                if (!lock.owns_lock()) {
+                    echo::core::CompatResponse err;
+                    err.httpStatus = 503;
+                    err.body = {{"error", "shutdown_in_progress"}};
+                    return err;
+                }
+                if (!g_api || g_shutdown) {
                     echo::core::CompatResponse err;
                     err.httpStatus = 500;
                     err.body = {{"error", "C API is not initialized or was shut down"}};

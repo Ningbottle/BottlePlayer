@@ -59,7 +59,7 @@ int main() {
     s.Shutdown();
   }
 
-  std::cout << "[Test] Testing RequestScheduler queue full returns 503...\n";
+  std::cout << "[Test] Testing RequestScheduler queue full returns error...\n";
   {
     RequestScheduler s(1);  // 1 worker, maxQueue = 4
     // Fill the worker + queue: 1 running + 4 queued = 5 jobs
@@ -68,29 +68,26 @@ int main() {
       barrierCount.fetch_add(1);
       std::this_thread::sleep_for(std::chrono::seconds(2));
     };
-    // First job occupies the single worker
     s.SubmitDetached(RequestKind::Generic, [&](echo::async::CancellationToken) {
       barrier();
     });
-    // Wait for the worker to pick up the first job
     while (barrierCount.load() == 0) std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    // Fill the queue (4 slots)
     for (int i = 0; i < 4; i++) {
       s.SubmitDetached(RequestKind::Generic, [&](echo::async::CancellationToken) {
         barrier();
       });
     }
-    // Now queue should be full — next submit should fail
-    // EnqueueJob returns false, but SubmitDetached doesn't expose it.
-    // Instead test via Submit which returns a future.
+    // Queue should be full — next Submit should get queue_full error on future
     auto fut = s.Submit(RequestKind::Generic,
         [](echo::async::CancellationToken) -> int { return 99; });
-    // The future should either throw (promise broken) or time out.
-    // Since EnqueueJob returns false, the promise is never fulfilled.
-    // We just verify we didn't hang.
-    bool didNotHang = true;
+    bool gotQueueFull = false;
+    try {
+      fut.get();
+    } catch (const std::runtime_error& e) {
+      gotQueueFull = std::string(e.what()) == "queue_full";
+    }
+    CHECK(gotQueueFull, "queue-full Submit future throws queue_full immediately");
     s.Shutdown();
-    CHECK(didNotHang, "queue-full submit does not hang");
   }
 
   std::cout << "[Test] Testing RequestScheduler Shutdown with deadline-protected worker...\n";

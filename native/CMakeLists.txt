@@ -160,7 +160,7 @@ if(ECHO_NATIVE_BUILD_TESTS)
 
   add_executable(EchoHttpClientResilienceTest tests/http_client_resilience_test.cpp)
   target_include_directories(EchoHttpClientResilienceTest PRIVATE include)
-  target_link_libraries(EchoHttpClientResilienceTest PRIVATE EchoCore)
+  target_link_libraries(EchoHttpClientResilienceTest PRIVATE EchoCore ws2_32)
   add_test(NAME EchoHttpClientResilienceTest COMMAND EchoHttpClientResilienceTest)
 
   add_executable(EchoRequestSchedulerResilienceTest tests/request_scheduler_resilience_test.cpp)
