@@ -6,6 +6,7 @@
 #include "echo/storage/AppPaths.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 #include "echo/playback/PlaybackController.h"
+#include "echo/stats/PlayStatsService.h"
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <memory>
@@ -30,6 +31,14 @@ static bool g_shutdown = false;
 
 static std::shared_ptr<echo::playback::PlaybackController> g_playback;
 static std::mutex g_playback_mutex;
+
+static std::unique_ptr<echo::stats::PlayStatsService> g_stats;
+
+static const char* _dup_str(const char* s) {
+    char* out = new char[std::strlen(s) + 1];
+    std::strcpy(out, s);
+    return out;
+}
 
 // Map a request path to a RequestKind for per-kind deadlines.
 static echo::async::RequestKind KindForPath(const std::string& path) {
@@ -74,6 +83,7 @@ static void EnsureInitializedLocked(const char* app_data_dir) {
         g_db->Open(dbPath);
         g_db->Initialize();
         g_api = std::make_shared<echo::core::CompatApi>(*g_db);
+        g_stats = std::make_unique<echo::stats::PlayStatsService>(*g_db);
     }
 }
 
@@ -84,7 +94,7 @@ void EchoInitializeWithPaths(const char* app_data_dir) {
         EnsureInitializedLocked(app_data_dir);
     } catch (const std::exception& e) {
         // Never let C++ exceptions cross the extern "C" FFI boundary.
-        // Log and leave g_api null 鈥?subsequent requests will get 500.
+        // Log and leave g_api null — subsequent requests will get 500.
         g_api.reset();
         g_db.reset();
     } catch (...) {
@@ -104,7 +114,7 @@ void EchoShutdown() {
     // lock inside their lambda. If we held the exclusive lock and then
     // called Shutdown()->join(), we'd deadlock. If we used the unbounded
     // Shutdown() and a worker was stuck in a 60s uninterruptible job,
-    // EchoShutdown would block for 60s+ 鈥?violating the "close within
+    // EchoShutdown would block for 60s+ — violating the "close within
     // 3-5s" contract. Bounded Shutdown detaches hung workers (safe since
     // the process is exiting).
     g_shutdown = true;
@@ -130,6 +140,7 @@ void EchoShutdown() {
         // reset is a single pointer swap.
     }
     g_api.reset();
+    g_stats.reset();
     g_db.reset();
     echo::core::CloseHttpConnectionPool();
 }
@@ -193,7 +204,7 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
     long deadlineMs = DeadlineMsForKind(kind);
 
     // Acquire a strong reference to g_api under the rwlock so the object
-    // stays alive for the entire scheduled call 鈥?even if EchoShutdown
+    // stays alive for the entire scheduled call — even if EchoShutdown
     // runs concurrently and resets the global g_api pointer. The
     // rwlock gates the pointer swap; the object's lifetime is now
     // ref-counted via shared_ptr.
@@ -265,7 +276,7 @@ void EchoSetEventCallback(EchoEventCallback cb, void* user_data) {
     g_playback->SetEventCallback(reinterpret_cast<PcbCallback>(cb), user_data);
 }
 
-// 鈹€鈹€ Playback C API 鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€鈹€
+// ─── Playback C API ──────────────────────────────────────────────────────────
 
 static const char* PlaybackStateKindToString(echo::core::PlaybackStateKind kind) {
     switch (kind) {
@@ -384,4 +395,49 @@ void EchoPlaybackGetEqBands(double outGainsDb[5]) {
     }
 }
 
+// ─── Stats C API ─────────────────────────────────────────────────────────────
 
+ECHO_C_API void EchoStatsRecordPlay(const char* json_record) {
+    if (!g_stats || !json_record) return;
+    try {
+        auto j = nlohmann::json::parse(json_record);
+        echo::stats::PlayRecord r;
+        r.songHash = j.value("song_hash", "");
+        r.songName = j.value("song_name", "");
+        r.singerName = j.value("singer_name", "");
+        r.albumId = j.value("album_id", "");
+        r.albumName = j.value("album_name", "");
+        r.coverUrl = j.value("cover_url", "");
+        r.durationSeconds = j.value("duration_seconds", 0.0);
+        r.completed = j.value("completed", false);
+        r.listenedSeconds = j.value("listened_seconds", 0.0);
+        r.quality = j.value("quality", "");
+        r.playedAtMs = j.value("played_at", 0LL);
+        g_stats->RecordPlay(r);
+    } catch (...) {}
+}
+
+ECHO_C_API const char* EchoStatsGetSummary(const char* range) {
+    if (!g_stats || !range) return _dup_str(R"({"total_plays":0})");
+    return _dup_str(g_stats->GetSummary(range).c_str());
+}
+
+ECHO_C_API const char* EchoStatsGetTop(const char* dim, const char* range, int limit) {
+    if (!g_stats || !dim || !range) return _dup_str(R"({"items":[]})");
+    return _dup_str(g_stats->GetTop(dim, range, limit).c_str());
+}
+
+ECHO_C_API const char* EchoStatsGetTimeline(const char* range) {
+    if (!g_stats || !range) return _dup_str(R"({"items":[]})");
+    return _dup_str(g_stats->GetTimeline(range).c_str());
+}
+
+ECHO_C_API const char* EchoStatsGetRecent(int limit, int offset) {
+    if (!g_stats) return _dup_str(R"({"items":[]})");
+    return _dup_str(g_stats->GetRecent(limit, offset).c_str());
+}
+
+ECHO_C_API const char* EchoStatsGetRecommendations(int limit) {
+    if (!g_stats) return _dup_str(R"({"items":[]})");
+    return _dup_str(g_stats->GetRecommendations(limit).c_str());
+}

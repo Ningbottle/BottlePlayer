@@ -48,6 +48,14 @@ ECHO_C_API void EchoPlaybackSetEqBand(int bandIndex, double gainDb);
 ECHO_C_API void EchoPlaybackSetEqBands(const double gainsDb[5]);
 ECHO_C_API void EchoPlaybackGetEqBands(double outGainsDb[5]);
 
+// ─── Stats C API ─────────────────────────────────────────────────────────────
+ECHO_C_API void EchoStatsRecordPlay(const char* json_record);
+ECHO_C_API const char* EchoStatsGetSummary(const char* range);
+ECHO_C_API const char* EchoStatsGetTop(const char* dim, const char* range, int limit);
+ECHO_C_API const char* EchoStatsGetTimeline(const char* range);
+ECHO_C_API const char* EchoStatsGetRecent(int limit, int offset);
+ECHO_C_API const char* EchoStatsGetRecommendations(int limit);
+
 #ifdef __cplusplus
 }
 #endif
