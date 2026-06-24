@@ -136,6 +136,12 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoNativeSmokeTests PRIVATE EchoCore EchoPlayback EchoAsync EchoImage EchoDiagnostics)
   add_test(NAME EchoNativeSmokeTests COMMAND EchoNativeSmokeTests)
 
+  # PlaybackControllerMFS contract test (S4 Phase 4.1a checkpoint).
+  add_executable(EchoPlaybackMfsTest tests/playback_controller_mfs_test.cpp)
+  target_include_directories(EchoPlaybackMfsTest PRIVATE include)
+  target_link_libraries(EchoPlaybackMfsTest PRIVATE EchoCore EchoPlayback)
+  add_test(NAME EchoPlaybackMfsTest COMMAND EchoPlaybackMfsTest)
+
   # Independent contract test targets (P1: split from smoke for faster feedback)
   add_executable(EchoRouteContractTest tests/route_contract_test.cpp)
   target_include_directories(EchoRouteContractTest PRIVATE include)
