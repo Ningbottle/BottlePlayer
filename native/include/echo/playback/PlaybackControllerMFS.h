@@ -1,5 +1,6 @@
 #pragma once
 #include "echo/playback/PlaybackControllerImpl.h"
+#include "echo/playback/EqualizerMFT.h"
 
 #include <mfapi.h>
 #include <mfidl.h>
@@ -50,6 +51,7 @@ class PlaybackControllerMFS final : public PlaybackControllerImpl {
   IMFSimpleAudioVolume* audioVolume_ = nullptr;
   IMFRateControl* rateControl_ = nullptr;
   IMFPresentationClock* clock_ = nullptr;
+  EqualizerMFT* eqMft_ = nullptr;
 
   std::thread positionThread_;
   std::atomic<bool> positionStop_{false};

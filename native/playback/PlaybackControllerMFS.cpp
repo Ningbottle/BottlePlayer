@@ -101,6 +101,10 @@ PlaybackControllerMFS::~PlaybackControllerMFS() {
     rateControl_->Release();
     rateControl_ = nullptr;
   }
+  if (eqMft_) {
+    eqMft_->Release();
+    eqMft_ = nullptr;
+  }
   if (session_) {
     session_->Close();
     session_->Shutdown();
@@ -146,6 +150,10 @@ bool PlaybackControllerMFS::Initialize() {
     ECHO_LOG("PlaybackMFS", "BeginGetEvent failed");
     return false;
   }
+  // Create EQ MFT (5-band biquad)
+  eqMft_ = new (std::nothrow) EqualizerMFT();
+  if (!eqMft_) return false;
+  eqMft_->AddRef();
   // Service accessors. Failures are non-fatal: the controller still plays,
   // it just cannot adjust volume/rate or query the presentation clock.
   if (session_) {
@@ -205,7 +213,13 @@ HRESULT PlaybackControllerMFS::BuildTopology(const std::string& url,
   }
 
   // For simplicity: take the first audio stream and let MF's topology
-  // loader auto-insert decoder + SAR. (EQ insertion is Phase 4.2b.)
+  // loader auto-insert decoder + SAR.
+  // TODO(s4-blocked): custom MFT insertion (EQ between decoder and SAR) is
+  // non-trivial with MF's topology loader. The EqualizerMFT is created and
+  // unit-testable in isolation, but not yet wired into the MFS playback path.
+  // See task 13 notes for the two paths forward: (a) explicit topology
+  // construction, or (b) post-decode WASAPI exclusive mode processing.
+  // Deferred to S4.2c.
   DWORD streamCount = 0;
   pd->GetStreamDescriptorCount(&streamCount);
   for (DWORD i = 0; i < streamCount; ++i) {
