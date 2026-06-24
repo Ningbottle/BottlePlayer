@@ -2,6 +2,10 @@ import { reactive, watch } from 'vue';
 import { apiGet } from './backend';
 import { Track, normalizeTrack, fetchCoverImage } from './normalizer';
 import { userStore } from './userStore';
+import { Html5AudioBackend } from './html5Backend';
+import { NativePlaybackBackend } from './nativeBackend';
+import type { PlayerBackend, PlaybackEvent } from './playerBackend';
+import { invoke } from '@tauri-apps/api/core';
 
 export type { Track };
 
@@ -44,6 +48,10 @@ interface PlayerState {
   quality: string;
   /** 当前歌曲可用的音质选项列表 */
   availableQualities: QualityOption[];
+  backend: 'html5' | 'native' | null;
+  eqEnabled: boolean;
+  eqBands: number[];
+  activePreset: string;
 }
 
 interface QualityOption {
@@ -53,6 +61,9 @@ interface QualityOption {
   bitRate?: number;
   extName?: string;
 }
+
+let activeBackend: PlayerBackend | null = null;
+export let eventUnsub: (() => void) | null = null;
 
 export const playerStore = reactive<PlayerState>({
   currentTrack: null,
@@ -69,6 +80,10 @@ export const playerStore = reactive<PlayerState>({
   vipRequired: false,
   quality: localStorage.getItem('player_quality') || '128',
   availableQualities: [],
+  backend: null,
+  eqEnabled: localStorage.getItem('player_eq_enabled') === 'true',
+  eqBands: JSON.parse(localStorage.getItem('player_eq_bands') || '[0,0,0,0,0]'),
+  activePreset: localStorage.getItem('player_eq_preset') || 'Flat',
 });
 
 // Setup audio listeners
@@ -132,6 +147,49 @@ export function initPlayer() {
   // Restore previous track on init without playing
   if (playerStore.currentIndex >= 0 && playerStore.currentIndex < playerStore.queue.length) {
     playerStore.currentTrack = playerStore.queue[playerStore.currentIndex];
+  }
+}
+
+export async function initPlayerBackend() {
+  if (activeBackend) return;
+
+  const native = new NativePlaybackBackend();
+  const ok = await native.initialize().catch((e) => {
+    console.warn('Native playback init failed:', e);
+    return false;
+  });
+
+  if (ok) {
+    activeBackend = native;
+    playerStore.backend = 'native';
+  } else {
+    if (!playerStore.audio) {
+      console.error('No HTML5 audio element available for fallback');
+      return;
+    }
+    activeBackend = new Html5AudioBackend(playerStore.audio);
+    playerStore.backend = 'html5';
+  }
+
+  eventUnsub = activeBackend.onEvent(handlePlaybackEvent);
+
+  if (playerStore.backend === 'native' && playerStore.eqEnabled) {
+    await invoke('playback_set_eq_enabled', { enabled: true }).catch(() => {});
+    await invoke('playback_set_eq_bands', { gains: playerStore.eqBands }).catch(() => {});
+  }
+}
+
+function handlePlaybackEvent(e: PlaybackEvent) {
+  if (e.type === 'position') {
+    if (typeof e.position === 'number') playerStore.currentTime = e.position;
+    if (typeof e.duration === 'number') playerStore.duration = e.duration;
+  } else if (e.type === 'state') {
+    playerStore.isPlaying = e.state === 'playing';
+    playerStore.errorMsg = '';
+  } else if (e.type === 'ended') {
+    next();
+  } else if (e.type === 'error' && e.error) {
+    playerStore.errorMsg = e.error;
   }
 }
 

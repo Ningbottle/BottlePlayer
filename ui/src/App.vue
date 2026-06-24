@@ -15,7 +15,7 @@ import SettingsView from './views/SettingsView.vue';
 import LoginView from './views/LoginView.vue';
 import HistoryView from './views/HistoryView.vue';
 
-import { initPlayer } from './api/playerStore';
+import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
 import { isCircuitOpen } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
@@ -153,6 +153,8 @@ function goForward() {
 onMounted(() => {
   // Initialize HTML5 Audio element and reactive player events
   initPlayer();
+  // Initialize native playback backend (falls back to HTML5)
+  initPlayerBackend();
   // Fetch initial login status
   checkLoginStatus();
 
