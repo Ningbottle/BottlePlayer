@@ -124,6 +124,8 @@ int main() {
     // deadline. The process is exiting so abandoning the worker is safe.
     // We use a 10s sleep instead of 60s to keep the test fast — the
     // 3s deadline still proves that Shutdown doesn't wait for the job.
+    // The return value MUST report abandoned=1 to prove the worker was
+    // actually abandoned (not just joined slowly).
     RequestScheduler s(1);
     std::atomic<bool> jobStarted{false};
     s.SubmitDetached(RequestKind::Generic,
@@ -134,11 +136,13 @@ int main() {
     while (!jobStarted.load()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
     std::this_thread::sleep_for(std::chrono::milliseconds(50));
     auto start = std::chrono::steady_clock::now();
-    s.Shutdown(std::chrono::milliseconds(3000));
+    auto abandoned = s.Shutdown(std::chrono::milliseconds(3000));
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start).count();
     CHECK(elapsed < 3500,
           "Bounded Shutdown(3s) returns within 3.5s despite a 10s hung job");
+    CHECK(abandoned == 1,
+          "Bounded Shutdown(3s) abandons exactly 1 stuck worker (proves abandon path fired)");
   }
 
   std::cout << "[Test] All RequestScheduler resilience tests completed.\n";

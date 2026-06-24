@@ -75,26 +75,49 @@ int main() {
     CHECK(r.timedOut == false, "HttpResult.timedOut defaults to false");
   }
 
-  std::cout << "[Test] Testing HttpClient total receive timeout against unresponsive server...\n";
+  std::cout << "[Test] Testing HttpClient single-attempt total timeout...\n";
   {
+    // Use a 5s budget so the retry-budget cap doesn't fire (we want to
+    // prove per-op timeouts + watchdog fire on the FIRST attempt, not
+    // that retry-budget saves us). The unresponsive server will block
+    // past the per-op timeouts. With per-op = total/3 (~1667ms for
+    // send/receive), the watchdog fires at 5s and total elapsed is
+    // close to 5s. The retry-budget cap would also fire (allowing one
+    // retry), so the test allows up to 6s (5s + 500ms backoff).
     HttpClient client;
     std::string url = "http://127.0.0.1:" + std::to_string(g_listenPort) + "/test";
-    // 500ms total timeout — the unresponsive server will block past our
-    // per-op timeouts (which are derived from this budget). The total
-    // time MUST be under 2s — anything else means per-op timeouts
-    // are not being enforced.
+    auto start = std::chrono::steady_clock::now();
+    auto res = client.Get(url, {}, /*totalTimeoutMs=*/5000);
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start).count();
+    CHECK(res.timedOut || !res.error.empty(),
+          "unresponsive server produces timeout or error");
+    // First attempt: per-op timeouts (~1667ms each, but unreachable server
+    // triggers the watchdog at 5s) + one retry with 500ms backoff.
+    // Upper bound: 5s (first attempt) + 500ms (backoff) + ~5s (retry).
+    // We assert < 11s to prove the *first* attempt was bounded by 5s.
+    std::cout << "  [debug] elapsed=" << elapsed << "ms\n";
+    CHECK(elapsed < 11000,
+          "5s budget enforced within 11s (proves per-op+watchdog fire on attempt 1)");
+  }
+
+  std::cout << "[Test] Testing HttpClient tight 500ms budget...\n";
+  {
+    // Tighter budget: 500ms total, retry-budget cap (total/3 + 100 = 266ms
+    // remaining) fires immediately on attempt 2, so the test should
+    // complete in attempt 1 + 500ms backoff ≈ 1000ms. Anything over 2s
+    // proves per-op timeouts or watchdog are not being honored.
+    HttpClient client;
+    std::string url = "http://127.0.0.1:" + std::to_string(g_listenPort) + "/test";
     auto start = std::chrono::steady_clock::now();
     auto res = client.Get(url, {}, /*totalTimeoutMs=*/500);
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start).count();
     CHECK(res.timedOut || !res.error.empty(),
-          "unresponsive server produces timeout or error");
-    // Tight bound: with per-op timeouts capped at total/3 (~150ms), the
-    // worst case is one full attempt + one retry = ~600ms. Anything
-    // over 2s proves the per-op timeouts are not being honored.
+          "500ms budget: unresponsive server produces timeout or error");
     std::cout << "  [debug] elapsed=" << elapsed << "ms\n";
     CHECK(elapsed < 2000,
-          "500ms budget enforced within 2s wall clock (per-op timeouts work)");
+          "500ms budget enforced within 2s (per-op+watchdog, plus retry-cap)");
   }
 
   std::cout << "[Test] Testing HttpClient max body size guard...\n";

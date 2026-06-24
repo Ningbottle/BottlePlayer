@@ -221,14 +221,31 @@ HttpResult ExecuteRequest(
   // in-flight WinHTTP call, returning an error we can detect as a
   // timeout. On normal completion we set watchdogCancelled = true so
   // the watchdog is a no-op.
+  //
+  // RACE-CRITICAL ordering: the watchdog sets watchdogCancelled = true
+  // BEFORE calling WinHttpCloseHandle, AND the main thread skips its
+  // own WinHttpCloseHandle when it sees the flag was set. This
+  // prevents a double-close on the same HINTERNET (which can crash
+  // inside winhttp.dll on older Windows).
+  //
+  // TODO(performance): at the current 4-worker scheduler + 9s default
+  // budget, peak watchdog thread count is ~36 (4 workers × 3 retry
+  // attempts × 3 nested calls per request, in the worst case). At a
+  // music player QPS this is fine, but for bursty thumbnail loads
+  // consider replacing with a single process-wide watchdog thread that
+  // owns a min-heap of (deadline, HINTERNET) entries (the same design
+  // as tokio timeouts or Go's net/http Server.IdleTimeout).
   auto watchdogCancelled = std::make_shared<std::atomic_bool>(false);
   if (totalTimeoutMs > 0) {
     std::thread([request, totalTimeoutMs, watchdogCancelled]() {
       std::this_thread::sleep_for(std::chrono::milliseconds(totalTimeoutMs));
-      if (!watchdogCancelled->load(std::memory_order_acquire)) {
-        // Force-close the request handle. ExecuteRequest's early-exit
-        // branch sets watchdogCancelled = true BEFORE WinHttpCloseHandle
-        // (line ~260), so we never double-close in the normal path.
+      // Try to claim the right to close. If watchdogCancelled was
+      // already true (normal completion), the main thread closed and
+      // we must NOT close again. If we successfully flip the flag from
+      // false -> true, we own the close.
+      bool expected = false;
+      if (watchdogCancelled->compare_exchange_strong(
+              expected, true, std::memory_order_acq_rel)) {
         WinHttpCloseHandle(request);
       }
     }).detach();
@@ -286,16 +303,28 @@ HttpResult ExecuteRequest(
       request, headerPtr, headerLength,
       const_cast<void*>(postBody), postLen, postLen, 0);
   if (!sent || !WinHttpReceiveResponse(request, nullptr)) {
-    // Watchdog fired if watchdogCancelled is still false here.
-    result.timedOut = !watchdogCancelled->load(std::memory_order_acquire);
+    // Determine whether the watchdog fired (and therefore already closed
+    // the handle). Use compare_exchange so the main thread only closes
+    // when it successfully claims the close right — preventing a
+    // double-close race with the watchdog.
+    bool expected = false;
+    bool watchdogFired = !watchdogCancelled->compare_exchange_strong(
+        expected, true, std::memory_order_acq_rel);
+    result.timedOut = watchdogFired;
     result.error = LastErrorText("WinHttpSendRequest/WinHttpReceiveResponse");
-    watchdogCancelled->store(true, std::memory_order_release);
-    WinHttpCloseHandle(request);
+    if (!watchdogFired) {
+      // We own the close.
+      WinHttpCloseHandle(request);
+    }
     pool.Evict(url.host, url.port);  // 剔除坏 connect，避免永久复用中毒句柄
     return result;
   }
-  // Normal completion: disarm the watchdog.
-  watchdogCancelled->store(true, std::memory_order_release);
+  // Normal completion: disarm the watchdog. Use CAS so we never
+  // overwrite the watchdog's "true" — if the watchdog already
+  // claim-closed, the main thread skips its own close (line above).
+  bool expected = false;
+  watchdogCancelled->compare_exchange_strong(
+      expected, true, std::memory_order_acq_rel);
 
   DWORD statusCode = 0;
   DWORD statusSize = sizeof(statusCode);
@@ -330,7 +359,14 @@ HttpResult ExecuteRequest(
     result.body.append(buffer.data(), buffer.data() + read);
   }
 
-  WinHttpCloseHandle(request);  // 仅关 request；connect/session 由池管理
+  // Disarm the watchdog (CAS to avoid overwriting a watchdog-claimed
+  // true) and only close if the watchdog didn't already close.
+  bool expectedFinal = false;
+  bool watchdogClaimed = !watchdogCancelled->compare_exchange_strong(
+      expectedFinal, true, std::memory_order_acq_rel);
+  if (!watchdogClaimed) {
+    WinHttpCloseHandle(request);  // 仅关 request；connect/session 由池管理
+  }
   return result;
 }
 

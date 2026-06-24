@@ -14,7 +14,14 @@
 #include <shared_mutex>
 
 static std::unique_ptr<echo::storage::Database> g_db;
-static std::unique_ptr<echo::core::CompatApi> g_api;
+// g_api is a shared_ptr (not unique_ptr) so worker threads executing
+// in-flight requests can capture a strong reference to the object.
+// EchoShutdown can reset our global ref while in-flight calls continue
+// using their captured shared_ptr; the object is destroyed only when
+// the last worker releases its ref. This prevents the use-after-free
+// that the bounded Shutdown path would otherwise expose when a worker
+// is abandoned mid-call.
+static std::shared_ptr<echo::core::CompatApi> g_api;
 static echo::async::RequestScheduler g_scheduler(4);
 static std::shared_mutex g_api_rwlock;
 static bool g_shutdown = false;
@@ -61,7 +68,7 @@ static void EnsureInitializedLocked(const char* app_data_dir) {
 #endif
         g_db->Open(dbPath);
         g_db->Initialize();
-        g_api = std::make_unique<echo::core::CompatApi>(*g_db);
+        g_api = std::make_shared<echo::core::CompatApi>(*g_db);
     }
 }
 
@@ -122,6 +129,28 @@ void EchoShutdown() {
     echo::core::CloseHttpConnectionPool();
 }
 
+// Serialize a CompatResponse to a heap-allocated JSON string. Used by
+// EchoHandleRequest's multiple early-exit paths. Out-of-line so the
+// caller doesn't have to wrap each path in its own try/catch.
+static void SerializeResponse(const echo::core::CompatResponse& r, char** out_response) {
+    try {
+        nlohmann::json out = {
+            {"status", r.httpStatus},
+            {"headers", {{"Content-Type", r.contentType}}},
+            {"body", r.body}
+        };
+        auto outStr = out.dump();
+        *out_response = new char[outStr.size() + 1];
+        std::strcpy(*out_response, outStr.c_str());
+    } catch(std::exception&) {
+        *out_response = new char[64];
+        std::strcpy(*out_response, R"({"status":500,"error":"serialization failed"})");
+    } catch(...) {
+        *out_response = new char[64];
+        std::strcpy(*out_response, R"({"status":500,"error":"unknown"})");
+    }
+}
+
 void EchoHandleRequest(const char* method, const char* path, const char* query_json, const char* headers_json, const char* body, char** out_response) {
     if(!out_response) return;
 
@@ -158,36 +187,44 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
     auto kind = KindForPath(pathStr);
     long deadlineMs = DeadlineMsForKind(kind);
 
+    // Acquire a strong reference to g_api under the rwlock so the object
+    // stays alive for the entire scheduled call — even if EchoShutdown
+    // runs concurrently and resets the global g_api pointer. The
+    // rwlock gates the pointer swap; the object's lifetime is now
+    // ref-counted via shared_ptr.
+    std::shared_ptr<echo::core::CompatApi> apiShared;
+    {
+        std::shared_lock<std::shared_mutex> lock(g_api_rwlock, std::defer_lock);
+        auto lockDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (std::chrono::steady_clock::now() < lockDeadline) {
+            if (lock.try_lock()) break;
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        if (!lock.owns_lock()) {
+            r.httpStatus = 503;
+            r.body = {{"error", "shutdown_in_progress"}};
+            SerializeResponse(r, out_response);
+            return;
+        }
+        if (!g_api || g_shutdown) {
+            r.httpStatus = 500;
+            r.body = {{"error", "C API is not initialized or was shut down"}};
+            SerializeResponse(r, out_response);
+            return;
+        }
+        apiShared = g_api;
+    }  // release shared_lock
+
     try {
         // Route through the RequestScheduler with a per-kind deadline.
         // The scheduler provides bounded concurrency (4 workers + queue cap)
         // and the deadline ensures a hung WinHTTP call frees the future even
-        // if it can't be interrupted cooperatively.
+        // if it can't be interrupted cooperatively. The captured apiShared
+        // keeps g_api alive even if EchoShutdown runs while we wait.
         auto fut = g_scheduler.SubmitWithDeadline(
             kind,
-            [&](echo::async::CancellationToken token) -> echo::core::CompatResponse {
-                // Bounded shared-lock acquisition: don't wait forever if
-                // EchoShutdown is holding the exclusive lock. Try for up to
-                // 2 seconds, then return 503.
-                std::shared_lock<std::shared_mutex> lock(g_api_rwlock, std::defer_lock);
-                auto lockDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-                while (std::chrono::steady_clock::now() < lockDeadline) {
-                    if (lock.try_lock()) break;
-                    std::this_thread::sleep_for(std::chrono::milliseconds(10));
-                }
-                if (!lock.owns_lock()) {
-                    echo::core::CompatResponse err;
-                    err.httpStatus = 503;
-                    err.body = {{"error", "shutdown_in_progress"}};
-                    return err;
-                }
-                if (!g_api || g_shutdown) {
-                    echo::core::CompatResponse err;
-                    err.httpStatus = 500;
-                    err.body = {{"error", "C API is not initialized or was shut down"}};
-                    return err;
-                }
-                return g_api->Handle(methodStr, pathStr, q, h, bodyStr);
+            [apiShared, methodStr, pathStr, q, h, bodyStr](echo::async::CancellationToken token) -> echo::core::CompatResponse {
+                return apiShared->Handle(methodStr, pathStr, q, h, bodyStr);
             },
             deadlineMs);
         r = fut.get();
@@ -202,24 +239,7 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
         r.httpStatus = 500;
         r.body = {{"error", "Unknown"}};
     }
-
-    try {
-        nlohmann::json out = {
-            {"status", r.httpStatus},
-            {"headers", {{"Content-Type", r.contentType}}},
-            {"body", r.body}
-        };
-
-        auto outStr = out.dump();
-        *out_response = new char[outStr.size() + 1];
-        std::strcpy(*out_response, outStr.c_str());
-    } catch(std::exception& e) {
-        *out_response = new char[64];
-        std::strcpy(*out_response, R"({"status":500,"error":"serialization failed"})");
-    } catch(...) {
-        *out_response = new char[64];
-        std::strcpy(*out_response, R"({"status":500,"error":"unknown"})");
-    }
+    SerializeResponse(r, out_response);
 }
 
 void EchoFreeString(char* str) {
