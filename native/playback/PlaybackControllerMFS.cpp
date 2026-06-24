@@ -17,13 +17,14 @@ PlaybackControllerMFS::~PlaybackControllerMFS() {
 bool PlaybackControllerMFS::Initialize() {
   std::lock_guard lock(mutex_);
   if (mfStarted_) return true;
-  HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
-  if (FAILED(hr) && hr != RPC_E_CHANGED_MODE) {
+  const HRESULT comHr = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
+  if (SUCCEEDED(comHr)) {
+    comInitialized_ = true;
+  } else if (comHr != RPC_E_CHANGED_MODE) {
     ECHO_LOG("PlaybackMFS", "CoInitializeEx failed");
     return false;
   }
-  comInitialized_ = true;
-  hr = MFStartup(MF_VERSION);
+  HRESULT hr = MFStartup(MF_VERSION);
   if (FAILED(hr)) {
     ECHO_LOG("PlaybackMFS", "MFStartup failed");
     return false;
