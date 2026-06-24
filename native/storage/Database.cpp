@@ -142,6 +142,24 @@ void Database::InitializeSchema() {
           "played_at INTEGER NOT NULL,"
           "progress_seconds INTEGER NOT NULL DEFAULT 0"
           ");");
+  // S5: Migrate play_history to play_history_v2 with rich schema
+  Execute("CREATE TABLE IF NOT EXISTS play_history_v2 ("
+          "id INTEGER PRIMARY KEY AUTOINCREMENT,"
+          "song_hash TEXT NOT NULL,"
+          "song_name TEXT NOT NULL,"
+          "singer_name TEXT,"
+          "album_id TEXT,"
+          "album_name TEXT,"
+          "cover_url TEXT,"
+          "duration_seconds REAL NOT NULL DEFAULT 0,"
+          "completed INTEGER NOT NULL DEFAULT 0,"
+          "listened_seconds REAL NOT NULL DEFAULT 0,"
+          "quality TEXT,"
+          "played_at INTEGER NOT NULL"
+          ");");
+  Execute("CREATE INDEX IF NOT EXISTS idx_ph2_played_at ON play_history_v2(played_at DESC);");
+  Execute("CREATE INDEX IF NOT EXISTS idx_ph2_song_hash ON play_history_v2(song_hash);");
+  Execute("CREATE INDEX IF NOT EXISTS idx_ph2_singer ON play_history_v2(singer_name);");
   Execute("CREATE TABLE IF NOT EXISTS image_cache ("
           "url TEXT PRIMARY KEY,"
           "file_path TEXT NOT NULL,"
@@ -162,6 +180,26 @@ void Database::Execute(const std::string& sql) {
     sqlite3_free(error);
     throw std::runtime_error("sqlite3_exec: " + message);
   }
+}
+
+std::vector<std::vector<std::string>> Database::ExecuteQuery(const std::string& sql) {
+  std::vector<std::vector<std::string>> rows;
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    return rows;
+  }
+  int colCount = sqlite3_column_count(stmt);
+  while (sqlite3_step(stmt) == SQLITE_ROW) {
+    std::vector<std::string> row;
+    row.reserve(colCount);
+    for (int i = 0; i < colCount; ++i) {
+      const char* val = reinterpret_cast<const char*>(sqlite3_column_text(stmt, i));
+      row.push_back(val ? val : "");
+    }
+    rows.push_back(std::move(row));
+  }
+  sqlite3_finalize(stmt);
+  return rows;
 }
 
 void Database::SetJson(const std::string& key, const nlohmann::json& value) {
@@ -296,6 +334,11 @@ void Database::Initialize() {
 
 void Database::Execute(const std::string& sql) {
   (void)sql;
+}
+
+std::vector<std::vector<std::string>> Database::ExecuteQuery(const std::string& sql) {
+  (void)sql;
+  return {};
 }
 
 void Database::FlushFallback() const {

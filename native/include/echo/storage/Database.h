@@ -4,6 +4,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -26,6 +27,7 @@ class Database {
   void Initialize();
 
   void Execute(const std::string& sql);
+  std::vector<std::vector<std::string>> ExecuteQuery(const std::string& sql);
   void SetJson(const std::string& key, const nlohmann::json& value);
   std::optional<nlohmann::json> GetJson(const std::string& key) const;
   void PutApiCache(const std::string& key, const nlohmann::json& value, std::int64_t expiresAt);
