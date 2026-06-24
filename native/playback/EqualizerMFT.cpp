@@ -1,4 +1,5 @@
 #include "echo/playback/EqualizerMFT.h"
+#include <cstring>
 #include <mfapi.h>
 #include <mfobjects.h>
 
@@ -7,6 +8,7 @@ namespace echo::playback {
 EqualizerMFT::EqualizerMFT() = default;
 
 EqualizerMFT::~EqualizerMFT() {
+  if (currentInput_) currentInput_->Release();
   if (inputType_) inputType_->Release();
   if (outputType_) outputType_->Release();
 }
@@ -128,13 +130,87 @@ HRESULT STDMETHODCALLTYPE EqualizerMFT::GetOutputCurrentType(DWORD id, IMFMediaT
   outputType_->AddRef();
   return S_OK;
 }
-HRESULT STDMETHODCALLTYPE EqualizerMFT::GetInputStatus(DWORD, DWORD*) { return E_NOTIMPL; }
+HRESULT STDMETHODCALLTYPE EqualizerMFT::GetInputStatus(DWORD id, DWORD* status) {
+  if (id != 0) return MF_E_INVALIDSTREAMNUMBER;
+  if (!status) return E_POINTER;
+  if (!inputType_) return MF_E_NOT_INITIALIZED;
+  *status = MFT_INPUT_STATUS_ACCEPT_DATA;
+  return S_OK;
+}
 HRESULT STDMETHODCALLTYPE EqualizerMFT::GetOutputStatus(DWORD*) { return E_NOTIMPL; }
 HRESULT STDMETHODCALLTYPE EqualizerMFT::SetOutputBounds(LONGLONG, LONGLONG) { return E_NOTIMPL; }
 HRESULT STDMETHODCALLTYPE EqualizerMFT::ProcessEvent(DWORD, IMFMediaEvent*) { return E_NOTIMPL; }
 HRESULT STDMETHODCALLTYPE EqualizerMFT::ProcessMessage(MFT_MESSAGE_TYPE, ULONG_PTR) { return E_NOTIMPL; }
-HRESULT STDMETHODCALLTYPE EqualizerMFT::ProcessInput(DWORD, IMFSample*, DWORD) { return E_NOTIMPL; }
-HRESULT STDMETHODCALLTYPE EqualizerMFT::ProcessOutput(DWORD, DWORD, MFT_OUTPUT_DATA_BUFFER*, DWORD*) { return E_NOTIMPL; }
+HRESULT STDMETHODCALLTYPE EqualizerMFT::ProcessInput(DWORD id, IMFSample* sample, DWORD) {
+  if (id != 0) return MF_E_INVALIDSTREAMNUMBER;
+  if (!sample) return E_POINTER;
+  if (!inputType_) return MF_E_NOT_INITIALIZED;
+  std::lock_guard lock(mutex_);
+  if (currentInput_) currentInput_->Release();
+  currentInput_ = sample;
+  currentInput_->AddRef();
+  return S_OK;
+}
+HRESULT STDMETHODCALLTYPE EqualizerMFT::ProcessOutput(DWORD flags, DWORD count,
+                                                      MFT_OUTPUT_DATA_BUFFER* buffers,
+                                                      DWORD* processed) {
+  if (flags != 0) return E_INVALIDARG;
+  if (count != 1) return E_INVALIDARG;
+  if (!buffers[0].pSample) return E_INVALIDARG;
+  if (!currentInput_) return MF_E_TRANSFORM_NEED_MORE_INPUT;
+
+  std::lock_guard lock(mutex_);
+
+  IMFMediaBuffer* inBuf = nullptr;
+  HRESULT hr = currentInput_->ConvertToContiguousBuffer(&inBuf);
+  if (FAILED(hr)) return hr;
+
+  BYTE* inData = nullptr;
+  DWORD inMaxLen = 0, inCurLen = 0;
+  hr = inBuf->Lock(&inData, &inMaxLen, &inCurLen);
+  if (FAILED(hr)) { inBuf->Release(); return hr; }
+
+  IMFMediaBuffer* outBuf = nullptr;
+  hr = buffers[0].pSample->ConvertToContiguousBuffer(&outBuf);
+  if (FAILED(hr)) { inBuf->Unlock(); inBuf->Release(); return hr; }
+  BYTE* outData = nullptr;
+  DWORD outMaxLen = 0, outCurLen = 0;
+  hr = outBuf->Lock(&outData, &outMaxLen, &outCurLen);
+  if (FAILED(hr)) { inBuf->Unlock(); inBuf->Release(); outBuf->Release(); return hr; }
+
+  size_t sampleCount = std::min(inCurLen, outCurLen) / sizeof(float);
+  const float* in = reinterpret_cast<const float*>(inData);
+  float* out = reinterpret_cast<float*>(outData);
+  if (enabled_) {
+    for (size_t i = 0; i < sampleCount; ++i) {
+      float s = in[i];
+      for (int b = 0; b < 5; ++b) s = bands_[b].ProcessSample(s);
+      out[i] = s;
+    }
+  } else {
+    std::memcpy(out, in, sampleCount * sizeof(float));
+  }
+
+  inBuf->Unlock();
+  outBuf->Unlock();
+  inBuf->Release();
+  outBuf->Release();
+
+  LONGLONG sampleTime = 0;
+  if (SUCCEEDED(currentInput_->GetSampleTime(&sampleTime))) {
+    buffers[0].pSample->SetSampleTime(sampleTime);
+  }
+  LONGLONG duration = 0;
+  if (SUCCEEDED(currentInput_->GetSampleDuration(&duration))) {
+    buffers[0].pSample->SetSampleDuration(duration);
+  }
+  *processed = 1;
+
+  currentInput_->Release();
+  currentInput_ = nullptr;
+
+  return S_OK;
+}
 
 bool EqualizerMFT::ValidateAudioType(IMFMediaType* mt) const {
   if (!mt) return false;

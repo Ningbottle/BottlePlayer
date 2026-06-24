@@ -60,6 +60,7 @@ class EqualizerMFT : public IMFTransform {
   double sampleRate_ = 44100.0;
   UINT32 channels_ = 2;
   bool typesSet_ = false;
+  IMFSample* currentInput_ = nullptr;
 
   bool ValidateAudioType(IMFMediaType* mt) const;
 
