@@ -1,8 +1,9 @@
-#include "echo/playback/PlaybackControllerMFS.h"
+﻿#include "echo/playback/PlaybackControllerMFS.h"
 
 #include <objbase.h>
 #include <mfapi.h>
 #include <mfidl.h>
+#include <mfobjects.h>
 #include <mfreadwrite.h>
 
 #include <cstdio>
@@ -247,30 +248,24 @@ HRESULT PlaybackControllerMFS::BuildTopology(const std::string& url,
 }
 
 bool PlaybackControllerMFS::PlayUrl(const std::string& url) {
-  std::unique_lock lock(mutex_);
+  std::lock_guard lock(mutex_);
   if (!session_) return false;
   if (topology_) {
     topology_->Release();
     topology_ = nullptr;
+  }
+  if (mediaSource_) {
+    mediaSource_->Release();
+    mediaSource_ = nullptr;
   }
   HRESULT hr = BuildTopology(url, &topology_);
   if (FAILED(hr)) {
     ECHO_LOG("PlaybackMFS", "BuildTopology failed");
     return false;
   }
-  topologyReady_ = false;
-  hr = session_->SetTopology(0, topology_);
+  hr = session_->SetTopology(MFSESSION_SETTOPOLOGY_CLEAR_CURRENT, topology_);
   if (FAILED(hr)) {
     ECHO_LOG("PlaybackMFS", "SetTopology failed");
-    return false;
-  }
-  // Wait for MESessionTopologyReady (signaled by OnSessionEvent).
-  // Unlock so the MFS callback thread can acquire mutex_ to set the flag.
-  bool ready = topologyCv_.wait_for(lock, std::chrono::seconds(5), [this] {
-    return topologyReady_;
-  });
-  if (!ready) {
-    ECHO_LOG("PlaybackMFS", "Topology ready timeout");
     return false;
   }
   return true;
@@ -281,9 +276,15 @@ void PlaybackControllerMFS::OnSessionEvent(MediaEventType metype) {
   {
     std::lock_guard lock(mutex_);
     switch (metype) {
-      case MESessionTopologyReady:
+      case MESessionTopologySet:
+        // Topology has been resolved by the session. Auto-start playback.
         topologyReady_ = true;
         topologyCv_.notify_all();
+        {
+          PROPVARIANT var;
+          PropVariantInit(&var);
+          session_->Start(GUID_NULL, &var);
+        }
         break;
       case MESessionStarted:
         state_.kind = echo::core::PlaybackStateKind::Playing;
@@ -442,3 +443,4 @@ std::unique_ptr<PlaybackControllerImpl> CreateMfsImpl() {
 }
 
 }  // namespace echo::playback
+
