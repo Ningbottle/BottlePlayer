@@ -20,6 +20,24 @@ pub struct CApiHandle {
         out_response: *mut *mut c_char,
     ),
     free_str: unsafe extern "C" fn(str: *mut c_char),
+    // S4: EchoPlayback C API exports
+    playback_initialize: unsafe extern "C" fn(c_int) -> bool,
+    playback_play_url: unsafe extern "C" fn(*const c_char) -> bool,
+    playback_pause: unsafe extern "C" fn(),
+    playback_resume: unsafe extern "C" fn(),
+    playback_stop: unsafe extern "C" fn(),
+    playback_seek: unsafe extern "C" fn(f64),
+    playback_set_volume: unsafe extern "C" fn(f64),
+    playback_set_rate: unsafe extern "C" fn(f64),
+    playback_get_state: unsafe extern "C" fn() -> *mut c_char,
+    playback_shutdown: unsafe extern "C" fn(),
+    playback_set_eq_enabled: unsafe extern "C" fn(c_int),
+    playback_set_eq_bands: unsafe extern "C" fn(*const f64),
+    playback_get_eq_bands: unsafe extern "C" fn(*mut f64),
+    set_event_callback: unsafe extern "C" fn(
+        Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
+        *mut c_void,
+    ),
 }
 
 static C_API_HANDLE: OnceLock<RwLock<Option<CApiHandle>>> = OnceLock::new();
@@ -68,10 +86,99 @@ pub fn init_with_paths(dll_path: &str, app_data_dir: Option<&str>) -> Result<(),
             *sym
         };
 
+        // S4: Load EchoPlayback symbols
+        let playback_initialize_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(c_int) -> bool> =
+                lib.get(b"EchoPlaybackInitialize").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_play_url_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(*const c_char) -> bool> =
+                lib.get(b"EchoPlaybackPlayUrl").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_pause_ptr = {
+            let sym: Symbol<unsafe extern "C" fn()> =
+                lib.get(b"EchoPlaybackPause").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_resume_ptr = {
+            let sym: Symbol<unsafe extern "C" fn()> =
+                lib.get(b"EchoPlaybackResume").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_stop_ptr = {
+            let sym: Symbol<unsafe extern "C" fn()> =
+                lib.get(b"EchoPlaybackStop").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_seek_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(f64)> =
+                lib.get(b"EchoPlaybackSeek").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_set_volume_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(f64)> =
+                lib.get(b"EchoPlaybackSetVolume").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_set_rate_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(f64)> =
+                lib.get(b"EchoPlaybackSetRate").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_get_state_ptr = {
+            let sym: Symbol<unsafe extern "C" fn() -> *mut c_char> =
+                lib.get(b"EchoPlaybackGetState").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_shutdown_ptr = {
+            let sym: Symbol<unsafe extern "C" fn()> =
+                lib.get(b"EchoPlaybackShutdown").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_set_eq_enabled_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(c_int)> =
+                lib.get(b"EchoPlaybackSetEqEnabled").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_set_eq_bands_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(*const f64)> =
+                lib.get(b"EchoPlaybackSetEqBands").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let playback_get_eq_bands_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(*mut f64)> =
+                lib.get(b"EchoPlaybackGetEqBands").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let set_event_callback_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(
+                Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
+                *mut c_void,
+            )> = lib.get(b"EchoSetEventCallback").map_err(|e| e.to_string())?;
+            *sym
+        };
+
         *guard = Some(CApiHandle {
             _lib: lib,
             handle_req: handle_req_ptr,
             free_str: free_str_ptr,
+            // S4: EchoPlayback fields
+            playback_initialize: playback_initialize_ptr,
+            playback_play_url: playback_play_url_ptr,
+            playback_pause: playback_pause_ptr,
+            playback_resume: playback_resume_ptr,
+            playback_stop: playback_stop_ptr,
+            playback_seek: playback_seek_ptr,
+            playback_set_volume: playback_set_volume_ptr,
+            playback_set_rate: playback_set_rate_ptr,
+            playback_get_state: playback_get_state_ptr,
+            playback_shutdown: playback_shutdown_ptr,
+            playback_set_eq_enabled: playback_set_eq_enabled_ptr,
+            playback_set_eq_bands: playback_set_eq_bands_ptr,
+            playback_get_eq_bands: playback_get_eq_bands_ptr,
+            set_event_callback: set_event_callback_ptr,
         });
     }
     Ok(())
