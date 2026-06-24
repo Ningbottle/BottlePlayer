@@ -196,7 +196,9 @@ function handlePlaybackEvent(e: PlaybackEvent) {
 // Watch volume and queue to persist
 watch(() => playerStore.volume, (newVol) => {
   localStorage.setItem('player_volume', String(newVol));
-  if (playerStore.audio) {
+  if (activeBackend) {
+    activeBackend.setVolume(newVol).catch(() => {});
+  } else if (playerStore.audio) {
     playerStore.audio.volume = newVol;
   }
 });
@@ -217,7 +219,11 @@ export async function playTrack(track: Track) {
 
   // 立刻停掉当前正在播放的音频：点了新歌就该马上停旧的，
   // 即使新歌取链接失败，也不能让上一首继续在后台响。
-  audio.pause();
+  if (activeBackend) {
+    await activeBackend.stop().catch(() => {});
+  } else {
+    audio.pause();
+  }
   playerStore.isPlaying = false;
 
   const normalized = normalizeTrack(track);
@@ -281,13 +287,24 @@ export async function playTrack(track: Track) {
         }
       }
       
-      audio.src = finalUrl;
-      // Set preview state BEFORE play() so the 'play' event listener doesn't
-      // clobber it. The listener only clears `errorMsg`, not `isPreview`.
+      // Set preview state BEFORE playUrl so backend events don't clobber it.
       playerStore.isPreview = !!res.is_preview;
       playerStore.vipRequired = !!res.vip_required;
       playerStore.errorMsg = '';
-      await audio.play();
+
+      if (activeBackend) {
+        const ok = await activeBackend.playUrl(finalUrl);
+        if (!ok) {
+          playerStore.isPlaying = false;
+          playerStore.errorMsg = '播放失败';
+          return;
+        }
+      } else {
+        // Legacy fallback: direct audio element
+        audio.src = finalUrl;
+        await audio.play();
+      }
+
       // 播放成功后异步上传播放历史（静默失败，不阻塞播放）
       uploadPlayHistory(normalized);
     } else {
@@ -297,9 +314,13 @@ export async function playTrack(track: Track) {
     }
   } catch (err: any) {
     console.error('Failed to resolve play URL', err);
-    // 取链接失败：彻底清掉音频源，避免之后点“播放”又恢复上一首。
-    audio.removeAttribute('src');
-    audio.load();
+    // 取链接失败：彻底清掉音频源，避免之后点"播放"又恢复上一首。
+    if (activeBackend) {
+      await activeBackend.stop().catch(() => {});
+    } else {
+      audio.removeAttribute('src');
+      audio.load();
+    }
     playerStore.isPlaying = false;
     playerStore.isPreview = false;
     playerStore.vipRequired = false;
@@ -346,20 +367,29 @@ export function setQuality(quality: string) {
   }
 }
 
-export function togglePlay() {
-  initPlayer();
-  if (!playerStore.audio || !playerStore.currentTrack) return;
+export async function togglePlay() {
+  if (!playerStore.currentTrack) return;
 
-  if (playerStore.isPlaying) {
-    playerStore.audio.pause();
-  } else {
-    // If src is empty (restored state), reload URL
-    if (!playerStore.audio.src) {
-      playTrack(playerStore.currentTrack);
+  if (activeBackend) {
+    if (playerStore.isPlaying) {
+      await activeBackend.pause();
     } else {
-      playerStore.audio.play().catch(e => {
-        console.error('Play failed', e);
-      });
+      await activeBackend.resume();
+    }
+  } else {
+    // Legacy fallback
+    initPlayer();
+    if (!playerStore.audio) return;
+    if (playerStore.isPlaying) {
+      playerStore.audio.pause();
+    } else {
+      if (!playerStore.audio.src) {
+        playTrack(playerStore.currentTrack);
+      } else {
+        playerStore.audio.play().catch(e => {
+          console.error('Play failed', e);
+        });
+      }
     }
   }
 }
@@ -397,15 +427,21 @@ export function prev() {
   }
 }
 
-export function seek(seconds: number) {
-  if (playerStore.audio) {
+export async function seek(seconds: number) {
+  if (activeBackend) {
+    await activeBackend.seek(seconds);
+  } else if (playerStore.audio) {
     playerStore.audio.currentTime = seconds;
-    playerStore.currentTime = seconds;
   }
+  playerStore.currentTime = seconds;
 }
 
-export function setVolume(vol: number) {
+export async function setVolume(vol: number) {
   playerStore.volume = Math.max(0, Math.min(1, vol));
+  localStorage.setItem('player_volume', String(playerStore.volume));
+  if (activeBackend) {
+    await activeBackend.setVolume(playerStore.volume);
+  }
 }
 
 export function playAll(tracks: Track[], startIndex = 0) {
