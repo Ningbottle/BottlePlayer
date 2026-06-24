@@ -1,20 +1,19 @@
 #pragma once
 
-#include <mutex>
+#include <memory>
 #include <string>
 
 #include "echo/core/Dto.h"
 
-struct IMFPMediaPlayer;
-struct MFP_EVENT_HEADER;
-
 namespace echo::playback {
 
-class MediaPlayerCallback;
+class PlaybackControllerImpl;
 
 class PlaybackController {
  public:
   using EventCallback = void (*)(const char* jsonPayload, void* userData);
+
+  enum class Backend { MFP, MFS };
 
   PlaybackController();
   ~PlaybackController();
@@ -22,7 +21,7 @@ class PlaybackController {
   PlaybackController(const PlaybackController&) = delete;
   PlaybackController& operator=(const PlaybackController&) = delete;
 
-  bool Initialize();
+  bool Initialize(Backend backend = Backend::MFP);
   bool PlayUrl(const std::string& url);
   void Pause();
   void Resume();
@@ -33,19 +32,15 @@ class PlaybackController {
 
   echo::core::PlaybackState GetState() const;
 
+  // New methods (S4)
+  void SetEqEnabled(bool enabled);
+  void SetEqBand(int bandIndex, double gainDb);
+  void SetEqBands(const double gainsDb[5]);
+  void GetEqBands(double outGainsDb[5]) const;
+  void SetEventCallback(EventCallback cb, void* userData);
+
  private:
-  friend class MediaPlayerCallback;
-
-  void ReleasePlayerLocked();
-  bool EnsurePlayerLocked();
-  void HandleMediaEvent(MFP_EVENT_HEADER* event);
-
-  mutable std::mutex mutex_;
-  echo::core::PlaybackState state_;
-  bool mediaFoundationStarted_ = false;
-  bool comInitialized_ = false;
-  IMFPMediaPlayer* player_ = nullptr;
-  MediaPlayerCallback* callback_ = nullptr;
+  std::unique_ptr<PlaybackControllerImpl> impl_;
 };
 
 }  // namespace echo::playback
