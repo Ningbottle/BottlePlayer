@@ -13,7 +13,10 @@ class PlaybackController {
  public:
   using EventCallback = void (*)(const char* jsonPayload, void* userData);
 
-  enum class Backend { MFP, MFS };
+  enum class Backend {
+    MFP,  // DEPRECATED: kept for fallback only. MFS is the default.
+    MFS,
+  };
 
   PlaybackController();
   ~PlaybackController();

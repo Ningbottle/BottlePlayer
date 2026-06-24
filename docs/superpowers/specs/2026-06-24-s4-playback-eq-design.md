@@ -940,3 +940,29 @@ fn test_playback_initialize_and_play() {
 | Position polling drifts on slow machines | Acceptable — 10Hz is fast enough for lyrics (< 200ms drift) |
 | MFStartup/Shutdown ordering crashes | Follow MSDN lifecycle exactly; test under rapid init/shutdown |
 | Audio glitches when SetBandGain called mid-playback | BiquadFilter uses atomic coefficient swap (set new coeffs, then process — no partial state) |
+
+## 13. Known Limitations (S4.2b → S4.3)
+
+As of the S4.2b checkpoint:
+
+1. **EqualizerMFT is not yet inserted into the MFS topology.** The custom MFT
+   is implemented and unit-testable in isolation, but Media Foundation's
+   topology loader does not easily allow inserting a custom MFT between the
+   auto-inserted decoder and the SAR. Two follow-up paths:
+   - (a) Explicit topology construction using IMFTopologyNode::ConnectOutput
+     and MF_TOPOLOGY_HELPER_METHOD_PRESERVE_ID (more code, more reliable).
+   - (b) Post-decode buffer processing via WASAPI exclusive mode (more
+     invasive, requires architectural change).
+   Until this is resolved, the EQ is reachable via the C API but the MFS
+   pipeline plays without EQ applied. UI shows the panel but sliders are
+   effectively no-ops on the audio path. This is a known issue and tracked
+   for a future S4.x follow-up.
+
+2. **MFP code is not deleted** in this phase. It is marked as deprecated
+   with a comment pointing to the new MFS path. Deletion is a follow-up
+   once MFS is verified stable in production for at least one full release
+   cycle.
+
+3. **Output device selection is not implemented.** SAR uses the default
+   Windows audio device. Switching to a specific device (e.g., USB DAC)
+   is a future enhancement.

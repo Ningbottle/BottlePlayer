@@ -1,3 +1,11 @@
+// =====================================================================
+// DEPRECATED: PlaybackControllerMFP is the legacy MFPlay-based
+// implementation. It is kept as a fallback for cases where the new
+// IMFMediaSession pipeline (PlaybackControllerMFS) cannot initialize.
+// This file is a candidate for removal once MFS is verified stable in
+// production for at least one full release cycle.
+// =====================================================================
+
 #include "echo/playback/PlaybackControllerImpl.h"
 
 #include <mfplay.h>
