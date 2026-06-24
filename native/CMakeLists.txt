@@ -105,6 +105,7 @@ add_library(EchoPlayback STATIC
   playback/PlaybackController.cpp
   playback/PlaybackControllerMFP.cpp
   playback/PlaybackControllerMFS.cpp
+  playback/BiquadFilter.cpp
 )
 target_include_directories(EchoPlayback PUBLIC include)
 target_link_libraries(EchoPlayback
@@ -177,6 +178,11 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_include_directories(EchoRequestSchedulerResilienceTest PRIVATE include)
   target_link_libraries(EchoRequestSchedulerResilienceTest PRIVATE EchoCore EchoAsync)
   add_test(NAME EchoRequestSchedulerResilienceTest COMMAND EchoRequestSchedulerResilienceTest)
+
+  add_executable(EchoBiquadFilterTest tests/biquad_filter_test.cpp)
+  target_include_directories(EchoBiquadFilterTest PRIVATE include)
+  target_link_libraries(EchoBiquadFilterTest PRIVATE EchoCore EchoPlayback)
+  add_test(NAME EchoBiquadFilterTest COMMAND EchoBiquadFilterTest)
 
   set(ECHO_NATIVE_TESTS
     EchoNativeSmokeTests
