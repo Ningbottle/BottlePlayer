@@ -5,6 +5,7 @@
 #include "echo/storage/Database.h"
 #include "echo/storage/AppPaths.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
+#include "echo/playback/PlaybackController.h"
 #include <nlohmann/json.hpp>
 #include <chrono>
 #include <memory>
@@ -12,6 +13,7 @@
 #include <filesystem>
 #include <mutex>
 #include <shared_mutex>
+#include <sstream>
 
 static std::unique_ptr<echo::storage::Database> g_db;
 // g_api is a shared_ptr (not unique_ptr) so worker threads executing
@@ -25,6 +27,9 @@ static std::shared_ptr<echo::core::CompatApi> g_api;
 static echo::async::RequestScheduler g_scheduler(4);
 static std::shared_mutex g_api_rwlock;
 static bool g_shutdown = false;
+
+static std::shared_ptr<echo::playback::PlaybackController> g_playback;
+static std::mutex g_playback_mutex;
 
 // Map a request path to a RequestKind for per-kind deadlines.
 static echo::async::RequestKind KindForPath(const std::string& path) {
@@ -257,4 +262,122 @@ void EchoSetEventCallback(EchoEventCallback cb, void* user_data) {
     // ABI placeholder — not yet wired. Reserved for playback / download events.
     (void)cb;
     (void)user_data;
+}
+
+// ── Playback C API ──────────────────────────────────────────────────────────
+
+static const char* PlaybackStateKindToString(echo::core::PlaybackStateKind kind) {
+    switch (kind) {
+        case echo::core::PlaybackStateKind::Idle:      return "idle";
+        case echo::core::PlaybackStateKind::Opening:    return "opening";
+        case echo::core::PlaybackStateKind::Playing:    return "playing";
+        case echo::core::PlaybackStateKind::Paused:     return "paused";
+        case echo::core::PlaybackStateKind::Buffering:  return "buffering";
+        case echo::core::PlaybackStateKind::Stopped:    return "stopped";
+        case echo::core::PlaybackStateKind::Failed:     return "failed";
+    }
+    return "unknown";
+}
+
+bool EchoPlaybackInitialize(EchoPlaybackBackend backend) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) return true;  // already initialized
+    auto pc = std::make_shared<echo::playback::PlaybackController>();
+    bool ok = pc->Initialize(static_cast<echo::playback::PlaybackController::Backend>(backend));
+    if (!ok && backend == ECHO_PLAYBACK_MFS) {
+        // Auto-fallback: MFS failed, try MFP
+        ok = pc->Initialize(echo::playback::PlaybackController::Backend::MFP);
+    }
+    if (!ok) return false;
+    g_playback = pc;
+    return true;
+}
+
+bool EchoPlaybackPlayUrl(const char* url) {
+    std::lock_guard lock(g_playback_mutex);
+    if (!g_playback) return false;
+    return g_playback->PlayUrl(url ? url : "");
+}
+
+void EchoPlaybackPause(void) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) g_playback->Pause();
+}
+
+void EchoPlaybackResume(void) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) g_playback->Resume();
+}
+
+void EchoPlaybackStop(void) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) g_playback->Stop();
+}
+
+void EchoPlaybackSeek(double seconds) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) g_playback->Seek(seconds);
+}
+
+void EchoPlaybackSetVolume(double volume) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) g_playback->SetVolume(volume);
+}
+
+void EchoPlaybackSetRate(double rate) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) g_playback->SetRate(rate);
+}
+
+const char* EchoPlaybackGetState(void) {
+    if (!g_playback) {
+        // Caller must free via EchoFreeString
+        char* out = new char[64];
+        std::strcpy(out, R"({"state":"uninitialized","position":0,"duration":0})");
+        return out;
+    }
+    auto state = g_playback->GetState();
+    std::ostringstream os;
+    os << R"({"state":")" << PlaybackStateKindToString(state.kind) << R"(",)"
+       << R"("position":)" << state.currentSeconds
+       << R"(,"duration":)" << state.durationSeconds
+       << R"(,"volume":)" << state.volume
+       << R"(,"rate":)" << state.rate;
+    if (!state.error.empty()) {
+        os << R"(,"error":")" << state.error << R"(")";
+    }
+    os << "}";
+    std::string s = os.str();
+    char* out = new char[s.size() + 1];
+    std::strcpy(out, s.c_str());
+    return out;
+}
+
+void EchoPlaybackShutdown(void) {
+    std::lock_guard lock(g_playback_mutex);
+    g_playback.reset();
+}
+
+void EchoPlaybackSetEqEnabled(bool enabled) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) g_playback->SetEqEnabled(enabled);
+}
+
+void EchoPlaybackSetEqBand(int bandIndex, double gainDb) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) g_playback->SetEqBand(bandIndex, gainDb);
+}
+
+void EchoPlaybackSetEqBands(const double gainsDb[5]) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) g_playback->SetEqBands(gainsDb);
+}
+
+void EchoPlaybackGetEqBands(double outGainsDb[5]) {
+    std::lock_guard lock(g_playback_mutex);
+    if (g_playback) {
+        g_playback->GetEqBands(outGainsDb);
+    } else {
+        for (int i = 0; i < 5; ++i) outGainsDb[i] = 0.0;
+    }
 }

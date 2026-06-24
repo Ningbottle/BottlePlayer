@@ -99,7 +99,7 @@ target_link_libraries(EchoCore
 
 add_library(EchoCAPI SHARED core/C_API.cpp)
 target_include_directories(EchoCAPI PUBLIC include)
-target_link_libraries(EchoCAPI PUBLIC EchoCore)
+target_link_libraries(EchoCAPI PUBLIC EchoCore EchoPlayback)
 
 add_library(EchoPlayback STATIC
   playback/PlaybackController.cpp
