@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { playerStore, togglePlay, next, prev, seek, setVolume, setQuality } from '../api/playerStore';
 import AddToPlaylistModal from './AddToPlaylistModal.vue';
+import EqualizerPanel from './EqualizerPanel.vue';
 
 const props = defineProps<{
   activeView: string;
@@ -11,6 +12,8 @@ const emit = defineEmits<{
   (e: 'navigate', view: string): void;
   (e: 'toggle-queue'): void;
 }>();
+
+const eqExpanded = ref(false);
 
 // 收藏功能
 const showAddModal = ref(false);
@@ -355,6 +358,8 @@ function toggleLyricView() {
       @error="handleFavoriteError"
     />
   </footer>
+
+  <EqualizerPanel v-model="eqExpanded" />
 </template>
 
 <style scoped>
