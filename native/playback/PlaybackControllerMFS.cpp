@@ -242,23 +242,25 @@ bool PlaybackControllerMFS::PlayUrl(const std::string& url) {
 }
 
 void PlaybackControllerMFS::OnSessionEvent(MediaEventType metype) {
-  std::lock_guard lock(mutex_);
   const char* stateStr = nullptr;
-  switch (metype) {
-    case MESessionStarted:
-      state_.kind = echo::core::PlaybackStateKind::Playing;
-      stateStr = "playing";
-      break;
-    case MESessionPaused:
-      state_.kind = echo::core::PlaybackStateKind::Paused;
-      stateStr = "paused";
-      break;
-    case MESessionStopped:
-    case MESessionEnded:
-      state_.kind = echo::core::PlaybackStateKind::Stopped;
-      stateStr = "stopped";
-      break;
-    default: break;
+  {
+    std::lock_guard lock(mutex_);
+    switch (metype) {
+      case MESessionStarted:
+        state_.kind = echo::core::PlaybackStateKind::Playing;
+        stateStr = "playing";
+        break;
+      case MESessionPaused:
+        state_.kind = echo::core::PlaybackStateKind::Paused;
+        stateStr = "paused";
+        break;
+      case MESessionStopped:
+      case MESessionEnded:
+        state_.kind = echo::core::PlaybackStateKind::Stopped;
+        stateStr = "stopped";
+        break;
+      default: break;
+    }
   }
   if (stateStr) EmitEvent("state", 0, 0, stateStr);
 
