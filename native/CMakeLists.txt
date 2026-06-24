@@ -104,6 +104,7 @@ target_link_libraries(EchoCAPI PUBLIC EchoCore)
 add_library(EchoPlayback STATIC
   playback/PlaybackController.cpp
   playback/PlaybackControllerMFP.cpp
+  playback/PlaybackControllerMFS.cpp
 )
 target_include_directories(EchoPlayback PUBLIC include)
 target_link_libraries(EchoPlayback

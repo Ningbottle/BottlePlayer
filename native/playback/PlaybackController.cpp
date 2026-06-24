@@ -1,14 +1,14 @@
 #include "echo/playback/PlaybackController.h"
 
 #include "echo/playback/PlaybackControllerImpl.h"
+#include "echo/playback/PlaybackControllerMFS.h"
 
 namespace echo::playback {
 
-// Forward-declared factories defined in PlaybackControllerMFP.cpp and
-// PlaybackControllerMFS.cpp respectively. Pimpl picks the right one based
-// on the Backend enum.
+// Forward-declared factory for the MFP backend (defined in
+// PlaybackControllerMFP.cpp). The MFS factory is brought in via the
+// PlaybackControllerMFS.h header above.
 std::unique_ptr<PlaybackControllerImpl> CreateMfpImpl();
-std::unique_ptr<PlaybackControllerImpl> CreateMfsImpl();
 
 PlaybackController::PlaybackController() = default;
 

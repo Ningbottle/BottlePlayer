@@ -396,9 +396,4 @@ std::unique_ptr<PlaybackControllerImpl> CreateMfpImpl() {
   return std::make_unique<PlaybackControllerMFP>();
 }
 
-// TEMPORARY STUB: will be replaced by Task 4's real implementation.
-std::unique_ptr<PlaybackControllerImpl> CreateMfsImpl() {
-  return nullptr;
-}
-
 }  // namespace echo::playback
