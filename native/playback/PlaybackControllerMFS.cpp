@@ -283,7 +283,7 @@ void PlaybackControllerMFS::OnSessionEvent(MediaEventType metype) {
         {
           PROPVARIANT var;
           PropVariantInit(&var);
-          session_->Start(GUID_NULL, &var);
+          session_->Start(nullptr, &var);
         }
         break;
       case MESessionStarted:
@@ -443,4 +443,5 @@ std::unique_ptr<PlaybackControllerImpl> CreateMfsImpl() {
 }
 
 }  // namespace echo::playback
+
 
