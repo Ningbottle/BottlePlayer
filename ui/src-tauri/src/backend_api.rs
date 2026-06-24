@@ -65,6 +65,13 @@ pub struct CApiHandle {
         Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
         *mut c_void,
     ),
+    // S5: EchoStats C API exports
+    pub(crate) stats_record_play: unsafe extern "C" fn(*const c_char),
+    pub(crate) stats_get_summary: unsafe extern "C" fn(*const c_char) -> *mut c_char,
+    pub(crate) stats_get_top: unsafe extern "C" fn(*const c_char, *const c_char, c_int) -> *mut c_char,
+    pub(crate) stats_get_timeline: unsafe extern "C" fn(*const c_char) -> *mut c_char,
+    pub(crate) stats_get_recent: unsafe extern "C" fn(c_int, c_int) -> *mut c_char,
+    pub(crate) stats_get_recommendations: unsafe extern "C" fn(c_int) -> *mut c_char,
 }
 
 static C_API_HANDLE: OnceLock<RwLock<Option<CApiHandle>>> = OnceLock::new();
@@ -197,6 +204,38 @@ pub fn init_with_paths(dll_path: &str, app_data_dir: Option<&str>) -> Result<(),
             *sym
         };
 
+        // S5: Load EchoStats symbols
+        let stats_record_play_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(*const c_char)> =
+                lib.get(b"EchoStatsRecordPlay").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let stats_get_summary_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(*const c_char) -> *mut c_char> =
+                lib.get(b"EchoStatsGetSummary").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let stats_get_top_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(*const c_char, *const c_char, c_int) -> *mut c_char> =
+                lib.get(b"EchoStatsGetTop").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let stats_get_timeline_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(*const c_char) -> *mut c_char> =
+                lib.get(b"EchoStatsGetTimeline").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let stats_get_recent_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(c_int, c_int) -> *mut c_char> =
+                lib.get(b"EchoStatsGetRecent").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let stats_get_recommendations_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(c_int) -> *mut c_char> =
+                lib.get(b"EchoStatsGetRecommendations").map_err(|e| e.to_string())?;
+            *sym
+        };
+
         *guard = Some(CApiHandle {
             _lib: lib,
             handle_req: handle_req_ptr,
@@ -216,6 +255,13 @@ pub fn init_with_paths(dll_path: &str, app_data_dir: Option<&str>) -> Result<(),
             playback_set_eq_bands: playback_set_eq_bands_ptr,
             playback_get_eq_bands: playback_get_eq_bands_ptr,
             set_event_callback: set_event_callback_ptr,
+            // S5: EchoStats fields
+            stats_record_play: stats_record_play_ptr,
+            stats_get_summary: stats_get_summary_ptr,
+            stats_get_top: stats_get_top_ptr,
+            stats_get_timeline: stats_get_timeline_ptr,
+            stats_get_recent: stats_get_recent_ptr,
+            stats_get_recommendations: stats_get_recommendations_ptr,
         });
     }
     Ok(())
