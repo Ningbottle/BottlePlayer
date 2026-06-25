@@ -16,7 +16,7 @@ vi.mock('../../api/playerStore', async () => {
   };
 });
 
-import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled } from '../../api/playerStore';
+import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState } from '../../api/playerStore';
 
 describe('EqualizerPanel', () => {
   beforeEach(() => {
@@ -25,6 +25,7 @@ describe('EqualizerPanel', () => {
     playerStore.eqEnabled = true;
     playerStore.eqBands = [0, 0, 0, 0, 0];
     playerStore.activePreset = 'Flat';
+    eqState.available = true;
   });
 
   it('renders 5 band sliders when expanded', async () => {
@@ -57,5 +58,14 @@ describe('EqualizerPanel', () => {
     await checkbox.trigger('change');
     await nextTick();
     expect(setWebAudioEqEnabled).toHaveBeenCalledWith(false);
+  });
+
+  it('shows degradation notice and disables sliders when EQ unavailable', async () => {
+    eqState.available = false;
+    const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
+    expect(wrapper.text()).toContain('不支持 EQ');
+    const sliders = wrapper.findAll('input[type="range"]');
+    expect(sliders.length).toBe(5);
+    expect(sliders[0].attributes('disabled')).toBeDefined();
   });
 });

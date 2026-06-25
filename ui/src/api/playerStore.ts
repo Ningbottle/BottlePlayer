@@ -145,6 +145,13 @@ export const playerStore = reactive<PlayerState>({
 // ── EQ public API (delegates to webAudioEq) ──
 const EQ_CROSS_ORIGIN_SAFE = false; // KuGou CDN has no CORS headers; see note above.
 
+/** Whether the EQ graph is actually active (rerouted through Web Audio API).
+ *  False when the source is cross-origin non-CORS (KuGou CDN) — sliders do
+ *  nothing in that state. Exposed for the UI to show a degradation notice. */
+export const eqState = {
+  available: EQ_CROSS_ORIGIN_SAFE,
+};
+
 export function initWebAudioEQ(audio: HTMLAudioElement) {
   webAudioEq.init(audio, {
     enabled: playerStore.eqEnabled,
@@ -153,8 +160,10 @@ export function initWebAudioEQ(audio: HTMLAudioElement) {
     onSuspendedFail: () => {
       // #10: suspended context we can't resume → EQ degraded to passthrough.
       console.warn('Web Audio EQ: AudioContext suspended (no user gesture); EQ degraded.');
+      eqState.available = false;
     },
   });
+  eqState.available = webAudioEq.isRerouted;
 }
 
 export function setWebAudioEqBand(index: number, gainDb: number) {
@@ -269,12 +278,18 @@ function handlePlaybackEvent(e: PlaybackEvent) {
     // either replay (single-loop) or advance. next() no longer handles single-loop.
     playSession.onEnded();
     if (playerStore.loopMode === 'single') {
+      // intend() BEFORE play(): same Bug A reasoning as playTrack — audio.play()
+      // fires the 'play' event asynchronously, but calling intend() first
+      // guarantees the new session exists when onPlay() runs. Reversing the
+      // order (play then intend) would let onPlay open a session against the
+      // just-finalized track, then intend would finalize *that* (spurious
+      // listened_seconds=0 record) and leave the new session pending forever.
+      if (playerStore.currentTrack) {
+        playSession.intend(playerStore.currentTrack);
+      }
       if (playerStore.audio) {
         playerStore.audio.currentTime = 0;
         playerStore.audio.play().catch((err) => console.error('single-loop replay failed', err));
-      }
-      if (playerStore.currentTrack) {
-        playSession.intend(playerStore.currentTrack);
       }
     } else {
       next();
@@ -399,6 +414,9 @@ export async function playTrack(track: Track) {
       if (!ok) {
         playerStore.isPlaying = false;
         playerStore.errorMsg = '播放失败';
+        // Clean up the pending session opened above (playUrl failed → no onPlay
+        // will fire → session would leak as 'pending' forever).
+        playSession.skip();
         // #13: roll back so a failed track isn't persisted as the resumable current.
         playerStore.currentIndex = prevIndex;
         playerStore.currentTrack = prevIndex >= 0 ? playerStore.queue[prevIndex] ?? null : null;

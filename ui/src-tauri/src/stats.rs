@@ -143,7 +143,13 @@ mod tests {
         let _lock = DLL_GUARD.lock().unwrap();
 
         let dll_path = find_dll();
-        let app_data_dir = std::env::temp_dir().join("bottlemusic_stats_test");
+        // Use a unique temp dir per test run to avoid stale-data races when
+        // a previous run's SQLite handle lingered and remove_dir_all failed.
+        let stamp = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        let app_data_dir = std::env::temp_dir().join(format!("bottlemusic_stats_test_{}", stamp));
         let _ = std::fs::remove_dir_all(&app_data_dir);
         std::fs::create_dir_all(&app_data_dir).unwrap();
         backend_api::init_with_paths(&dll_path, Some(app_data_dir.to_str().unwrap()))

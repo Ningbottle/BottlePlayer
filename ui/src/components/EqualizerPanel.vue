@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled } from '../api/playerStore';
+import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState } from '../api/playerStore';
 
 const props = defineProps<{ modelValue: boolean }>();
 const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>();
@@ -55,6 +55,9 @@ function formatGain(g: number) {
       <span class="chevron">{{ expanded ? '▾' : '▸' }}</span>
     </button>
     <div v-if="expanded" class="eq-controls">
+      <p v-if="!eqState.available" class="eq-unavailable">
+        当前音源不支持 EQ（酷狗 CDN 未发送 CORS 头，启用 EQ 会导致静音）。滑块暂不生效。
+      </p>
       <div class="eq-row">
         <label class="eq-enable">
           <input
@@ -81,7 +84,7 @@ function formatGain(g: number) {
             max="12"
             step="0.5"
             v-model.number="bandGains[i]"
-            :disabled="!playerStore.eqEnabled"
+            :disabled="!playerStore.eqEnabled || !eqState.available"
             orient="vertical"
             class="band-slider"
             @input="onSliderInput"
@@ -137,6 +140,18 @@ function formatGain(g: number) {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+.eq-unavailable {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  border-left: 3px solid var(--accent);
+  background: var(--rule-soft);
+  color: var(--ink-soft);
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 11px;
+  line-height: 1.5;
 }
 
 .eq-row {
