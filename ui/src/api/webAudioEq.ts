@@ -119,7 +119,7 @@ export class WebAudioEq {
     }
   }
 
-  setBand(index: number, gainDb: number, enabled: boolean, bands: number[]): void {
+  setBand(index: number, gainDb: number, enabled: boolean): void {
     if (!this.ctx || index < 0 || index >= this.filters.length) return;
     if (!enabled) return;
     if (this.filters[index]) {

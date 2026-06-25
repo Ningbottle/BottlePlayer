@@ -3,12 +3,12 @@ import { apiGet } from './backend';
 import { Track, normalizeTrack, fetchCoverImage } from './normalizer';
 import { userStore } from './userStore';
 import { Html5AudioBackend } from './html5Backend';
-// import { NativePlaybackBackend } from './nativeBackend';  // TODO(s4-fix): re-enable after MFS deadlock fix
 import type { PlayerBackend, PlaybackEvent } from './playerBackend';
-// import { invoke } from '@tauri-apps/api/core';  // unused after HTML5 default switch
+import { invoke } from '@tauri-apps/api/core';
+import { PlaySessionTracker, type PlayRecord } from './playSessionTracker';
+import { WebAudioEq } from './webAudioEq';
 
 export type { Track };
-
 
 export type LoopMode = 'list' | 'single' | 'random';
 
@@ -30,6 +30,52 @@ async function uploadPlayHistory(track: Track) {
     console.warn('播放历史上传失败（可忽略）:', e);
   }
 }
+
+// ── Safe localStorage JSON parse (#14) ──
+// Module-level JSON.parse of localStorage used to throw on corrupt data and
+// blank-screen the app at import time. Swallow and fall back to defaults.
+function loadJSON<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null) return fallback;
+    return JSON.parse(raw) as T;
+  } catch {
+    return fallback;
+  }
+}
+
+// ── Stats play session tracking (#5 #6 #7 #8 #12) ──
+// Fire-and-forget: failures are silently ignored (stats are non-critical).
+// See playSessionTracker.ts for the state machine + seek-immune accumulator.
+function emitPlayRecord(record: PlayRecord) {
+  try {
+    invoke('stats_record_play', { json: JSON.stringify(record) }).catch(() => {});
+  } catch {
+    // 静默失败：统计记录不影响播放
+  }
+}
+
+const playSession = new PlaySessionTracker(
+  emitPlayRecord,
+  () => playerStore.quality || '',
+  () => Date.now(),
+);
+
+// ── Web Audio API EQ chain (#1 #4 #9 #10) ──
+// Routes the <audio> element through a BiquadFilter chain so EQ works for the
+// HTML5 backend. See webAudioEq.ts for graph-build-order / CORS / close logic.
+//
+// CORS note (#1): KuGou's media CDN sends no Access-Control-Allow-Origin
+// (verified 2026-06-25). createMediaElementSource on a non-CORS cross-origin
+// source taints (silent PCM), and setting crossOrigin='anonymous' makes the
+// load fail entirely. So for cross-origin non-CORS media the graph is NOT
+// built and the <audio> plays directly — playback is never broken. EQ
+// re-enables once a same-origin media proxy is added (TODO).
+const webAudioEq = new WebAudioEq(() => {
+  const Ctx = window.AudioContext
+    || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+  return Ctx ? new Ctx() : null;
+});
 
 interface PlayerState {
   currentTrack: Track | null;
@@ -71,7 +117,7 @@ export const playerStore = reactive<PlayerState>({
   currentTime: 0,
   duration: 0,
   volume: parseFloat(localStorage.getItem('player_volume') || '0.7'),
-  queue: JSON.parse(localStorage.getItem('player_queue') || '[]'),
+  queue: loadJSON<Track[]>('player_queue', []),
   currentIndex: parseInt(localStorage.getItem('player_index') || '-1', 10),
   loopMode: (localStorage.getItem('player_loop_mode') || 'list') as LoopMode,
   audio: null,
@@ -82,93 +128,55 @@ export const playerStore = reactive<PlayerState>({
   availableQualities: [],
   backend: null,
   eqEnabled: localStorage.getItem('player_eq_enabled') === 'true',
-  eqBands: JSON.parse(localStorage.getItem('player_eq_bands') || '[0,0,0,0,0]'),
+  eqBands: loadJSON<number[]>('player_eq_bands', [0, 0, 0, 0, 0]),
   activePreset: localStorage.getItem('player_eq_preset') || 'Flat',
 });
 
-// ── Web Audio API EQ chain (works with HTML5 <audio>) ──
-// Replaces the native MFS EQ. Routes the <audio> element through a
-// BiquadFilter chain so EQ works for the HTML5 backend too.
-// Frequencies match the C++ MFT equalizer: 60 / 230 / 910 / 3600 / 14000 Hz.
-const EQ_FREQS = [60, 230, 910, 3600, 14000];
-
-let audioContext: AudioContext | null = null;
-let eqFilters: BiquadFilterNode[] = [];
-let eqGainNode: GainNode | null = null;
-let eqSourceNode: MediaElementAudioSourceNode | null = null;
+// ── EQ public API (delegates to webAudioEq) ──
+const EQ_CROSS_ORIGIN_SAFE = false; // KuGou CDN has no CORS headers; see note above.
 
 export function initWebAudioEQ(audio: HTMLAudioElement) {
-  if (audioContext) return; // already initialized
-  try {
-    const Ctx = window.AudioContext
-      || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
-    audioContext = new Ctx();
-    // crossOrigin must be set before loading cross-origin sources so the
-    // Web Audio graph receives real samples instead of silence.
-    audio.crossOrigin = 'anonymous';
-    eqSourceNode = audioContext.createMediaElementSource(audio);
-
-    eqFilters = EQ_FREQS.map((freq, i) => {
-      const filter = audioContext!.createBiquadFilter();
-      filter.type = 'peaking';
-      filter.frequency.value = freq;
-      filter.Q.value = 1 / Math.SQRT2;
-      filter.gain.value = playerStore.eqEnabled ? (playerStore.eqBands[i] || 0) : 0;
-      return filter;
-    });
-
-    eqGainNode = audioContext.createGain();
-    eqGainNode.gain.value = 1.0;
-
-    // source → filter[0] → ... → filter[4] → gain → destination
-    eqSourceNode.connect(eqFilters[0]);
-    for (let i = 0; i < eqFilters.length - 1; i++) {
-      eqFilters[i].connect(eqFilters[i + 1]);
-    }
-    eqFilters[eqFilters.length - 1].connect(eqGainNode);
-    eqGainNode.connect(audioContext.destination);
-  } catch (e) {
-    console.warn('Web Audio API EQ init failed:', e);
-    audioContext = null;
-    eqFilters = [];
-    eqGainNode = null;
-    eqSourceNode = null;
-  }
+  webAudioEq.init(audio, {
+    enabled: playerStore.eqEnabled,
+    bands: playerStore.eqBands,
+    crossOriginSafe: EQ_CROSS_ORIGIN_SAFE,
+    onSuspendedFail: () => {
+      // #10: suspended context we can't resume → EQ degraded to passthrough.
+      console.warn('Web Audio EQ: AudioContext suspended (no user gesture); EQ degraded.');
+    },
+  });
 }
 
 export function setWebAudioEqBand(index: number, gainDb: number) {
-  if (!audioContext || index < 0 || index >= eqFilters.length) return;
-  if (!playerStore.eqEnabled) return; // bypass when disabled
-  if (eqFilters[index]) {
-    eqFilters[index].gain.value = gainDb;
-  }
+  webAudioEq.setBand(index, gainDb, playerStore.eqEnabled);
 }
 
 export function setWebAudioEqEnabled(enabled: boolean) {
-  if (!audioContext) return;
-  eqFilters.forEach((filter, i) => {
-    filter.gain.value = enabled ? (playerStore.eqBands[i] || 0) : 0;
-  });
+  webAudioEq.setEnabled(enabled, playerStore.eqBands);
 }
 
 /** Resume the AudioContext after a user gesture (autoplay policy). */
 export function resumeAudioContext() {
-  if (audioContext && audioContext.state === 'suspended') {
-    audioContext.resume().catch(() => {});
-  }
+  webAudioEq.resume().catch(() => {});
 }
 
 // Setup audio listeners
 export function initPlayer() {
-  if (playerStore.audio) return;
-
   // ── 僵尸音频防护 (Zombie Audio，见 PROJECT_LOGIC §13) ──
   // Vite HMR 热重载会重新求值本模块、生成全新的 playerStore（其 audio 为 null），
   // 而上一个模块实例创建的 <audio> 仍在后台播放 → 多个实例重音、新代码 pause 不掉。
   // 把元素挂到 window 上：每次重载先把上一个彻底销毁，再建新的，保证全局只有一个。
   const g = window as unknown as { __bottlemusic_audio__?: HTMLAudioElement };
+
+  // #9 #15: tear down the previous backend/EQ/context before rebuilding, so
+  // HMR doesn't leak AudioContexts (browser cap ~6) or orphan event listeners.
   if (g.__bottlemusic_audio__) {
     try {
+      eventUnsub?.();
+      eventUnsub = null;
+      activeBackend?.shutdown().catch(() => {});
+      activeBackend = null;
+      webAudioEq.close();
       const old = g.__bottlemusic_audio__;
       old.pause();
       old.removeAttribute('src');
@@ -176,28 +184,21 @@ export function initPlayer() {
     } catch { /* ignore */ }
   }
 
+  if (playerStore.audio) return;
+
   const audio = new Audio();
   g.__bottlemusic_audio__ = audio;
   playerStore.audio = audio;
   audio.volume = playerStore.volume;
 
-  // Wire up Web Audio API EQ chain (HTML5 backend EQ).
+  // Wire up Web Audio API EQ chain (HTML5 backend EQ). No-op for non-CORS media.
   initWebAudioEQ(audio);
 
-  audio.addEventListener('play', () => {
-    resumeAudioContext();
-    playerStore.isPlaying = true;
-    playerStore.errorMsg = '';
-  });
-
-  audio.addEventListener('pause', () => {
-    playerStore.isPlaying = false;
-  });
-
-  audio.addEventListener('timeupdate', () => {
-    playerStore.currentTime = audio.currentTime;
-  });
-
+  // Event ownership (#2): the backend (initPlayerBackend → onEvent) is the
+  // SOLE source of play/pause/timeupdate/ended/error events. Only duration
+  // metadata listeners live here (EQ-irrelevant, and the backend doesn't
+  // surface them). This eliminates the double-'ended' handler that double-
+  // fetched /song/url on every natural song end.
   audio.addEventListener('durationchange', () => {
     if (audio.duration) {
       playerStore.duration = audio.duration;
@@ -210,14 +211,9 @@ export function initPlayer() {
     }
   });
 
-  audio.addEventListener('ended', () => {
-    handleEnded();
-  });
-
-  audio.addEventListener('error', (e) => {
-    console.error('Audio playback error', e);
-    playerStore.isPlaying = false;
-    playerStore.errorMsg = '播放失败，源文件可能失效或受版权保护';
+  // Resume the AudioContext on the first user-driven play (autoplay policy).
+  audio.addEventListener('play', () => {
+    resumeAudioContext();
   });
 
   // Restore previous track on init without playing
@@ -244,13 +240,35 @@ export async function initPlayerBackend() {
 
 function handlePlaybackEvent(e: PlaybackEvent) {
   if (e.type === 'position') {
-    if (typeof e.position === 'number') playerStore.currentTime = e.position;
+    if (typeof e.position === 'number') {
+      playerStore.currentTime = e.position;
+      playSession.onTimeUpdate(e.position);
+    }
     if (typeof e.duration === 'number') playerStore.duration = e.duration;
   } else if (e.type === 'state') {
-    playerStore.isPlaying = e.state === 'playing';
+    if (e.state === 'playing') {
+      playSession.onPlay();
+      playerStore.isPlaying = true;
+    } else if (e.state === 'paused') {
+      playSession.onPause();
+      playerStore.isPlaying = false;
+    }
     playerStore.errorMsg = '';
   } else if (e.type === 'ended') {
-    next();
+    // Single event owner for 'ended' (#2): finalize the completed session, then
+    // either replay (single-loop) or advance. next() no longer handles single-loop.
+    playSession.onEnded();
+    if (playerStore.loopMode === 'single') {
+      if (playerStore.audio) {
+        playerStore.audio.currentTime = 0;
+        playerStore.audio.play().catch((err) => console.error('single-loop replay failed', err));
+      }
+      if (playerStore.currentTrack) {
+        playSession.intend(playerStore.currentTrack);
+      }
+    } else {
+      next();
+    }
   } else if (e.type === 'error' && e.error) {
     playerStore.errorMsg = e.error;
   }
@@ -278,18 +296,23 @@ function saveQueue() {
 // Actions
 export async function playTrack(track: Track) {
   initPlayer();
-  const audio = playerStore.audio!;
+  // Ensure the backend exists — native is disabled, so HTML5 always initializes
+  // synchronously here. This keeps playTrack a single code path (no legacy
+  // direct-audio branches) while remaining robust if called before App's
+  // onMounted initPlayerBackend().
+  if (!activeBackend) initPlayerBackend();
+
+  // Finalize the previous track's stats session (skipped / incomplete). Done
+  // before stop() so its timeupdate-derived position is still meaningful.
+  playSession.skip();
 
   // 立刻停掉当前正在播放的音频：点了新歌就该马上停旧的，
   // 即使新歌取链接失败，也不能让上一首继续在后台响。
-  if (activeBackend) {
-    await activeBackend.stop().catch(() => {});
-  } else {
-    audio.pause();
-  }
+  await activeBackend!.stop().catch(() => {});
   playerStore.isPlaying = false;
 
   const normalized = normalizeTrack(track);
+  const prevIndex = playerStore.currentIndex; // #13: for rollback on failure
 
   // Find index in queue
   let idx = playerStore.queue.findIndex(t => t.FileHash === normalized.FileHash);
@@ -299,7 +322,6 @@ export async function playTrack(track: Track) {
   }
   playerStore.currentIndex = idx;
   playerStore.currentTrack = normalized;
-  saveQueue();
 
   playerStore.errorMsg = '正在加载音频源…';
   playerStore.currentTime = 0;
@@ -340,7 +362,7 @@ export async function playTrack(track: Track) {
     if (res.status === 1 && res.url) {
       // 存储可用音质选项
       playerStore.availableQualities = res.data?.available_qualities || [];
-      
+
       // 如果有用户选择的音质且可用，切换到该音质
       let finalUrl = res.url;
       if (playerStore.quality && playerStore.availableQualities.length > 0) {
@@ -349,27 +371,33 @@ export async function playTrack(track: Track) {
           finalUrl = preferred.url;
         }
       }
-      
+
       // Set preview state BEFORE playUrl so backend events don't clobber it.
       playerStore.isPreview = !!res.is_preview;
       playerStore.vipRequired = !!res.vip_required;
       playerStore.errorMsg = '';
 
-      if (activeBackend) {
-        const ok = await activeBackend.playUrl(finalUrl);
-        if (!ok) {
-          playerStore.isPlaying = false;
-          playerStore.errorMsg = '播放失败';
-          return;
-        }
-      } else {
-        // Legacy fallback: direct audio element
-        audio.src = finalUrl;
-        await audio.play();
+      const ok = await activeBackend!.playUrl(finalUrl);
+      if (!ok) {
+        playerStore.isPlaying = false;
+        playerStore.errorMsg = '播放失败';
+        // #13: roll back so a failed track isn't persisted as the resumable current.
+        playerStore.currentIndex = prevIndex;
+        playerStore.currentTrack = prevIndex >= 0 ? playerStore.queue[prevIndex] ?? null : null;
+        saveQueue();
+        return;
       }
+
+      // #13: persist only on success — a failed track must not become the
+      // "last played" pointer that traps the user on a dead track after restart.
+      saveQueue();
 
       // 播放成功后异步上传播放历史（静默失败，不阻塞播放）
       uploadPlayHistory(normalized);
+
+      // 开始新的播放统计会话（真正的 session 在 'play' 事件触发时开启，
+      // play() 被拒绝则不会开幽灵会话）。
+      playSession.intend(normalized);
     } else {
       playerStore.isPreview = false;
       playerStore.vipRequired = false;
@@ -378,15 +406,14 @@ export async function playTrack(track: Track) {
   } catch (err: any) {
     console.error('Failed to resolve play URL', err);
     // 取链接失败：彻底清掉音频源，避免之后点"播放"又恢复上一首。
-    if (activeBackend) {
-      await activeBackend.stop().catch(() => {});
-    } else {
-      audio.removeAttribute('src');
-      audio.load();
-    }
+    await activeBackend!.stop().catch(() => {});
     playerStore.isPlaying = false;
     playerStore.isPreview = false;
     playerStore.vipRequired = false;
+    // #13: roll back the index so the failed track isn't persisted as current.
+    playerStore.currentIndex = prevIndex;
+    playerStore.currentTrack = prevIndex >= 0 ? playerStore.queue[prevIndex] ?? null : null;
+    saveQueue();
     playerStore.errorMsg = err.message || '该歌曲不可播放（可能是 Demo / 版权或 VIP 限制）';
   }
 }
@@ -398,13 +425,16 @@ let qualityRequestId = 0;
 export function setQuality(quality: string) {
   playerStore.quality = quality;
   localStorage.setItem('player_quality', quality);
-  
+
   // 如果当前有歌曲在播放，尝试切换到新音质
   if (playerStore.currentTrack) {
     // 先检查缓存的 availableQualities 中是否有目标音质
     if (playerStore.availableQualities.length > 0) {
       const preferred = playerStore.availableQualities.find(q => q.quality === quality);
       if (preferred?.url && playerStore.audio) {
+        // #8: finalize the old-quality session, start a new one for the switch.
+        playSession.skip();
+        playSession.intend(playerStore.currentTrack);
         const wasPlaying = playerStore.isPlaying;
         const savedTime = playerStore.currentTime;
         playerStore.audio.src = preferred.url;
@@ -433,27 +463,10 @@ export function setQuality(quality: string) {
 export async function togglePlay() {
   if (!playerStore.currentTrack) return;
 
-  if (activeBackend) {
-    if (playerStore.isPlaying) {
-      await activeBackend.pause();
-    } else {
-      await activeBackend.resume();
-    }
+  if (playerStore.isPlaying) {
+    await activeBackend!.pause();
   } else {
-    // Legacy fallback
-    initPlayer();
-    if (!playerStore.audio) return;
-    if (playerStore.isPlaying) {
-      playerStore.audio.pause();
-    } else {
-      if (!playerStore.audio.src) {
-        playTrack(playerStore.currentTrack);
-      } else {
-        playerStore.audio.play().catch(e => {
-          console.error('Play failed', e);
-        });
-      }
-    }
+    await activeBackend!.resume();
   }
 }
 
@@ -461,9 +474,10 @@ export function next() {
   if (playerStore.queue.length === 0) return;
 
   let nextIdx = playerStore.currentIndex;
-  if (playerStore.loopMode === 'single' && playerStore.isPlaying) {
-    // Keep index
-  } else if (playerStore.loopMode === 'random') {
+  // #11: next() always advances — single-loop replay is handled in the 'ended'
+  // handler, not here. Coupling loop semantics to the transient isPlaying flag
+  // made UI-next and auto-next disagree.
+  if (playerStore.loopMode === 'random') {
     nextIdx = Math.floor(Math.random() * playerStore.queue.length);
   } else {
     nextIdx = (playerStore.currentIndex + 1) % playerStore.queue.length;
@@ -491,20 +505,14 @@ export function prev() {
 }
 
 export async function seek(seconds: number) {
-  if (activeBackend) {
-    await activeBackend.seek(seconds);
-  } else if (playerStore.audio) {
-    playerStore.audio.currentTime = seconds;
-  }
+  await activeBackend!.seek(seconds);
   playerStore.currentTime = seconds;
 }
 
 export async function setVolume(vol: number) {
   playerStore.volume = Math.max(0, Math.min(1, vol));
   localStorage.setItem('player_volume', String(playerStore.volume));
-  if (activeBackend) {
-    await activeBackend.setVolume(playerStore.volume);
-  }
+  await activeBackend!.setVolume(playerStore.volume);
 }
 
 export function playAll(tracks: Track[], startIndex = 0) {
@@ -532,6 +540,7 @@ export function removeFromQueue(index: number) {
 
   if (playerStore.currentIndex === index) {
     if (playerStore.queue.length === 0) {
+      playSession.skip();
       playerStore.currentIndex = -1;
       playerStore.currentTrack = null;
       if (playerStore.audio) {
@@ -547,15 +556,4 @@ export function removeFromQueue(index: number) {
   }
 
   saveQueue();
-}
-
-function handleEnded() {
-  if (playerStore.loopMode === 'single') {
-    if (playerStore.audio) {
-      playerStore.audio.currentTime = 0;
-      playerStore.audio.play().catch(e => console.error(e));
-    }
-  } else {
-    next();
-  }
 }
