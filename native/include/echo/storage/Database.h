@@ -37,11 +37,12 @@ class Database {
  private:
   std::filesystem::path path_;
 
-  // Serializes the runtime data methods (SetJson/GetJson/PutApiCache/
-  // GetApiCache/PruneExpiredApiCache) so the single shared connection is safe
-  // to use from concurrent request threads. Lifecycle methods (Open/Close/
-  // Initialize/Execute) are NOT guarded — they run once at startup before any
-  // concurrent access begins. `mutable` because the const getters lock it too.
+  // Serializes all database operations (SetJson/GetJson/PutApiCache/
+  // GetApiCache/PruneExpiredApiCache/Execute/ExecuteQuery) so the single
+  // shared connection is safe to use from concurrent request threads. S5
+  // stats queries run alongside the existing API path, so Execute and
+  // ExecuteQuery now hold the lock too. `mutable` because the const getters
+  // lock it too.
   mutable std::mutex mutex_;
 
 #if defined(ECHO_NATIVE_HAS_SQLITE)

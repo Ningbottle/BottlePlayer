@@ -68,16 +68,49 @@ describe('StatsView data loading', () => {
     expect(result.completion_rate).toBe(0.8);
   });
 
-  it('mock stats_get_top returns items array', async () => {
+  it('mock stats_get_top returns items array for kind=song', async () => {
     const result = JSON.parse(
       (await invoke('stats_get_top', {
-        dim: 'song',
+        kind: 'song',
         range: '30d',
         limit: 10,
       })) as string,
     );
     expect(result.items).toHaveLength(1);
     expect(result.items[0].name).toBe('Test Song');
+    expect(result.items[0].singer).toBe('Test Artist');
+    expect(result.items[0].album).toBe('Test Album');
+    expect(result.items[0].play_count).toBe(5);
+  });
+
+  it('mock stats_get_top returns items for every kind parameter', async () => {
+    for (const kind of ['song', 'artist', 'album'] as const) {
+      const result = JSON.parse(
+        (await invoke('stats_get_top', {
+          kind,
+          range: '30d',
+          limit: 10,
+        })) as string,
+      );
+      expect(result.items).toHaveLength(1);
+      expect(result.items[0].name).toBe('Test Song');
+    }
+  });
+
+  it('mock stats_get_recent returns items matching C++ GetRecent shape', async () => {
+    const result = JSON.parse(
+      (await invoke('stats_get_recent', { limit: 20, offset: 0 })) as string,
+    );
+    const item = result.items[0];
+    expect(item.name).toBe('Recent Song');
+    expect(item.singer).toBe('Artist');
+    expect(item.album).toBe('Album');
+    expect(item.cover_url).toBe('');
+    expect(typeof item.duration_seconds).toBe('number');
+    expect(item.completed).toBe(true);
+    expect(typeof item.listened_seconds).toBe('number');
+    expect(item.quality).toBe('320');
+    expect(typeof item.played_at).toBe('number');
   });
 
   it('mock stats_get_recent returns items with played_at', async () => {

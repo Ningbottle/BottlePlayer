@@ -398,7 +398,9 @@ void EchoPlaybackGetEqBands(double outGainsDb[5]) {
 // ─── Stats C API ─────────────────────────────────────────────────────────────
 
 ECHO_C_API void EchoStatsRecordPlay(const char* json_record) {
-    if (!g_stats || !json_record) return;
+    if (!json_record) return;
+    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
+    if (!g_stats) return;
     try {
         auto j = nlohmann::json::parse(json_record);
         echo::stats::PlayRecord r;
@@ -418,6 +420,7 @@ ECHO_C_API void EchoStatsRecordPlay(const char* json_record) {
 }
 
 ECHO_C_API const char* EchoStatsGetSummary(const char* range) {
+    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
     try {
         if (!g_stats) return _dup_str(R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all"})");
         return _dup_str(g_stats->GetSummary(range ? range : "all").c_str());
@@ -427,6 +430,7 @@ ECHO_C_API const char* EchoStatsGetSummary(const char* range) {
 }
 
 ECHO_C_API const char* EchoStatsGetTop(const char* dim, const char* range, int limit) {
+    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
     try {
         if (!g_stats || !dim || !range) return _dup_str(R"({"items":[]})");
         return _dup_str(g_stats->GetTop(dim, range, limit).c_str());
@@ -436,6 +440,7 @@ ECHO_C_API const char* EchoStatsGetTop(const char* dim, const char* range, int l
 }
 
 ECHO_C_API const char* EchoStatsGetTimeline(const char* range) {
+    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
     try {
         if (!g_stats || !range) return _dup_str(R"({"items":[]})");
         return _dup_str(g_stats->GetTimeline(range).c_str());
@@ -445,6 +450,7 @@ ECHO_C_API const char* EchoStatsGetTimeline(const char* range) {
 }
 
 ECHO_C_API const char* EchoStatsGetRecent(int limit, int offset) {
+    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
     try {
         if (!g_stats) return _dup_str(R"({"items":[]})");
         return _dup_str(g_stats->GetRecent(limit, offset).c_str());
@@ -454,6 +460,7 @@ ECHO_C_API const char* EchoStatsGetRecent(int limit, int offset) {
 }
 
 ECHO_C_API const char* EchoStatsGetRecommendations(int limit) {
+    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
     try {
         if (!g_stats) return _dup_str(R"({"items":[]})");
         return _dup_str(g_stats->GetRecommendations(limit).c_str());

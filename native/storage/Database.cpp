@@ -174,6 +174,7 @@ void Database::InitializeSchema() {
 }
 
 void Database::Execute(const std::string& sql) {
+  std::lock_guard<std::mutex> guard(mutex_);
   char* error = nullptr;
   if (sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &error) != SQLITE_OK) {
     std::string message = error ? error : "unknown sqlite error";
@@ -183,6 +184,7 @@ void Database::Execute(const std::string& sql) {
 }
 
 std::vector<std::vector<std::string>> Database::ExecuteQuery(const std::string& sql) {
+  std::lock_guard<std::mutex> guard(mutex_);
   std::vector<std::vector<std::string>> rows;
   sqlite3_stmt* stmt = nullptr;
   if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
