@@ -7,13 +7,21 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
-import { invoke } from '@tauri-apps/api/core';
-import { playerStore } from '../../api/playerStore';
+vi.mock('../../api/playerStore', async () => {
+  const actual = await vi.importActual<typeof import('../../api/playerStore')>('../../api/playerStore');
+  return {
+    ...actual,
+    setWebAudioEqBand: vi.fn(),
+    setWebAudioEqEnabled: vi.fn(),
+  };
+});
+
+import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled } from '../../api/playerStore';
 
 describe('EqualizerPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    playerStore.backend = 'native';
+    playerStore.backend = 'html5';
     playerStore.eqEnabled = true;
     playerStore.eqBands = [0, 0, 0, 0, 0];
     playerStore.activePreset = 'Flat';
@@ -25,14 +33,12 @@ describe('EqualizerPanel', () => {
     expect(sliders.length).toBe(5);
   });
 
-  it('slider change calls invoke playback_set_eq_bands', async () => {
+  it('slider change calls setWebAudioEqBand', async () => {
     const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
     const slider = wrapper.find('input[type="range"]');
     await slider.setValue('6');
     await nextTick();
-    expect(invoke).toHaveBeenCalledWith('playback_set_eq_bands', {
-      gains: expect.arrayContaining([6, 0, 0, 0, 0]),
-    });
+    expect(setWebAudioEqBand).toHaveBeenCalledWith(0, 6);
   });
 
   it('applies preset when dropdown changes', async () => {
@@ -41,14 +47,15 @@ describe('EqualizerPanel', () => {
     await select.setValue('Bass Boost');
     await nextTick();
     expect(playerStore.eqBands).toEqual([6, 4, 0, 0, 0]);
-    expect(invoke).toHaveBeenCalledWith('playback_set_eq_bands', {
-      gains: [6, 4, 0, 0, 0],
-    });
+    expect(setWebAudioEqBand).toHaveBeenCalledWith(0, 6);
+    expect(setWebAudioEqBand).toHaveBeenCalledWith(1, 4);
   });
 
-  it('shows hint when backend is html5', async () => {
-    playerStore.backend = 'html5';
+  it('toggle enable calls setWebAudioEqEnabled', async () => {
     const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
-    expect(wrapper.text()).toContain('Native backend not available');
+    const checkbox = wrapper.find('input[type="checkbox"]');
+    await checkbox.trigger('change');
+    await nextTick();
+    expect(setWebAudioEqEnabled).toHaveBeenCalledWith(false);
   });
 });
