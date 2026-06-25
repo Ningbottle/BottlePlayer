@@ -111,6 +111,16 @@ interface QualityOption {
 let activeBackend: PlayerBackend | null = null;
 export let eventUnsub: (() => void) | null = null;
 
+/** Test-only seam: the wired playback backend. */
+export function __getActiveBackend(): PlayerBackend | null {
+  return activeBackend;
+}
+
+/** Test-only seam: the play-session tracker (for ordering assertions). */
+export function __getPlaySession(): PlaySessionTracker {
+  return playSession;
+}
+
 export const playerStore = reactive<PlayerState>({
   currentTrack: null,
   isPlaying: false,
@@ -377,6 +387,14 @@ export async function playTrack(track: Track) {
       playerStore.vipRequired = !!res.vip_required;
       playerStore.errorMsg = '';
 
+      // Open the new stats session BEFORE playUrl: playUrl does
+      // `audio.src=url; await audio.play()`, and the 'play'/'timeupdate' DOM
+      // events fire during that await → handlePlaybackEvent→onPlay() runs
+      // before we return here. If intend() ran after playUrl, onPlay would
+      // open the session against the *previous* track and the new session
+      // would stay 'pending' → listened_seconds never accumulated (Bug A).
+      playSession.intend(normalized);
+
       const ok = await activeBackend!.playUrl(finalUrl);
       if (!ok) {
         playerStore.isPlaying = false;
@@ -394,10 +412,6 @@ export async function playTrack(track: Track) {
 
       // 播放成功后异步上传播放历史（静默失败，不阻塞播放）
       uploadPlayHistory(normalized);
-
-      // 开始新的播放统计会话（真正的 session 在 'play' 事件触发时开启，
-      // play() 被拒绝则不会开幽灵会话）。
-      playSession.intend(normalized);
     } else {
       playerStore.isPreview = false;
       playerStore.vipRequired = false;
@@ -466,7 +480,22 @@ export async function togglePlay() {
   if (playerStore.isPlaying) {
     await activeBackend!.pause();
   } else {
-    await activeBackend!.resume();
+    // Resume path. If the <audio> has no usable src (empty after initPlayer
+    // restores a track without loading it, or after a stop cleared it), a bare
+    // audio.play() rejects AbortError ("play() interrupted by pause()") and the
+    // player gets stuck: the button toggles but nothing plays and the progress
+    // bar never moves. Detect that state and re-load via playTrack instead.
+    const audio = playerStore.audio;
+    const noSrc = !audio || !audio.src || audio.readyState === 0;
+    if (noSrc) {
+      await playTrack(playerStore.currentTrack);
+      return;
+    }
+    try {
+      await activeBackend!.resume();
+    } catch (e) {
+      console.error('resume failed', e);
+    }
   }
 }
 

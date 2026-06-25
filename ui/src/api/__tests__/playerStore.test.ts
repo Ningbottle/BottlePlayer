@@ -17,6 +17,9 @@ import {
   initPlayerBackend,
   playTrack,
   playAll,
+  togglePlay,
+  __getActiveBackend,
+  __getPlaySession,
 } from '../playerStore';
 import type { Track } from '../normalizer';
 
@@ -34,6 +37,9 @@ function resetStore() {
   playerStore.duration = 0;
   playerStore.errorMsg = '';
   (playerStore as any).audio = null;
+  // Clear the zombie-audio sentinel so initPlayer() doesn't run its teardown
+  // path (which nulls activeBackend) and skip re-creating the backend.
+  (window as any).__bottlemusic_audio__ = undefined;
 }
 
 describe('playerStore integration', () => {
@@ -117,5 +123,78 @@ describe('playerStore integration', () => {
     // Import did not throw, and state fell back to safe defaults.
     expect(mod.playerStore.queue).toEqual([]);
     expect(mod.playerStore.eqBands).toEqual([0, 0, 0, 0, 0]);
+  });
+
+  it('calls playSession.intend() on a successful play (session opens for the new track)', async () => {
+    // Bug A regression guard: intend() must run on the success path so the
+    // session exists before the 'play' event fires. Previously intend() ran
+    // after playUrl(), so onPlay() opened the wrong session and listened_seconds
+    // stayed 0. The seek-immune accumulation itself is unit-tested in
+    // playSessionTracker.test.ts; here we guard that playTrack wires intend().
+    initPlayer();
+    initPlayerBackend();
+
+    let intendCalled = false;
+    const tracker = __getPlaySession();
+    const realIntend = tracker.intend.bind(tracker);
+    tracker.intend = (t: any) => { intendCalled = true; realIntend(t); };
+
+    // jsdom audio.play() rejects, so patch the backend to report success.
+    const { Html5AudioBackend } = await import('../html5Backend');
+    const realPlayUrl = Html5AudioBackend.prototype.playUrl;
+    Html5AudioBackend.prototype.playUrl = async function () { return true; };
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://x/song.mp3' } });
+    });
+
+    const track = mkTrack('ordering-test');
+    track.Image = 'http://img/';
+    await playTrack(track);
+
+    Html5AudioBackend.prototype.playUrl = realPlayUrl;
+    expect(intendCalled).toBe(true);
+  });
+
+  it('togglePlay re-fetches the URL when the audio has no src (resume-after-stop bug)', async () => {
+    // Bug: after stop()/init-restore the <audio> can have an empty src but a
+    // currentTrack still set. togglePlay→resume()→audio.play() on an empty src
+    // rejects AbortError ("play() interrupted by pause()"), leaving the player
+    // stuck: the play button toggles isPlaying but no audio plays and the
+    // progress bar never moves. togglePlay must detect the empty/unloaded src
+    // and re-run playTrack(currentTrack) to load a fresh URL.
+    initPlayer();
+    initPlayerBackend();
+
+    // Simulate the stuck state: a currentTrack exists but audio.src is empty
+    // (as happens after initPlayer restores a track without loading it, or
+    // after a stop cleared the src).
+    const track = mkTrack('stuck-track');
+    track.Image = 'http://img/';
+    playerStore.currentTrack = track;
+    playerStore.queue = [track];
+    playerStore.currentIndex = 0;
+    playerStore.isPlaying = false;
+    const audio = (playerStore as any).audio as HTMLAudioElement;
+    audio.removeAttribute('src');
+
+    // Stub playUrl on the prototype so jsdom's rejecting audio.play() is bypassed.
+    const { Html5AudioBackend } = await import('../html5Backend');
+    const realPlayUrl = Html5AudioBackend.prototype.playUrl;
+    Html5AudioBackend.prototype.playUrl = async function (this: any, url: string) {
+      this.audio.src = url;
+      return true;
+    };
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://x/fresh.mp3' } });
+    });
+
+    await togglePlay();
+
+    Html5AudioBackend.prototype.playUrl = realPlayUrl;
+    // togglePlay should have re-loaded via playTrack: the audio now has a real src.
+    expect(audio.src, 'togglePlay should re-load the URL via playTrack').toContain('fresh.mp3');
   });
 });
