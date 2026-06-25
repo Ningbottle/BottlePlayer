@@ -8,6 +8,31 @@ namespace echo::stats {
 
 using nlohmann::json;
 
+static std::string SqlEscape(const std::string& s) {
+  std::string out;
+  out.reserve(s.size() + 8);
+  for (char c : s) {
+    if (c == '\'') out += "''";
+    else out += c;
+  }
+  return out;
+}
+
+static double SafeStod(const std::string& s) {
+  if (s.empty()) return 0.0;
+  try { return std::stod(s); } catch (...) { return 0.0; }
+}
+
+static int SafeStoi(const std::string& s) {
+  if (s.empty()) return 0;
+  try { return std::stoi(s); } catch (...) { return 0; }
+}
+
+static long long SafeStoll(const std::string& s) {
+  if (s.empty()) return 0;
+  try { return std::stoll(s); } catch (...) { return 0; }
+}
+
 PlayStatsService::PlayStatsService(echo::storage::Database& db) : db_(db) {}
 
 long long PlayStatsService::RangeToTimestamp(const std::string& range) {
@@ -23,11 +48,12 @@ bool PlayStatsService::RecordPlay(const PlayRecord& r) {
   std::string sql = std::string("INSERT INTO play_history_v2 "
                     "(song_hash, song_name, singer_name, album_id, album_name, cover_url, "
                     "duration_seconds, completed, listened_seconds, quality, played_at) VALUES (") +
-                    "'" + r.songHash + "','" + r.songName + "','" + r.singerName + "','" +
-                    r.albumId + "','" + r.albumName + "','" + r.coverUrl + "'," +
+                    "'" + SqlEscape(r.songHash) + "','" + SqlEscape(r.songName) + "','" +
+                    SqlEscape(r.singerName) + "','" + SqlEscape(r.albumId) + "','" +
+                    SqlEscape(r.albumName) + "','" + SqlEscape(r.coverUrl) + "'," +
                     std::to_string(r.durationSeconds) + "," +
                     (r.completed ? "1" : "0") + "," +
-                    std::to_string(r.listenedSeconds) + ",'" + r.quality + "'," +
+                    std::to_string(r.listenedSeconds) + ",'" + SqlEscape(r.quality) + "'," +
                     std::to_string(r.playedAtMs) + ")";
   try {
     db_.Execute(sql);
@@ -43,16 +69,16 @@ std::string PlayStatsService::GetSummary(const std::string& range) {
   auto rows = db_.ExecuteQuery(
       "SELECT COUNT(*), COALESCE(SUM(listened_seconds),0), "
       "COUNT(DISTINCT song_hash), COUNT(DISTINCT singer_name), "
-      "CAST(SUM(CASE WHEN completed=1 THEN 1 ELSE 0 END) AS FLOAT) / COUNT(*) "
+      "COALESCE(CAST(SUM(CASE WHEN completed=1 THEN 1 ELSE 0 END) AS FLOAT) / NULLIF(COUNT(*), 0), 0) "
       "FROM play_history_v2 " + where);
   json j;
   if (!rows.empty()) {
     auto& r = rows[0];
-    j["total_plays"] = std::stoi(r[0]);
-    j["total_listened_seconds"] = std::stod(r[1]);
-    j["unique_songs"] = std::stoi(r[2]);
-    j["unique_artists"] = std::stoi(r[3]);
-    j["completion_rate"] = std::stod(r[4]);
+    j["total_plays"] = SafeStoi(r[0]);
+    j["total_listened_seconds"] = SafeStod(r[1]);
+    j["unique_songs"] = SafeStoi(r[2]);
+    j["unique_artists"] = SafeStoi(r[3]);
+    j["completion_rate"] = SafeStod(r[4]);
   } else {
     j["total_plays"] = 0;
     j["total_listened_seconds"] = 0;
@@ -92,18 +118,18 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
       item["singer"] = r[1];
       item["album"] = r[2];
       item["cover_url"] = r[3];
-      item["play_count"] = std::stoi(r[4]);
-      item["total_listened_seconds"] = std::stod(r[5]);
+      item["play_count"] = SafeStoi(r[4]);
+      item["total_listened_seconds"] = SafeStod(r[5]);
     } else if (dim == "artist") {
       item["name"] = r[0];
-      item["play_count"] = std::stoi(r[1]);
-      item["total_listened_seconds"] = std::stod(r[2]);
+      item["play_count"] = SafeStoi(r[1]);
+      item["total_listened_seconds"] = SafeStod(r[2]);
     } else {
       item["name"] = r[0];
       item["singer"] = r[1];
       item["cover_url"] = r[2];
-      item["play_count"] = std::stoi(r[3]);
-      item["total_listened_seconds"] = std::stod(r[4]);
+      item["play_count"] = SafeStoi(r[3]);
+      item["total_listened_seconds"] = SafeStod(r[4]);
     }
     items.push_back(item);
   }
@@ -117,14 +143,14 @@ std::string PlayStatsService::GetTimeline(const std::string& range) {
   long long since = RangeToTimestamp(range);
   std::string where = since > 0 ? "WHERE played_at >= " + std::to_string(since) : "";
   auto rows = db_.ExecuteQuery(
-      "SELECT played_at / 86400000 as day, COUNT(*) as cnt "
-      "FROM play_history_v2 " + where +
-      " GROUP BY day ORDER BY day");
+      "SELECT date(played_at/1000, 'unixepoch', 'localtime') AS date, "
+      "COUNT(*) AS count FROM play_history_v2 " + where +
+      " GROUP BY date ORDER BY date ASC");
   json items = json::array();
   for (auto& r : rows) {
     json item;
-    item["day"] = std::stoll(r[0]);
-    item["play_count"] = std::stoi(r[1]);
+    item["date"] = r[0];
+    item["count"] = SafeStoi(r[1]);
     items.push_back(item);
   }
   json j;
@@ -146,11 +172,11 @@ std::string PlayStatsService::GetRecent(int limit, int offset) {
     item["singer"] = r[2];
     item["album"] = r[3];
     item["cover_url"] = r[4];
-    item["duration_seconds"] = std::stod(r[5]);
-    item["listened_seconds"] = std::stod(r[6]);
+    item["duration_seconds"] = SafeStod(r[5]);
+    item["listened_seconds"] = SafeStod(r[6]);
     item["completed"] = r[7] == "1";
     item["quality"] = r[8];
-    item["played_at"] = std::stoll(r[9]);
+    item["played_at"] = SafeStoll(r[9]);
     items.push_back(item);
   }
   json j;
@@ -166,7 +192,7 @@ std::string PlayStatsService::GetRecommendations(int limit) {
   for (auto& r : rows) {
     json item;
     item["singer"] = r[0];
-    item["play_count"] = std::stoi(r[1]);
+    item["play_count"] = SafeStoi(r[1]);
     items.push_back(item);
   }
   json j;

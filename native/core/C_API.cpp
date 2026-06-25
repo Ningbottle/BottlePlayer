@@ -418,26 +418,46 @@ ECHO_C_API void EchoStatsRecordPlay(const char* json_record) {
 }
 
 ECHO_C_API const char* EchoStatsGetSummary(const char* range) {
-    if (!g_stats || !range) return _dup_str(R"({"total_plays":0})");
-    return _dup_str(g_stats->GetSummary(range).c_str());
+    try {
+        if (!g_stats) return _dup_str(R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all"})");
+        return _dup_str(g_stats->GetSummary(range ? range : "all").c_str());
+    } catch (...) {
+        return _dup_str(R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all"})");
+    }
 }
 
 ECHO_C_API const char* EchoStatsGetTop(const char* dim, const char* range, int limit) {
-    if (!g_stats || !dim || !range) return _dup_str(R"({"items":[]})");
-    return _dup_str(g_stats->GetTop(dim, range, limit).c_str());
+    try {
+        if (!g_stats || !dim || !range) return _dup_str(R"({"items":[]})");
+        return _dup_str(g_stats->GetTop(dim, range, limit).c_str());
+    } catch (...) {
+        return _dup_str(R"({"items":[]})");
+    }
 }
 
 ECHO_C_API const char* EchoStatsGetTimeline(const char* range) {
-    if (!g_stats || !range) return _dup_str(R"({"items":[]})");
-    return _dup_str(g_stats->GetTimeline(range).c_str());
+    try {
+        if (!g_stats || !range) return _dup_str(R"({"items":[]})");
+        return _dup_str(g_stats->GetTimeline(range).c_str());
+    } catch (...) {
+        return _dup_str(R"({"items":[]})");
+    }
 }
 
 ECHO_C_API const char* EchoStatsGetRecent(int limit, int offset) {
-    if (!g_stats) return _dup_str(R"({"items":[]})");
-    return _dup_str(g_stats->GetRecent(limit, offset).c_str());
+    try {
+        if (!g_stats) return _dup_str(R"({"items":[]})");
+        return _dup_str(g_stats->GetRecent(limit, offset).c_str());
+    } catch (...) {
+        return _dup_str(R"({"items":[]})");
+    }
 }
 
 ECHO_C_API const char* EchoStatsGetRecommendations(int limit) {
-    if (!g_stats) return _dup_str(R"({"items":[]})");
-    return _dup_str(g_stats->GetRecommendations(limit).c_str());
+    try {
+        if (!g_stats) return _dup_str(R"({"items":[]})");
+        return _dup_str(g_stats->GetRecommendations(limit).c_str());
+    } catch (...) {
+        return _dup_str(R"({"items":[]})");
+    }
 }

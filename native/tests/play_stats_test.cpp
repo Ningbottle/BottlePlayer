@@ -181,7 +181,7 @@ int main() {
     assert(j["items"].size() == 2);  // 2 distinct days
     int totalFromTimeline = 0;
     for (const auto& item : j["items"]) {
-      totalFromTimeline += item["play_count"].get<int>();
+      totalFromTimeline += item["count"].get<int>();
     }
     assert(totalFromTimeline == 6);
   }
