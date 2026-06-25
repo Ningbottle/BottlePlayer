@@ -162,7 +162,7 @@ describe('playerStore integration', () => {
     // currentTrack still set. togglePlay→resume()→audio.play() on an empty src
     // rejects AbortError ("play() interrupted by pause()"), leaving the player
     // stuck: the play button toggles isPlaying but no audio plays and the
-    // progress bar never moves. togglePlay must detect the empty/unloaded src
+    // progress bar never moves. togglePlay must detect the empty src
     // and re-run playTrack(currentTrack) to load a fresh URL.
     initPlayer();
     initPlayerBackend();
@@ -196,5 +196,58 @@ describe('playerStore integration', () => {
     Html5AudioBackend.prototype.playUrl = realPlayUrl;
     // togglePlay should have re-loaded via playTrack: the audio now has a real src.
     expect(audio.src, 'togglePlay should re-load the URL via playTrack').toContain('fresh.mp3');
+  });
+
+  it('togglePlay does NOT re-fetch when audio has a valid src even if readyState===0', async () => {
+    // Regression guard for the readyState===0 false-positive: a fast pause/
+    // resume during loading must resume the existing playback, not restart
+    // via playTrack (which would lose currentTime and start from 0).
+    initPlayer();
+    initPlayerBackend();
+
+    const track = mkTrack('mid-load-track');
+    track.Image = 'http://img/';
+    playerStore.currentTrack = track;
+    playerStore.queue = [track];
+    playerStore.currentIndex = 0;
+    playerStore.isPlaying = false;
+    const audio = (playerStore as any).audio as HTMLAudioElement;
+    // Simulate a mid-load state: src is set but readyState is HAVE_NOTHING.
+    audio.src = 'http://x/loading.mp3';
+    Object.defineProperty(audio, 'readyState', { value: 0, writable: true, configurable: true });
+
+    // Mock the backend to track which path togglePlay takes. If the
+    // readyState===0 false-positive regresses, togglePlay will call
+    // playTrack → mockInvoke('song_url') → fail, and isPlaying stays false.
+    const playUrlCalls: string[] = [];
+    const { Html5AudioBackend } = await import('../html5Backend');
+    const realPlayUrl = Html5AudioBackend.prototype.playUrl;
+    Html5AudioBackend.prototype.playUrl = async function (this: any, url: string) {
+      playUrlCalls.push(url);
+      return true;
+    };
+
+    // Stub song_url to fail so we can detect if playTrack path was taken
+    // (a successful playTrack→playUrl would set isPlaying=true via backend,
+    // but playTrack path will throw on the song_url invoke stub mismatch).
+    let songUrlCalled = false;
+    const realInvoke = mockInvoke.getMockImplementation();
+    mockInvoke.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === 'song_url') {
+        songUrlCalled = true;
+        return JSON.stringify({ status: 200, body: { error: 'blocked by test' } });
+      }
+      if (realInvoke) return realInvoke(cmd, args);
+      return JSON.stringify({ status: 200, body: {} });
+    });
+
+    await togglePlay();
+
+    Html5AudioBackend.prototype.playUrl = realPlayUrl;
+
+    // resume path → isPlaying=true, no song_url fetch
+    // playTrack path → songUrlCalled=true (we want to assert this is FALSE)
+    expect(songUrlCalled, 'togglePlay must not fall through to playTrack when src is valid').toBe(false);
+    expect(playUrlCalls, 'playUrl must not be called for resume').toEqual([]);
   });
 });

@@ -503,8 +503,10 @@ export async function togglePlay() {
     // audio.play() rejects AbortError ("play() interrupted by pause()") and the
     // player gets stuck: the button toggles but nothing plays and the progress
     // bar never moves. Detect that state and re-load via playTrack instead.
+    // NB: don't gate on readyState===0 — that's also true mid-load for a
+    // valid src, and would cause a fast pause/resume to restart the track.
     const audio = playerStore.audio;
-    const noSrc = !audio || !audio.src || audio.readyState === 0;
+    const noSrc = !audio || !audio.src;
     if (noSrc) {
       await playTrack(playerStore.currentTrack);
       return;

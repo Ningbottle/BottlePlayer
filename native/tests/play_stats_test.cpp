@@ -77,35 +77,36 @@ int main() {
   const long long t6 = day2;
 
   auto makeRecord = [](const std::string& hash, const std::string& name,
-                       const std::string& singer, const std::string& album,
-                       const std::string& cover, double duration,
-                       bool completed, double listened,
+                       const std::string& singer, const std::string& albumId,
+                       const std::string& album, const std::string& cover,
+                       double duration, bool completed, double listened,
                        const std::string& quality, long long playedAt) {
     return nlohmann::json{
         {"song_hash", hash},         {"song_name", name},
-        {"singer_name", singer},     {"album_id", "1"},
+        {"singer_name", singer},     {"album_id", albumId},
         {"album_name", album},       {"cover_url", cover},
         {"duration_seconds", duration}, {"completed", completed},
         {"listened_seconds", listened}, {"quality", quality},
         {"played_at", playedAt}};
   };
 
-  // Song A — 3 plays
-  RecordPlay(makeRecord("hashA", "Song A", "Artist X", "Album One",
+  // Song A — 3 plays (album "album-1")
+  RecordPlay(makeRecord("hashA", "Song A", "Artist X", "album-1", "Album One",
                         "http://img.example/a.jpg", 240.0, true, 240.0, "128", t1));
-  RecordPlay(makeRecord("hashA", "Song A", "Artist X", "Album One",
+  RecordPlay(makeRecord("hashA", "Song A", "Artist X", "album-1", "Album One",
                         "http://img.example/a.jpg", 240.0, true, 240.0, "128", t2));
-  RecordPlay(makeRecord("hashA", "Song A", "Artist X", "Album One",
+  RecordPlay(makeRecord("hashA", "Song A", "Artist X", "album-1", "Album One",
                         "http://img.example/a.jpg", 240.0, true, 240.0, "128", t4));
 
-  // Song B — 2 plays
-  RecordPlay(makeRecord("hashB", "Song B", "Artist X", "Album One",
+  // Song B — 2 plays (album "album-1")
+  RecordPlay(makeRecord("hashB", "Song B", "Artist X", "album-1", "Album One",
                         "http://img.example/b.jpg", 180.0, false, 90.0, "128", t3));
-  RecordPlay(makeRecord("hashB", "Song B", "Artist X", "Album One",
+  RecordPlay(makeRecord("hashB", "Song B", "Artist X", "album-1", "Album One",
                         "http://img.example/b.jpg", 180.0, false, 90.0, "128", t5));
 
-  // Song C — 1 play
-  RecordPlay(makeRecord("hashC", "Song C", "Artist Y", "Album Two",
+  // Song C — 1 play (album "album-2", same display name "Album One" would
+  // wrongly merge with the above if grouping by name — proves the album_id fix)
+  RecordPlay(makeRecord("hashC", "Song C", "Artist Y", "album-2", "Album One",
                         "http://img.example/c.jpg", 300.0, true, 300.0, "sq", t6));
 
   // ── GetSummary ("all") ───────────────────────────────────────────────
@@ -160,15 +161,20 @@ int main() {
   }
 
   // ── GetTop (album) ───────────────────────────────────────────────────
+  // Seeded with TWO distinct album_ids both named "Album One" — grouping by
+  // album_id (not name) must keep them separate. Old code merged by name.
   std::cout << "[PlayStatsTest] Testing GetTop(album)..." << std::endl;
   {
     auto j = ParseAndFree(EchoStatsGetTop("album", "all", 10));
     std::cout << "  " << j.dump() << std::endl;
     assert(j["dim"] == "album");
     assert(j["items"].size() == 2);
+    // album-1 (5 plays: 3× Song A + 2× Song B) must outrank album-2 (1 play)
     assert(j["items"][0]["name"] == "Album One");
+    assert(j["items"][0]["album_id"] == "album-1");
     assert(j["items"][0]["play_count"] == 5);
-    assert(j["items"][1]["name"] == "Album Two");
+    assert(j["items"][1]["name"] == "Album One");
+    assert(j["items"][1]["album_id"] == "album-2");
     assert(j["items"][1]["play_count"] == 1);
   }
 

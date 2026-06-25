@@ -1,5 +1,7 @@
 use std::ffi::CStr;
 use std::ffi::CString;
+use std::os::raw::c_char;
+use std::path::Path;
 use crate::backend_api;
 
 #[tauri::command]
@@ -112,10 +114,29 @@ mod tests {
             })
     }
 
+    /// Test-only: load the DLL and call EchoInitializeWithPaths directly,
+    /// bypassing the global CApiHandle cache. Each test gets its own
+    /// app_data_dir written to the C++ g_db global. On Windows,
+    /// Library::new returns the already-loaded DLL image — C++ globals
+    /// (g_db, g_api, g_stats) are reset/reinitialized for each call.
+    fn init_c_api_with_dir(dll_path: &str, app_data_dir: &Path) {
+        use libloading::Library;
+        unsafe {
+            let lib = Library::new(dll_path).expect("load DLL");
+            let init: libloading::Symbol<unsafe extern "C" fn(*const c_char)> = lib
+                .get(b"EchoInitializeWithPaths")
+                .expect("find EchoInitializeWithPaths");
+            let dir_str = app_data_dir.to_str().expect("non-utf8 path");
+            let c_dir = CString::new(dir_str).expect("CString::new");
+            init(c_dir.as_ptr());
+        }
+    }
+
     fn make_record(
         hash: &str,
         name: &str,
         singer: &str,
+        album_id: &str,
         album: &str,
         duration: f64,
         completed: bool,
@@ -126,7 +147,7 @@ mod tests {
             "song_hash": hash,
             "song_name": name,
             "singer_name": singer,
-            "album_id": "1",
+            "album_id": album_id,
             "album_name": album,
             "cover_url": "",
             "duration_seconds": duration,
@@ -143,29 +164,38 @@ mod tests {
         let _lock = DLL_GUARD.lock().unwrap();
 
         let dll_path = find_dll();
-        // Use a unique temp dir per test run to avoid stale-data races when
-        // a previous run's SQLite handle lingered and remove_dir_all failed.
+        // Each test gets its own app_data_dir. We bypass `init_with_paths`'s
+        // global handle cache by directly calling `EchoInitializeWithPaths`:
+        // on Windows, Library::new returns the already-loaded DLL instance, so
+        // the C++ globals (g_db, g_api) are reinitialized with the new path.
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
-        let app_data_dir = std::env::temp_dir().join(format!("bottlemusic_stats_test_{}", stamp));
+        let app_data_dir = std::env::temp_dir().join(format!(
+            "bottlemusic_stats_test_{}_{}",
+            std::process::id(),
+            stamp
+        ));
         let _ = std::fs::remove_dir_all(&app_data_dir);
         std::fs::create_dir_all(&app_data_dir).unwrap();
-        backend_api::init_with_paths(&dll_path, Some(app_data_dir.to_str().unwrap()))
-            .expect("Failed to init C API");
+
+        init_c_api_with_dir(&dll_path, &app_data_dir);
 
         let now_ms = chrono::Local::now().timestamp_millis();
         let day1 = now_ms - 86400000;
         let day2 = now_ms;
 
         let records = vec![
-            make_record("hashA", "Song A", "Artist X", "Album One", 240.0, true, 240.0, day1),
-            make_record("hashA", "Song A", "Artist X", "Album One", 240.0, true, 240.0, day1 + 1000),
-            make_record("hashA", "Song A", "Artist X", "Album One", 240.0, true, 240.0, day2 - 2000),
-            make_record("hashB", "Song B", "Artist X", "Album One", 180.0, false, 90.0, day1 + 2000),
-            make_record("hashB", "Song B", "Artist X", "Album One", 180.0, false, 90.0, day2 - 1000),
-            make_record("hashC", "Song C", "Artist Y", "Album Two", 300.0, true, 300.0, day2),
+            // album-1: 5 plays across Song A (3) + Song B (2)
+            make_record("hashA", "Song A", "Artist X", "album-1", "Album One", 240.0, true, 240.0, day1),
+            make_record("hashA", "Song A", "Artist X", "album-1", "Album One", 240.0, true, 240.0, day1 + 1000),
+            make_record("hashA", "Song A", "Artist X", "album-1", "Album One", 240.0, true, 240.0, day2 - 2000),
+            make_record("hashB", "Song B", "Artist X", "album-1", "Album One", 180.0, false, 90.0, day1 + 2000),
+            make_record("hashB", "Song B", "Artist X", "album-1", "Album One", 180.0, false, 90.0, day2 - 1000),
+            // album-2: 1 play (Song C). Same display name "Album One" — must
+            // NOT merge with album-1 when grouping by album_id.
+            make_record("hashC", "Song C", "Artist Y", "album-2", "Album One", 300.0, true, 300.0, day2),
         ];
 
         for record in &records {
@@ -204,8 +234,13 @@ mod tests {
         let j: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(j["dim"], "album");
         assert_eq!(j["items"].as_array().unwrap().len(), 2);
+        // album-1 (5 plays) outranks album-2 (1 play) — both named "Album One"
         assert_eq!(j["items"][0]["name"], "Album One");
+        assert_eq!(j["items"][0]["album_id"], "album-1");
         assert_eq!(j["items"][0]["play_count"], 5);
+        assert_eq!(j["items"][1]["name"], "Album One");
+        assert_eq!(j["items"][1]["album_id"], "album-2");
+        assert_eq!(j["items"][1]["play_count"], 1);
 
         let result = stats_get_timeline("all".into()).expect("get_timeline failed");
         let j: serde_json::Value = serde_json::from_str(&result).unwrap();

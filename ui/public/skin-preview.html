@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="zh-CN" data-skin="aurora" data-mode="light">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BottleMusic 皮肤对比 · Aurora vs Newsprint</title>
+<style>
+/* ═══ Newsprint skin tokens (v1) ═══ */
+:root[data-skin="newsprint"] {
+  --paper: #f1ead8; --paper-2: #ebe2cb; --paper-edge: #d8cdb1;
+  --ink: #221b12; --ink-soft: #4a3f2f; --ink-mute: #847460; --ink-faint: #b5a98e;
+  --rule: rgba(34,27,18,0.14); --rule-soft: rgba(34,27,18,0.07);
+  --accent: #a8311b; --accent-deep: #7a2010;
+  --glass-tint: rgba(248,243,230,0.46); --glass-edge: rgba(255,252,243,0.85);
+  --glass-blur: 22px; --grain: 0.28;
+  --font-serif: "Noto Serif SC","EB Garamond","Songti SC",serif;
+  --font-sans: "Inter","Microsoft YaHei UI",system-ui,sans-serif;
+  --shadow-card: 0 2px 8px rgba(40,28,12,0.12);
+  --shadow-card-hover: 0 4px 16px rgba(40,28,12,0.18);
+  --radius: 14px; --radius-btn: 6px;
+}
+:root[data-skin="newsprint"] .paper-bg {
+  background: var(--paper); position: fixed; inset: 0; z-index: -1;
+  background-image:
+    radial-gradient(circle at 20% 30%, rgba(168,49,27,0.03) 0%, transparent 50%),
+    radial-gradient(circle at 80% 70%, rgba(34,27,18,0.02) 0%, transparent 50%);
+}
+
+/* ═══ Aurora skin tokens (v2) ═══ */
+:root[data-skin="aurora"] {
+  --paper: #ffffff; --paper-2: #f5f5f7; --paper-edge: #e8e8ed;
+  --ink: #1d1d1f; --ink-soft: #6e6e73; --ink-mute: #86868b; --ink-faint: #aeaeb2;
+  --rule: rgba(0,0,0,0.06); --rule-soft: rgba(0,0,0,0.03);
+  --accent: #fa233b; --accent-deep: #d70015;
+  --glass-tint: rgba(255,255,255,0.72); --glass-edge: rgba(0,0,0,0.04);
+  --glass-blur: 20px; --grain: 0;
+  --font-serif: "SF Pro Display",-apple-system,"PingFang SC",system-ui,sans-serif;
+  --font-sans: "SF Pro Text",-apple-system,"PingFang SC",system-ui,sans-serif;
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.04), 0 4px 12px rgba(0,0,0,0.04);
+  --shadow-card-hover: 0 2px 8px rgba(0,0,0,0.06), 0 8px 24px rgba(0,0,0,0.06);
+  --radius: 12px; --radius-btn: 8px;
+}
+:root[data-skin="aurora"] .paper-bg { background: var(--paper); position: fixed; inset: 0; z-index: -1; }
+
+/* ═══ Dark mode (orthogonal) ═══ */
+:root[data-mode="dark"] {
+  --paper: #1c1c1e; --paper-2: #2c2c2e; --paper-edge: #3a3a3c;
+  --ink: #ffffff; --ink-soft: rgba(235,235,245,0.6); --ink-mute: rgba(235,235,245,0.33);
+  --ink-faint: rgba(235,235,245,0.25);
+  --rule: rgba(255,255,255,0.08); --rule-soft: rgba(255,255,255,0.04);
+  --glass-tint: rgba(28,28,30,0.72);
+  --shadow-card: 0 1px 3px rgba(0,0,0,0.3), 0 4px 12px rgba(0,0,0,0.2);
+}
+
+/* ═══ Shared layout ═══ */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: var(--font-sans); background: var(--paper); color: var(--ink); transition: background 200ms, color 200ms; }
+
+.toolbar {
+  position: sticky; top: 0; z-index: 100;
+  background: var(--glass-tint); backdrop-filter: blur(var(--glass-blur));
+  border-bottom: 1px solid var(--rule);
+  padding: 12px 24px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+}
+.toolbar h1 { font-size: 16px; font-weight: 600; margin-right: auto; }
+.toolbar button {
+  padding: 6px 14px; border-radius: var(--radius-btn); border: 1px solid var(--rule);
+  background: var(--paper-2); color: var(--ink); font-family: var(--font-sans);
+  font-size: 13px; cursor: pointer; transition: all 150ms;
+}
+.toolbar button.active { background: var(--accent); color: white; border-color: var(--accent); }
+.toolbar button:hover { transform: scale(0.98); }
+
+.content { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+
+.section-title { font-family: var(--font-serif); font-size: 28px; font-weight: 700; margin-bottom: 8px; letter-spacing: -0.02em; }
+.section-sub { color: var(--ink-mute); font-size: 14px; margin-bottom: 24px; }
+
+/* Card grid */
+.grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 20px; margin-bottom: 40px; }
+.card {
+  background: var(--paper); border-radius: var(--radius);
+  box-shadow: var(--shadow-card); transition: box-shadow 200ms, transform 200ms;
+  overflow: hidden; cursor: pointer;
+}
+.card:hover { box-shadow: var(--shadow-card-hover); transform: translateY(-2px); }
+.card .cover {
+  width: 100%; aspect-ratio: 1; background: var(--paper-2);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 40px; color: var(--ink-faint);
+}
+.card .meta { padding: 12px; }
+.card .title { font-size: 14px; font-weight: 600; color: var(--ink); }
+.card .sub { font-size: 12px; color: var(--ink-mute); margin-top: 2px; }
+
+/* Player bar mock */
+.player-bar {
+  background: var(--glass-tint); backdrop-filter: blur(var(--glass-blur));
+  border: 1px solid var(--glass-edge); border-radius: var(--radius);
+  padding: 16px 20px; display: flex; align-items: center; gap: 16px; margin-bottom: 40px;
+}
+.player-bar .cover-thumb {
+  width: 56px; height: 56px; border-radius: 8px; background: var(--paper-2);
+  display: flex; align-items: center; justify-content: center; font-size: 24px;
+}
+.player-bar .track-info { flex: 1; }
+.player-bar .track-name { font-size: 14px; font-weight: 600; }
+.player-bar .track-artist { font-size: 12px; color: var(--ink-mute); }
+.player-bar .controls { display: flex; gap: 8px; }
+.player-bar .ctrl-btn {
+  width: 36px; height: 36px; border-radius: 50%; border: none;
+  background: var(--paper-2); color: var(--ink); cursor: pointer;
+  display: flex; align-items: center; justify-content: center; font-size: 14px;
+  transition: all 150ms;
+}
+.player-bar .ctrl-btn.primary { background: var(--accent); color: white; }
+.player-bar .ctrl-btn:hover { transform: scale(1.05); }
+
+/* Buttons */
+.btn-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 40px; }
+.btn {
+  padding: 10px 20px; border-radius: var(--radius-btn); font-size: 14px;
+  font-family: var(--font-sans); cursor: pointer; transition: all 150ms; border: none;
+}
+.btn-primary { background: var(--accent); color: white; }
+.btn-ghost { background: transparent; color: var(--ink); border: 1px solid var(--paper-edge); }
+.btn:hover { transform: scale(0.98); }
+
+/* Token table */
+.token-table { width: 100%; border-collapse: collapse; margin-bottom: 40px; }
+.token-table th, .token-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--rule); font-size: 13px; }
+.token-table th { color: var(--ink-mute); font-weight: 500; }
+.token-table .swatch { width: 20px; height: 20px; border-radius: 4px; display: inline-block; vertical-align: middle; margin-right: 8px; border: 1px solid var(--rule); }
+
+/* Sidebar mock */
+.sidebar-mock {
+  background: var(--paper-2); border-radius: var(--radius); padding: 16px;
+  width: 240px; margin-bottom: 40px;
+}
+.sidebar-mock .nav-item {
+  padding: 8px 12px; border-radius: var(--radius-btn); font-size: 14px;
+  color: var(--ink-soft); margin-bottom: 4px; cursor: pointer;
+}
+.sidebar-mock .nav-item.active { background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: var(--shadow-card); }
+</style>
+</head>
+<body>
+<div class="paper-bg"></div>
+
+<div class="toolbar">
+  <h1>🎵 BottleMusic 皮肤对比</h1>
+  <button id="btn-aurora" class="active" onclick="setSkin('aurora')">Aurora (v2)</button>
+  <button id="btn-newsprint" onclick="setSkin('newsprint')">Newsprint (v1)</button>
+  <button id="btn-light" class="active" onclick="setMode('light')">☀️ 浅色</button>
+  <button id="btn-dark" onclick="setMode('dark')">🌙 深色</button>
+</div>
+
+<div class="content">
+  <div class="section-title" id="skin-name">Aurora</div>
+  <div class="section-sub" id="skin-desc">Apple Music 浅色风格 — 纯白背景、红色强调、圆润卡片</div>
+
+  <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;">按钮</h3>
+  <div class="btn-row">
+    <button class="btn btn-primary">立即播放</button>
+    <button class="btn btn-ghost">查看更多</button>
+  </div>
+
+  <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;">歌单卡片</h3>
+  <div class="grid">
+    <div class="card"><div class="cover">🎵</div><div class="meta"><div class="title">华语热门</div><div class="sub">by 编辑部</div></div></div>
+    <div class="card"><div class="cover">🎸</div><div class="meta"><div class="title">摇滚经典</div><div class="sub">by DJ Mike</div></div></div>
+    <div class="card"><div class="cover">🎹</div><div class="meta"><div class="title">钢琴小品</div><div class="sub">by 静夜听</div></div></div>
+    <div class="card"><div class="cover">🎧</div><div class="meta"><div class="title">电子节拍</div><div class="sub">by Beat Lab</div></div></div>
+  </div>
+
+  <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;">播放栏</h3>
+  <div class="player-bar">
+    <div class="cover-thumb">💿</div>
+    <div class="track-info">
+      <div class="track-name">读懂一首歌 (晚秋)</div>
+      <div class="track-artist">毛不易 / 诗意精选</div>
+    </div>
+    <div class="controls">
+      <button class="ctrl-btn">⏮</button>
+      <button class="ctrl-btn primary">▶</button>
+      <button class="ctrl-btn">⏭</button>
+    </div>
+  </div>
+
+  <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;">侧边栏</h3>
+  <div class="sidebar-mock">
+    <div class="nav-item active">🏠 首页</div>
+    <div class="nav-item">📜 最近播放</div>
+    <div class="nav-item">♥️ 我的收藏</div>
+    <div class="nav-item">⚙️ 设置</div>
+  </div>
+
+  <h3 style="font-size:16px;font-weight:600;margin-bottom:12px;">Token 对比</h3>
+  <table class="token-table">
+    <tr><th>Token</th><th>值</th><th>色样</th></tr>
+    <tr><td>--paper</td><td id="t-paper"></td><td><span class="swatch" id="s-paper"></span></td></tr>
+    <tr><td>--paper-2</td><td id="t-paper2"></td><td><span class="swatch" id="s-paper2"></span></td></tr>
+    <tr><td>--ink</td><td id="t-ink"></td><td><span class="swatch" id="s-ink"></span></td></tr>
+    <tr><td>--ink-mute</td><td id="t-inkmute"></td><td><span class="swatch" id="s-inkmute"></span></td></tr>
+    <tr><td>--accent</td><td id="t-accent"></td><td><span class="swatch" id="s-accent"></span></td></tr>
+    <tr><td>--rule</td><td id="t-rule"></td><td><span class="swatch" id="s-rule"></span></td></tr>
+  </table>
+</div>
+
+<script>
+function setSkin(skin) {
+  document.documentElement.dataset.skin = skin;
+  document.querySelectorAll('#btn-aurora, #btn-newsprint').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + skin).classList.add('active');
+  const names = { aurora: 'Aurora', newsprint: 'Newsprint' };
+  const descs = {
+    aurora: 'Apple Music 浅色风格 — 纯白背景、红色强调、圆润卡片',
+    newsprint: '报纸印刷风 — 米色纸面、墨色文字、衬线字体'
+  };
+  document.getElementById('skin-name').textContent = names[skin];
+  document.getElementById('skin-desc').textContent = descs[skin];
+  updateTokens();
+}
+function setMode(mode) {
+  document.documentElement.dataset.mode = mode;
+  document.querySelectorAll('#btn-light, #btn-dark').forEach(b => b.classList.remove('active'));
+  document.getElementById('btn-' + mode).classList.add('active');
+  updateTokens();
+}
+function updateTokens() {
+  const cs = getComputedStyle(document.documentElement);
+  const tokens = [
+    ['paper','--paper'], ['paper2','--paper-2'], ['ink','--ink'],
+    ['inkmute','--ink-mute'], ['accent','--accent'], ['rule','--rule']
+  ];
+  tokens.forEach(([id, varName]) => {
+    const val = cs.getPropertyValue(varName).trim();
+    document.getElementById('t-' + id).textContent = val;
+    const sw = document.getElementById('s-' + id);
+    if (val.startsWith('#') || val.startsWith('rgb')) sw.style.background = val;
+    else if (val.startsWith('rgba')) sw.style.background = val;
+  });
+}
+updateTokens();
+</script>
+</body>
+</html>

@@ -101,8 +101,10 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
     groupCol = "singer_name";
     nameCol = "singer_name";
   } else {
-    groupCol = "album_name";
-    nameCol = "album_name, singer_name, cover_url";
+    // #4: group by album_id, not album_name — two different albums with the
+    // same name from different artists must not be merged in the stats.
+    groupCol = "album_id";
+    nameCol = "album_id, album_name, singer_name, cover_url";
   }
 
   std::string sql = "SELECT " + nameCol + ", COUNT(*) as cnt, "
@@ -125,11 +127,12 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
       item["play_count"] = SafeStoi(r[1]);
       item["total_listened_seconds"] = SafeStod(r[2]);
     } else {
-      item["name"] = r[0];
-      item["singer"] = r[1];
-      item["cover_url"] = r[2];
-      item["play_count"] = SafeStoi(r[3]);
-      item["total_listened_seconds"] = SafeStod(r[4]);
+      item["name"] = r[1];          // album_name (display)
+      item["album_id"] = r[0];      // for client-side dedup/routing
+      item["singer"] = r[2];
+      item["cover_url"] = r[3];
+      item["play_count"] = SafeStoi(r[4]);
+      item["total_listened_seconds"] = SafeStod(r[5]);
     }
     items.push_back(item);
   }
