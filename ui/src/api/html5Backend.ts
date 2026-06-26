@@ -24,7 +24,8 @@ export class Html5AudioBackend implements PlayerBackend {
   async resume(): Promise<void> { await this.audio.play(); }
   async stop(): Promise<void> {
     this.audio.pause();
-    this.audio.currentTime = 0;
+    this.audio.removeAttribute('src');
+    this.audio.load();
   }
 
   async seek(seconds: number): Promise<void> {

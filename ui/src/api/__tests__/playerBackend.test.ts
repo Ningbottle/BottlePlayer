@@ -65,4 +65,18 @@ describe('Html5AudioBackend', () => {
     expect(audio.play).toHaveBeenCalled();
     expect(audio.src).toBe('https://example.com/song.mp3');
   });
+
+  it('stop clears the loaded src so resume cannot replay stale audio', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.pause = vi.fn();
+    audio.load = vi.fn();
+    audio.src = 'https://example.com/old-song.mp3';
+    const backend = new Html5AudioBackend(audio);
+
+    await backend.stop();
+
+    expect(audio.pause).toHaveBeenCalled();
+    expect(audio.src).toBe('');
+    expect(audio.load).toHaveBeenCalled();
+  });
 });

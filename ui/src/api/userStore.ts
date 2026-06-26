@@ -28,6 +28,21 @@ export const userStore = reactive<UserState>({
   claimMessage: '',
 });
 
+function resetVipState() {
+  userStore.vipLevel = 0;
+  userStore.vipType = 0;
+  userStore.isVip = false;
+  userStore.vipEndDate = '';
+}
+
+function resetLoginState() {
+  userStore.isLoggedIn = false;
+  userStore.userId = '';
+  userStore.username = '未登录';
+  userStore.avatar = '';
+  resetVipState();
+}
+
 export async function checkLoginStatus() {
   userStore.loading = true;
   try {
@@ -47,42 +62,35 @@ export async function checkLoginStatus() {
       // VIP 解析抽到 vipResolver.resolveVip（纯函数，有单元测试覆盖）。
       // 规则摘要：顶层 is_vip/vip_type → 付费；busi_vip[svip] 未过期 → 临时 SVIP；
       // 到期时间取所有来源里"最晚且未过期"的。旧"顶层短路"bug 已由测试锁定。
-      const vip = await apiGet<any>('/user/vip/detail');
-      if (vip && vip.status === 1 && vip.data) {
-        const r = resolveVip(vip.data, Date.now());
-        userStore.vipLevel = r.vipLevel;
-        userStore.vipType = r.vipType;
-        userStore.isVip = r.isVip;
-        userStore.vipEndDate = r.vipEndDate;
+      try {
+        const vip = await apiGet<any>('/user/vip/detail');
+        if (vip && vip.status === 1 && vip.data) {
+          const r = resolveVip(vip.data, Date.now());
+          userStore.vipLevel = r.vipLevel;
+          userStore.vipType = r.vipType;
+          userStore.isVip = r.isVip;
+          userStore.vipEndDate = r.vipEndDate;
 
-        // Backfill avatar/nickname if /user/vip/detail surfaced them.
-        if (r.nickname && !userStore.username.startsWith(r.nickname)) {
-          userStore.username = r.nickname;
+          // Backfill avatar/nickname if /user/vip/detail surfaced them.
+          if (r.nickname && !userStore.username.startsWith(r.nickname)) {
+            userStore.username = r.nickname;
+          }
+          if (r.pic && !userStore.avatar) {
+            userStore.avatar = r.pic;
+          }
+        } else {
+          resetVipState();
         }
-        if (r.pic && !userStore.avatar) {
-          userStore.avatar = r.pic;
-        }
+      } catch (e) {
+        console.warn('VIP detail refresh failed; keeping login state', e);
+        resetVipState();
       }
     } else {
-      userStore.isLoggedIn = false;
-      userStore.userId = '';
-      userStore.username = '未登录';
-      userStore.avatar = '';
-      userStore.vipLevel = 0;
-      userStore.vipType = 0;
-      userStore.isVip = false;
-      userStore.vipEndDate = '';
+      resetLoginState();
     }
   } catch (e) {
     console.error('Check login status error', e);
-    userStore.isLoggedIn = false;
-    userStore.userId = '';
-    userStore.username = '未登录';
-    userStore.avatar = '';
-    userStore.vipLevel = 0;
-    userStore.vipType = 0;
-    userStore.isVip = false;
-    userStore.vipEndDate = '';
+    resetLoginState();
   } finally {
     userStore.loading = false;
   }
@@ -128,13 +136,6 @@ export async function claimVip() {
 
 export function logoutLocal() {
   // Local clear
-  userStore.isLoggedIn = false;
-  userStore.userId = '';
-  userStore.username = '未登录';
-  userStore.avatar = '';
-  userStore.vipLevel = 0;
-  userStore.vipType = 0;
-  userStore.isVip = false;
-  userStore.vipEndDate = '';
+  resetLoginState();
   userStore.claimMessage = '';
 }
