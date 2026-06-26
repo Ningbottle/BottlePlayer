@@ -63,6 +63,10 @@ class RequestScheduler {
   // are detached; the process is expected to be exiting so resource leaks
   // are acceptable. Returns the number of workers that had to be detached.
   std::size_t Shutdown(std::chrono::milliseconds maxWait);
+  // Restart workers after a clean shutdown. Returns false if a previous
+  // bounded shutdown abandoned workers, because those old threads may still
+  // reference this scheduler object.
+  bool Restart();
 
  private:
   struct Job {
@@ -71,6 +75,7 @@ class RequestScheduler {
   };
 
   void WorkerLoop();
+  void StartWorkers();
   std::shared_ptr<std::atomic_bool> PrepareLatestToken(RequestKind kind, std::uint64_t& outGen);
   bool EnqueueJob(Job job);
 
@@ -80,6 +85,7 @@ class RequestScheduler {
   std::mutex mutex_;
   std::condition_variable cv_;
   bool shutdown_ = false;
+  bool abandonedWorkers_ = false;
   std::size_t maxQueueSize_;
 
   static constexpr std::size_t kKindCount = 6;

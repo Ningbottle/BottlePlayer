@@ -7,6 +7,10 @@ namespace echo::async {
 RequestScheduler::RequestScheduler(std::size_t workerCount)
     : workerCount_(workerCount == 0 ? 1 : workerCount),
       maxQueueSize_(workerCount_ * 4) {
+  StartWorkers();
+}
+
+void RequestScheduler::StartWorkers() {
   for (std::size_t i = 0; i < workerCount_; ++i) {
     workers_.emplace_back([this] { WorkerLoop(); });
   }
@@ -89,6 +93,11 @@ void RequestScheduler::Shutdown() {
       worker.join();
     }
   }
+  workers_.clear();
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    abandonedWorkers_ = false;
+  }
 }
 
 std::size_t RequestScheduler::Shutdown(std::chrono::milliseconds maxWait) {
@@ -147,7 +156,29 @@ std::size_t RequestScheduler::Shutdown(std::chrono::milliseconds maxWait) {
       ++abandoned;
     }
   }
+  if (abandoned > 0) {
+    std::lock_guard<std::mutex> lock(mutex_);
+    abandonedWorkers_ = true;
+  }
   return abandoned;
+}
+
+bool RequestScheduler::Restart() {
+  {
+    std::lock_guard<std::mutex> lock(mutex_);
+    if (!shutdown_) {
+      return true;
+    }
+    if (abandonedWorkers_) {
+      return false;
+    }
+    queue_.clear();
+    shutdown_ = false;
+  }
+
+  workers_.clear();
+  StartWorkers();
+  return true;
 }
 
 }  // namespace echo::async

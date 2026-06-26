@@ -198,8 +198,10 @@ if(ECHO_NATIVE_BUILD_TESTS)
     EchoPlaylistContractTest
     EchoProfileSignatureContractTest
     EchoHomeContractTest
+    EchoPlaybackMfsTest
     EchoHttpClientResilienceTest
     EchoRequestSchedulerResilienceTest
+    EchoBiquadFilterTest
     EchoPlayStatsTest
   )
   # 测试进程也需要找到 vcpkg 的动态库；把 bin 目录临时挂到 PATH，

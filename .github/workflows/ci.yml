@@ -60,6 +60,10 @@ jobs:
         run: npx vue-tsc --noEmit
         working-directory: ui
 
+      - name: Cargo test
+        run: cargo test --lib
+        working-directory: ui/src-tauri
+
       - name: Cargo clippy
         run: cargo clippy -- -D warnings
         working-directory: ui/src-tauri

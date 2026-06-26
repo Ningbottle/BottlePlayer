@@ -73,12 +73,15 @@ pnpm tauri dev             # 首跑 5-10 分钟，之后 < 30s
 | M2 接缝固化 | `EchoInitializeWithPaths` 路径可控、`EchoSetLogCallback` 日志回调、`EchoSetEventCallback` ABI 预留、异常隔离 |
 | M3 真并行 | `Database` 内置 mutex + `C_API` 换 `std::shared_mutex`（读并发/写独占）+ Rust `RwLock`；并发测试实测：20 线程 × 50 轮 × 2 请求（含 SQLite）全通过，无死锁 |
 | M4 VIP | 设备指纹注入（`ResolveAndroidMid`）、`error_code` 130012 友好提示、前端成功判定修复、到期时间取最晚未过期的 `busi_vip[svip]`|
+| S1-S5 结构加固 | `RequestScheduler` 可在干净 shutdown 后重启、`EchoShutdown` 生命周期加锁、CTest 环境覆盖全部 native 测试、CI 补跑 Rust 单测 |
 
 **已解决**（原"已知问题"）：
 - ✅ VIP 领取链路：服务端本就正常发放，根因在前端把成功挂在响应里不存在的 `ad_vip_end_time` 上，已修正。
 - ✅ 设备指纹：mid 经 `ResolveAndroidMid` 派生为 38–39 位 Android decimal，dfid 通过 `/register/dev` 正式注册。
 - ✅ 播放体验：点列表即以整列表为播放队列（"下一首"随列表走）、随机/循环改为独立开关、切歌立即停旧曲、修复 HMR 累积的僵尸音频（全局单例 audio）。
 - ✅ 诊断：补全 `/diagnostics/memory` 路由，设置页内存自检可用。
+- ✅ 播放失败收尾：HTML5 stop 会卸载旧 `src`，避免下一次 resume 复播上一首的陈旧 URL。
+- ✅ 登录态刷新：`/user/detail` 成功但 `/user/vip/detail` 超时/失败时保留已登录状态，仅降级 VIP 字段。
 
 **当前已知问题**：
 - 播放核心仍在 WebView（HTML5 Audio）；C++ `PlaybackController`（Media Foundation）仅预留 ABI、尚未接线。

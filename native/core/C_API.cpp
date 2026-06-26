@@ -69,6 +69,10 @@ static long DeadlineMsForKind(echo::async::RequestKind kind) {
 // exclusive lock; requests read them under a shared lock.
 static void EnsureInitializedLocked(const char* app_data_dir) {
     if(g_shutdown) return;
+    if(!g_scheduler.Restart()) {
+        g_shutdown = true;
+        return;
+    }
     if(!g_db) {
         g_db = std::make_unique<echo::storage::Database>();
 #ifdef _WIN32
@@ -118,13 +122,23 @@ void EchoShutdown() {
     // 3-5s" contract. Bounded Shutdown detaches hung workers (safe since
     // the process is exiting).
     g_shutdown = true;
-    g_scheduler.Shutdown(std::chrono::milliseconds(3000));
+    const auto abandoned = g_scheduler.Shutdown(std::chrono::milliseconds(3000));
 
-    // Phase 2: acquire exclusive lock (bounded) to safely tear down g_api/g_db.
-    // In-flight jobs that haven't finished yet will see g_api == null (or
-    // g_shutdown == true) inside their lambda and return 500 without
-    // touching the globals. The scheduler is already shut down so no new
-    // jobs will start.
+    // If the bounded shutdown had to abandon a worker, that detached thread may
+    // still be running apiShared->Handle(...). The captured apiShared keeps the
+    // CompatApi object alive, but CompatApi holds the Database BY REFERENCE
+    // (storage::Database&), so resetting g_db would free the storage out from
+    // under the live worker — a use-after-free. The process is exiting anyway,
+    // so the safe choice is to leak: skip the teardown and the HTTP pool close
+    // entirely and let the OS reclaim everything.
+    if (abandoned > 0) {
+        return;
+    }
+
+    // Phase 2: no worker was abandoned, so every job has finished. Acquire the
+    // exclusive lock (bounded) to safely tear down g_api/g_stats/g_db. If the 3s
+    // acquisition times out we return WITHOUT resetting them — g_shutdown still
+    // blocks new requests and the process is exiting, so the leak is acceptable.
     {
         std::unique_lock<std::shared_mutex> lock(g_api_rwlock, std::defer_lock);
         auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
@@ -132,16 +146,13 @@ void EchoShutdown() {
             if (lock.try_lock()) break;
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
-        // Whether we got the lock or timed out: force-tear-down.
-        // If we didn't get the lock, in-flight jobs are still running but
-        // g_shutdown is true so they'll return 500 and release their shared
-        // lock soon. We set g_api=nullptr atomically; jobs that read it after
-        // this point get null and return 500. This is safe because unique_ptr
-        // reset is a single pointer swap.
+        if (!lock.owns_lock()) {
+            return;
+        }
+        g_api.reset();
+        g_stats.reset();
+        g_db.reset();
     }
-    g_api.reset();
-    g_stats.reset();
-    g_db.reset();
     echo::core::CloseHttpConnectionPool();
 }
 

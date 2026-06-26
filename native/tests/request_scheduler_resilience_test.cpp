@@ -61,6 +61,46 @@ int main() {
     s.Shutdown();
   }
 
+  std::cout << "[Test] Testing RequestScheduler restart after clean shutdown...\n";
+  {
+    RequestScheduler s(1);
+    auto first = s.Submit(
+        RequestKind::Generic,
+        [](echo::async::CancellationToken) -> int { return 7; });
+    CHECK(first.get() == 7, "job before shutdown returns 7");
+    s.Shutdown();
+
+    CHECK(s.Restart(), "cleanly shut down scheduler restarts");
+    auto second = s.Submit(
+        RequestKind::Generic,
+        [](echo::async::CancellationToken) -> int { return 8; });
+    CHECK(second.get() == 8, "job after restart returns 8");
+    s.Shutdown();
+  }
+
+  std::cout << "[Test] Testing RequestScheduler bounded shutdown (no hung workers) then restart...\n";
+  {
+    // Mirrors the real EchoShutdown path: bounded Shutdown(maxWait) on a
+    // scheduler whose jobs all finished. No worker is hung, so abandoned MUST
+    // be 0 and Restart() MUST succeed — this is the "app shutdown -> re-init"
+    // path that the unbounded-Shutdown restart test above does NOT exercise.
+    RequestScheduler s(1);
+    auto first = s.Submit(
+        RequestKind::Generic,
+        [](echo::async::CancellationToken) -> int { return 7; });
+    CHECK(first.get() == 7, "job before bounded shutdown returns 7");
+
+    const auto abandoned = s.Shutdown(std::chrono::milliseconds(1000));
+    CHECK(abandoned == 0, "bounded Shutdown with no hung workers abandons 0");
+    CHECK(s.Restart(), "bounded clean shutdown allows Restart()");
+
+    auto second = s.Submit(
+        RequestKind::Generic,
+        [](echo::async::CancellationToken) -> int { return 8; });
+    CHECK(second.get() == 8, "job after bounded-shutdown restart returns 8");
+    s.Shutdown();
+  }
+
   std::cout << "[Test] Testing RequestScheduler queue full returns error...\n";
   {
     RequestScheduler s(1);  // 1 worker, maxQueue = 4
@@ -143,6 +183,10 @@ int main() {
           "Bounded Shutdown(3s) returns within 3.5s despite a 10s hung job");
     CHECK(abandoned == 1,
           "Bounded Shutdown(3s) abandons exactly 1 stuck worker (proves abandon path fired)");
+    // The detached worker may still reference this scheduler, so Restart() must
+    // refuse — this is what EchoShutdown relies on to skip global teardown.
+    CHECK(!s.Restart(),
+          "Restart() returns false after a bounded shutdown abandoned a worker");
   }
 
   std::cout << "[Test] All RequestScheduler resilience tests completed.\n";

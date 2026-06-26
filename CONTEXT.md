@@ -34,7 +34,7 @@ C++ Core (native/) → EchoCAPI.dll
   ├─ core/C_API.cpp — 30+ C API exports, g_api (shared_ptr), g_playback, g_scheduler, g_stats
   ├─ core/HttpClient.cpp — WinHTTP with watchdog timeout, retry budget, connection pool
   ├─ core/CompatApi.cpp — KuGou API routes
-  ├─ async/RequestScheduler.cpp — 4-worker thread pool, bounded shutdown, per-kind deadlines
+  ├─ async/RequestScheduler.cpp — 4-worker thread pool, bounded shutdown/restart, per-kind deadlines
   ├─ playback/PlaybackController.cpp — Pimpl wrapper
   ├─ playback/PlaybackControllerMFP.cpp — MFPlay implementation (legacy, works, deprecated)
   ├─ playback/PlaybackControllerMFS.cpp — IMFMediaSession implementation (broken, disabled)
@@ -48,8 +48,8 @@ C++ Core (native/) → EchoCAPI.dll
 
 | Sub-project | Status | Key deliverable |
 |---|---|---|
-| **S1 Resilience** | ✅ Complete | 3-layer deadline, CircuitBreaker, bounded Shutdown, HttpClient watchdog |
-| **S2 Auto-update/CI** | ✅ Complete | ci.yml, release.yml, sync-version.mjs, skip-version |
+| **S1 Resilience** | ✅ Complete | 3-layer deadline, CircuitBreaker, bounded Shutdown/Restart, HttpClient watchdog |
+| **S2 Auto-update/CI** | ✅ Complete | ci.yml, release.yml, sync-version.mjs, skip-version, Cargo test gate |
 | **S3 Skin system** | ✅ Complete | themeStore, Aurora + Newsprint skins, dark mode, FOUC prevention |
 | **S4 Playback+EQ** | ✅ Complete | HTML5 backend + Web Audio API EQ (production), PlaySessionTracker, event ownership |
 | **S5 Statistics** | ✅ Complete | PlayStatsService, StatsView, DeepSeek AI analysis, 6 stats Tauri commands |
@@ -57,6 +57,7 @@ C++ Core (native/) → EchoCAPI.dll
 ## S4 Details
 
 - **Default backend**: HTML5 Audio (Html5AudioBackend) — sole source of play/pause/timeupdate/ended/error events
+- **Stop cleanup**: `Html5AudioBackend.stop()` unloads the current `src`, so a failed next-track resolve cannot resume stale media.
 - **EQ implementation**: Web Audio API BiquadFilterNode chain (5 bands: 60/230/910/3600/14000 Hz), controlled by `webAudioEq.ts`
 - **EQ UI**: `EqualizerPanel.vue` in `Drawer.vue` (right sidebar), uses skin CSS variables
 - **CORS-gated EQ (#1)**: KuGou CDN sends no CORS headers → EQ graph is skipped for cross-origin non-CORS media, audio plays directly. `eqState.available` exposed to UI; degradation banner shown when EQ is not active.
@@ -80,7 +81,7 @@ C++ Core (native/) → EchoCAPI.dll
   - `stats_get_timeline` — daily play counts (`{date: "YYYY-MM-DD", count: N}`)
   - `stats_get_recent` — most recent N plays with full metadata (limit/offset)
   - `stats_get_recommendations` — "for you" based on top artists (local-only, no KuGou API fusion)
-- **Thread safety**: `g_stats` guarded by `shared_lock(g_api_rwlock)`; `Database::Execute`/`ExecuteQuery` hold `mutex_`; all 5 query C API functions wrapped in try-catch with safe empty JSON fallback
+- **Thread safety**: `g_stats` guarded by `shared_lock(g_api_rwlock)`; `Database::Execute`/`ExecuteQuery` hold `mutex_`; all 5 query C API functions wrapped in try-catch with safe empty JSON fallback. `EchoShutdown` resets global API/database/stat pointers under the exclusive lifecycle lock.
 - **AI analysis**: `ai_analyze` async Tauri command → reqwest → DeepSeek API. User provides API key via localStorage `deepseek_api_key` (password input, never logged). 30s timeout. Chinese prompt, 200-word limit, covers listening habits + music taste + one interesting finding.
 - **StatsView.vue**: 4 sections — overview cards (total plays / listened time / completion / unique counts), top lists with album art (song/artist/album), timeline CSS bar chart, recent plays list (with cover + completion badge), AI analysis panel
 
@@ -102,7 +103,7 @@ C++ Core (native/) → EchoCAPI.dll
 | `ui/src-tauri/src/ai_analysis.rs` | DeepSeek AI analysis async command |
 | `native/core/C_API.cpp` | C API exports, g_api, g_playback, g_scheduler, g_stats |
 | `native/core/HttpClient.cpp` | WinHTTP + watchdog + retry budget |
-| `native/async/RequestScheduler.cpp` | Thread pool + bounded shutdown |
+| `native/async/RequestScheduler.cpp` | Thread pool + bounded shutdown/restart |
 | `native/playback/PlaybackControllerMFP.cpp` | MFPlay (legacy, works, deprecated) |
 | `native/playback/BiquadFilter.cpp` | RBJ biquad math (tested) |
 | `native/stats/PlayStatsService.cpp` | Record + query play history (SQL injection-safe) |
@@ -141,18 +142,68 @@ cd C:\BottleMusic\ui && pnpm test -- --run
 
 - C++ ctest: 11 tests
 - Rust cargo test: 11 tests
-- Frontend vitest: 96 tests
-- **Total: 118 tests**
+- Frontend vitest: 98 tests
+- **Total: 120 tests**
 
 ## Known Issues
 
 1. **MFS native playback broken** — topology resolution fails, deadlock on exit. Disabled, using HTML5 fallback. (Will not be fixed — MFS path abandoned in favor of Web Audio API.)
 2. **EQ unavailable for KuGou CDN** — cross-origin non-CORS media skips the EQ graph (audio plays directly). UI shows a degradation banner. (Will not be fixed at CORS layer — would require Tauri stream proxy; acceptable UX trade-off.)
 3. **`Music Player.html` was rewritten in `0bedf68`** — spec called for a one-line syntax fix at line 673, but the rewrite also normalized formatting and removed dead code. The file is tracked in the repo; not a v2 source file but ships with the app.
-4. **5 minor findings deferred** (from PR review `0bedf68..ce5233c`):
+4. **Minor findings deferred** (from PR review `0bedf68..ce5233c`):
    - EQ re-init order on repeated `initPlayer` (currently harmless — EQ always disabled via CORS)
    - `onEnded` phase guard (defensive — theoretically impossible to trigger)
    - DeepSeek API URL missing `/v1` prefix (works either way, spec deviation only)
+
+## Language
+
+Domain terms used across issues, refactors, and tests. Use these names; avoid the synonyms listed under _Avoid_.
+
+### Playback
+
+**Backend**:
+The playback abstraction behind `PlayerBackend` — e.g. `Html5AudioBackend` (production default) or `NativeBackend` (disabled).
+_Avoid_: player, audio engine
+
+**PlaybackOrchestrator** _(planned refactor term — not yet implemented in this tree)_:
+The module that will own playback transitions and the ordering between Resolve, PlaySession, and Backend. No `playbackOrchestrator.ts` exists here yet; the implementation lives on the `playback-orchestrator-tdd` branch and this entry becomes live when that work merges.
+_Avoid_: playback helper, player coordinator
+
+**Playback transition**:
+A change from one playback source or state to another: switching tracks, switching quality, replaying a track, or resuming by reloading a missing source.
+_Avoid_: playback action, player operation
+
+**PlaySession**:
+One listening session from a real `play` event until `ended` or `stop`, tracked by `PlaySessionTracker`.
+_Avoid_: play instance, playback session
+
+**Resolve**:
+Turn a song identity into a playable URL via KuGou API routes.
+_Avoid_: fetch url, get link
+
+**EQ graph**:
+The Web Audio API BiquadFilterNode chain (5 bands), CORS-gated; skipped when CDN media lacks CORS headers.
+_Avoid_: equalizer, filter chain
+
+### Statistics
+
+**Listened seconds**:
+Actual seconds heard during a PlaySession, accumulated by a seek-immune counter (forward deltas 0<Δ<2s only).
+_Avoid_: play duration, actual play time
+
+**Completed**:
+Whether a PlaySession counts as finished, based on the listened-seconds accumulator — not raw track duration.
+_Avoid_: finished, played through
+
+### Resilience
+
+**Circuit breaker**:
+Frontend resilience wrapper in `circuitBreaker.ts` — opens after repeated failures, blocks calls until cooldown.
+_Avoid_: fallback, retry handler
+
+**Request**:
+A KuGou API call dispatched through the C++ `RequestScheduler` thread pool with per-kind deadlines.
+_Avoid_: fetch, HTTP call
 
 ## Environment
 
