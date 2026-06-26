@@ -6,6 +6,7 @@ export class NativePlaybackBackend implements PlayerBackend {
   readonly kind = 'native' as const;
   private initialized = false;
   private backendUsed: 'mfs' | 'mfp' | null = null;
+  private lastUrl: string | null = null;
 
   async initialize(): Promise<boolean> {
     if (this.initialized) return true;
@@ -26,12 +27,33 @@ export class NativePlaybackBackend implements PlayerBackend {
   get activeBackendKind() { return this.backendUsed; }
 
   async playUrl(url: string): Promise<boolean> {
-    return invoke<boolean>('playback_play_url', { url });
+    const ok = await invoke<boolean>('playback_play_url', { url });
+    if (ok) this.lastUrl = url;
+    return ok;
+  }
+
+  async switchUrl(
+    url: string,
+    options: { position?: number; autoplay: boolean },
+  ): Promise<boolean> {
+    const ok = await this.playUrl(url);
+    if (!ok) return false;
+    if (options.position && options.position > 0) {
+      await this.seek(options.position);
+    }
+    return true;
+  }
+
+  hasSource(): boolean {
+    return this.lastUrl != null;
   }
 
   async pause(): Promise<void> { await invoke('playback_pause'); }
   async resume(): Promise<void> { await invoke('playback_resume'); }
-  async stop(): Promise<void> { await invoke('playback_stop'); }
+  async stop(): Promise<void> {
+    await invoke('playback_stop');
+    this.lastUrl = null;
+  }
   async seek(seconds: number): Promise<void> {
     await invoke('playback_seek', { seconds });
   }
@@ -47,7 +69,10 @@ export class NativePlaybackBackend implements PlayerBackend {
     return JSON.parse(json);
   }
 
-  async shutdown(): Promise<void> { await invoke('playback_shutdown'); }
+  async shutdown(): Promise<void> {
+    await invoke('playback_shutdown');
+    this.lastUrl = null;
+  }
 
   onEvent(cb: (e: PlaybackEvent) => void): () => void {
     let unlisten: UnlistenFn | null = null;

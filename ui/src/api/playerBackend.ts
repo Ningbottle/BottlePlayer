@@ -18,6 +18,8 @@ export interface PlayerBackend {
   readonly kind: 'html5' | 'native';
   initialize(): Promise<boolean>;
   playUrl(url: string): Promise<boolean>;
+  switchUrl(url: string, options: { position?: number; autoplay: boolean }): Promise<boolean>;
+  hasSource(): boolean;
   pause(): Promise<void>;
   resume(): Promise<void>;
   stop(): Promise<void>;

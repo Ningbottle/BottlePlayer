@@ -89,7 +89,8 @@ C++ Core (native/) → EchoCAPI.dll
 
 | File | Responsibility |
 |---|---|
-| `ui/src/api/playerStore.ts` | Player state coordinator (dispatches to backend, tracker, EQ) |
+| `ui/src/api/playerStore.ts` | Vue reactive player state + UI-facing commands; delegates playback transitions |
+| `ui/src/api/playbackOrchestrator.ts` | Playback transition orchestrator (Resolve + PlaySession + Backend sequencing) |
 | `ui/src/api/playSessionTracker.ts` | Stats session state machine + seek-immune accumulator |
 | `ui/src/api/webAudioEq.ts` | Web Audio API EQ graph controller (CORS-gated, safe build order) |
 | `ui/src/api/backend.ts` | Tauri invoke wrapper with S1 resilience |
@@ -165,8 +166,8 @@ Domain terms used across issues, refactors, and tests. Use these names; avoid th
 The playback abstraction behind `PlayerBackend` — e.g. `Html5AudioBackend` (production default) or `NativeBackend` (disabled).
 _Avoid_: player, audio engine
 
-**PlaybackOrchestrator** _(planned refactor term — not yet implemented in this tree)_:
-The module that will own playback transitions and the ordering between Resolve, PlaySession, and Backend. No `playbackOrchestrator.ts` exists here yet; the implementation lives on the `playback-orchestrator-tdd` branch and this entry becomes live when that work merges.
+**PlaybackOrchestrator**:
+The module that owns playback transitions and the ordering between Resolve, PlaySession, and Backend.
 _Avoid_: playback helper, player coordinator
 
 **Playback transition**:

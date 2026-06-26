@@ -7,6 +7,11 @@ import type { PlayerBackend, PlaybackEvent } from './playerBackend';
 import { invoke } from '@tauri-apps/api/core';
 import { PlaySessionTracker, type PlayRecord } from './playSessionTracker';
 import { WebAudioEq } from './webAudioEq';
+import {
+  PlaybackOrchestrator,
+  type QualityOption,
+  type ResolveTrackResult,
+} from './playbackOrchestrator';
 
 export type { Track };
 
@@ -98,14 +103,6 @@ interface PlayerState {
   eqEnabled: boolean;
   eqBands: number[];
   activePreset: string;
-}
-
-interface QualityOption {
-  quality: string;
-  url: string;
-  fileSize?: number;
-  bitRate?: number;
-  extName?: string;
 }
 
 let activeBackend: PlayerBackend | null = null;
@@ -205,6 +202,15 @@ export function initPlayer() {
 
   if (playerStore.audio) return;
 
+  if (activeBackend) {
+    try {
+      eventUnsub?.();
+      eventUnsub = null;
+      activeBackend.shutdown().catch(() => {});
+    } catch { /* ignore */ }
+    activeBackend = null;
+  }
+
   const audio = new Audio();
   g.__bottlemusic_audio__ = audio;
   playerStore.audio = audio;
@@ -278,19 +284,9 @@ function handlePlaybackEvent(e: PlaybackEvent) {
     // either replay (single-loop) or advance. next() no longer handles single-loop.
     playSession.onEnded();
     if (playerStore.loopMode === 'single') {
-      // intend() BEFORE play(): same Bug A reasoning as playTrack — audio.play()
-      // fires the 'play' event asynchronously, but calling intend() first
-      // guarantees the new session exists when onPlay() runs. Reversing the
-      // order (play then intend) would let onPlay open a session against the
-      // just-finalized track, then intend would finalize *that* (spurious
-      // listened_seconds=0 record) and leave the new session pending forever.
-      if (playerStore.currentTrack) {
-        playSession.intend(playerStore.currentTrack);
-      }
-      if (playerStore.audio) {
-        playerStore.audio.currentTime = 0;
-        playerStore.audio.play().catch((err) => console.error('single-loop replay failed', err));
-      }
+      playbackOrchestrator
+        .replaySameTrack()
+        .catch((err) => console.error('single-loop replay failed', err));
     } else {
       next();
     }
@@ -318,6 +314,26 @@ function saveQueue() {
   localStorage.setItem('player_index', String(playerStore.currentIndex));
 }
 
+function resolveTrack(track: Track, quality: string): Promise<ResolveTrackResult> {
+  return apiGet<ResolveTrackResult>('/song/url', {
+    hash: track.FileHash,
+    album_id: track.AlbumID || '',
+    album_audio_id: track.AlbumAudioID || '',
+    quality,
+  });
+}
+
+const playbackOrchestrator = new PlaybackOrchestrator({
+  backend: () => activeBackend!,
+  playSession,
+  resolveTrack,
+  fetchCover: fetchCoverImage,
+  uploadPlayHistory,
+  getState: () => playerStore,
+  patchState: (patch) => Object.assign(playerStore, patch),
+  saveQueue,
+});
+
 // Actions
 export async function playTrack(track: Track) {
   initPlayer();
@@ -326,169 +342,20 @@ export async function playTrack(track: Track) {
   // direct-audio branches) while remaining robust if called before App's
   // onMounted initPlayerBackend().
   if (!activeBackend) initPlayerBackend();
-
-  // Finalize the previous track's stats session (skipped / incomplete). Done
-  // before stop() so its timeupdate-derived position is still meaningful.
-  playSession.skip();
-
-  // 立刻停掉当前正在播放的音频：点了新歌就该马上停旧的，
-  // 即使新歌取链接失败，也不能让上一首继续在后台响。
-  await activeBackend!.stop().catch(() => {});
-  playerStore.isPlaying = false;
-
-  const normalized = normalizeTrack(track);
-  const prevIndex = playerStore.currentIndex; // #13: for rollback on failure
-
-  // Find index in queue
-  let idx = playerStore.queue.findIndex(t => t.FileHash === normalized.FileHash);
-  if (idx === -1) {
-    playerStore.queue.push(normalized);
-    idx = playerStore.queue.length - 1;
-  }
-  playerStore.currentIndex = idx;
-  playerStore.currentTrack = normalized;
-
-  playerStore.errorMsg = '正在加载音频源…';
-  playerStore.currentTime = 0;
-  playerStore.duration = normalized.Duration || 0;
-
-  // Asynchronously fetch cover if not present
-  if (!normalized.Image) {
-    fetchCoverImage(normalized.FileHash).then(img => {
-      if (img && playerStore.currentTrack?.FileHash === normalized.FileHash) {
-        playerStore.currentTrack.Image = img;
-        const qIdx = playerStore.queue.findIndex(t => t.FileHash === normalized.FileHash);
-        if (qIdx !== -1) {
-          playerStore.queue[qIdx].Image = img;
-        }
-        saveQueue();
-      }
-    });
-  }
-
-  try {
-    const res = await apiGet<{
-      status: number;
-      url?: string;
-      error?: string;
-      is_preview?: boolean;
-      vip_required?: boolean;
-      data?: {
-        available_qualities?: QualityOption[];
-        [key: string]: any;
-      };
-    }>('/song/url', {
-      hash: normalized.FileHash,
-      album_id: normalized.AlbumID || '',
-      album_audio_id: normalized.AlbumAudioID || '',
-      quality: playerStore.quality,
-    });
-
-    if (res.status === 1 && res.url) {
-      // 存储可用音质选项
-      playerStore.availableQualities = res.data?.available_qualities || [];
-
-      // 如果有用户选择的音质且可用，切换到该音质
-      let finalUrl = res.url;
-      if (playerStore.quality && playerStore.availableQualities.length > 0) {
-        const preferred = playerStore.availableQualities.find(q => q.quality === playerStore.quality);
-        if (preferred?.url) {
-          finalUrl = preferred.url;
-        }
-      }
-
-      // Set preview state BEFORE playUrl so backend events don't clobber it.
-      playerStore.isPreview = !!res.is_preview;
-      playerStore.vipRequired = !!res.vip_required;
-      playerStore.errorMsg = '';
-
-      // Open the new stats session BEFORE playUrl: playUrl does
-      // `audio.src=url; await audio.play()`, and the 'play'/'timeupdate' DOM
-      // events fire during that await → handlePlaybackEvent→onPlay() runs
-      // before we return here. If intend() ran after playUrl, onPlay would
-      // open the session against the *previous* track and the new session
-      // would stay 'pending' → listened_seconds never accumulated (Bug A).
-      playSession.intend(normalized);
-
-      const ok = await activeBackend!.playUrl(finalUrl);
-      if (!ok) {
-        playerStore.isPlaying = false;
-        playerStore.errorMsg = '播放失败';
-        // Clean up the pending session opened above (playUrl failed → no onPlay
-        // will fire → session would leak as 'pending' forever).
-        playSession.skip();
-        // #13: roll back so a failed track isn't persisted as the resumable current.
-        playerStore.currentIndex = prevIndex;
-        playerStore.currentTrack = prevIndex >= 0 ? playerStore.queue[prevIndex] ?? null : null;
-        saveQueue();
-        return;
-      }
-
-      // #13: persist only on success — a failed track must not become the
-      // "last played" pointer that traps the user on a dead track after restart.
-      saveQueue();
-
-      // 播放成功后异步上传播放历史（静默失败，不阻塞播放）
-      uploadPlayHistory(normalized);
-    } else {
-      playerStore.isPreview = false;
-      playerStore.vipRequired = false;
-      throw new Error(res.error || '获取歌曲链接失败');
-    }
-  } catch (err: any) {
-    console.error('Failed to resolve play URL', err);
-    // 取链接失败：彻底清掉音频源，避免之后点"播放"又恢复上一首。
-    await activeBackend!.stop().catch(() => {});
-    playerStore.isPlaying = false;
-    playerStore.isPreview = false;
-    playerStore.vipRequired = false;
-    // #13: roll back the index so the failed track isn't persisted as current.
-    playerStore.currentIndex = prevIndex;
-    playerStore.currentTrack = prevIndex >= 0 ? playerStore.queue[prevIndex] ?? null : null;
-    saveQueue();
-    playerStore.errorMsg = err.message || '该歌曲不可播放（可能是 Demo / 版权或 VIP 限制）';
-  }
+  return playbackOrchestrator.switchTrack(track);
 }
-
-// 音质切换请求序号，用于防止快速连续切换导致的竞态
-let qualityRequestId = 0;
 
 /** 切换音质等级 */
 export function setQuality(quality: string) {
   playerStore.quality = quality;
   localStorage.setItem('player_quality', quality);
 
-  // 如果当前有歌曲在播放，尝试切换到新音质
   if (playerStore.currentTrack) {
-    // 先检查缓存的 availableQualities 中是否有目标音质
-    if (playerStore.availableQualities.length > 0) {
-      const preferred = playerStore.availableQualities.find(q => q.quality === quality);
-      if (preferred?.url && playerStore.audio) {
-        // #8: finalize the old-quality session, start a new one for the switch.
-        playSession.skip();
-        playSession.intend(playerStore.currentTrack);
-        const wasPlaying = playerStore.isPlaying;
-        const savedTime = playerStore.currentTime;
-        playerStore.audio.src = preferred.url;
-        if (savedTime > 0) playerStore.audio.currentTime = savedTime;
-        if (wasPlaying) {
-          playerStore.audio.play().catch(e => console.error('Quality switch play failed', e));
-        }
-        return;
-      }
-    }
-    // 缓存中没有目标音质，重新请求（playTrack 会使用新的 quality 参数）
-    // 保存播放进度，请求完成后恢复
-    const reqId = ++qualityRequestId;
-    const savedTime = playerStore.currentTime;
-    const wasPlaying = playerStore.isPlaying;
-    playTrack(playerStore.currentTrack).then(() => {
-      if (reqId !== qualityRequestId) return; // 已被更新的请求取代
-      if (playerStore.audio && savedTime > 0) {
-        playerStore.audio.currentTime = savedTime;
-        if (wasPlaying) playerStore.audio.play().catch(() => {});
-      }
-    });
+    initPlayer();
+    if (!activeBackend) initPlayerBackend();
+    playbackOrchestrator
+      .switchQuality(quality)
+      .catch((e) => console.error('Quality switch failed', e));
   }
 }
 
@@ -498,24 +365,8 @@ export async function togglePlay() {
   if (playerStore.isPlaying) {
     await activeBackend!.pause();
   } else {
-    // Resume path. If the <audio> has no usable src (empty after initPlayer
-    // restores a track without loading it, or after a stop cleared it), a bare
-    // audio.play() rejects AbortError ("play() interrupted by pause()") and the
-    // player gets stuck: the button toggles but nothing plays and the progress
-    // bar never moves. Detect that state and re-load via playTrack instead.
-    // NB: don't gate on readyState===0 — that's also true mid-load for a
-    // valid src, and would cause a fast pause/resume to restart the track.
-    const audio = playerStore.audio;
-    const noSrc = !audio || !audio.src;
-    if (noSrc) {
-      await playTrack(playerStore.currentTrack);
-      return;
-    }
-    try {
-      await activeBackend!.resume();
-    } catch (e) {
-      console.error('resume failed', e);
-    }
+    if (!activeBackend) initPlayerBackend();
+    await playbackOrchestrator.resumeOrReloadCurrent();
   }
 }
 

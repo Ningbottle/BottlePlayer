@@ -53,6 +53,28 @@ describe('NativePlaybackBackend', () => {
     await backend.playUrl('https://example.com/song.mp3');
     expect(invoke).toHaveBeenCalledWith('playback_play_url', { url: 'https://example.com/song.mp3' });
   });
+
+  it('tracks source availability across playUrl, switchUrl, stop, and shutdown', async () => {
+    (invoke as any).mockResolvedValue(true);
+    const backend = new NativePlaybackBackend();
+
+    expect(backend.hasSource()).toBe(false);
+
+    await backend.playUrl('https://example.com/one.mp3');
+    expect(backend.hasSource()).toBe(true);
+
+    await backend.switchUrl('https://example.com/two.mp3', { position: 42, autoplay: true });
+    expect(invoke).toHaveBeenCalledWith('playback_play_url', { url: 'https://example.com/two.mp3' });
+    expect(invoke).toHaveBeenCalledWith('playback_seek', { seconds: 42 });
+    expect(backend.hasSource()).toBe(true);
+
+    await backend.stop();
+    expect(backend.hasSource()).toBe(false);
+
+    await backend.playUrl('https://example.com/three.mp3');
+    await backend.shutdown();
+    expect(backend.hasSource()).toBe(false);
+  });
 });
 
 describe('Html5AudioBackend', () => {
@@ -66,17 +88,38 @@ describe('Html5AudioBackend', () => {
     expect(audio.src).toBe('https://example.com/song.mp3');
   });
 
-  it('stop clears the loaded src so resume cannot replay stale audio', async () => {
+  it('switchUrl waits for metadata before restoring position and respects autoplay false', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    const backend = new Html5AudioBackend(audio);
+
+    const switched = backend.switchUrl('https://example.com/song.mp3', {
+      position: 42,
+      autoplay: false,
+    });
+    audio.dispatchEvent(new Event('loadedmetadata'));
+
+    await expect(switched).resolves.toBe(true);
+    expect(audio.src).toBe('https://example.com/song.mp3');
+    expect(audio.currentTime).toBe(42);
+    expect(audio.play).not.toHaveBeenCalled();
+    expect(backend.hasSource()).toBe(true);
+  });
+
+  it('stop clears source so hasSource returns false', async () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
     audio.pause = vi.fn();
     audio.load = vi.fn();
-    audio.src = 'https://example.com/old-song.mp3';
+    audio.src = 'https://example.com/old.mp3';
     const backend = new Html5AudioBackend(audio);
+
+    expect(backend.hasSource()).toBe(true);
 
     await backend.stop();
 
     expect(audio.pause).toHaveBeenCalled();
     expect(audio.src).toBe('');
     expect(audio.load).toHaveBeenCalled();
+    expect(backend.hasSource()).toBe(false);
   });
 });
