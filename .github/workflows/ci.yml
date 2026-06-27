@@ -61,7 +61,9 @@ jobs:
         working-directory: ui
 
       - name: Cargo test
-        run: cargo test --lib -- --test-threads=1
+        run: |
+          $env:PATH = "$PWD\..\..\native\vcpkg_installed\x64-windows\bin;$env:PATH"
+          cargo test --lib -- --test-threads=1
         working-directory: ui/src-tauri
 
       - name: Cargo clippy
