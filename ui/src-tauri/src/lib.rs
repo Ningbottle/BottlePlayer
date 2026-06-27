@@ -82,16 +82,18 @@ mod tests {
     #[tokio::test]
     async fn native_request_times_out_when_handler_sleeps() {
         // Documents the timeout semantics without depending on the DLL:
-        // a spawn_blocking task that sleeps past the deadline is abandoned.
-        let never = timeout(Duration::from_millis(100), async {
-            tokio::task::spawn_blocking(|| {
-                std::thread::sleep(Duration::from_secs(60));
-                "ok"
-            })
-            .await
+        // a spawn_blocking task that runs past the deadline is not awaited.
+        let (release_tx, release_rx) = std::sync::mpsc::channel();
+        let mut blocking = tokio::task::spawn_blocking(move || {
+            release_rx.recv().expect("release signal");
+            "ok"
         });
-        let result = never.await;
+
+        let result = timeout(Duration::from_millis(100), &mut blocking).await;
         assert!(result.is_err());
+
+        release_tx.send(()).expect("send release signal");
+        assert_eq!(blocking.await.expect("blocking task join"), "ok");
     }
 
     #[test]
