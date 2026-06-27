@@ -76,6 +76,14 @@ pub struct CApiHandle {
 
 static C_API_HANDLE: OnceLock<RwLock<Option<CApiHandle>>> = OnceLock::new();
 
+#[cfg(test)]
+pub(crate) static TEST_C_API_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+#[cfg(test)]
+pub(crate) fn lock_test_c_api() -> std::sync::MutexGuard<'static, ()> {
+    TEST_C_API_GUARD.lock().unwrap_or_else(|p| p.into_inner())
+}
+
 fn get_handle() -> &'static RwLock<Option<CApiHandle>> {
     C_API_HANDLE.get_or_init(|| RwLock::new(None))
 }
@@ -477,6 +485,8 @@ mod tests {
 
     #[test]
     fn test_m3_concurrency() {
+        let _lock = lock_test_c_api();
+
         // Try ECHO_CAPI_DLL env var first, then canonical paths.
         let candidates: Vec<String> = {
             let mut v: Vec<String> = std::env::var("ECHO_CAPI_DLL")

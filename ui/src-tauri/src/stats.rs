@@ -1,7 +1,5 @@
 use std::ffi::CStr;
 use std::ffi::CString;
-use std::os::raw::c_char;
-use std::path::Path;
 use crate::backend_api;
 
 #[tauri::command]
@@ -85,9 +83,6 @@ pub fn stats_get_recommendations(limit: i32) -> Result<String, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-
-    static DLL_GUARD: Mutex<()> = Mutex::new(());
 
     fn find_dll() -> String {
         let candidates: Vec<String> = {
@@ -111,25 +106,7 @@ mod tests {
             .cloned()
             .unwrap_or_else(|| {
                 panic!("Could not find EchoCAPI library in candidates: {:?}", candidates);
-            })
-    }
-
-    /// Test-only: load the DLL and call EchoInitializeWithPaths directly,
-    /// bypassing the global CApiHandle cache. Each test gets its own
-    /// app_data_dir written to the C++ g_db global. On Windows,
-    /// Library::new returns the already-loaded DLL image — C++ globals
-    /// (g_db, g_api, g_stats) are reset/reinitialized for each call.
-    fn init_c_api_with_dir(dll_path: &str, app_data_dir: &Path) {
-        use libloading::Library;
-        unsafe {
-            let lib = Library::new(dll_path).expect("load DLL");
-            let init: libloading::Symbol<unsafe extern "C" fn(*const c_char)> = lib
-                .get(b"EchoInitializeWithPaths")
-                .expect("find EchoInitializeWithPaths");
-            let dir_str = app_data_dir.to_str().expect("non-utf8 path");
-            let c_dir = CString::new(dir_str).expect("CString::new");
-            init(c_dir.as_ptr());
-        }
+        })
     }
 
     fn make_record(
@@ -161,13 +138,9 @@ mod tests {
 
     #[test]
     fn test_stats_ffi_end_to_end() {
-        let _lock = DLL_GUARD.lock().unwrap();
+        let _lock = backend_api::lock_test_c_api();
 
         let dll_path = find_dll();
-        // Each test gets its own app_data_dir. We bypass `init_with_paths`'s
-        // global handle cache by directly calling `EchoInitializeWithPaths`:
-        // on Windows, Library::new returns the already-loaded DLL instance, so
-        // the C++ globals (g_db, g_api) are reinitialized with the new path.
         let stamp = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_nanos())
@@ -180,7 +153,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&app_data_dir);
         std::fs::create_dir_all(&app_data_dir).unwrap();
 
-        init_c_api_with_dir(&dll_path, &app_data_dir);
+        backend_api::shutdown_c_api();
+        backend_api::init_with_paths(&dll_path, Some(app_data_dir.to_str().unwrap()))
+            .expect("Failed to init C API");
 
         let now_ms = chrono::Local::now().timestamp_millis();
         let day1 = now_ms - 86400000;
@@ -281,7 +256,7 @@ mod tests {
 
     #[test]
     fn test_stats_returns_err_without_dll() {
-        let _lock = DLL_GUARD.lock().unwrap();
+        let _lock = backend_api::lock_test_c_api();
         backend_api::shutdown_c_api();
         let result = stats_get_summary("all".into());
         assert!(result.is_err());
