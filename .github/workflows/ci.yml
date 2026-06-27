@@ -61,7 +61,7 @@ jobs:
         working-directory: ui
 
       - name: Cargo test
-        run: cargo test --lib
+        run: cargo test --lib -- --test-threads=1
         working-directory: ui/src-tauri
 
       - name: Cargo clippy
