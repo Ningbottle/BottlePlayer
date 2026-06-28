@@ -178,8 +178,6 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="networkDegraded" class="network-banner">应用后台连接不稳定，部分功能可能暂不可用</div>
-
   <!-- Newsprint procedural background layers -->
   <div class="paper-base"></div>
   <div class="paper-fibers"></div>
@@ -214,6 +212,8 @@ onUnmounted(() => {
         </button>
       </div>
     </div>
+
+    <div v-if="networkDegraded" class="network-banner">应用后台连接不稳定，部分功能可能暂不可用</div>
 
     <!-- Sidebar Navigation -->
     <Sidebar 
@@ -292,11 +292,9 @@ onUnmounted(() => {
 
 <style scoped>
 .network-banner {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 9999;
+  grid-row: 2 / 3;
+  grid-column: 1 / 3;
+  z-index: 7;
   background: var(--accent);
   color: var(--paper);
   text-align: center;

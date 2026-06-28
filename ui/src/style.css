@@ -219,14 +219,14 @@ html:not(.dark).has-custom-bg .paper-base {
   position: relative; z-index: 2;
   display: grid;
   grid-template-columns: 232px 1fr;
-  grid-template-rows: 32px 1fr 88px;
+  grid-template-rows: 32px auto 1fr 88px;
   height: 100vh;
   min-height: 720px;
 }
 
 /* ---------- Sidebar ---------- */
 .sidebar {
-  grid-row: 2 / 3;
+  grid-row: 3 / 4;
   padding: 22px 18px 18px;
   border-right: 1px solid var(--rule);
   display: flex; flex-direction: column;
@@ -389,7 +389,7 @@ html:not(.dark).has-custom-bg .paper-base {
 
 /* ---------- Main ---------- */
 .main {
-  grid-row: 2 / 3;
+  grid-row: 3 / 4;
   grid-column: 2 / 3;
   display:flex; flex-direction:column;
   overflow:hidden;
@@ -859,7 +859,7 @@ html:not(.dark).has-custom-bg .paper-base {
 /* ---------- Player bar ---------- */
 .player {
   position: relative;
-  grid-row: 3 / 4;
+  grid-row: 4 / 5;
   grid-column: 1 / 3;
   z-index: 6;
   display:grid;

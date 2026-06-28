@@ -101,4 +101,21 @@ describe('App network banner', () => {
 
     expect(wrapper.text()).toContain('应用后台连接不稳定，部分功能可能暂不可用');
   });
+
+  it('keeps the backend banner below the titlebar controls', async () => {
+    pingMock.mockRejectedValue(new Error('tauri unavailable'));
+
+    const wrapper = mount(App);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushPromises();
+
+    const appChildren = Array.from(wrapper.find('.app').element.children);
+    const titlebarIndex = appChildren.findIndex(el => el.classList.contains('titlebar'));
+    const bannerIndex = appChildren.findIndex(el => el.classList.contains('network-banner'));
+
+    expect(titlebarIndex).toBeGreaterThanOrEqual(0);
+    expect(bannerIndex).toBeGreaterThan(titlebarIndex);
+    expect(wrapper.find('.titlebar-controls .close').exists()).toBe(true);
+  });
 });
