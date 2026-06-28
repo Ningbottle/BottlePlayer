@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 
 const backendHealthMock = vi.hoisted(() => vi.fn());
+const pingMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(0),
@@ -18,6 +19,7 @@ vi.mock('@tauri-apps/api/window', () => ({
 vi.mock('../../api/backend', () => ({
   backendHealth: backendHealthMock,
   isCircuitOpen: () => true,
+  ping: pingMock,
 }));
 
 vi.mock('../../api/playerStore', () => ({
@@ -68,6 +70,7 @@ describe('App network banner', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     backendHealthMock.mockResolvedValue({ ok: true, status: 200, text: '{"status":1}' });
+    pingMock.mockResolvedValue('pong');
   });
 
   afterEach(() => {
@@ -75,12 +78,27 @@ describe('App network banner', () => {
     vi.clearAllMocks();
   });
 
-  it('does not show offline browsing when native health is ok', async () => {
+  it('does not show offline browsing when the Tauri shell is reachable', async () => {
+    backendHealthMock.mockResolvedValue({ ok: false, status: 0, text: 'request_timeout' });
+
     const wrapper = mount(App);
 
     await vi.advanceTimersByTimeAsync(1_000);
     await flushPromises();
 
+    expect(pingMock).toHaveBeenCalled();
+    expect(backendHealthMock).not.toHaveBeenCalled();
     expect(wrapper.text()).not.toContain('网络连接不稳定，已切换离线浏览');
+  });
+
+  it('shows a backend banner when the Tauri shell is unreachable', async () => {
+    pingMock.mockRejectedValue(new Error('tauri unavailable'));
+
+    const wrapper = mount(App);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('应用后台连接不稳定，部分功能可能暂不可用');
   });
 });

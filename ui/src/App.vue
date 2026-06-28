@@ -18,7 +18,7 @@ import StatsView from './views/StatsView.vue';
 
 import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
-import { backendHealth } from './api/backend';
+import { ping } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -32,8 +32,12 @@ const networkDegraded = ref(false);
 let networkInterval: ReturnType<typeof setInterval> | null = null;
 
 async function updateNetworkBanner() {
-  const health = await backendHealth();
-  networkDegraded.value = !health.ok;
+  try {
+    await ping();
+    networkDegraded.value = false;
+  } catch (e) {
+    networkDegraded.value = true;
+  }
 }
 
 // Memory usage tracking
@@ -174,7 +178,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div v-if="networkDegraded" class="network-banner">网络连接不稳定，已切换离线浏览</div>
+  <div v-if="networkDegraded" class="network-banner">应用后台连接不稳定，部分功能可能暂不可用</div>
 
   <!-- Newsprint procedural background layers -->
   <div class="paper-base"></div>
