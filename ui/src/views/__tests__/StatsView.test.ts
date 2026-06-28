@@ -1,8 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 
+const playAllMock = vi.hoisted(() => vi.fn());
+
+vi.mock('../../api/playerStore', () => ({
+  playAll: playAllMock,
+  playerStore: {
+    currentTrack: null,
+  },
+}));
+
 vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn().mockImplementation((cmd: string) => {
+  invoke: vi.fn().mockImplementation((cmd: string, args?: Record<string, unknown>) => {
     if (cmd === 'stats_get_summary')
       return Promise.resolve(
         JSON.stringify({
@@ -13,15 +22,44 @@ vi.mock('@tauri-apps/api/core', () => ({
           completion_rate: 0.8,
         }),
       );
-    if (cmd === 'stats_get_top')
+    if (cmd === 'stats_get_top' && args?.kind === 'song')
       return Promise.resolve(
         JSON.stringify({
           items: [
             {
+              song_hash: 'hash-top-song',
               name: 'Test Song',
               singer: 'Test Artist',
               album: 'Test Album',
-              cover_url: '',
+              cover_url: 'http://img.example/top-song.jpg',
+              play_count: 5,
+              total_listened_seconds: 300,
+            },
+          ],
+        }),
+      );
+    if (cmd === 'stats_get_top' && args?.kind === 'artist')
+      return Promise.resolve(
+        JSON.stringify({
+          items: [
+            {
+              name: 'Test Artist',
+              cover_url: 'http://img.example/artist.jpg',
+              play_count: 5,
+              total_listened_seconds: 300,
+            },
+          ],
+        }),
+      );
+    if (cmd === 'stats_get_top' && args?.kind === 'album')
+      return Promise.resolve(
+        JSON.stringify({
+          items: [
+            {
+              album_id: 'album-1',
+              name: 'Test Album',
+              singer: 'Test Artist',
+              cover_url: 'http://img.example/album.jpg',
               play_count: 5,
               total_listened_seconds: 300,
             },
@@ -37,10 +75,11 @@ vi.mock('@tauri-apps/api/core', () => ({
         JSON.stringify({
           items: [
             {
+              song_hash: 'hash-recent-song',
               name: 'Recent Song',
               singer: 'Artist',
               album: 'Album',
-              cover_url: '',
+              cover_url: 'http://img.example/recent.jpg',
               duration_seconds: 240,
               completed: true,
               listened_seconds: 240,
@@ -56,6 +95,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 import StatsView from '../StatsView.vue';
 import { invoke } from '@tauri-apps/api/core';
+import { playAll } from '../../api/playerStore';
 
 describe('StatsView data loading', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -84,6 +124,11 @@ describe('StatsView data loading', () => {
   });
 
   it('mock stats_get_top returns items for every kind parameter', async () => {
+    const expectedName = {
+      song: 'Test Song',
+      artist: 'Test Artist',
+      album: 'Test Album',
+    };
     for (const kind of ['song', 'artist', 'album'] as const) {
       const result = JSON.parse(
         (await invoke('stats_get_top', {
@@ -93,7 +138,7 @@ describe('StatsView data loading', () => {
         })) as string,
       );
       expect(result.items).toHaveLength(1);
-      expect(result.items[0].name).toBe('Test Song');
+      expect(result.items[0].name).toBe(expectedName[kind]);
     }
   });
 
@@ -105,7 +150,7 @@ describe('StatsView data loading', () => {
     expect(item.name).toBe('Recent Song');
     expect(item.singer).toBe('Artist');
     expect(item.album).toBe('Album');
-    expect(item.cover_url).toBe('');
+    expect(item.cover_url).toBe('http://img.example/recent.jpg');
     expect(typeof item.duration_seconds).toBe('number');
     expect(item.completed).toBe(true);
     expect(typeof item.listened_seconds).toBe('number');
@@ -123,7 +168,10 @@ describe('StatsView data loading', () => {
 });
 
 describe('StatsView component rendering', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    playAllMock.mockClear();
+  });
 
   it('renders overview cards after loading', async () => {
     const wrapper = mount(StatsView);
@@ -142,6 +190,16 @@ describe('StatsView component rendering', () => {
     expect(wrapper.text()).toContain('Test Artist');
   });
 
+  it('renders artist avatars when stats provide a cover_url', async () => {
+    const wrapper = mount(StatsView);
+    await flushPromises();
+
+    const artistSection = wrapper.findAll('.top-section')[1];
+    const img = artistSection.find('img.top-cover');
+    expect(img.exists()).toBe(true);
+    expect(img.attributes('src')).toBe('http://img.example/artist.jpg');
+  });
+
   it('renders recent play entry', async () => {
     const wrapper = mount(StatsView);
     await flushPromises();
@@ -156,5 +214,41 @@ describe('StatsView component rendering', () => {
 
     expect(wrapper.text()).toContain('播放时间线');
     expect(wrapper.text()).toContain('06-24');
+  });
+
+  it('plays the top song when clicked', async () => {
+    const wrapper = mount(StatsView);
+    await flushPromises();
+
+    await wrapper.findAll('.top-item')[0].trigger('click');
+
+    expect(playAll).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          FileHash: 'hash-top-song',
+          SongName: 'Test Song',
+          SingerName: 'Test Artist',
+        }),
+      ],
+      0,
+    );
+  });
+
+  it('plays a recent song when clicked', async () => {
+    const wrapper = mount(StatsView);
+    await flushPromises();
+
+    await wrapper.find('.recent-item').trigger('click');
+
+    expect(playAll).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({
+          FileHash: 'hash-recent-song',
+          SongName: 'Recent Song',
+          SingerName: 'Artist',
+        }),
+      ],
+      0,
+    );
   });
 });

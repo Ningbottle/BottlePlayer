@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
+import { normalizeTrack, type Track } from '../api/normalizer';
+import { playAll, playerStore } from '../api/playerStore';
 
 type Range = '7d' | '30d' | 'all';
 const range = ref<Range>('30d');
@@ -17,6 +19,8 @@ interface Summary {
 const summary = ref<Summary | null>(null);
 
 interface TopItem {
+  song_hash?: string;
+  album_id?: string;
   name: string;
   singer?: string;
   album?: string;
@@ -36,6 +40,7 @@ const timeline = ref<TimelineItem[]>([]);
 const maxTimelineCount = ref(1);
 
 interface RecentItem {
+  song_hash: string;
   name: string;
   singer: string;
   album: string;
@@ -76,6 +81,51 @@ function formatTimeAgo(ts: number): string {
   if (d === 1) return '昨天';
   if (d < 7) return `${d}天前`;
   return new Date(ts).toLocaleDateString('zh-CN');
+}
+
+function topSongToTrack(item: TopItem): Track {
+  return normalizeTrack({
+    FileHash: item.song_hash || '',
+    SongName: item.name,
+    SingerName: item.singer || '',
+    AlbumName: item.album || '',
+    AlbumID: item.album_id || '',
+    Duration: 0,
+    Image: item.cover_url || '',
+  });
+}
+
+function recentToTrack(item: RecentItem): Track {
+  return normalizeTrack({
+    FileHash: item.song_hash || '',
+    SongName: item.name,
+    SingerName: item.singer,
+    AlbumName: item.album,
+    Duration: item.duration_seconds || 0,
+    Image: item.cover_url || '',
+  });
+}
+
+function playTopSong(item: TopItem) {
+  const tracks = topSongs.value
+    .filter(song => !!song.song_hash)
+    .map(topSongToTrack);
+  const idx = tracks.findIndex(track => track.FileHash === item.song_hash);
+  if (idx === -1) return;
+  playAll(tracks, idx);
+}
+
+function playRecent(item: RecentItem) {
+  const tracks = recent.value
+    .filter(song => !!song.song_hash)
+    .map(recentToTrack);
+  const idx = tracks.findIndex(track => track.FileHash === item.song_hash);
+  if (idx === -1) return;
+  playAll(tracks, idx);
+}
+
+function isCurrentHash(hash?: string) {
+  return !!hash && playerStore.currentTrack?.FileHash === hash;
 }
 
 async function loadTimelineAndRecent() {
@@ -206,7 +256,13 @@ watch(range, loadStats);
       <div class="stats-tops">
         <div class="top-section">
           <h3>Top 歌曲</h3>
-          <div v-for="(item, i) in topSongs" :key="i" class="top-item">
+          <div
+            v-for="(item, i) in topSongs"
+            :key="item.song_hash || i"
+            class="top-item"
+            :class="{ playable: !!item.song_hash, active: isCurrentHash(item.song_hash) }"
+            @click="playTopSong(item)"
+          >
             <img v-if="item.cover_url" :src="item.cover_url" class="top-cover" loading="lazy">
             <div v-else class="top-cover placeholder"></div>
             <div class="top-info">
@@ -221,7 +277,8 @@ watch(range, loadStats);
         <div class="top-section">
           <h3>Top 歌手</h3>
           <div v-for="(item, i) in topArtists" :key="i" class="top-item">
-            <div class="top-cover placeholder artist"></div>
+            <img v-if="item.cover_url" :src="item.cover_url" class="top-cover artist" loading="lazy">
+            <div v-else class="top-cover placeholder artist"></div>
             <div class="top-info">
               <span class="top-name">{{ item.name }}</span>
             </div>
@@ -260,7 +317,13 @@ watch(range, loadStats);
       <!-- Recent plays -->
       <div class="stats-recent">
         <h3>最近播放</h3>
-        <div v-for="(item, i) in recent" :key="i" class="recent-item">
+        <div
+          v-for="(item, i) in recent"
+          :key="item.song_hash || i"
+          class="recent-item"
+          :class="{ playable: !!item.song_hash, active: isCurrentHash(item.song_hash) }"
+          @click="playRecent(item)"
+        >
           <img v-if="item.cover_url" :src="item.cover_url" class="recent-cover" loading="lazy">
           <div v-else class="recent-cover placeholder"></div>
           <div class="recent-info">
@@ -371,12 +434,25 @@ watch(range, loadStats);
   padding: 7px 0;
   border-bottom: 1px solid var(--rule-soft);
 }
+.top-item.playable,
+.recent-item.playable {
+  cursor: pointer;
+}
+.top-item.playable:hover,
+.recent-item.playable:hover,
+.top-item.active,
+.recent-item.active {
+  background: var(--paper-edge);
+}
 .top-cover {
   width: 36px;
   height: 36px;
   border-radius: 4px;
   object-fit: cover;
   flex-shrink: 0;
+}
+.top-cover.artist {
+  border-radius: 50%;
 }
 .top-cover.placeholder {
   background: var(--paper-edge);

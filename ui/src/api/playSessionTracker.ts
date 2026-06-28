@@ -28,6 +28,7 @@ export type NowProvider = () => number;
 
 /** A single timeupdate delta larger than this is treated as a seek, not play. */
 const SEEK_THRESHOLD = 2; // seconds
+const MIN_RECORD_LISTENED_SECONDS = 60;
 
 type Phase = 'idle' | 'pending' | 'playing' | 'paused';
 
@@ -140,6 +141,9 @@ export class PlaySessionTracker {
     if (!this.session || this.session.finalized) return;
     this.session.finalized = true;
     this.session.phase = 'idle';
+    const listenedSeconds = Math.max(0, Math.round(this.session.listened));
+    if (listenedSeconds <= MIN_RECORD_LISTENED_SECONDS) return;
+
     const record: PlayRecord = {
       song_hash: this.session.track.FileHash || '',
       song_name: this.session.track.SongName || '',
@@ -149,7 +153,7 @@ export class PlaySessionTracker {
       cover_url: this.session.track.Image || '',
       duration_seconds: this.session.track.Duration || 0,
       completed,
-      listened_seconds: Math.max(0, Math.round(this.session.listened)),
+      listened_seconds: listenedSeconds,
       quality: this.qualityProvider() || '',
       played_at: this.now(),
     };

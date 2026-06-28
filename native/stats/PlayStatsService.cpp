@@ -96,10 +96,17 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
   std::string groupCol, nameCol;
   if (dim == "song") {
     groupCol = "song_hash";
-    nameCol = "song_name, singer_name, album_name, cover_url";
+    nameCol = "song_hash, song_name, singer_name, album_name, cover_url";
   } else if (dim == "artist") {
+    const std::string artistCoverSince =
+        since > 0 ? " AND h2.played_at >= " + std::to_string(since) : "";
     groupCol = "singer_name";
-    nameCol = "singer_name";
+    nameCol =
+        "singer_name, COALESCE((SELECT h2.cover_url FROM play_history_v2 h2 "
+        "WHERE h2.singer_name = play_history_v2.singer_name "
+        "AND h2.cover_url <> ''" +
+        artistCoverSince +
+        " GROUP BY h2.cover_url ORDER BY COUNT(*) DESC, MAX(h2.played_at) DESC LIMIT 1), '')";
   } else {
     // #4: group by album_id, not album_name — two different albums with the
     // same name from different artists must not be merged in the stats.
@@ -116,16 +123,18 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
   for (auto& r : rows) {
     json item;
     if (dim == "song") {
-      item["name"] = r[0];
-      item["singer"] = r[1];
-      item["album"] = r[2];
-      item["cover_url"] = r[3];
-      item["play_count"] = SafeStoi(r[4]);
-      item["total_listened_seconds"] = SafeStod(r[5]);
+      item["song_hash"] = r[0];
+      item["name"] = r[1];
+      item["singer"] = r[2];
+      item["album"] = r[3];
+      item["cover_url"] = r[4];
+      item["play_count"] = SafeStoi(r[5]);
+      item["total_listened_seconds"] = SafeStod(r[6]);
     } else if (dim == "artist") {
       item["name"] = r[0];
-      item["play_count"] = SafeStoi(r[1]);
-      item["total_listened_seconds"] = SafeStod(r[2]);
+      item["cover_url"] = r[1];
+      item["play_count"] = SafeStoi(r[2]);
+      item["total_listened_seconds"] = SafeStod(r[3]);
     } else {
       item["name"] = r[1];          // album_name (display)
       item["album_id"] = r[0];      // for client-side dedup/routing

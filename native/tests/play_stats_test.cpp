@@ -139,11 +139,15 @@ int main() {
     assert(j["dim"] == "song");
     assert(j["items"].size() == 3);
     assert(j["items"][0]["name"] == "Song A");
+    assert(j["items"][0]["song_hash"] == "hashA");
+    assert(j["items"][0]["cover_url"] == "http://img.example/a.jpg");
     assert(j["items"][0]["play_count"] == 3);
     assert(j["items"][0]["singer"] == "Artist X");
     assert(j["items"][1]["name"] == "Song B");
+    assert(j["items"][1]["song_hash"] == "hashB");
     assert(j["items"][1]["play_count"] == 2);
     assert(j["items"][2]["name"] == "Song C");
+    assert(j["items"][2]["song_hash"] == "hashC");
     assert(j["items"][2]["play_count"] == 1);
   }
 
@@ -155,8 +159,10 @@ int main() {
     assert(j["dim"] == "artist");
     assert(j["items"].size() == 2);
     assert(j["items"][0]["name"] == "Artist X");
+    assert(j["items"][0]["cover_url"] == "http://img.example/a.jpg");
     assert(j["items"][0]["play_count"] == 5);
     assert(j["items"][1]["name"] == "Artist Y");
+    assert(j["items"][1]["cover_url"] == "http://img.example/c.jpg");
     assert(j["items"][1]["play_count"] == 1);
   }
 

@@ -56,13 +56,35 @@ describe('PlaySessionTracker', () => {
     const track = mkTrack({ FileHash: 'hash-C' });
     tracker.intend(track);
     tracker.onPlay();
-    for (let t = 0; t <= 30; t += 0.25) tracker.onTimeUpdate(t);
+    for (let t = 0; t <= 75; t += 0.25) tracker.onTimeUpdate(t);
     tracker.skip();
 
     expect(emitted).toHaveLength(1);
     expect(emitted[0].completed).toBe(false);
-    expect(emitted[0].listened_seconds).toBeGreaterThan(28);
-    expect(emitted[0].listened_seconds).toBeLessThan(32);
+    expect(emitted[0].listened_seconds).toBeGreaterThan(73);
+    expect(emitted[0].listened_seconds).toBeLessThan(77);
+  });
+
+  it('does not record plays listened for one minute or less', () => {
+    const { tracker, emitted } = withCollector();
+    tracker.intend(mkTrack({ FileHash: 'short' }));
+    tracker.onPlay();
+    for (let t = 0; t <= 60; t += 0.25) tracker.onTimeUpdate(t);
+    tracker.skip();
+
+    expect(emitted).toHaveLength(0);
+  });
+
+  it('records plays listened for more than one minute', () => {
+    const { tracker, emitted } = withCollector();
+    tracker.intend(mkTrack({ FileHash: 'long-enough' }));
+    tracker.onPlay();
+    for (let t = 0; t <= 61; t += 0.25) tracker.onTimeUpdate(t);
+    tracker.skip();
+
+    expect(emitted).toHaveLength(1);
+    expect(emitted[0].song_hash).toBe('long-enough');
+    expect(emitted[0].listened_seconds).toBeGreaterThan(60);
   });
 
   it('does not inflate listened_seconds when seeking forward then skipping', () => {
@@ -71,13 +93,14 @@ describe('PlaySessionTracker', () => {
     const { tracker, emitted } = withCollector();
     tracker.intend(mkTrack({ FileHash: 'seek' }));
     tracker.onPlay();
-    for (let t = 0; t <= 10; t += 0.25) tracker.onTimeUpdate(t);
+    for (let t = 0; t <= 70; t += 0.25) tracker.onTimeUpdate(t);
     // user drags progress bar to near the end — a 220s jump in one tick
     tracker.onTimeUpdate(230);
     tracker.skip();
 
     expect(emitted).toHaveLength(1);
-    expect(emitted[0].listened_seconds).toBeLessThan(15); // ~10s, NOT 230
+    expect(emitted[0].listened_seconds).toBeGreaterThan(65);
+    expect(emitted[0].listened_seconds).toBeLessThan(75); // ~70s, NOT 230
   });
 
   it('does not count a backward seek (replay) as listened time', () => {
@@ -117,7 +140,7 @@ describe('PlaySessionTracker', () => {
     const { tracker, emitted } = withCollector();
     tracker.intend(mkTrack({ FileHash: 'old' }));
     tracker.onPlay();
-    for (let t = 0; t <= 20; t += 0.25) tracker.onTimeUpdate(t);
+    for (let t = 0; t <= 70; t += 0.25) tracker.onTimeUpdate(t);
     // user clicks a different song while old is still playing
     tracker.intend(mkTrack({ FileHash: 'new' }));
 
@@ -142,13 +165,13 @@ describe('PlaySessionTracker', () => {
     const { tracker, emitted } = withCollector();
     tracker.intend(mkTrack({ FileHash: 'resume' }));
     tracker.onPlay();
-    for (let t = 0; t <= 50; t += 0.25) tracker.onTimeUpdate(t);
+    for (let t = 0; t <= 70; t += 0.25) tracker.onTimeUpdate(t);
     tracker.onEnded();
     expect(emitted).toHaveLength(1);
 
     // user resumes the same track from the start
     tracker.onPlay();
-    for (let t = 0; t <= 50; t += 0.25) tracker.onTimeUpdate(t);
+    for (let t = 0; t <= 70; t += 0.25) tracker.onTimeUpdate(t);
     tracker.onEnded();
     expect(emitted).toHaveLength(2);
     expect(emitted[1].song_hash).toBe('resume');
@@ -161,13 +184,13 @@ describe('PlaySessionTracker', () => {
     const { tracker, emitted } = withCollector();
     tracker.intend(mkTrack({ FileHash: 'q' }));
     tracker.onPlay();
-    for (let t = 0; t <= 60; t += 0.25) tracker.onTimeUpdate(t);
+    for (let t = 0; t <= 70; t += 0.25) tracker.onTimeUpdate(t);
 
     // quality switch: skip + intend same track
     tracker.skip();
     tracker.intend(mkTrack({ FileHash: 'q' }));
     tracker.onPlay();
-    for (let t = 0; t <= 60; t += 0.25) tracker.onTimeUpdate(t);
+    for (let t = 0; t <= 70; t += 0.25) tracker.onTimeUpdate(t);
     tracker.onEnded();
 
     expect(emitted).toHaveLength(2);
@@ -185,7 +208,7 @@ describe('PlaySessionTracker', () => {
     );
     tracker.intend(mkTrack({ FileHash: 'ql' }));
     tracker.onPlay();
-    for (let t = 0; t <= 10; t += 0.25) tracker.onTimeUpdate(t);
+    for (let t = 0; t <= 70; t += 0.25) tracker.onTimeUpdate(t);
     quality = 'flac'; // user switched quality during playback
     tracker.onEnded();
 
