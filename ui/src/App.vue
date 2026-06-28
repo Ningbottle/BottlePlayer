@@ -18,7 +18,7 @@ import StatsView from './views/StatsView.vue';
 
 import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
-import { isCircuitOpen } from './api/backend';
+import { backendHealth } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 
@@ -29,11 +29,12 @@ const playlistName = ref('');
 const tweaksCollapsed = ref(true);
 const isQueueOpen = ref(false);
 const networkDegraded = ref(false);
+let networkInterval: ReturnType<typeof setInterval> | null = null;
 
-function updateNetworkBanner() {
-  networkDegraded.value = isCircuitOpen();
+async function updateNetworkBanner() {
+  const health = await backendHealth();
+  networkDegraded.value = !health.ok;
 }
-setInterval(updateNetworkBanner, 1_000);
 
 // Memory usage tracking
 const memoryUsage = ref('Working Set: -- / 220 MB');
@@ -162,10 +163,13 @@ onMounted(() => {
   // Start memory polling
   fetchMemoryUsage();
   memInterval = setInterval(fetchMemoryUsage, 2500);
+  updateNetworkBanner();
+  networkInterval = setInterval(updateNetworkBanner, 5_000);
 });
 
 onUnmounted(() => {
   if (memInterval) clearInterval(memInterval);
+  if (networkInterval) clearInterval(networkInterval);
 });
 </script>
 
