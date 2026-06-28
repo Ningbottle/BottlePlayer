@@ -200,12 +200,15 @@ describe('StatsView component rendering', () => {
     expect(img.attributes('src')).toBe('http://img.example/artist.jpg');
   });
 
-  it('renders recent play entry', async () => {
+  it('does not render duplicate recent plays on the stats dashboard', async () => {
     const wrapper = mount(StatsView);
     await flushPromises();
 
-    expect(wrapper.text()).toContain('Recent Song');
-    expect(wrapper.text()).toContain('听完');
+    expect(wrapper.text()).not.toContain('最近播放');
+    expect(wrapper.text()).not.toContain('Recent Song');
+    expect(wrapper.text()).not.toContain('听完');
+    expect(wrapper.text()).not.toContain('跳过');
+    expect(vi.mocked(invoke).mock.calls.some(([cmd]) => cmd === 'stats_get_recent')).toBe(false);
   });
 
   it('renders timeline bar', async () => {
@@ -234,21 +237,10 @@ describe('StatsView component rendering', () => {
     );
   });
 
-  it('plays a recent song when clicked', async () => {
+  it('does not expose recent-play rows as playable stats items', async () => {
     const wrapper = mount(StatsView);
     await flushPromises();
 
-    await wrapper.find('.recent-item').trigger('click');
-
-    expect(playAll).toHaveBeenCalledWith(
-      [
-        expect.objectContaining({
-          FileHash: 'hash-recent-song',
-          SongName: 'Recent Song',
-          SingerName: 'Artist',
-        }),
-      ],
-      0,
-    );
+    expect(wrapper.find('.recent-item').exists()).toBe(false);
   });
 });

@@ -39,20 +39,6 @@ interface TimelineItem {
 const timeline = ref<TimelineItem[]>([]);
 const maxTimelineCount = ref(1);
 
-interface RecentItem {
-  song_hash: string;
-  name: string;
-  singer: string;
-  album: string;
-  cover_url: string;
-  duration_seconds: number;
-  completed: boolean;
-  listened_seconds: number;
-  quality: string;
-  played_at: number;
-}
-const recent = ref<RecentItem[]>([]);
-
 const aiApiKey = ref(localStorage.getItem('deepseek_api_key') || '');
 const aiResult = ref('');
 const aiLoading = ref(false);
@@ -70,19 +56,6 @@ function formatDuration(seconds: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function formatTimeAgo(ts: number): string {
-  const diff = Date.now() - ts;
-  const m = Math.floor(diff / 60000);
-  if (m < 1) return '刚刚';
-  if (m < 60) return `${m}分钟前`;
-  const h = Math.floor(m / 60);
-  if (h < 24) return `${h}小时前`;
-  const d = Math.floor(h / 24);
-  if (d === 1) return '昨天';
-  if (d < 7) return `${d}天前`;
-  return new Date(ts).toLocaleDateString('zh-CN');
-}
-
 function topSongToTrack(item: TopItem): Track {
   return normalizeTrack({
     FileHash: item.song_hash || '',
@@ -91,17 +64,6 @@ function topSongToTrack(item: TopItem): Track {
     AlbumName: item.album || '',
     AlbumID: item.album_id || '',
     Duration: 0,
-    Image: item.cover_url || '',
-  });
-}
-
-function recentToTrack(item: RecentItem): Track {
-  return normalizeTrack({
-    FileHash: item.song_hash || '',
-    SongName: item.name,
-    SingerName: item.singer,
-    AlbumName: item.album,
-    Duration: item.duration_seconds || 0,
     Image: item.cover_url || '',
   });
 }
@@ -115,30 +77,17 @@ function playTopSong(item: TopItem) {
   playAll(tracks, idx);
 }
 
-function playRecent(item: RecentItem) {
-  const tracks = recent.value
-    .filter(song => !!song.song_hash)
-    .map(recentToTrack);
-  const idx = tracks.findIndex(track => track.FileHash === item.song_hash);
-  if (idx === -1) return;
-  playAll(tracks, idx);
-}
-
 function isCurrentHash(hash?: string) {
   return !!hash && playerStore.currentTrack?.FileHash === hash;
 }
 
-async function loadTimelineAndRecent() {
+async function loadTimeline() {
   try {
-    const [tl, rec] = await Promise.all([
-      invoke<string>('stats_get_timeline', { range: range.value }),
-      invoke<string>('stats_get_recent', { offset: 0, limit: 20 }),
-    ]);
+    const tl = await invoke<string>('stats_get_timeline', { range: range.value });
     timeline.value = JSON.parse(tl).items || [];
     maxTimelineCount.value = Math.max(1, ...timeline.value.map(t => t.count));
-    recent.value = JSON.parse(rec).items || [];
   } catch (e) {
-    console.error('Timeline/recent load failed:', e);
+    console.error('Timeline load failed:', e);
   }
 }
 
@@ -156,7 +105,7 @@ async function loadStats() {
     topSongs.value = JSON.parse(songs).items || [];
     topArtists.value = JSON.parse(artists).items || [];
     topAlbums.value = JSON.parse(albums).items || [];
-    await loadTimelineAndRecent();
+    await loadTimeline();
   } catch (e) {
     console.error('Stats load failed:', e);
     error.value = '统计数据加载失败';
@@ -314,31 +263,6 @@ watch(range, loadStats);
         </div>
       </div>
 
-      <!-- Recent plays -->
-      <div class="stats-recent">
-        <h3>最近播放</h3>
-        <div
-          v-for="(item, i) in recent"
-          :key="item.song_hash || i"
-          class="recent-item"
-          :class="{ playable: !!item.song_hash, active: isCurrentHash(item.song_hash) }"
-          @click="playRecent(item)"
-        >
-          <img v-if="item.cover_url" :src="item.cover_url" class="recent-cover" loading="lazy">
-          <div v-else class="recent-cover placeholder"></div>
-          <div class="recent-info">
-            <span class="recent-name">{{ item.name }}</span>
-            <span class="recent-sub">{{ item.singer }} · {{ item.album }}</span>
-          </div>
-          <div class="recent-meta">
-            <span class="recent-time">{{ formatTimeAgo(item.played_at) }}</span>
-            <span class="recent-detail">{{ formatDuration(item.listened_seconds) }} / {{ formatDuration(item.duration_seconds) }}</span>
-            <span class="recent-badge" :class="{ completed: item.completed }">{{ item.completed ? '听完' : '跳过' }}</span>
-          </div>
-        </div>
-        <p v-if="recent.length === 0" class="empty">暂无播放记录</p>
-      </div>
-
       <!-- AI Analysis -->
       <div class="stats-ai">
         <h3>AI 听歌分析</h3>
@@ -434,14 +358,11 @@ watch(range, loadStats);
   padding: 7px 0;
   border-bottom: 1px solid var(--rule-soft);
 }
-.top-item.playable,
-.recent-item.playable {
+.top-item.playable {
   cursor: pointer;
 }
 .top-item.playable:hover,
-.recent-item.playable:hover,
-.top-item.active,
-.recent-item.active {
+.top-item.active {
   background: var(--paper-edge);
 }
 .top-cover {
@@ -537,79 +458,6 @@ watch(range, loadStats);
   color: var(--ink-soft);
   position: absolute;
   top: -14px;
-}
-
-/* Recent plays */
-.stats-recent {
-  margin: 24px 0;
-}
-.stats-recent h3 {
-  font-family: var(--font-serif);
-  color: var(--ink);
-  font-size: 14px;
-  margin: 0 0 8px;
-}
-.recent-item {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--rule-soft);
-}
-.recent-cover {
-  width: 40px;
-  height: 40px;
-  border-radius: 4px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-.recent-cover.placeholder {
-  background: var(--paper-edge);
-}
-.recent-info {
-  flex: 1;
-  min-width: 0;
-}
-.recent-name {
-  display: block;
-  font-size: 13px;
-  color: var(--ink);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.recent-sub {
-  display: block;
-  font-size: 11px;
-  color: var(--ink-mute);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-.recent-meta {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  gap: 2px;
-}
-.recent-time {
-  font-size: 11px;
-  color: var(--ink-mute);
-}
-.recent-detail {
-  font-size: 10px;
-  color: var(--ink-soft);
-}
-.recent-badge {
-  font-size: 10px;
-  padding: 1px 6px;
-  border-radius: 3px;
-  background: var(--rule);
-  color: var(--ink-soft);
-}
-.recent-badge.completed {
-  background: var(--accent);
-  color: var(--paper);
 }
 
 /* AI Analysis */

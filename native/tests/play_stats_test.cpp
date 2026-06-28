@@ -53,7 +53,7 @@ int main() {
   EchoInitializeWithPaths(testDir.string().c_str());
 
   // ── Seed data ────────────────────────────────────────────────────────
-  // 6 plays across 2 days, 3 songs, 2 artists, 2 albums.
+  // 6 counted plays across 2 days, 3 songs, 2 artists, 2 albums.
   //
   //   Song A (Artist X, Album One) — 3 plays, all completed, 240s each
   //   Song B (Artist X, Album One) — 2 plays, not completed, 90s each
@@ -75,6 +75,7 @@ int main() {
   const long long t4 = day2 - 2000;
   const long long t5 = day2 - 1000;
   const long long t6 = day2;
+  const long long t7 = day2 + 1000;
 
   auto makeRecord = [](const std::string& hash, const std::string& name,
                        const std::string& singer, const std::string& albumId,
@@ -108,6 +109,10 @@ int main() {
   // wrongly merge with the above if grouping by name — proves the album_id fix)
   RecordPlay(makeRecord("hashC", "Song C", "Artist Y", "album-2", "Album One",
                         "http://img.example/c.jpg", 300.0, true, 300.0, "sq", t6));
+
+  // Plays of one minute or less are too short to count toward stats.
+  RecordPlay(makeRecord("hashShort", "Short Song", "Artist Z", "album-short", "Short Album",
+                        "http://img.example/short.jpg", 240.0, false, 60.0, "128", t7));
 
   // ── GetSummary ("all") ───────────────────────────────────────────────
   std::cout << "[PlayStatsTest] Testing GetSummary(all)..." << std::endl;

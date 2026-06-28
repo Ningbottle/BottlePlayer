@@ -8,6 +8,24 @@ namespace echo::stats {
 
 using nlohmann::json;
 
+constexpr double kMinCountedListenedSeconds = 60.0;
+
+static std::string MinCountedListenedSecondsSql() {
+  return std::to_string(kMinCountedListenedSeconds);
+}
+
+static std::string StatsWhere(long long since) {
+  std::string where = "WHERE listened_seconds > " + MinCountedListenedSecondsSql();
+  if (since > 0) where += " AND played_at >= " + std::to_string(since);
+  return where;
+}
+
+static std::string StatsAliasPredicate(const std::string& alias, long long since) {
+  std::string where = alias + ".listened_seconds > " + MinCountedListenedSecondsSql();
+  if (since > 0) where += " AND " + alias + ".played_at >= " + std::to_string(since);
+  return where;
+}
+
 static std::string SqlEscape(const std::string& s) {
   std::string out;
   out.reserve(s.size() + 8);
@@ -45,6 +63,8 @@ long long PlayStatsService::RangeToTimestamp(const std::string& range) {
 }
 
 bool PlayStatsService::RecordPlay(const PlayRecord& r) {
+  if (r.listenedSeconds <= kMinCountedListenedSeconds) return false;
+
   std::string sql = std::string("INSERT INTO play_history_v2 "
                     "(song_hash, song_name, singer_name, album_id, album_name, cover_url, "
                     "duration_seconds, completed, listened_seconds, quality, played_at) VALUES (") +
@@ -65,7 +85,7 @@ bool PlayStatsService::RecordPlay(const PlayRecord& r) {
 
 std::string PlayStatsService::GetSummary(const std::string& range) {
   long long since = RangeToTimestamp(range);
-  std::string where = since > 0 ? "WHERE played_at >= " + std::to_string(since) : "";
+  std::string where = StatsWhere(since);
   auto rows = db_.ExecuteQuery(
       "SELECT COUNT(*), COALESCE(SUM(listened_seconds),0), "
       "COUNT(DISTINCT song_hash), COUNT(DISTINCT singer_name), "
@@ -92,20 +112,18 @@ std::string PlayStatsService::GetSummary(const std::string& range) {
 
 std::string PlayStatsService::GetTop(const std::string& dim, const std::string& range, int limit) {
   long long since = RangeToTimestamp(range);
-  std::string where = since > 0 ? "WHERE played_at >= " + std::to_string(since) : "";
+  std::string where = StatsWhere(since);
   std::string groupCol, nameCol;
   if (dim == "song") {
     groupCol = "song_hash";
     nameCol = "song_hash, song_name, singer_name, album_name, cover_url";
   } else if (dim == "artist") {
-    const std::string artistCoverSince =
-        since > 0 ? " AND h2.played_at >= " + std::to_string(since) : "";
     groupCol = "singer_name";
     nameCol =
         "singer_name, COALESCE((SELECT h2.cover_url FROM play_history_v2 h2 "
         "WHERE h2.singer_name = play_history_v2.singer_name "
-        "AND h2.cover_url <> ''" +
-        artistCoverSince +
+        "AND h2.cover_url <> '' AND " +
+        StatsAliasPredicate("h2", since) +
         " GROUP BY h2.cover_url ORDER BY COUNT(*) DESC, MAX(h2.played_at) DESC LIMIT 1), '')";
   } else {
     // #4: group by album_id, not album_name — two different albums with the
@@ -153,7 +171,7 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
 
 std::string PlayStatsService::GetTimeline(const std::string& range) {
   long long since = RangeToTimestamp(range);
-  std::string where = since > 0 ? "WHERE played_at >= " + std::to_string(since) : "";
+  std::string where = StatsWhere(since);
   auto rows = db_.ExecuteQuery(
       "SELECT date(played_at/1000, 'unixepoch', 'localtime') AS date, "
       "COUNT(*) AS count FROM play_history_v2 " + where +
@@ -174,7 +192,8 @@ std::string PlayStatsService::GetRecent(int limit, int offset) {
   auto rows = db_.ExecuteQuery(
       "SELECT song_hash, song_name, singer_name, album_name, cover_url, "
       "duration_seconds, listened_seconds, completed, quality, played_at "
-      "FROM play_history_v2 ORDER BY played_at DESC LIMIT " +
+      "FROM play_history_v2 WHERE listened_seconds > " + MinCountedListenedSecondsSql() +
+      " ORDER BY played_at DESC LIMIT " +
       std::to_string(limit) + " OFFSET " + std::to_string(offset));
   json items = json::array();
   for (auto& r : rows) {
@@ -199,7 +218,8 @@ std::string PlayStatsService::GetRecent(int limit, int offset) {
 std::string PlayStatsService::GetRecommendations(int limit) {
   auto rows = db_.ExecuteQuery(
       "SELECT singer_name, COUNT(*) as cnt FROM play_history_v2 "
-      "GROUP BY singer_name ORDER BY cnt DESC LIMIT " + std::to_string(limit));
+      "WHERE listened_seconds > " + MinCountedListenedSecondsSql() +
+      " GROUP BY singer_name ORDER BY cnt DESC LIMIT " + std::to_string(limit));
   json items = json::array();
   for (auto& r : rows) {
     json item;
