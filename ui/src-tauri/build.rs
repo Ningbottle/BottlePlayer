@@ -1,6 +1,23 @@
 use std::env;
 use std::path::PathBuf;
 
+fn copy_runtime_dll(src: &PathBuf, dst: &PathBuf, name: &str) {
+    if dst.exists() {
+        let _ = std::fs::rename(dst, dst.with_file_name(format!("{}.old", name)));
+    }
+
+    if let Err(e) = std::fs::copy(src, dst) {
+        println!(
+            "cargo:warning=Failed to copy native runtime DLL {} to {}: {}",
+            name,
+            dst.display(),
+            e
+        );
+    } else {
+        println!("cargo:warning=Copied native runtime DLL: {} → {}", src.display(), dst.display());
+    }
+}
+
 fn main() {
     let dll_name = if cfg!(target_os = "windows") {
         "EchoCAPI.dll"
@@ -15,6 +32,7 @@ fn main() {
 
     let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
     let src = manifest_dir.join(format!("../../native/out/{}/{}", preset, dll_name));
+    let sqlite_src = manifest_dir.join("../../native/vcpkg_installed/x64-windows/bin/sqlite3.dll");
 
     if src.exists() {
         // OUT_DIR ≈ target/debug/build/ui-<hash>/out
@@ -27,28 +45,23 @@ fn main() {
             .expect("OUT_DIR structure unexpected");
         let dst = target_profile_dir.join(dll_name);
 
-        if dst.exists() {
-            // On Windows, if the DLL is currently loaded by the app, we cannot overwrite it.
-            // However, we CAN rename it. By renaming the old DLL out of the way, we allow
-            // the new copy to succeed.
-            let _ = std::fs::rename(&dst, target_profile_dir.join(format!("{}.old", dll_name)));
-        }
-
-        if let Err(e) = std::fs::copy(&src, &dst) {
-            println!("cargo:warning=Failed to copy native DLL to target dir: {} (Is the app running?)", e);
-        } else {
-            println!("cargo:warning=Copied native DLL: {} → {}", src.display(), dst.display());
-        }
+        copy_runtime_dll(&src, &dst, dll_name);
 
         // Also copy it to a stable staging directory for tauri.conf.json bundling.
         let staging_dir = manifest_dir.join("libs");
         let _ = std::fs::create_dir_all(&staging_dir);
         let staging_dst = staging_dir.join(dll_name);
-        if staging_dst.exists() {
-            let _ = std::fs::rename(&staging_dst, staging_dir.join(format!("{}.old", dll_name)));
-        }
-        if let Err(e) = std::fs::copy(&src, &staging_dst) {
-            println!("cargo:warning=Failed to copy native DLL to staging dir: {}", e);
+        copy_runtime_dll(&src, &staging_dst, dll_name);
+
+        if cfg!(target_os = "windows") && sqlite_src.exists() {
+            let sqlite_name = "sqlite3.dll";
+            copy_runtime_dll(
+                &sqlite_src,
+                &target_profile_dir.join(sqlite_name),
+                sqlite_name,
+            );
+            copy_runtime_dll(&sqlite_src, &staging_dir.join(sqlite_name), sqlite_name);
+            println!("cargo:rerun-if-changed={}", sqlite_src.display());
         }
 
         println!("cargo:rerun-if-changed={}", src.display());

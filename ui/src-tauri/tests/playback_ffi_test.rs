@@ -24,6 +24,17 @@ fn load_dll() -> PathBuf {
 }
 
 #[test]
+fn test_runtime_dependencies_are_next_to_echo_capi() {
+    let path = load_dll();
+    let dir = path.parent().expect("EchoCAPI.dll has parent dir");
+
+    assert!(
+        dir.join("sqlite3.dll").exists(),
+        "sqlite3.dll must be next to EchoCAPI.dll so LoadLibrary can resolve runtime dependencies"
+    );
+}
+
+#[test]
 fn test_playback_initialize_and_query_state() {
     use libloading::Library;
     let path = load_dll();

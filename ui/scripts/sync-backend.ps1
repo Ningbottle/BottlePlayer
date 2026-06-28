@@ -1,15 +1,14 @@
-# 把构建产物 EchoCAPI.dll 同步到 src-tauri（Rust 通过 libloading 加载它）。
-# 用法：pnpm backend:sync
-# 说明：当前是 FFI 架构，不再是 sidecar exe；build.rs 也会做同样的拷贝，
-#       这个脚本主要给“只重建了 C++、没重建 Rust”的场景手动兜底。
+# Sync native runtime DLLs for Rust libloading.
+# Usage: pnpm backend:sync
+# This is a manual fallback for cases where C++ was rebuilt but Rust was not.
 $ErrorActionPreference = 'Stop'
 
-$root = Split-Path -Parent $PSScriptRoot   # ui/
+$uiRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 
-# DLL 候选路径：本仓库构建产物优先，兼容多种 preset
+# Prefer this repo's native build outputs, while keeping release/check compatibility.
 $candidates = @(
-    (Join-Path $root '..\native\out\bottlemusic-check\EchoCAPI.dll'),
-    (Join-Path $root '..\native\out\bottlemusic-release\EchoCAPI.dll')
+    (Join-Path $uiRoot '..\native\out\bottlemusic-check\EchoCAPI.dll'),
+    (Join-Path $uiRoot '..\native\out\bottlemusic-release\EchoCAPI.dll')
 )
 
 $src = $null
@@ -22,17 +21,38 @@ if (-not $src) {
     exit 0
 }
 
-# Rust 在 debug 跑时从 target/debug/ 加载 DLL（见 lib.rs 的 exe_dir 候选），
-# 但开发期最稳的是直接放进 src-tauri 便于 build.rs 与 IDE 一致引用。
-$dstDir = Join-Path $root 'src-tauri\libs'
+# Keep a stable staging dir for build.rs, IDE workflows, and Tauri resources.
+$dstDir = Join-Path $uiRoot 'src-tauri\libs'
 New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
-$dst = Join-Path $dstDir 'EchoCAPI.dll'
 
-if ((Test-Path $dst) -and ((Get-Item $src).LastWriteTime -eq (Get-Item $dst).LastWriteTime)) {
-    Write-Host '[backend:sync] already up-to-date'
-    exit 0
+function Sync-RuntimeDll {
+    param(
+        [Parameter(Mandatory = $true)][string]$Source,
+        [Parameter(Mandatory = $true)][string]$Destination
+    )
+
+    $sourceItem = Get-Item -LiteralPath $Source
+    $needsCopy = -not (Test-Path -LiteralPath $Destination)
+    if (-not $needsCopy) {
+        $destItem = Get-Item -LiteralPath $Destination
+        $needsCopy = $sourceItem.LastWriteTime -ne $destItem.LastWriteTime -or $sourceItem.Length -ne $destItem.Length
+    }
+
+    if (-not $needsCopy) {
+        Write-Host "[backend:sync] already up-to-date: $(Split-Path -Leaf $Destination)"
+        return
+    }
+
+    Copy-Item -LiteralPath $Source -Destination $Destination -Force
+    $size = (Get-Item -LiteralPath $Destination).Length / 1MB
+    Write-Host ('[backend:sync] {0:N2} MB <- {1}' -f $size, $Source)
 }
 
-Copy-Item -Path $src -Destination $dst -Force
-$size = (Get-Item $dst).Length / 1MB
-Write-Host ('[backend:sync] {0:N2} MB <- {1}' -f $size, $src)
+Sync-RuntimeDll -Source $src -Destination (Join-Path $dstDir 'EchoCAPI.dll')
+
+$sqliteSrc = Join-Path $uiRoot '..\native\vcpkg_installed\x64-windows\bin\sqlite3.dll'
+if (Test-Path $sqliteSrc) {
+    Sync-RuntimeDll -Source $sqliteSrc -Destination (Join-Path $dstDir 'sqlite3.dll')
+} else {
+    Write-Warning "sqlite3.dll not found at $sqliteSrc; EchoCAPI.dll may fail to load with Windows error 126."
+}
