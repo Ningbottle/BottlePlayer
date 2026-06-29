@@ -15,6 +15,7 @@ import SettingsView from './views/SettingsView.vue';
 import LoginView from './views/LoginView.vue';
 import HistoryView from './views/HistoryView.vue';
 import StatsView from './views/StatsView.vue';
+import EqualizerView from './views/EqualizerView.vue';
 
 import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
@@ -265,6 +266,9 @@ onUnmounted(() => {
         />
         <StatsView
           v-else-if="currentView === 'stats'"
+        />
+        <EqualizerView
+          v-else-if="currentView === 'equalizer'"
         />
       </div>
 

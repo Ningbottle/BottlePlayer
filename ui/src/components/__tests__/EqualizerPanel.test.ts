@@ -13,25 +13,41 @@ vi.mock('../../api/playerStore', async () => {
     ...actual,
     setWebAudioEqBand: vi.fn(),
     setWebAudioEqEnabled: vi.fn(),
+    retryEq: vi.fn().mockResolvedValue(undefined),
   };
 });
 
-import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState } from '../../api/playerStore';
+import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState, retryEq } from '../../api/playerStore';
 
 describe('EqualizerPanel', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     playerStore.backend = 'html5';
     playerStore.eqEnabled = true;
-    playerStore.eqBands = [0, 0, 0, 0, 0];
+    playerStore.eqBands = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     playerStore.activePreset = 'Flat';
     eqState.available = true;
+    eqState.reason = '';
+    eqState.retryDisabled = false;
+    eqState.retryFailCount = 0;
   });
 
-  it('renders 5 band sliders when expanded', async () => {
+  it('renders the 10 reference EQ bands when expanded', () => {
     const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
     const sliders = wrapper.findAll('input[type="range"]');
-    expect(sliders.length).toBe(5);
+    expect(sliders).toHaveLength(10);
+    expect(wrapper.text()).toContain('31');
+    expect(wrapper.text()).toContain('62');
+    expect(wrapper.text()).toContain('125');
+    expect(wrapper.text()).toContain('250');
+    expect(wrapper.text()).toContain('500');
+    expect(wrapper.text()).toContain('1K');
+    expect(wrapper.text()).toContain('2K');
+    expect(wrapper.text()).toContain('4K');
+    expect(wrapper.text()).toContain('8K');
+    expect(wrapper.text()).toContain('16K');
+    expect(sliders[0].attributes('min')).toBe('-6');
+    expect(sliders[0].attributes('max')).toBe('6');
   });
 
   it('slider change calls setWebAudioEqBand', async () => {
@@ -42,14 +58,24 @@ describe('EqualizerPanel', () => {
     expect(setWebAudioEqBand).toHaveBeenCalledWith(0, 6);
   });
 
-  it('applies preset when dropdown changes', async () => {
+  it('applies the Harman Kardon preset', async () => {
     const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
     const select = wrapper.find('select');
-    await select.setValue('Bass Boost');
+    await select.setValue('Harman Kardon');
     await nextTick();
-    expect(playerStore.eqBands).toEqual([6, 4, 0, 0, 0]);
-    expect(setWebAudioEqBand).toHaveBeenCalledWith(0, 6);
-    expect(setWebAudioEqBand).toHaveBeenCalledWith(1, 4);
+    expect(playerStore.activePreset).toBe('Harman Kardon');
+    expect(playerStore.eqBands).toEqual([2, 3, 2, 0, -1, 0, 1, 2, 2, 1]);
+    expect(setWebAudioEqBand).toHaveBeenCalledWith(0, 2);
+    expect(setWebAudioEqBand).toHaveBeenCalledWith(9, 1);
+  });
+
+  it('resets custom gains to flat', async () => {
+    playerStore.eqBands = [0, 0, 6, 0, 0, 0, 0, 0, 0, 0];
+    const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
+    await wrapper.get('[data-test="eq-reset"]').trigger('click');
+    await nextTick();
+    expect(playerStore.activePreset).toBe('Flat');
+    expect(playerStore.eqBands).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it('toggle enable calls setWebAudioEqEnabled', async () => {
@@ -62,10 +88,39 @@ describe('EqualizerPanel', () => {
 
   it('shows degradation notice and disables sliders when EQ unavailable', async () => {
     eqState.available = false;
+    eqState.reason = '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。';
     const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
-    expect(wrapper.text()).toContain('不支持 EQ');
+    expect(wrapper.text()).toContain('EQ 暂不可用');
     const sliders = wrapper.findAll('input[type="range"]');
-    expect(sliders.length).toBe(5);
+    expect(sliders.length).toBe(10);
     expect(sliders[0].attributes('disabled')).toBeDefined();
+  });
+
+  it('shows retry button when eqState.available=false', () => {
+    eqState.available = false;
+    eqState.reason = 'EQ 暂不可用，点击重试';
+    const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
+    const btn = wrapper.get('[data-test="eq-retry"]');
+    expect(btn.text()).toContain('重试 EQ');
+  });
+
+  it('hides retry button when eqState.available=true', () => {
+    eqState.available = true;
+    const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
+    expect(wrapper.find('[data-test="eq-retry"]').exists()).toBe(false);
+  });
+
+  it('disables retry button when eqState.retryDisabled=true', () => {
+    eqState.available = false;
+    eqState.retryDisabled = true;
+    const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
+    expect(wrapper.get('[data-test="eq-retry"]').attributes('disabled')).toBeDefined();
+  });
+
+  it('clicking retry button calls retryEq()', async () => {
+    eqState.available = false;
+    const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
+    await wrapper.get('[data-test="eq-retry"]').trigger('click');
+    expect(retryEq).toHaveBeenCalledTimes(1);
   });
 });

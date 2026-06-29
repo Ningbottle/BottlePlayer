@@ -1,21 +1,53 @@
 import type { PlayerBackend, PlaybackEvent, PlaybackState } from './playerBackend';
 
+export interface PreparedAudioSource {
+  url: string;
+  crossOriginSafe: boolean;
+}
+
+export interface Html5AudioBackendOptions {
+  prepareSourceUrl?: (url: string) => Promise<PreparedAudioSource>;
+  /** Called after audio.play() resolves — post-play attachSource (spec §5.2). */
+  initEq?: (audio: HTMLAudioElement, crossOriginSafe: boolean) => void;
+  /** Capture transition epoch at play start; checked after play() before initEq. */
+  getAttachTransitionSeq?: () => number;
+  isAttachTransitionCurrent?: (seq: number) => boolean;
+  disconnectEq?: () => void;
+  isEqRerouted?: () => boolean;
+  setEqVolume?: (vol: number) => void;
+}
+
 export class Html5AudioBackend implements PlayerBackend {
   readonly kind = 'html5' as const;
+  private lastCrossOriginSafe = false;
 
-  constructor(private audio: HTMLAudioElement) {
+  constructor(
+    private audio: HTMLAudioElement,
+    private readonly options: Html5AudioBackendOptions = {},
+  ) {
     this.audio.volume = parseFloat(localStorage.getItem('player_volume') || '0.7');
   }
 
   async initialize(): Promise<boolean> { return true; }
 
   async playUrl(url: string): Promise<boolean> {
-    this.audio.src = url;
+    const attachSeq = this.options.getAttachTransitionSeq?.();
+    await this.setPreparedSource(url);
     try {
       await this.audio.play();
+      if (this.shouldAttachEq(attachSeq)) {
+        this.options.initEq?.(this.audio, this.lastCrossOriginSafe);
+      }
       return true;
     } catch (e) {
-      console.warn('Html5AudioBackend play failed:', e);
+      console.warn('Html5AudioBackend playUrl play failed:', {
+        url,
+        error: e,
+        readyState: this.audio.readyState,
+        networkState: this.audio.networkState,
+        mediaError: this.audio.error ? { code: this.audio.error.code, message: this.audio.error.message } : null,
+        hasSrc: this.audio.hasAttribute('src'),
+      });
       return false;
     }
   }
@@ -24,7 +56,7 @@ export class Html5AudioBackend implements PlayerBackend {
     url: string,
     options: { position?: number; autoplay: boolean },
   ): Promise<boolean> {
-    this.audio.src = url;
+    await this.setPreparedSource(url);
 
     if (options.position && options.position > 0) {
       await this.waitForMetadata();
@@ -39,7 +71,11 @@ export class Html5AudioBackend implements PlayerBackend {
     if (!options.autoplay) return true;
 
     try {
+      const attachSeq = this.options.getAttachTransitionSeq?.();
       await this.audio.play();
+      if (this.shouldAttachEq(attachSeq)) {
+        this.options.initEq?.(this.audio, this.lastCrossOriginSafe);
+      }
       return true;
     } catch (e) {
       console.warn('Html5AudioBackend switchUrl play failed:', e);
@@ -54,6 +90,7 @@ export class Html5AudioBackend implements PlayerBackend {
   async pause(): Promise<void> { this.audio.pause(); }
   async resume(): Promise<void> { await this.audio.play(); }
   async stop(): Promise<void> {
+    this.options.disconnectEq?.();
     this.audio.pause();
     this.audio.removeAttribute('src');
     this.audio.load();
@@ -64,7 +101,11 @@ export class Html5AudioBackend implements PlayerBackend {
   }
 
   async setVolume(v: number): Promise<void> {
-    this.audio.volume = v;
+    if (this.options.isEqRerouted?.()) {
+      this.options.setEqVolume?.(v);
+    } else {
+      this.audio.volume = v;
+    }
     localStorage.setItem('player_volume', String(v));
   }
 
@@ -117,5 +158,25 @@ export class Html5AudioBackend implements PlayerBackend {
       const timer = window.setTimeout(done, timeoutMs);
       this.audio.addEventListener('loadedmetadata', done, { once: true });
     });
+  }
+
+  private shouldAttachEq(attachSeq: number | undefined): boolean {
+    if (attachSeq === undefined) return true;
+    return this.options.isAttachTransitionCurrent?.(attachSeq) ?? false;
+  }
+
+  private async setPreparedSource(url: string): Promise<void> {
+    const prepared = this.options.prepareSourceUrl
+      ? await this.options.prepareSourceUrl(url)
+      : { url, crossOriginSafe: false };
+
+    if (prepared.crossOriginSafe) {
+      this.audio.crossOrigin = 'anonymous';
+    } else {
+      this.audio.removeAttribute('crossorigin');
+    }
+
+    this.lastCrossOriginSafe = prepared.crossOriginSafe;
+    this.audio.src = prepared.url;
   }
 }

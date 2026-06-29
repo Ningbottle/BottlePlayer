@@ -1,28 +1,39 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState } from '../api/playerStore';
+import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState, retryEq } from '../api/playerStore';
+import {
+  EQ_BANDS,
+  EQ_MAX_GAIN_DB,
+  EQ_MIN_GAIN_DB,
+  EQ_PRESET_LABELS,
+  EQ_PRESETS,
+  FLAT_EQ_BANDS,
+  normalizeEqBands,
+} from '../api/equalizerConfig';
 
-const props = defineProps<{ modelValue: boolean }>();
+const props = withDefaults(defineProps<{
+  modelValue?: boolean;
+  variant?: 'collapsible' | 'standalone';
+  showPresets?: boolean;
+}>(), {
+  modelValue: false,
+  variant: 'collapsible',
+  showPresets: true,
+});
 const emit = defineEmits<{ (e: 'update:modelValue', v: boolean): void }>();
 
 const expanded = computed({
-  get: () => props.modelValue,
-  set: (v: boolean) => emit('update:modelValue', v),
+  get: () => props.variant === 'standalone' || props.modelValue,
+  set: (v: boolean) => {
+    if (props.variant !== 'standalone') emit('update:modelValue', v);
+  },
 });
 
-const PRESETS: Record<string, number[]> = {
-  'Flat':       [0, 0, 0, 0, 0],
-  'Bass Boost': [6, 4, 0, 0, 0],
-  'Vocal':      [0, 2, 4, 2, 0],
-  'Rock':       [4, 2, -2, 2, 4],
-};
-
-const BAND_FREQS = ['60Hz', '230Hz', '910Hz', '3.6kHz', '14kHz'];
-
-const bandGains = ref<number[]>([...playerStore.eqBands]);
-watch(() => playerStore.eqBands, (v) => { bandGains.value = [...v]; });
+const bandGains = ref<number[]>(normalizeEqBands(playerStore.eqBands));
+watch(() => playerStore.eqBands, (v) => { bandGains.value = normalizeEqBands(v); });
 
 function onSliderInput() {
+  bandGains.value = normalizeEqBands(bandGains.value);
   playerStore.eqBands = [...bandGains.value];
   localStorage.setItem('player_eq_bands', JSON.stringify(bandGains.value));
   bandGains.value.forEach((g, i) => setWebAudioEqBand(i, g));
@@ -35,12 +46,19 @@ function toggleEnabled() {
 }
 
 function applyPreset(name: string) {
-  if (PRESETS[name]) {
-    bandGains.value = [...PRESETS[name]];
+  if (EQ_PRESETS[name]) {
+    bandGains.value = [...EQ_PRESETS[name]];
     playerStore.activePreset = name;
     localStorage.setItem('player_eq_preset', name);
     onSliderInput();
   }
+}
+
+function resetEq() {
+  bandGains.value = [...FLAT_EQ_BANDS];
+  playerStore.activePreset = 'Flat';
+  localStorage.setItem('player_eq_preset', 'Flat');
+  onSliderInput();
 }
 
 function formatGain(g: number) {
@@ -49,14 +67,24 @@ function formatGain(g: number) {
 </script>
 
 <template>
-  <div class="eq-panel" :class="{ expanded }">
-    <button class="eq-toggle" @click="expanded = !expanded">
+  <div class="eq-panel" :class="{ expanded, standalone: variant === 'standalone' }">
+    <button v-if="variant !== 'standalone'" class="eq-toggle" @click="expanded = !expanded">
       <span class="eq-status">EQ {{ playerStore.eqEnabled ? 'ON' : 'OFF' }}</span>
       <span class="chevron">{{ expanded ? '▾' : '▸' }}</span>
     </button>
     <div v-if="expanded" class="eq-controls">
       <p v-if="!eqState.available" class="eq-unavailable">
-        当前音源不支持 EQ（酷狗 CDN 未发送 CORS 头，启用 EQ 会导致静音）。滑块暂不生效。
+        {{ eqState.reason }}
+        <button
+          type="button"
+          data-test="eq-retry"
+          class="eq-retry"
+          :disabled="eqState.retryDisabled"
+          @click="retryEq"
+        >
+          重试 EQ
+        </button>
+        <span v-if="eqState.retryDisabled" class="eq-retry-hint">请重启应用</span>
       </p>
       <div class="eq-row">
         <label class="eq-enable">
@@ -68,20 +96,26 @@ function formatGain(g: number) {
           Enable Equalizer
         </label>
         <select
+          v-if="showPresets"
           class="eq-preset"
           :value="playerStore.activePreset"
           :disabled="!playerStore.eqEnabled"
           @change="applyPreset(($event.target as HTMLSelectElement).value)"
         >
-          <option v-for="(_, name) in PRESETS" :key="name" :value="name">{{ name }}</option>
+          <option v-for="(_, name) in EQ_PRESETS" :key="name" :value="name">
+            {{ EQ_PRESET_LABELS[name] ?? name }}
+          </option>
         </select>
+        <button type="button" data-test="eq-reset" class="eq-reset" @click="resetEq">
+          恢复默认
+        </button>
       </div>
       <div class="eq-bands">
         <div v-for="(gain, i) in bandGains" :key="i" class="eq-band">
           <input
             type="range"
-            min="-12"
-            max="12"
+            :min="EQ_MIN_GAIN_DB"
+            :max="EQ_MAX_GAIN_DB"
             step="0.5"
             v-model.number="bandGains[i]"
             :disabled="!playerStore.eqEnabled || !eqState.available"
@@ -89,7 +123,7 @@ function formatGain(g: number) {
             class="band-slider"
             @input="onSliderInput"
           />
-          <span class="band-freq">{{ BAND_FREQS[i] }}</span>
+          <span class="band-freq">{{ EQ_BANDS[i].display }}</span>
           <span class="band-gain">{{ formatGain(gain) }}</span>
         </div>
       </div>
@@ -103,6 +137,13 @@ function formatGain(g: number) {
   border-radius: 8px;
   background: var(--paper-2);
   overflow: hidden;
+}
+
+.eq-panel.standalone {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  overflow: visible;
 }
 
 .eq-toggle {
@@ -142,6 +183,11 @@ function formatGain(g: number) {
   gap: 12px;
 }
 
+.eq-panel.standalone .eq-controls {
+  padding: 0;
+  gap: 18px;
+}
+
 .eq-unavailable {
   margin: 4px 0 0;
   padding: 8px 10px;
@@ -152,6 +198,32 @@ function formatGain(g: number) {
   font-style: italic;
   font-size: 11px;
   line-height: 1.5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.eq-retry {
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--accent);
+  font-family: var(--font-serif);
+  font-size: 11px;
+  font-style: normal;
+  cursor: pointer;
+  padding: 2px 8px;
+}
+
+.eq-retry:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.eq-retry-hint {
+  font-style: normal;
+  color: var(--ink-mute);
 }
 
 .eq-row {
@@ -159,6 +231,7 @@ function formatGain(g: number) {
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+  flex-wrap: wrap;
 }
 
 .eq-enable {
@@ -200,11 +273,52 @@ function formatGain(g: number) {
   cursor: not-allowed;
 }
 
+.eq-reset {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font-family: var(--font-serif);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 4px 0;
+}
+
+.eq-reset:hover {
+  color: var(--ink);
+}
+
 .eq-bands {
   display: flex;
   justify-content: space-around;
+  align-items: end;
   gap: 8px;
   padding: 8px 0 4px;
+  min-height: 150px;
+}
+
+.eq-panel.standalone .eq-bands {
+  min-height: 280px;
+  gap: 18px;
+  padding: 10px 4px 6px;
+}
+
+.eq-panel.standalone .eq-band {
+  flex: 1 1 0;
+}
+
+.eq-panel.standalone .band-slider {
+  width: 34px;
+  height: 224px;
+}
+
+.eq-panel.standalone .band-freq {
+  font-size: 13px;
+  color: var(--ink);
+}
+
+.eq-panel.standalone .band-gain {
+  font-size: 11px;
+  color: var(--ink-soft);
 }
 
 .eq-band {
@@ -218,7 +332,7 @@ function formatGain(g: number) {
   writing-mode: vertical-lr;
   direction: rtl;
   width: 24px;
-  height: 100px;
+  height: 124px;
   accent-color: var(--accent);
   cursor: pointer;
 }

@@ -24,6 +24,7 @@ function makeState(): PlaybackStateSlice {
     currentTime: 0,
     duration: 0,
     isPlaying: false,
+    isLoading: false,
     errorMsg: '',
     isPreview: false,
     vipRequired: false,
@@ -371,5 +372,203 @@ describe('PlaybackOrchestrator', () => {
 
     expect(result).toEqual({ status: 'played' });
     expect(calls).toEqual(['intend:h1', 'seek:0', 'resume']);
+  });
+
+  it('cancelPendingPlayback during a deferred playUrl skips the session, stops the backend, and clears loading state', async () => {
+    // T1: a slow playUrl (gated on an external release) simulates a network
+    // load in flight. cancelPendingPlayback() must skip the session, stop the
+    // backend, and flip isLoading/isPlaying off — and the late-resolving
+    // playUrl must NOT corrupt the canceled state (it lands as 'stale' and the
+    // stale-cleanup guard bails rather than re-stopping).
+    const calls: string[] = [];
+    const h = makeHarness({ calls });
+
+    // Gate playUrl so it stays pending until we release it.
+    const playUrlCanFinish = deferred<void>();
+    const playUrlStarted = deferred<void>();
+    h.backend.playUrl.mockImplementation(async (url: string) => {
+      calls.push(`playUrl:${url}`);
+      playUrlStarted.resolve();
+      await playUrlCanFinish.promise;
+      return true;
+    });
+
+    const a = h.orchestrator.switchTrack(mkTrack('a'));
+    await playUrlStarted.promise;
+
+    // While playUrl is in flight, the user cancels.
+    await h.orchestrator.cancelPendingPlayback();
+
+    // Session was skipped (twice: once for switchTrack, once for cancel) and
+    // backend.stop was called (same pattern).
+    expect(h.playSession.skip).toHaveBeenCalledTimes(2);
+    expect(h.backend.stop).toHaveBeenCalled();
+    expect(h.state.isLoading).toBe(false);
+    expect(h.state.isPlaying).toBe(false);
+
+    // Release the late playUrl; the original switchTrack must resolve 'stale'
+    // and must NOT flip state back to playing/loading.
+    playUrlCanFinish.resolve();
+    await expect(a).resolves.toEqual({ status: 'stale' });
+    expect(h.state.isLoading).toBe(false);
+    expect(h.state.isPlaying).toBe(false);
+  });
+
+  it('switchTrack(B) started during cancelPendingPlayback\'s await backend.stop plays B without re-stopping on A\'s late resolve', async () => {
+    // T2 (review gap #2): the hard race. switchTrack(A) has playUrl in flight.
+    // cancelPendingPlayback starts and is suspended inside `await backend.stop()`.
+    // WHILE that stop is pending, switchTrack(B) begins. When A's late playUrl
+    // finally resolves, cleanupCanceledStaleTransition must bail on guard (B)
+    // (transitionSeq !== canceledThroughSeq + 1, because B bumped transitionSeq
+    // to canceledThroughSeq + 2) — so it does NOT call backend.stop again and
+    // does NOT clobber B's state. B ends up playing.
+    const calls: string[] = [];
+    const h = makeHarness({ calls });
+
+    // Gates for each async suspension point, indexed by stop-call order.
+    const aPlayUrlStarted = deferred<void>();
+    const aPlayUrlCanFinish = deferred<void>();
+    const cancelStopStarted = deferred<void>();
+    const cancelStopCanFinish = deferred<void>();
+    const bStopStarted = deferred<void>();
+    const bStopCanFinish = deferred<void>();
+
+    // stop() is called in a known order: 1) switchTrack(A), 2) cancel, 3) switchTrack(B).
+    // We gate #2 and #3 so we can park cancel and B independently.
+    let stopCount = 0;
+    h.backend.stop.mockImplementation(async () => {
+      stopCount += 1;
+      calls.push(`stop#${stopCount}`);
+      if (stopCount === 2) {
+        cancelStopStarted.resolve();
+        await cancelStopCanFinish.promise;
+      } else if (stopCount === 3) {
+        bStopStarted.resolve();
+        await bStopCanFinish.promise;
+      }
+    });
+
+    h.backend.playUrl.mockImplementation(async (url: string) => {
+      calls.push(`playUrl:${url}`);
+      if (url.includes('/a.mp3')) {
+        aPlayUrlStarted.resolve();
+        await aPlayUrlCanFinish.promise;
+      }
+      return true;
+    });
+
+    // 1. switchTrack(A): stop#1 (immediate) → resolve → intend → playUrl(A) [gated].
+    h.resolveTrack.mockResolvedValueOnce(resolvedTrack('http://x/a.mp3'));
+    const a = h.orchestrator.switchTrack(mkTrack('a'));
+    await aPlayUrlStarted.promise;
+    expect(h.backend.playUrl).toHaveBeenCalledWith('http://x/a.mp3');
+
+    // 2. cancelPendingPlayback: bumps transitionSeq to 2, canceledThroughSeq=1,
+    //    then `await backend.stop()` → stop#2 (gated). Parked here.
+    const cancelPromise = h.orchestrator.cancelPendingPlayback();
+    await cancelStopStarted.promise;
+
+    // 3. While cancel is parked, start switchTrack(B): bumps transitionSeq to 3,
+    //    then `await backend.stop()` → stop#3 (gated). Parked here.
+    h.resolveTrack.mockResolvedValueOnce(resolvedTrack('http://x/b.mp3'));
+    const b = h.orchestrator.switchTrack(mkTrack('b'));
+    await bStopStarted.promise;
+
+    // 4. Release cancel's stop. cancel's `isCurrent(seq=2)` check fails
+    //    (transitionSeq is now 3) → cancel returns WITHOUT patching state.
+    cancelStopCanFinish.resolve();
+    await cancelPromise;
+
+    // 5. Release B's stop. B proceeds: resolve(B) → intend(B) → playUrl(B) → played.
+    bStopCanFinish.resolve();
+    const bResult = await b;
+    expect(bResult).toEqual({ status: 'played' });
+    expect(h.state.currentTrack?.FileHash).toBe('b');
+    expect(h.state.isLoading).toBe(false);
+
+    // 6. Release A's late playUrl. A resolves 'stale'. The stale path calls
+    //    cleanupCanceledStaleTransition(A's seq=1):
+    //      guard (A) seq(1) > canceledThroughSeq(1)? no.
+    //      guard (B) transitionSeq(3) !== canceledThroughSeq(1)+1(2)? YES → bail.
+    //    So NO extra backend.stop and NO state clobber.
+    const stopCallsBefore = h.backend.stop.mock.calls.length;
+    aPlayUrlCanFinish.resolve();
+    await expect(a).resolves.toEqual({ status: 'stale' });
+    expect(h.backend.stop.mock.calls.length, 'cleanup must not re-stop on A\'s late resolve').toBe(stopCallsBefore);
+
+    // B is still current, not clobbered.
+    expect(h.state.currentTrack?.FileHash).toBe('b');
+    expect(h.state.isLoading).toBe(false);
+    expect(h.state.isPlaying).toBe(false);
+  });
+
+  it('a stale playUrl completion without a prior cancel bails cleanup on guard (A) and does not re-stop', async () => {
+    // T3: no cancel happened (canceledThroughSeq stays 0). Two switchTracks in
+    // succession: A's playUrl is deferred, B starts and plays, A's playUrl then
+    // late-resolves. cleanupCanceledStaleTransition(A's seq=1) must bail on
+    // guard (A) — seq(1) > canceledThroughSeq(0) — so it does NOT call
+    // backend.stop and does NOT patch state. B is undisturbed.
+    const calls: string[] = [];
+    const h = makeHarness({ calls });
+
+    h.resolveTrack.mockResolvedValueOnce(resolvedTrack('http://x/a.mp3'));
+    const aPlay = deferred<boolean>();
+    h.backend.playUrl.mockImplementationOnce(() => aPlay.promise);
+
+    const a = h.orchestrator.switchTrack(mkTrack('a'));
+    await vi.waitFor(() => {
+      expect(h.backend.playUrl).toHaveBeenCalledWith('http://x/a.mp3');
+    });
+
+    h.resolveTrack.mockResolvedValueOnce(resolvedTrack('http://x/b.mp3'));
+    const b = await h.orchestrator.switchTrack(mkTrack('b'));
+    expect(b).toEqual({ status: 'played' });
+
+    // Snapshot stop count after B has fully played.
+    const stopCountBefore = h.backend.stop.mock.calls.length;
+
+    // Release A's late playUrl → A resolves 'stale' → cleanup guard (A) bails.
+    aPlay.resolve(true);
+    await expect(a).resolves.toEqual({ status: 'stale' });
+
+    // No extra stop from cleanup (guard (A) bail), no state clobber.
+    expect(h.backend.stop.mock.calls.length, 'cleanup must not re-stop when there was no cancel').toBe(stopCountBefore);
+    expect(h.state.currentTrack?.FileHash).toBe('b');
+    expect(h.state.isLoading).toBe(false);
+  });
+
+  it('double cancel during loading is a no-op the second time and leaves a clean idle state', async () => {
+    // T4: user clicks pause twice while a track is loading. The first cancel
+    // bumps canceledThroughSeq to the pending seq and transitionSeq to N+1;
+    // the second cancel must not crash, must not corrupt state, and the final
+    // state must be isLoading:false, isPlaying:false.
+    const calls: string[] = [];
+    const h = makeHarness({ calls });
+
+    const aPlayUrlStarted = deferred<void>();
+    const aPlayUrlCanFinish = deferred<void>();
+    h.backend.playUrl.mockImplementation(async (url: string) => {
+      calls.push(`playUrl:${url}`);
+      aPlayUrlStarted.resolve();
+      await aPlayUrlCanFinish.promise;
+      return true;
+    });
+
+    h.resolveTrack.mockResolvedValueOnce(resolvedTrack('http://x/a.mp3'));
+    const a = h.orchestrator.switchTrack(mkTrack('a'));
+    await aPlayUrlStarted.promise;
+
+    // Two cancels in succession (the second starts after the first completes).
+    await h.orchestrator.cancelPendingPlayback();
+    await h.orchestrator.cancelPendingPlayback();
+
+    expect(h.state.isLoading).toBe(false);
+    expect(h.state.isPlaying).toBe(false);
+
+    // Releasing the late playUrl must not flip state back.
+    aPlayUrlCanFinish.resolve();
+    await expect(a).resolves.toEqual({ status: 'stale' });
+    expect(h.state.isLoading).toBe(false);
+    expect(h.state.isPlaying).toBe(false);
   });
 });

@@ -36,6 +36,8 @@ function handleFavoriteError(msg: string) {
 
 const currentTrack = computed(() => playerStore.currentTrack);
 const isPlaying = computed(() => playerStore.isPlaying);
+const isLoading = computed(() => playerStore.isLoading);
+const showPauseIcon = computed(() => isPlaying.value || isLoading.value);
 const currentTime = computed(() => playerStore.currentTime);
 const duration = computed(() => playerStore.duration);
 const volume = computed(() => playerStore.volume);
@@ -233,8 +235,13 @@ function toggleLyricView() {
         </button>
 
         <!-- Play/Pause -->
-        <button class="t-btn play" aria-label="play" @click="togglePlay">
-          <svg v-if="isPlaying" viewBox="0 0 24 24" fill="currentColor">
+        <button
+          class="t-btn play"
+          :aria-label="showPauseIcon ? 'pause' : 'play'"
+          :title="isLoading ? '取消加载' : (isPlaying ? '暂停' : '播放')"
+          @click="togglePlay"
+        >
+          <svg v-if="showPauseIcon" viewBox="0 0 24 24" fill="currentColor">
             <rect x="6" y="4" width="4" height="16" />
             <rect x="14" y="4" width="4" height="16" />
           </svg>

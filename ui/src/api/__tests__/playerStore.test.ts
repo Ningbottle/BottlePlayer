@@ -18,13 +18,110 @@ import {
   playTrack,
   playAll,
   togglePlay,
+  initWebAudioEQ,
+  attachWebAudioEqSource,
+  disconnectWebAudioEqSource,
+  setWebAudioEqVolume,
+  setVolume,
+  resumeAudioContext,
   __getActiveBackend,
   __getPlaySession,
+  __resetWebAudioEqForTests,
+  eqState,
+  retryEq,
 } from '../playerStore';
 import type { Track } from '../normalizer';
 
 function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'A', Duration: 100 } as Track;
+}
+
+/** Mock AudioContext + captureStream for Phase 2/3 worklet EQ in integration tests. */
+function setupWorkletEqMocks() {
+  const workletNode = {
+    connect: vi.fn((n: unknown) => n),
+    disconnect: vi.fn(),
+    port: { postMessage: vi.fn() },
+    _inputs: [] as Array<{ disconnect: ReturnType<typeof vi.fn> }>,
+  };
+  const gainNode = {
+    connect: vi.fn((n: unknown) => n),
+    disconnect: vi.fn(),
+    gain: { value: 1 },
+  };
+  const sourceNodes: Array<{ disconnect: ReturnType<typeof vi.fn>; _connected: boolean }> = [];
+  let closeCalls = 0;
+  const mockCtx: Record<string, unknown> = {
+    state: 'running',
+    destination: { connect: vi.fn() },
+    resume: vi.fn(async () => {
+      mockCtx.state = 'running';
+    }),
+    close: vi.fn(async () => {
+      closeCalls++;
+      mockCtx.state = 'closed';
+    }),
+    audioWorklet: { addModule: vi.fn(async () => {}) },
+    createGain: vi.fn(() => gainNode),
+    createMediaStreamSource: vi.fn((stream: { _id?: number }) => {
+      const node = {
+        connect: vi.fn((n: unknown) => {
+          if (n === workletNode) {
+            workletNode._inputs.push(node);
+            node._connected = true;
+          }
+          return n;
+        }),
+        disconnect: vi.fn(() => {
+          node._connected = false;
+          workletNode._inputs = workletNode._inputs.filter((i) => i !== node);
+        }),
+        _connected: false,
+        _stream: stream,
+      };
+      sourceNodes.push(node);
+      return node;
+    }),
+  };
+  vi.stubGlobal('AudioContext', function MockAudioContext() {
+    return mockCtx;
+  });
+  function MockAudioWorkletNode(this: typeof workletNode) {
+    return workletNode;
+  }
+  vi.stubGlobal('AudioWorkletNode', MockAudioWorkletNode);
+  vi.stubGlobal('URL', {
+    createObjectURL: vi.fn(() => 'blob:eq-test'),
+    revokeObjectURL: vi.fn(),
+  });
+  let streamSeq = 0;
+  const allStreams: Array<{ getAudioTracks: () => Array<{ stop: ReturnType<typeof vi.fn>; readyState: string }>; _id: number }> = [];
+  const captureStream = vi.fn(function (this: HTMLMediaElement) {
+    const tracks = [{ stop: vi.fn(), readyState: 'live' as const }];
+    const stream = {
+      _id: ++streamSeq,
+      getAudioTracks: () => tracks,
+    };
+    allStreams.push(stream);
+    return stream;
+  });
+  (HTMLMediaElement.prototype as HTMLMediaElement & {
+    captureStream: typeof captureStream;
+  }).captureStream = captureStream;
+  return {
+    mockCtx: mockCtx as typeof mockCtx & {
+      audioWorklet: { addModule: ReturnType<typeof vi.fn> };
+      createMediaStreamSource: ReturnType<typeof vi.fn>;
+      resume: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+    },
+    workletNode,
+    gainNode,
+    sourceNodes,
+    allStreams,
+    captureStream,
+    getCloseCalls: () => closeCalls,
+  };
 }
 
 /** Reset the playerStore singleton state between tests. */
@@ -33,6 +130,7 @@ function resetStore() {
   playerStore.currentIndex = -1;
   playerStore.currentTrack = null;
   playerStore.isPlaying = false;
+  playerStore.isLoading = false;
   playerStore.currentTime = 0;
   playerStore.duration = 0;
   playerStore.errorMsg = '';
@@ -40,6 +138,11 @@ function resetStore() {
   // Clear the zombie-audio sentinel so initPlayer() doesn't run its teardown
   // path (which nulls activeBackend) and skip re-creating the backend.
   (window as any).__bottlemusic_audio__ = undefined;
+  __resetWebAudioEqForTests();
+  eqState.available = false;
+  eqState.reason = '';
+  eqState.retryFailCount = 0;
+  eqState.retryDisabled = false;
 }
 
 describe('playerStore integration', () => {
@@ -122,7 +225,7 @@ describe('playerStore integration', () => {
     const mod = await import('../playerStore');
     // Import did not throw, and state fell back to safe defaults.
     expect(mod.playerStore.queue).toEqual([]);
-    expect(mod.playerStore.eqBands).toEqual([0, 0, 0, 0, 0]);
+    expect(mod.playerStore.eqBands).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it('calls playSession.intend() on a successful play (session opens for the new track)', async () => {
@@ -249,5 +352,481 @@ describe('playerStore integration', () => {
     // playTrack path → songUrlCalled=true (we want to assert this is FALSE)
     expect(songUrlCalled, 'togglePlay must not fall through to playTrack when src is valid').toBe(false);
     expect(playUrlCalls, 'playUrl must not be called for resume').toEqual([]);
+  });
+
+  it('togglePlay cancels an in-flight play before delayed playUrl can start audio', async () => {
+    initPlayer();
+    initPlayerBackend();
+
+    const track = mkTrack('slow-load-track');
+    track.Image = 'http://img/';
+    playerStore.queue = [track];
+
+    const backend = __getActiveBackend() as any;
+    const realPlayUrl = backend.playUrl;
+    let releasePlayUrl!: () => void;
+    let releasedPlayUrl = false;
+    const playUrlCanFinish = new Promise<void>((resolve) => {
+      releasePlayUrl = () => {
+        if (releasedPlayUrl) return;
+        releasedPlayUrl = true;
+        resolve();
+      };
+    });
+    const playUrlStarted = new Promise<void>((resolve) => {
+      backend.playUrl = async (url: string) => {
+        (playerStore.audio as HTMLAudioElement).src = url;
+        resolve();
+        await playUrlCanFinish;
+        (playerStore.audio as HTMLAudioElement).dispatchEvent(new Event('play'));
+        return true;
+      };
+    });
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://x/slow.mp3' } });
+    });
+
+    try {
+      const playPromise = playTrack(track);
+      await playUrlStarted;
+      expect(playerStore.isPlaying).toBe(false);
+
+      const togglePromise = togglePlay();
+      releasePlayUrl();
+      await Promise.allSettled([playPromise, togglePromise]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      releasePlayUrl();
+      backend.playUrl = realPlayUrl;
+    }
+
+    expect(playerStore.isPlaying, 'canceling during load must not let delayed playUrl flip back to playing').toBe(false);
+    expect((playerStore.audio as HTMLAudioElement).paused).toBe(true);
+    expect(playerStore.errorMsg).toBe('');
+  });
+
+  // ── P1.1: stale post-play attach must not run initEq / captureStream ──
+  it('P1.1: late play() resolve after track switch does not attach EQ for stale transition', async () => {
+    const { captureStream, allStreams } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    let releasePlay!: () => void;
+    const playGate = new Promise<void>((resolve) => {
+      releasePlay = resolve;
+    });
+    let playCallCount = 0;
+    HTMLAudioElement.prototype.play = vi.fn(async function (this: HTMLAudioElement) {
+      playCallCount += 1;
+      if (playCallCount === 1) {
+        await playGate;
+      }
+    });
+
+    const t1 = mkTrack('song-a'); t1.Image = 'http://img/';
+    const t2 = mkTrack('song-b'); t2.Image = 'http://img/';
+    playerStore.queue = [t1, t2];
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/x';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/x' } });
+    });
+
+    try {
+      const playA = playTrack(t1);
+      await vi.waitFor(() => expect(HTMLAudioElement.prototype.play).toHaveBeenCalledTimes(1));
+
+      await playTrack(t2);
+      await vi.waitFor(() => expect(captureStream).toHaveBeenCalledTimes(1));
+
+      const bStream = allStreams[allStreams.length - 1]!;
+      const bTrack = bStream.getAudioTracks()[0]!;
+
+      releasePlay();
+      await playA;
+
+      expect(captureStream, 'stale transition A must not attach after B is live').toHaveBeenCalledTimes(1);
+      expect(bTrack.stop, 'B stream tracks must stay live').not.toHaveBeenCalled();
+    } finally {
+      releasePlay();
+      HTMLAudioElement.prototype.play = realPlay;
+    }
+  });
+
+  // ── P1.2: initEq already fired, cancel disconnects capture stream ──
+  it('P1.2: cancel after initEq fires disconnects capture stream tracks', async () => {
+    const { captureStream, allStreams } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const backend = __getActiveBackend()!;
+    const realPlayUrl = backend.playUrl.bind(backend);
+    let releasePlayUrl!: () => void;
+    const playUrlGate = new Promise<void>((resolve) => {
+      releasePlayUrl = resolve;
+    });
+    backend.playUrl = async (url: string) => {
+      const ok = await realPlayUrl(url);
+      await playUrlGate;
+      return ok;
+    };
+
+    const track = mkTrack('slow-load'); track.Image = 'http://img/';
+    playerStore.queue = [track];
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/x';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/x' } });
+    });
+
+    try {
+      const playPromise = playTrack(track);
+      await vi.waitFor(() => expect(captureStream).toHaveBeenCalledTimes(1));
+      const aTrack = allStreams[0]!.getAudioTracks()[0]!;
+
+      await togglePlay();
+      expect(aTrack.stop).toHaveBeenCalled();
+      expect(eqState.available).toBe(false);
+
+      releasePlayUrl();
+      await playPromise;
+    } finally {
+      releasePlayUrl();
+      backend.playUrl = realPlayUrl;
+    }
+  });
+
+  // ── P2.3: volume watch routes to EQ gain and backend.setVolume once ──
+  it('P2.3: setVolume updates gainNode and backend.setVolume exactly once each', async () => {
+    const { gainNode } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+    await attachWebAudioEqSource(playerStore.audio!, true);
+
+    const backend = __getActiveBackend()!;
+    const setVolumeSpy = vi.spyOn(backend, 'setVolume');
+
+    await setVolume(0.42);
+
+    expect(gainNode.gain.value).toBe(0.42);
+    expect(setVolumeSpy).toHaveBeenCalledTimes(1);
+    expect(setVolumeSpy).toHaveBeenCalledWith(0.42);
+    expect(playerStore.volume).toBe(0.42);
+  });
+
+  // ── P2.4: resumeAudioContext failure enters degradation when rerouted ──
+  it('P2.4: resumeAudioContext reject while rerouted enters degradation', async () => {
+    const { mockCtx, sourceNodes } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initWebAudioEQ();
+    await vi.waitFor(() => expect(mockCtx.audioWorklet.addModule).toHaveBeenCalled());
+
+    const audio = playerStore.audio!;
+    playerStore.volume = 0.55;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+    await attachWebAudioEqSource(audio, true);
+
+    mockCtx.state = 'suspended';
+    mockCtx.resume = vi.fn(async () => {
+      throw new Error('NotAllowedError');
+    });
+
+    resumeAudioContext();
+    await vi.waitFor(() => expect(eqState.available).toBe(false));
+
+    expect(audio.volume).toBe(0.55);
+    expect(sourceNodes[0]!.disconnect).toHaveBeenCalled();
+    expect(eqState.reason).toContain('重试');
+  });
+
+  // ── Phase 3: EQ lifecycle (init at startup, attach post-play) ──
+  it('initWebAudioEQ builds graph without audio; attachWebAudioEqSource attaches post-play', async () => {
+    const { mockCtx, captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initWebAudioEQ();
+
+    await vi.waitFor(() => expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1));
+
+    const audio = playerStore.audio!;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+    await attachWebAudioEqSource(audio, true);
+
+    expect(captureStream).toHaveBeenCalled();
+    expect(mockCtx.createMediaStreamSource).toHaveBeenCalled();
+    expect(eqState.available).toBe(true);
+  });
+
+  it('disconnectWebAudioEqSource releases stream tracks', async () => {
+    const { allStreams } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initWebAudioEQ();
+    const audio = playerStore.audio!;
+    await attachWebAudioEqSource(audio, true);
+
+    disconnectWebAudioEqSource();
+
+    expect(allStreams[0]!.getAudioTracks()[0]!.stop).toHaveBeenCalled();
+    expect(eqState.available).toBe(false);
+  });
+
+  it('setWebAudioEqVolume writes gainNode when rerouted', async () => {
+    const { gainNode } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initWebAudioEQ();
+    await attachWebAudioEqSource(playerStore.audio!, true);
+
+    setWebAudioEqVolume(0.55);
+    expect(gainNode.gain.value).toBe(0.55);
+  });
+
+  // ── L4: consecutive attachSource does not rebuild worklet graph (spec §7.2) ──
+  it('L4: two attachSource calls reuse worklet graph and disconnect old sourceNode', async () => {
+    const { mockCtx, workletNode, sourceNodes, captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const t1 = mkTrack('song1'); t1.Image = 'http://img/';
+    const t2 = mkTrack('song2'); t2.Image = 'http://img/';
+    playerStore.queue = [t1, t2];
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/1';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/1' } });
+    });
+
+    await playTrack(t1);
+    await vi.waitFor(() => expect(eqState.available).toBe(true));
+    expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
+    const firstSource = sourceNodes[0]!;
+
+    await playTrack(t2);
+    await vi.waitFor(() => expect(captureStream).toHaveBeenCalledTimes(2));
+
+    expect(mockCtx.audioWorklet.addModule, 'worklet graph built only once').toHaveBeenCalledTimes(1);
+    expect(firstSource.disconnect).toHaveBeenCalled();
+    expect(workletNode._inputs).toHaveLength(1);
+    expect(eqState.available).toBe(true);
+
+    HTMLAudioElement.prototype.play = realPlay;
+  });
+
+  // ── L5: crossOriginSafe=false fallback (spec §7.2) ──
+  it('L5: proxy failure skips attachSource, degrades EQ, playback still succeeds', async () => {
+    const { captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') throw new Error('proxy down');
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://cdn.example/song.mp3' } });
+    });
+
+    const track = mkTrack('direct'); track.Image = 'http://img/';
+    await playTrack(track);
+
+    expect(captureStream).not.toHaveBeenCalled();
+    expect(eqState.available).toBe(false);
+    expect(eqState.reason).toBeTruthy();
+    expect(playerStore.audio!.src).toContain('song.mp3');
+    expect(playerStore.errorMsg).toBe('');
+
+    HTMLAudioElement.prototype.play = realPlay;
+  });
+
+  // ── 10-track attachSource regression (spec §7.2 / §10.1) ──
+  it('10 consecutive tracks attach distinct streams without graph rebuild or leaks', async () => {
+    const { mockCtx, workletNode, sourceNodes, allStreams, captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const tracks = Array.from({ length: 10 }, (_, i) => {
+      const t = mkTrack(`song${i}`); t.Image = 'http://img/'; return t;
+    });
+    playerStore.queue = tracks;
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/x';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/x' } });
+    });
+
+    for (let i = 0; i < 10; i++) {
+      await playTrack(tracks[i]!);
+      await vi.waitFor(() => expect(eqState.available).toBe(true));
+    }
+
+    expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
+    expect(captureStream).toHaveBeenCalledTimes(10);
+    expect(mockCtx.createMediaStreamSource).toHaveBeenCalledTimes(10);
+    const streamIds = new Set(allStreams.map((s) => s._id));
+    expect(streamIds.size).toBe(10);
+    expect(workletNode._inputs).toHaveLength(1);
+    for (let i = 0; i < 9; i++) {
+      expect(sourceNodes[i]!.disconnect).toHaveBeenCalled();
+    }
+    for (const stream of allStreams.slice(0, 9)) {
+      expect(stream.getAudioTracks()[0]!.stop).toHaveBeenCalled();
+    }
+
+    HTMLAudioElement.prototype.play = realPlay;
+  });
+
+  // ── zombie-teardown: second playTrack must not close WebAudio context ──
+  it('does NOT close the WebAudio context on a second playTrack (zombie teardown only fires on HMR)', async () => {
+    const { mockCtx, getCloseCalls } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const t1 = mkTrack('song1'); t1.Image = 'http://img/';
+    const t2 = mkTrack('song2'); t2.Image = 'http://img/';
+    playerStore.queue = [t1, t2];
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/1';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/1' } });
+    });
+
+    // Song 1: builds worklet graph once, attach via captureStream.
+    await playTrack(t1);
+    await vi.waitFor(() => expect(eqState.available).toBe(true));
+    expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
+    expect(getCloseCalls(), 'song 1 must not have closed the context').toBe(0);
+
+    // Song 2: playTrack → initPlayer. WITHOUT the fix, the zombie teardown
+    // would fire here (g.__bottlemusic_audio__ is set), close the context,
+    // and break the long-lived worklet graph. WITH the fix, the teardown does
+    // NOT fire (because playerStore.audio is set), so the graph stays alive
+    // and re-attaches via captureStream (no InvalidStateError).
+    await playTrack(t2);
+
+    expect(getCloseCalls(), 'song 2 must NOT close the WebAudio context (zombie teardown must not fire)').toBe(0);
+    expect(mockCtx.audioWorklet.addModule, 'worklet graph must be built only once').toHaveBeenCalledTimes(1);
+    expect(eqState.available, 'EQ must still be available after song 2').toBe(true);
+
+    HTMLAudioElement.prototype.play = realPlay;
+  });
+
+  // ── Phase 4: retryEq failure count (spec §6.3) ──
+  describe('retryEq', () => {
+    let eqMocks: ReturnType<typeof setupWorkletEqMocks>;
+
+    beforeEach(() => {
+      eqMocks = setupWorkletEqMocks();
+      __resetWebAudioEqForTests();
+      initPlayer();
+      initWebAudioEQ();
+    });
+
+    it('success: resume resolves → recoverFromDegradation → eqState.available=true, retryFailCount=0', async () => {
+      const audio = playerStore.audio!;
+      await attachWebAudioEqSource(audio, true);
+
+      eqMocks.mockCtx.state = 'suspended';
+      eqState.available = false;
+      eqState.retryFailCount = 2;
+
+      await retryEq();
+
+      expect(eqState.available).toBe(true);
+      expect(eqState.reason).toBe('');
+      expect(eqState.retryFailCount).toBe(0);
+      expect(eqState.retryDisabled).toBe(false);
+    });
+
+    it('failure once: retryFailCount=1, button still enabled', async () => {
+      eqMocks.mockCtx.state = 'suspended';
+      eqMocks.mockCtx.resume = vi.fn(async () => {
+        throw new Error('NotAllowedError');
+      });
+
+      await retryEq();
+
+      expect(eqState.retryFailCount).toBe(1);
+      expect(eqState.retryDisabled).toBe(false);
+    });
+
+    it('failure 3 times: retryFailCount=3, retryDisabled=true', async () => {
+      eqMocks.mockCtx.state = 'suspended';
+      eqMocks.mockCtx.resume = vi.fn(async () => {
+        throw new Error('NotAllowedError');
+      });
+
+      await retryEq();
+      await retryEq();
+      await retryEq();
+
+      expect(eqState.retryFailCount).toBe(3);
+      expect(eqState.retryDisabled).toBe(true);
+    });
+
+    it('track switch resets retryFailCount and retryDisabled (spec §6.3)', async () => {
+      eqState.retryFailCount = 3;
+      eqState.retryDisabled = true;
+
+      const realPlay = HTMLAudioElement.prototype.play;
+      HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/1';
+        if (cmd === 'stats_record_play') return '';
+        return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/1' } });
+      });
+
+      const t1 = mkTrack('reset1'); t1.Image = 'http://img/';
+      const t2 = mkTrack('reset2'); t2.Image = 'http://img/';
+      playerStore.queue = [t1, t2];
+
+      await playTrack(t1);
+
+      expect(eqState.retryFailCount).toBe(0);
+      expect(eqState.retryDisabled).toBe(false);
+
+      HTMLAudioElement.prototype.play = realPlay;
+    });
   });
 });

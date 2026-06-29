@@ -27,6 +27,7 @@ export interface PlaybackStateSlice {
   currentTime: number;
   duration: number;
   isPlaying: boolean;
+  isLoading: boolean;
   errorMsg: string;
   isPreview: boolean;
   vipRequired: boolean;
@@ -66,6 +67,7 @@ export interface PlaybackOrchestratorDeps {
 
 export class PlaybackOrchestrator {
   private transitionSeq = 0;
+  private canceledThroughSeq = 0;
 
   constructor(private readonly deps: PlaybackOrchestratorDeps) {}
 
@@ -94,6 +96,7 @@ export class PlaybackOrchestrator {
       duration: normalized.Duration || 0,
       errorMsg: '正在加载音频源…',
       isPlaying: false,
+      isLoading: true,
     });
     this.fetchMissingCover(normalized);
 
@@ -134,16 +137,36 @@ export class PlaybackOrchestrator {
     this.deps.playSession.intend(normalized);
 
     const ok = await backend.playUrl(finalUrl);
-    if (!this.isCurrent(seq)) return { status: 'stale' };
+    if (!this.isCurrent(seq)) {
+      await this.cleanupCanceledStaleTransition(seq, backend);
+      return { status: 'stale' };
+    }
     if (!ok) {
       this.deps.playSession.skip();
       this.rollback(prevIndex, prevTrack, '播放失败');
       return { status: 'failed', error: '播放失败' };
     }
 
+    this.deps.patchState({ isLoading: false });
     this.deps.saveQueue();
     this.deps.uploadPlayHistory(normalized);
     return { status: 'played' };
+  }
+
+  async cancelPendingPlayback(): Promise<void> {
+    const pendingSeq = this.transitionSeq;
+    this.canceledThroughSeq = Math.max(this.canceledThroughSeq, pendingSeq);
+    const seq = ++this.transitionSeq;
+
+    this.deps.playSession.skip();
+    await this.deps.backend().stop().catch(() => {});
+    if (!this.isCurrent(seq)) return;
+
+    this.deps.patchState({
+      isLoading: false,
+      isPlaying: false,
+      errorMsg: '',
+    });
   }
 
   async switchQuality(quality: string): Promise<PlaybackResult> {
@@ -244,8 +267,34 @@ export class PlaybackOrchestrator {
     }
   }
 
-  private isCurrent(seq: number): boolean {
+  /** Current transition epoch — capture before async play for post-play EQ attach guard. */
+  getTransitionSeq(): number {
+    return this.transitionSeq;
+  }
+
+  isTransitionCurrent(seq: number): boolean {
     return seq === this.transitionSeq;
+  }
+
+  private isCurrent(seq: number): boolean {
+    return this.isTransitionCurrent(seq);
+  }
+
+  private async cleanupCanceledStaleTransition(
+    seq: number,
+    backend: PlaybackBackendLike,
+  ): Promise<void> {
+    if (seq > this.canceledThroughSeq) return;
+    if (this.transitionSeq !== this.canceledThroughSeq + 1) return;
+
+    await backend.stop().catch(() => {});
+    if (this.transitionSeq !== this.canceledThroughSeq + 1) return;
+
+    this.deps.patchState({
+      isLoading: false,
+      isPlaying: false,
+      errorMsg: '',
+    });
   }
 
   private fetchMissingCover(track: Track): void {
@@ -269,6 +318,7 @@ export class PlaybackOrchestrator {
       currentIndex: prevIndex,
       currentTrack: prevTrack,
       isPlaying: false,
+      isLoading: false,
       isPreview: false,
       vipRequired: false,
       errorMsg,
