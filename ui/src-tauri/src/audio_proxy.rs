@@ -171,6 +171,11 @@ async fn handle_client(mut stream: TcpStream, state: AudioProxyState) -> Result<
         return Ok(());
     };
 
+    let route_id = id.to_string();
+    let upstream_host = Url::parse(&upstream_url)
+        .ok()
+        .and_then(|parsed| parsed.host_str().map(str::to_string));
+
     let range = header_value(&request, "range");
 
     let client = reqwest::Client::new();
@@ -182,8 +187,16 @@ async fn handle_client(mut stream: TcpStream, state: AudioProxyState) -> Result<
         req = req.header(RANGE, range);
     }
 
-    let upstream = req.send().await.map_err(|e| e.to_string())?;
+    let upstream = req.send().await.map_err(|e| {
+        proxy_error(
+            &route_id,
+            upstream_host.as_deref(),
+            None,
+            format!("upstream request failed: {e}"),
+        )
+    })?;
     let status = upstream.status();
+    let upstream_status = status.as_u16();
     let headers = upstream.headers().clone();
 
     let mut response = format!(
@@ -215,11 +228,32 @@ async fn handle_client(mut stream: TcpStream, state: AudioProxyState) -> Result<
     stream
         .write_all(response.as_bytes())
         .await
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| {
+            proxy_error(
+                &route_id,
+                upstream_host.as_deref(),
+                Some(upstream_status),
+                format!("client write failed (response headers): {e}"),
+            )
+        })?;
     let mut body = upstream.bytes_stream();
     while let Some(chunk) = body.next().await {
-        let chunk = chunk.map_err(|e| e.to_string())?;
-        stream.write_all(&chunk).await.map_err(|e| e.to_string())?;
+        let chunk = chunk.map_err(|e| {
+            proxy_error(
+                &route_id,
+                upstream_host.as_deref(),
+                Some(upstream_status),
+                format!("upstream body read failed: {e}"),
+            )
+        })?;
+        stream.write_all(&chunk).await.map_err(|e| {
+            proxy_error(
+                &route_id,
+                upstream_host.as_deref(),
+                Some(upstream_status),
+                format!("client write failed (body chunk): {e}"),
+            )
+        })?;
     }
     Ok(())
 }
@@ -358,6 +392,23 @@ fn status_reason(status: u16) -> &'static str {
         502 => "Bad Gateway",
         _ => "OK",
     }
+}
+
+fn proxy_error(
+    route_id: &str,
+    upstream_host: Option<&str>,
+    upstream_status: Option<u16>,
+    detail: String,
+) -> String {
+    format!(
+        "route={} upstream={} status={}: {}",
+        route_id,
+        upstream_host.unwrap_or("?"),
+        upstream_status
+            .map(|status| status.to_string())
+            .unwrap_or_else(|| "?".into()),
+        detail
+    )
 }
 
 #[cfg(test)]
