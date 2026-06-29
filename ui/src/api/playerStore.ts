@@ -150,6 +150,8 @@ export const playerStore = reactive<PlayerState>({
 export const eqState = reactive({
   available: false,
   reason: '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。',
+  retryFailCount: 0,
+  retryDisabled: false,
 });
 
 /** Test-only seam: tear down the EQ graph between tests. */
@@ -158,6 +160,8 @@ export function __resetWebAudioEqForTests() {
 }
 
 const EQ_UNAVAILABLE_REASON = '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。';
+
+const EQ_DEGRADED_REASON = 'EQ 暂不可用，点击重试';
 
 function syncEqAvailabilityFromReroute() {
   eqState.available = webAudioEq.isRerouted;
@@ -171,7 +175,7 @@ export function initWebAudioEQ() {
     bands: playerStore.eqBands,
     onDegraded: () => {
       eqState.available = false;
-      eqState.reason = 'AudioContext 未能恢复，EQ 暂不可用。';
+      eqState.reason = EQ_DEGRADED_REASON;
     },
     onRecovered: () => {
       syncEqAvailabilityFromReroute();
@@ -216,7 +220,28 @@ export function setWebAudioEqEnabled(enabled: boolean) {
 
 /** Resume the AudioContext after a user gesture (autoplay policy). */
 export function resumeAudioContext() {
-  webAudioEq.resume().catch(() => {});
+  void webAudioEq.resume().catch(() => {
+    if (playerStore.audio && webAudioEq.isRerouted) {
+      webAudioEq.enterDegradation(playerStore.audio, playerStore.volume);
+    }
+  });
+}
+
+/** Retry EQ after suspend degradation (spec §4.4, §6.3). */
+export async function retryEq() {
+  if (eqState.retryDisabled || !playerStore.audio) return;
+  try {
+    await webAudioEq.resume();
+    webAudioEq.recoverFromDegradation(playerStore.audio);
+    eqState.available = true;
+    eqState.reason = '';
+    eqState.retryFailCount = 0;
+  } catch {
+    eqState.retryFailCount++;
+    if (eqState.retryFailCount >= 3) {
+      eqState.retryDisabled = true;
+    }
+  }
 }
 
 // Setup audio listeners
@@ -397,6 +422,8 @@ const playbackOrchestrator = new PlaybackOrchestrator({
 
 // Actions
 export async function playTrack(track: Track) {
+  eqState.retryFailCount = 0;
+  eqState.retryDisabled = false;
   initPlayer();
   // Ensure the backend exists — native is disabled, so HTML5 always initializes
   // synchronously here. This keeps playTrack a single code path (no legacy

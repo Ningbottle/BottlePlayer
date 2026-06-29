@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState } from '../api/playerStore';
+import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState, retryEq } from '../api/playerStore';
 import {
   EQ_BANDS,
   EQ_MAX_GAIN_DB,
@@ -75,6 +75,16 @@ function formatGain(g: number) {
     <div v-if="expanded" class="eq-controls">
       <p v-if="!eqState.available" class="eq-unavailable">
         {{ eqState.reason }}
+        <button
+          type="button"
+          data-test="eq-retry"
+          class="eq-retry"
+          :disabled="eqState.retryDisabled"
+          @click="retryEq"
+        >
+          重试 EQ
+        </button>
+        <span v-if="eqState.retryDisabled" class="eq-retry-hint">请重启应用</span>
       </p>
       <div class="eq-row">
         <label class="eq-enable">
@@ -188,6 +198,32 @@ function formatGain(g: number) {
   font-style: italic;
   font-size: 11px;
   line-height: 1.5;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.eq-retry {
+  border: 1px solid var(--rule);
+  border-radius: 4px;
+  background: var(--paper);
+  color: var(--accent);
+  font-family: var(--font-serif);
+  font-size: 11px;
+  font-style: normal;
+  cursor: pointer;
+  padding: 2px 8px;
+}
+
+.eq-retry:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.eq-retry-hint {
+  font-style: normal;
+  color: var(--ink-mute);
 }
 
 .eq-row {

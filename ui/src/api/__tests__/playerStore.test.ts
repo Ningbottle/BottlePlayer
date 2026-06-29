@@ -26,6 +26,7 @@ import {
   __getPlaySession,
   __resetWebAudioEqForTests,
   eqState,
+  retryEq,
 } from '../playerStore';
 import type { Track } from '../normalizer';
 
@@ -138,6 +139,8 @@ function resetStore() {
   __resetWebAudioEqForTests();
   eqState.available = false;
   eqState.reason = '';
+  eqState.retryFailCount = 0;
+  eqState.retryDisabled = false;
 }
 
 describe('playerStore integration', () => {
@@ -596,5 +599,84 @@ describe('playerStore integration', () => {
     expect(eqState.available, 'EQ must still be available after song 2').toBe(true);
 
     HTMLAudioElement.prototype.play = realPlay;
+  });
+
+  // ── Phase 4: retryEq failure count (spec §6.3) ──
+  describe('retryEq', () => {
+    let eqMocks: ReturnType<typeof setupWorkletEqMocks>;
+
+    beforeEach(() => {
+      eqMocks = setupWorkletEqMocks();
+      __resetWebAudioEqForTests();
+      initPlayer();
+      initWebAudioEQ();
+    });
+
+    it('success: resume resolves → recoverFromDegradation → eqState.available=true, retryFailCount=0', async () => {
+      const audio = playerStore.audio!;
+      await attachWebAudioEqSource(audio, true);
+
+      eqMocks.mockCtx.state = 'suspended';
+      eqState.available = false;
+      eqState.retryFailCount = 2;
+
+      await retryEq();
+
+      expect(eqState.available).toBe(true);
+      expect(eqState.reason).toBe('');
+      expect(eqState.retryFailCount).toBe(0);
+      expect(eqState.retryDisabled).toBe(false);
+    });
+
+    it('failure once: retryFailCount=1, button still enabled', async () => {
+      eqMocks.mockCtx.state = 'suspended';
+      eqMocks.mockCtx.resume = vi.fn(async () => {
+        throw new Error('NotAllowedError');
+      });
+
+      await retryEq();
+
+      expect(eqState.retryFailCount).toBe(1);
+      expect(eqState.retryDisabled).toBe(false);
+    });
+
+    it('failure 3 times: retryFailCount=3, retryDisabled=true', async () => {
+      eqMocks.mockCtx.state = 'suspended';
+      eqMocks.mockCtx.resume = vi.fn(async () => {
+        throw new Error('NotAllowedError');
+      });
+
+      await retryEq();
+      await retryEq();
+      await retryEq();
+
+      expect(eqState.retryFailCount).toBe(3);
+      expect(eqState.retryDisabled).toBe(true);
+    });
+
+    it('track switch resets retryFailCount and retryDisabled (spec §6.3)', async () => {
+      eqState.retryFailCount = 3;
+      eqState.retryDisabled = true;
+
+      const realPlay = HTMLAudioElement.prototype.play;
+      HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+      mockInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/1';
+        if (cmd === 'stats_record_play') return '';
+        return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/1' } });
+      });
+
+      const t1 = mkTrack('reset1'); t1.Image = 'http://img/';
+      const t2 = mkTrack('reset2'); t2.Image = 'http://img/';
+      playerStore.queue = [t1, t2];
+
+      await playTrack(t1);
+
+      expect(eqState.retryFailCount).toBe(0);
+      expect(eqState.retryDisabled).toBe(false);
+
+      HTMLAudioElement.prototype.play = realPlay;
+    });
   });
 });

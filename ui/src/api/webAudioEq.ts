@@ -29,7 +29,7 @@ export interface EqOptions {
 
 export interface AudioNodeLike {
   connect(dest: AudioNodeLike): AudioNodeLike;
-  disconnect(): void;
+  disconnect(dest?: AudioNodeLike): void;
 }
 
 export interface GainNodeLike extends AudioNodeLike {
@@ -167,13 +167,7 @@ export class WebAudioEq {
   async resume(): Promise<void> {
     if (!this.ctx || this.workletFailed) return;
     if (this.ctx.state === 'suspended') {
-      try {
-        await this.ctx.resume();
-        this.onRecoveredCb?.();
-      } catch (e) {
-        console.warn('Web Audio API EQ resume failed; EQ will be degraded.', e);
-        this.onDegradedCb?.();
-      }
+      await this.ctx.resume();
     }
   }
 
@@ -196,14 +190,21 @@ export class WebAudioEq {
     this.readyPromise = null;
   }
 
-  /** Phase 4: disconnect worklet input and unmute element. Stub until Phase 4. */
-  enterDegradation(_volume: number): void {
-    // Phase 4 implementation
+  /** §3.3: disconnect worklet input before unmute element (anti double-audio). */
+  enterDegradation(audio: HTMLAudioElement, vol: number): void {
+    if (this.sourceNode && this.workletNode) {
+      this.sourceNode.disconnect(this.workletNode);
+    }
+    audio.volume = vol;
+    this.rerouted = false;
+    this.onDegradedCb?.();
   }
 
-  /** Phase 4: resume context and re-attach capture stream. Stub until Phase 4. */
-  recoverFromDegradation(_audio: HTMLAudioElement): void {
-    // Phase 4 implementation
+  /** §3.3: mute element before attachSource (anti double-audio). */
+  recoverFromDegradation(audio: HTMLAudioElement): void {
+    audio.volume = 0;
+    this.attachSource(audio);
+    this.onRecoveredCb?.();
   }
 
   private doInit(opts: EqOptions): void {

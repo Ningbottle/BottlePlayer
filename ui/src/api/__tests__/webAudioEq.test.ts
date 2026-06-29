@@ -36,6 +36,7 @@ interface MockSourceNode {
   connect: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
   _stream: MockStream;
+  _disconnectTarget?: unknown;
 }
 
 interface MockGainNode {
@@ -138,7 +139,8 @@ function setupMocks(opts: { workletAddModuleRejects?: boolean } = {}) {
             }
             return dest;
           }),
-          disconnect: vi.fn(() => {
+          disconnect: vi.fn((target?: unknown) => {
+            sn._disconnectTarget = target;
             const idx = workletNode._inputs.indexOf(sn);
             if (idx >= 0) workletNode._inputs.splice(idx, 1);
           }),
@@ -570,21 +572,18 @@ await initAndReady(eq, {
     expect(onDegraded).not.toHaveBeenCalled();
   });
 
-  it('resume failure: ctx.resume rejects, onDegraded called once', async () => {
-    const onDegraded = vi.fn();
+  it('resume failure: ctx.resume rejects (throws to caller)', async () => {
     const ctx = mocks.makeMockCtx();
     const eq = new WebAudioEq(mockCtxFactory(ctx));
-await initAndReady(eq, {
+    await initAndReady(eq, {
       enabled: true,
       bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      onDegraded,
     });
     ctx.state = 'suspended';
     ctx.resume = vi.fn(async () => {
       throw new Error('NotAllowedError: no user gesture');
     });
-    await eq.resume();
-    expect(onDegraded).toHaveBeenCalledTimes(1);
+    await expect(eq.resume()).rejects.toThrow('NotAllowedError');
   });
 
   it('close: disconnects workletNode + gainNode, closes ctx, cleans source/stream', async () => {
@@ -672,24 +671,20 @@ describe('WebAudioEq (legacy compat) — init(audio, opts) overload', () => {
     expect(ctx.audioWorklet.addModule.mock.calls.length).toBe(addModuleCalls);
   });
 
-  it('fires onSuspendedFail on failed resume and keeps graph routed', async () => {
+  it('enterDegradation on failed resume path sets isRerouted=false', async () => {
+    const onDegraded = vi.fn();
     const ctx = mocks.makeMockCtx();
-    let degraded = false;
     const eq = new WebAudioEq(mockCtxFactory(ctx));
     const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
     await initLegacyAndReady(eq, audio, {
       enabled: true,
       bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       crossOriginSafe: true,
-      onSuspendedFail: () => { degraded = true; },
+      onDegraded,
     });
-    ctx.state = 'suspended';
-    ctx.resume = vi.fn(async () => {
-      throw new Error('NotAllowedError');
-    });
-    await eq.resume();
-    expect(degraded).toBe(true);
-    expect(eq.isRerouted).toBe(true);
+    eq.enterDegradation(audio, 0.7);
+    expect(onDegraded).toHaveBeenCalledTimes(1);
+    expect(eq.isRerouted).toBe(false);
   });
 
   it('close() closes the AudioContext', async () => {
@@ -703,5 +698,82 @@ describe('WebAudioEq (legacy compat) — init(audio, opts) overload', () => {
     });
     eq.close();
     expect(ctx.close).toHaveBeenCalled();
+  });
+
+});
+
+// ---------------------------------------------------------------------------
+// Phase 4 — degradation / recovery order (spec §3.3)
+// ---------------------------------------------------------------------------
+
+describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
+  let mocks: ReturnType<typeof setupMocks>;
+
+  beforeEach(() => {
+    mocks = setupMocks();
+  });
+  afterEach(() => mocks.teardown());
+
+  async function makeReroutedEq(onDegraded = vi.fn(), onRecovered = vi.fn()) {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+    await initAndReady(eq, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      onDegraded,
+      onRecovered,
+    });
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    eq.attachSource(audio);
+    return { eq, ctx, audio, onDegraded, onRecovered };
+  }
+
+  it('enterDegradation: disconnect(workletNode) before audio.volume=vol, then onDegraded', async () => {
+    const onDegraded = vi.fn();
+    const { eq, ctx, audio } = await makeReroutedEq(onDegraded);
+    const sourceNode = ctx._sourceNodes[0]!;
+    const callOrder: string[] = [];
+    sourceNode.disconnect.mockImplementation((target?: unknown) => {
+      callOrder.push('disconnect');
+      expect(target).toBe(ctx._workletNode);
+    });
+    Object.defineProperty(audio, 'volume', {
+      configurable: true,
+      get: () => 0,
+      set: (v: number) => {
+        callOrder.push(`volume=${v}`);
+      },
+    });
+
+    eq.enterDegradation(audio, 0.65);
+
+    expect(callOrder.indexOf('disconnect')).toBeLessThan(callOrder.indexOf('volume=0.65'));
+    expect(onDegraded).toHaveBeenCalledTimes(1);
+    expect(eq.isRerouted).toBe(false);
+  });
+
+  it('recoverFromDegradation: audio.volume=0 before attachSource, then onRecovered', async () => {
+    const onRecovered = vi.fn();
+    const { eq, audio } = await makeReroutedEq(vi.fn(), onRecovered);
+    const callOrder: string[] = [];
+    let vol = 0.8;
+    Object.defineProperty(audio, 'volume', {
+      configurable: true,
+      get: () => vol,
+      set: (v: number) => {
+        callOrder.push(`volume=${v}`);
+        vol = v;
+      },
+    });
+    const attachSpy = vi.spyOn(eq, 'attachSource').mockImplementation(() => {
+      callOrder.push('attachSource');
+    });
+
+    eq.recoverFromDegradation(audio);
+
+    expect(callOrder.indexOf('volume=0')).toBeLessThan(callOrder.indexOf('attachSource'));
+    expect(attachSpy).toHaveBeenCalledWith(audio);
+    expect(onRecovered).toHaveBeenCalledTimes(1);
+    attachSpy.mockRestore();
   });
 });

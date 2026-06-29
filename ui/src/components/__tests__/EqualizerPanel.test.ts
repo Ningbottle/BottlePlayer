@@ -13,10 +13,11 @@ vi.mock('../../api/playerStore', async () => {
     ...actual,
     setWebAudioEqBand: vi.fn(),
     setWebAudioEqEnabled: vi.fn(),
+    retryEq: vi.fn().mockResolvedValue(undefined),
   };
 });
 
-import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState } from '../../api/playerStore';
+import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState, retryEq } from '../../api/playerStore';
 
 describe('EqualizerPanel', () => {
   beforeEach(() => {
@@ -27,6 +28,8 @@ describe('EqualizerPanel', () => {
     playerStore.activePreset = 'Flat';
     eqState.available = true;
     eqState.reason = '';
+    eqState.retryDisabled = false;
+    eqState.retryFailCount = 0;
   });
 
   it('renders the 10 reference EQ bands when expanded', () => {
@@ -91,5 +94,33 @@ describe('EqualizerPanel', () => {
     const sliders = wrapper.findAll('input[type="range"]');
     expect(sliders.length).toBe(10);
     expect(sliders[0].attributes('disabled')).toBeDefined();
+  });
+
+  it('shows retry button when eqState.available=false', () => {
+    eqState.available = false;
+    eqState.reason = 'EQ 暂不可用，点击重试';
+    const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
+    const btn = wrapper.get('[data-test="eq-retry"]');
+    expect(btn.text()).toContain('重试 EQ');
+  });
+
+  it('hides retry button when eqState.available=true', () => {
+    eqState.available = true;
+    const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
+    expect(wrapper.find('[data-test="eq-retry"]').exists()).toBe(false);
+  });
+
+  it('disables retry button when eqState.retryDisabled=true', () => {
+    eqState.available = false;
+    eqState.retryDisabled = true;
+    const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
+    expect(wrapper.get('[data-test="eq-retry"]').attributes('disabled')).toBeDefined();
+  });
+
+  it('clicking retry button calls retryEq()', async () => {
+    eqState.available = false;
+    const wrapper = mount(EqualizerPanel, { props: { modelValue: true } });
+    await wrapper.get('[data-test="eq-retry"]').trigger('click');
+    expect(retryEq).toHaveBeenCalledTimes(1);
   });
 });
