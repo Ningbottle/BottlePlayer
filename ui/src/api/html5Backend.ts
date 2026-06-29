@@ -9,6 +9,9 @@ export interface Html5AudioBackendOptions {
   prepareSourceUrl?: (url: string) => Promise<PreparedAudioSource>;
   /** Called after audio.play() resolves — post-play attachSource (spec §5.2). */
   initEq?: (audio: HTMLAudioElement, crossOriginSafe: boolean) => void;
+  /** Capture transition epoch at play start; checked after play() before initEq. */
+  getAttachTransitionSeq?: () => number;
+  isAttachTransitionCurrent?: (seq: number) => boolean;
   disconnectEq?: () => void;
   isEqRerouted?: () => boolean;
   setEqVolume?: (vol: number) => void;
@@ -28,10 +31,13 @@ export class Html5AudioBackend implements PlayerBackend {
   async initialize(): Promise<boolean> { return true; }
 
   async playUrl(url: string): Promise<boolean> {
+    const attachSeq = this.options.getAttachTransitionSeq?.();
     await this.setPreparedSource(url);
     try {
       await this.audio.play();
-      this.options.initEq?.(this.audio, this.lastCrossOriginSafe);
+      if (this.shouldAttachEq(attachSeq)) {
+        this.options.initEq?.(this.audio, this.lastCrossOriginSafe);
+      }
       return true;
     } catch (e) {
       console.warn('Html5AudioBackend playUrl play failed:', {
@@ -65,8 +71,11 @@ export class Html5AudioBackend implements PlayerBackend {
     if (!options.autoplay) return true;
 
     try {
+      const attachSeq = this.options.getAttachTransitionSeq?.();
       await this.audio.play();
-      this.options.initEq?.(this.audio, this.lastCrossOriginSafe);
+      if (this.shouldAttachEq(attachSeq)) {
+        this.options.initEq?.(this.audio, this.lastCrossOriginSafe);
+      }
       return true;
     } catch (e) {
       console.warn('Html5AudioBackend switchUrl play failed:', e);
@@ -149,6 +158,11 @@ export class Html5AudioBackend implements PlayerBackend {
       const timer = window.setTimeout(done, timeoutMs);
       this.audio.addEventListener('loadedmetadata', done, { once: true });
     });
+  }
+
+  private shouldAttachEq(attachSeq: number | undefined): boolean {
+    if (attachSeq === undefined) return true;
+    return this.options.isAttachTransitionCurrent?.(attachSeq) ?? false;
   }
 
   private async setPreparedSource(url: string): Promise<void> {

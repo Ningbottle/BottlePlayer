@@ -651,6 +651,18 @@ describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
     expect(eq.isRerouted).toBe(false);
   });
 
+  it('enterDegradation stops all audio tracks on currentStream (spec §4.2)', async () => {
+    const { eq, ctx } = await makeReroutedEq();
+    const stream = mocks.createdStreams[0]!;
+    const tracks = stream._tracks;
+
+    eq.enterDegradation(makeMockAudio(), 0.7);
+
+    expect(tracks[0].stop).toHaveBeenCalled();
+    expect(ctx._sourceNodes[0]!.disconnect).toHaveBeenCalledWith(ctx._workletNode);
+    expect(eq.isRerouted).toBe(false);
+  });
+
   it('recoverFromDegradation: audio.volume=0 before attachSource, then onRecovered', async () => {
     const onRecovered = vi.fn();
     const { eq, audio } = await makeReroutedEq(vi.fn(), onRecovered);

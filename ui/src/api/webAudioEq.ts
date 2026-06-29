@@ -175,6 +175,11 @@ export class WebAudioEq {
     if (this.sourceNode && this.workletNode) {
       this.sourceNode.disconnect(this.workletNode);
     }
+    if (this.currentStream) {
+      this.currentStream.getAudioTracks().forEach((t) => t.stop());
+      this.currentStream = null;
+    }
+    this.sourceNode = null;
     audio.volume = vol;
     this.rerouted = false;
     this.onDegradedCb?.();

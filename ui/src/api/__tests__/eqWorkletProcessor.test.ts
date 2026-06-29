@@ -429,6 +429,20 @@ describe('EQ_PROCESSOR_SOURCE runtime behavior', () => {
     return [ch, ch]; // stereo
   }
 
+  it('process() outputs non-zero PCM for non-zero input at 44100 Hz', () => {
+    const Ctor = evalProcessor(44100);
+    const proc = new Ctor();
+    const input = makeBlock(128, 44100, 1000, 0.5);
+    const output: Float32Array[][] = [[new Float32Array(128), new Float32Array(128)]];
+    const alive = proc.process([input], output);
+    expect(alive).toBe(true);
+    let lRms = 0;
+    for (let i = 0; i < 128; i++) {
+      lRms += output[0][0][i] * output[0][0][i];
+    }
+    expect(Math.sqrt(lRms / 128)).toBeGreaterThan(1e-3);
+  });
+
   it('process() outputs non-zero PCM for non-zero input', () => {
     const Ctor = evalProcessor(48000);
     const proc = new Ctor();

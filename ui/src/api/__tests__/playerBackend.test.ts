@@ -143,6 +143,37 @@ describe('Html5AudioBackend', () => {
     expect(initEq).toHaveBeenCalledWith(audio, false);
   });
 
+  it('playUrl skips initEq when attach transition is stale after play()', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    const initEq = vi.fn();
+    const backend = new Html5AudioBackend(audio, {
+      getAttachTransitionSeq: () => 1,
+      isAttachTransitionCurrent: () => false,
+      initEq,
+    });
+
+    await backend.playUrl('https://example.com/song.mp3');
+
+    expect(audio.play).toHaveBeenCalled();
+    expect(initEq).not.toHaveBeenCalled();
+  });
+
+  it('playUrl calls initEq when attach transition is still current after play()', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    const initEq = vi.fn();
+    const backend = new Html5AudioBackend(audio, {
+      getAttachTransitionSeq: () => 2,
+      isAttachTransitionCurrent: (seq) => seq === 2,
+      initEq,
+    });
+
+    await backend.playUrl('https://example.com/song.mp3');
+
+    expect(initEq).toHaveBeenCalledWith(audio, false);
+  });
+
   it('stop disconnects EQ before clearing source', async () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
     audio.pause = vi.fn();

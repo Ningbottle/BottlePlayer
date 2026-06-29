@@ -333,6 +333,8 @@ export async function initPlayerBackend() {
   initWebAudioEQ();
   activeBackend = new Html5AudioBackend(playerStore.audio, {
     prepareSourceUrl: prepareAudioSourceUrl,
+    getAttachTransitionSeq: () => playbackOrchestrator.getTransitionSeq(),
+    isAttachTransitionCurrent: (seq) => playbackOrchestrator.isTransitionCurrent(seq),
     initEq: (audio, crossOriginSafe) => {
       void attachWebAudioEqSource(audio, crossOriginSafe);
     },
@@ -505,8 +507,6 @@ export async function seek(seconds: number) {
 
 export async function setVolume(vol: number) {
   playerStore.volume = Math.max(0, Math.min(1, vol));
-  localStorage.setItem('player_volume', String(playerStore.volume));
-  await activeBackend!.setVolume(playerStore.volume);
 }
 
 export function playAll(tracks: Track[], startIndex = 0) {

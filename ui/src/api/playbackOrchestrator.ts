@@ -267,8 +267,17 @@ export class PlaybackOrchestrator {
     }
   }
 
-  private isCurrent(seq: number): boolean {
+  /** Current transition epoch — capture before async play for post-play EQ attach guard. */
+  getTransitionSeq(): number {
+    return this.transitionSeq;
+  }
+
+  isTransitionCurrent(seq: number): boolean {
     return seq === this.transitionSeq;
+  }
+
+  private isCurrent(seq: number): boolean {
+    return this.isTransitionCurrent(seq);
   }
 
   private async cleanupCanceledStaleTransition(
