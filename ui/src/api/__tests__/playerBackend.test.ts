@@ -88,14 +88,19 @@ describe('Html5AudioBackend', () => {
     expect(audio.src).toBe('https://example.com/song.mp3');
   });
 
-  it('playUrl uses prepared CORS-safe sources and initializes WebAudio EQ', async () => {
+  it('playUrl uses prepared CORS-safe sources and initializes WebAudio EQ after play()', async () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
-    audio.play = vi.fn().mockResolvedValue(undefined);
+    const callOrder: string[] = [];
+    audio.play = vi.fn(async () => {
+      callOrder.push('play');
+    });
     const prepareSourceUrl = vi.fn().mockResolvedValue({
       url: 'http://127.0.0.1:17631/audio/1',
       crossOriginSafe: true,
     });
-    const initEq = vi.fn();
+    const initEq = vi.fn(() => {
+      callOrder.push('initEq');
+    });
     const backend = new Html5AudioBackend(audio, { prepareSourceUrl, initEq });
 
     const ok = await backend.playUrl('https://cdn.example/song.mp3');
@@ -104,8 +109,67 @@ describe('Html5AudioBackend', () => {
     expect(prepareSourceUrl).toHaveBeenCalledWith('https://cdn.example/song.mp3');
     expect(audio.crossOrigin).toBe('anonymous');
     expect(audio.src).toBe('http://127.0.0.1:17631/audio/1');
+    expect(callOrder).toEqual(['play', 'initEq']);
     expect(initEq).toHaveBeenCalledWith(audio, true);
     expect(audio.play).toHaveBeenCalled();
+  });
+
+  it('playUrl does not call initEq when play() rejects', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    const playError = new Error('NotAllowedError');
+    audio.play = vi.fn().mockRejectedValue(playError);
+    const initEq = vi.fn();
+    const backend = new Html5AudioBackend(audio, { initEq });
+
+    const ok = await backend.playUrl('https://example.com/song.mp3');
+
+    expect(ok).toBe(false);
+    expect(initEq).not.toHaveBeenCalled();
+  });
+
+  it('playUrl passes crossOriginSafe=false to initEq for direct sources', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    const prepareSourceUrl = vi.fn().mockResolvedValue({
+      url: 'https://cdn.example/song.mp3',
+      crossOriginSafe: false,
+    });
+    const initEq = vi.fn();
+    const backend = new Html5AudioBackend(audio, { prepareSourceUrl, initEq });
+
+    await backend.playUrl('https://cdn.example/song.mp3');
+
+    expect(audio.hasAttribute('crossorigin')).toBe(false);
+    expect(initEq).toHaveBeenCalledWith(audio, false);
+  });
+
+  it('stop disconnects EQ before clearing source', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.pause = vi.fn();
+    audio.load = vi.fn();
+    audio.src = 'https://example.com/old.mp3';
+    const callOrder: string[] = [];
+    const disconnectEq = vi.fn(() => callOrder.push('disconnectEq'));
+    const backend = new Html5AudioBackend(audio, { disconnectEq });
+
+    await backend.stop();
+
+    expect(callOrder).toEqual(['disconnectEq']);
+    expect(audio.pause).toHaveBeenCalled();
+  });
+
+  it('setVolume routes to EQ gain when rerouted', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    const setEqVolume = vi.fn();
+    const backend = new Html5AudioBackend(audio, {
+      isEqRerouted: () => true,
+      setEqVolume,
+    });
+
+    await backend.setVolume(0.42);
+
+    expect(setEqVolume).toHaveBeenCalledWith(0.42);
+    expect(audio.volume).not.toBe(0.42);
   });
 
   it('switchUrl waits for metadata before restoring position and respects autoplay false', async () => {

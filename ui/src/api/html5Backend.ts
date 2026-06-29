@@ -7,11 +7,16 @@ export interface PreparedAudioSource {
 
 export interface Html5AudioBackendOptions {
   prepareSourceUrl?: (url: string) => Promise<PreparedAudioSource>;
+  /** Called after audio.play() resolves — post-play attachSource (spec §5.2). */
   initEq?: (audio: HTMLAudioElement, crossOriginSafe: boolean) => void;
+  disconnectEq?: () => void;
+  isEqRerouted?: () => boolean;
+  setEqVolume?: (vol: number) => void;
 }
 
 export class Html5AudioBackend implements PlayerBackend {
   readonly kind = 'html5' as const;
+  private lastCrossOriginSafe = false;
 
   constructor(
     private audio: HTMLAudioElement,
@@ -26,6 +31,7 @@ export class Html5AudioBackend implements PlayerBackend {
     await this.setPreparedSource(url);
     try {
       await this.audio.play();
+      this.options.initEq?.(this.audio, this.lastCrossOriginSafe);
       return true;
     } catch (e) {
       console.warn('Html5AudioBackend playUrl play failed:', {
@@ -60,6 +66,7 @@ export class Html5AudioBackend implements PlayerBackend {
 
     try {
       await this.audio.play();
+      this.options.initEq?.(this.audio, this.lastCrossOriginSafe);
       return true;
     } catch (e) {
       console.warn('Html5AudioBackend switchUrl play failed:', e);
@@ -74,6 +81,7 @@ export class Html5AudioBackend implements PlayerBackend {
   async pause(): Promise<void> { this.audio.pause(); }
   async resume(): Promise<void> { await this.audio.play(); }
   async stop(): Promise<void> {
+    this.options.disconnectEq?.();
     this.audio.pause();
     this.audio.removeAttribute('src');
     this.audio.load();
@@ -84,7 +92,11 @@ export class Html5AudioBackend implements PlayerBackend {
   }
 
   async setVolume(v: number): Promise<void> {
-    this.audio.volume = v;
+    if (this.options.isEqRerouted?.()) {
+      this.options.setEqVolume?.(v);
+    } else {
+      this.audio.volume = v;
+    }
     localStorage.setItem('player_volume', String(v));
   }
 
@@ -150,7 +162,7 @@ export class Html5AudioBackend implements PlayerBackend {
       this.audio.removeAttribute('crossorigin');
     }
 
+    this.lastCrossOriginSafe = prepared.crossOriginSafe;
     this.audio.src = prepared.url;
-    this.options.initEq?.(this.audio, prepared.crossOriginSafe);
   }
 }

@@ -18,9 +18,12 @@ import {
   playTrack,
   playAll,
   togglePlay,
+  initWebAudioEQ,
+  attachWebAudioEqSource,
+  disconnectWebAudioEqSource,
+  setWebAudioEqVolume,
   __getActiveBackend,
   __getPlaySession,
-  __resetEqDisabledForSession,
   __resetWebAudioEqForTests,
   eqState,
 } from '../playerStore';
@@ -30,18 +33,20 @@ function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'A', Duration: 100 } as Track;
 }
 
-/** Mock AudioContext + captureStream for Phase 2 worklet EQ in integration tests. */
+/** Mock AudioContext + captureStream for Phase 2/3 worklet EQ in integration tests. */
 function setupWorkletEqMocks() {
   const workletNode = {
     connect: vi.fn((n: unknown) => n),
     disconnect: vi.fn(),
     port: { postMessage: vi.fn() },
+    _inputs: [] as Array<{ disconnect: ReturnType<typeof vi.fn> }>,
   };
   const gainNode = {
     connect: vi.fn((n: unknown) => n),
     disconnect: vi.fn(),
     gain: { value: 1 },
   };
+  const sourceNodes: Array<{ disconnect: ReturnType<typeof vi.fn>; _connected: boolean }> = [];
   let closeCalls = 0;
   const mockCtx: Record<string, unknown> = {
     state: 'running',
@@ -55,10 +60,25 @@ function setupWorkletEqMocks() {
     }),
     audioWorklet: { addModule: vi.fn(async () => {}) },
     createGain: vi.fn(() => gainNode),
-    createMediaStreamSource: vi.fn(() => ({
-      connect: vi.fn((n: unknown) => n),
-      disconnect: vi.fn(),
-    })),
+    createMediaStreamSource: vi.fn((stream: { _id?: number }) => {
+      const node = {
+        connect: vi.fn((n: unknown) => {
+          if (n === workletNode) {
+            workletNode._inputs.push(node);
+            node._connected = true;
+          }
+          return n;
+        }),
+        disconnect: vi.fn(() => {
+          node._connected = false;
+          workletNode._inputs = workletNode._inputs.filter((i) => i !== node);
+        }),
+        _connected: false,
+        _stream: stream,
+      };
+      sourceNodes.push(node);
+      return node;
+    }),
   };
   vi.stubGlobal('AudioContext', function MockAudioContext() {
     return mockCtx;
@@ -71,8 +91,16 @@ function setupWorkletEqMocks() {
     createObjectURL: vi.fn(() => 'blob:eq-test'),
     revokeObjectURL: vi.fn(),
   });
+  let streamSeq = 0;
+  const allStreams: Array<{ getAudioTracks: () => Array<{ stop: ReturnType<typeof vi.fn>; readyState: string }>; _id: number }> = [];
   const captureStream = vi.fn(function (this: HTMLMediaElement) {
-    return { getAudioTracks: () => [{ stop: vi.fn() }] };
+    const tracks = [{ stop: vi.fn(), readyState: 'live' as const }];
+    const stream = {
+      _id: ++streamSeq,
+      getAudioTracks: () => tracks,
+    };
+    allStreams.push(stream);
+    return stream;
   });
   (HTMLMediaElement.prototype as HTMLMediaElement & {
     captureStream: typeof captureStream;
@@ -84,6 +112,10 @@ function setupWorkletEqMocks() {
       resume: ReturnType<typeof vi.fn>;
       close: ReturnType<typeof vi.fn>;
     },
+    workletNode,
+    gainNode,
+    sourceNodes,
+    allStreams,
     captureStream,
     getCloseCalls: () => closeCalls,
   };
@@ -103,8 +135,6 @@ function resetStore() {
   // Clear the zombie-audio sentinel so initPlayer() doesn't run its teardown
   // path (which nulls activeBackend) and skip re-creating the backend.
   (window as any).__bottlemusic_audio__ = undefined;
-  // #16: reset the session-disable flag so each swap test starts fresh.
-  __resetEqDisabledForSession();
   __resetWebAudioEqForTests();
   eqState.available = false;
   eqState.reason = '';
@@ -372,23 +402,60 @@ describe('playerStore integration', () => {
     expect(playerStore.errorMsg).toBe('');
   });
 
-  // ── #16: element-swap after WebAudio wedge (auto-advance silence bug) ──
-  // Confirmed root cause: createMediaElementSource is irreversible for the
-  // <audio> element's lifetime. Song 1 binds the element + builds the graph.
-  // On song 2 auto-advance, the AudioContext may be suspended (no user gesture
-  // on auto-advance); resume() rejects → onSuspendedFail fires on an already-
-  // bound element → audio is silently trapped. The fix swaps in a fresh
-  // <audio> element (un-bound), rebuilds the backend, and re-triggers the
-  // current track with EQ disabled for the session.
-  it('swaps the <audio> element and re-triggers playback when onSuspendedFail fires on a bound element', async () => {
+  // ── Phase 3: EQ lifecycle (init at startup, attach post-play) ──
+  it('initWebAudioEQ builds graph without audio; attachWebAudioEqSource attaches post-play', async () => {
     const { mockCtx, captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initWebAudioEQ();
+
+    await vi.waitFor(() => expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1));
+
+    const audio = playerStore.audio!;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+    await attachWebAudioEqSource(audio, true);
+
+    expect(captureStream).toHaveBeenCalled();
+    expect(mockCtx.createMediaStreamSource).toHaveBeenCalled();
+    expect(eqState.available).toBe(true);
+  });
+
+  it('disconnectWebAudioEqSource releases stream tracks', async () => {
+    const { allStreams } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initWebAudioEQ();
+    const audio = playerStore.audio!;
+    await attachWebAudioEqSource(audio, true);
+
+    disconnectWebAudioEqSource();
+
+    expect(allStreams[0]!.getAudioTracks()[0]!.stop).toHaveBeenCalled();
+    expect(eqState.available).toBe(false);
+  });
+
+  it('setWebAudioEqVolume writes gainNode when rerouted', async () => {
+    const { gainNode } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initWebAudioEQ();
+    await attachWebAudioEqSource(playerStore.audio!, true);
+
+    setWebAudioEqVolume(0.55);
+    expect(gainNode.gain.value).toBe(0.55);
+  });
+
+  // ── L4: consecutive attachSource does not rebuild worklet graph (spec §7.2) ──
+  it('L4: two attachSource calls reuse worklet graph and disconnect old sourceNode', async () => {
+    const { mockCtx, workletNode, sourceNodes, captureStream } = setupWorkletEqMocks();
     __resetWebAudioEqForTests();
 
     initPlayer();
     initPlayerBackend();
 
-    // Stub audio.play() to resolve (jsdom's rejects). Track which element
-    // instances get a src set so we can detect the swap.
     const realPlay = HTMLAudioElement.prototype.play;
     HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
 
@@ -396,79 +463,101 @@ describe('playerStore integration', () => {
     const t2 = mkTrack('song2'); t2.Image = 'http://img/';
     playerStore.queue = [t1, t2];
 
-    // invoke: audio_proxy_url returns a CORS-safe proxy URL (crossOriginSafe
-    // true → graph builds); /song/url returns that proxy URL; stats no-op.
     mockInvoke.mockImplementation(async (cmd: string) => {
       if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/1';
       if (cmd === 'stats_record_play') return '';
       return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/1' } });
     });
 
-    // Song 1: plays fine. Graph builds, captureStream attach, ctx running.
     await playTrack(t1);
     await vi.waitFor(() => expect(eqState.available).toBe(true));
-    expect(captureStream, 'song 1 must attach via captureStream').toHaveBeenCalled();
-    expect(mockCtx.createMediaStreamSource).toHaveBeenCalled();
-    const audioAfterSong1 = playerStore.audio;
+    expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
+    const firstSource = sourceNodes[0]!;
 
-    // Simulate the auto-advance condition: ctx suspends, resume rejects (no
-    // user gesture on auto-advance). This is the exact condition that fires
-    // onSuspendedFail on song 2.
-    mockCtx.state = 'suspended';
-    mockCtx.resume = vi.fn(async () => {
-      throw new Error('NotAllowedError: no user gesture');
-    });
-
-    // Song 2: playUrl → setPreparedSource → initEq (re-attach) →
-    // audio.play() resolves. In a real browser, audio.play() fires a 'play'
-    // event → resumeAudioContext() → resume() rejects → onSuspendedFail on
-    // the bound element → SWAP. jsdom's play() is a stub that doesn't fire
-    // the event, so dispatch it manually to drive the swap path.
     await playTrack(t2);
-    const audioAfterSong2 = playerStore.audio;
-    expect(audioAfterSong2).toBe(audioAfterSong1); // no swap yet
-    audioAfterSong2!.dispatchEvent(new Event('play'));
+    await vi.waitFor(() => expect(captureStream).toHaveBeenCalledTimes(2));
 
-    // The swap is triggered from within the 'play' event handler (async).
-    // Wait for the swap + re-trigger to settle.
-    await vi.waitFor(() => {
-      expect(playerStore.audio, 'a fresh <audio> element must have been swapped in').not.toBe(audioAfterSong1);
-    });
-    // Let the re-trigger finish.
-    await new Promise((r) => setTimeout(r, 50));
-
-    // EQ must be disabled for the session and unavailable in the UI.
-    expect(eqState.available, 'EQ must be unavailable after the swap').toBe(false);
-    expect(eqState.reason, 'degradation reason must be set').toBeTruthy();
-
-    // The fresh element must NOT get a new captureStream attach after swap —
-    // eqDisabledForSession skips attach on subsequent tracks.
-    const streamCallsAfter = captureStream.mock.calls.length;
-    const t3 = mkTrack('song3'); t3.Image = 'http://img/';
-    playerStore.queue.push(t3);
-    mockInvoke.mockImplementation(async (cmd: string) => {
-      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/2';
-      if (cmd === 'stats_record_play') return '';
-      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/2' } });
-    });
-    await playTrack(t3);
-    expect(captureStream.mock.calls.length, 'third track must NOT re-attach (eqDisabledForSession)').toBe(streamCallsAfter);
+    expect(mockCtx.audioWorklet.addModule, 'worklet graph built only once').toHaveBeenCalledTimes(1);
+    expect(firstSource.disconnect).toHaveBeenCalled();
+    expect(workletNode._inputs).toHaveLength(1);
+    expect(eqState.available).toBe(true);
 
     HTMLAudioElement.prototype.play = realPlay;
   });
 
-  // ── #16: zombie-teardown root cause (the actual InvalidStateError trigger) ──
-  // The F12 trace showed InvalidStateError on song 2's createMediaElementSource.
-  // Root cause: initPlayer's HMR zombie-teardown fired on EVERY playTrack()
-  // call (because __bottlemusic_audio__ is set after the first play), calling
-  // webAudioEq.close() → nulling this.ctx → defeating init()'s guard → the
-  // next init() re-called createMediaElementSource on the already-bound
-  // element → InvalidStateError → silent wedge.
-  //
-  // The fix: only run the zombie teardown on a genuine HMR reload (when
-  // playerStore.audio is null). This test verifies that a second playTrack()
-  // does NOT close the WebAudio context (ctx stays set, guard holds, no
-  // re-bind of the element).
+  // ── L5: crossOriginSafe=false fallback (spec §7.2) ──
+  it('L5: proxy failure skips attachSource, degrades EQ, playback still succeeds', async () => {
+    const { captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') throw new Error('proxy down');
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://cdn.example/song.mp3' } });
+    });
+
+    const track = mkTrack('direct'); track.Image = 'http://img/';
+    await playTrack(track);
+
+    expect(captureStream).not.toHaveBeenCalled();
+    expect(eqState.available).toBe(false);
+    expect(eqState.reason).toBeTruthy();
+    expect(playerStore.audio!.src).toContain('song.mp3');
+    expect(playerStore.errorMsg).toBe('');
+
+    HTMLAudioElement.prototype.play = realPlay;
+  });
+
+  // ── 10-track attachSource regression (spec §7.2 / §10.1) ──
+  it('10 consecutive tracks attach distinct streams without graph rebuild or leaks', async () => {
+    const { mockCtx, workletNode, sourceNodes, allStreams, captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const tracks = Array.from({ length: 10 }, (_, i) => {
+      const t = mkTrack(`song${i}`); t.Image = 'http://img/'; return t;
+    });
+    playerStore.queue = tracks;
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/x';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/x' } });
+    });
+
+    for (let i = 0; i < 10; i++) {
+      await playTrack(tracks[i]!);
+      await vi.waitFor(() => expect(eqState.available).toBe(true));
+    }
+
+    expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
+    expect(captureStream).toHaveBeenCalledTimes(10);
+    expect(mockCtx.createMediaStreamSource).toHaveBeenCalledTimes(10);
+    const streamIds = new Set(allStreams.map((s) => s._id));
+    expect(streamIds.size).toBe(10);
+    expect(workletNode._inputs).toHaveLength(1);
+    for (let i = 0; i < 9; i++) {
+      expect(sourceNodes[i]!.disconnect).toHaveBeenCalled();
+    }
+    for (const stream of allStreams.slice(0, 9)) {
+      expect(stream.getAudioTracks()[0]!.stop).toHaveBeenCalled();
+    }
+
+    HTMLAudioElement.prototype.play = realPlay;
+  });
+
+  // ── zombie-teardown: second playTrack must not close WebAudio context ──
   it('does NOT close the WebAudio context on a second playTrack (zombie teardown only fires on HMR)', async () => {
     const { mockCtx, getCloseCalls } = setupWorkletEqMocks();
     __resetWebAudioEqForTests();

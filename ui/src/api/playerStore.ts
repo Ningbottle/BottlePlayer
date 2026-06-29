@@ -152,61 +152,58 @@ export const eqState = reactive({
   reason: '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。',
 });
 
-// #16: once a WebAudio element-wedge has triggered a swap, EQ is disabled for
-// the rest of the session. The fresh <audio> element never calls
-// createMediaElementSource, so a second wedge (and an infinite swap loop) is
-// impossible. The user can retry EQ by reloading the page.
-let eqDisabledForSession = false;
-
-/** Test-only seam: reset the session-disable flag between tests. */
-export function __resetEqDisabledForSession() {
-  eqDisabledForSession = false;
-}
-
 /** Test-only seam: tear down the EQ graph between tests. */
 export function __resetWebAudioEqForTests() {
   webAudioEq.close();
 }
 
-export function initWebAudioEQ(audio: HTMLAudioElement, crossOriginSafe = false) {
-  // #16: after a wedge-triggered element swap, never rebuild the WebAudio
-  // graph — the user's environment already wedged once and may wedge again.
-  // The fresh element plays directly (EQ off for the session).
-  const safe = crossOriginSafe && !eqDisabledForSession;
-  webAudioEq.init(audio, {
+const EQ_UNAVAILABLE_REASON = '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。';
+
+function syncEqAvailabilityFromReroute() {
+  eqState.available = webAudioEq.isRerouted;
+  eqState.reason = eqState.available ? '' : EQ_UNAVAILABLE_REASON;
+}
+
+/** Build the long-lived worklet graph once at app startup (spec §5.1). */
+export function initWebAudioEQ() {
+  webAudioEq.init({
     enabled: playerStore.eqEnabled,
     bands: playerStore.eqBands,
-    crossOriginSafe: safe,
-    onSuspendedFail: () => {
-      // #10 #16: suspended context we can't resume. On song 1 this just
-      // degrades EQ (the element isn't bound yet, audio may still play via
-      // the element directly if the graph wasn't built). On a SUBSEQUENT
-      // track the element IS already bound to the WebAudio graph
-      // (createMediaElementSource is irreversible), so a suspended context
-      // means the audio is silently trapped — swap in a fresh element to
-      // recover playback. eqDisabledForSession prevents infinite loops.
+    onDegraded: () => {
       eqState.available = false;
       eqState.reason = 'AudioContext 未能恢复，EQ 暂不可用。';
-      if (webAudioEq.isRerouted && !eqDisabledForSession) {
-        console.warn('Web Audio EQ resume failed on a routed element; swapping audio element and disabling EQ for this session.');
-        swapAudioElementAfterWedge();
-      }
     },
-    onElementWedged: () => {
-      // #16: createMediaElementSource threw InvalidStateError — the <audio>
-      // is irreversibly bound to a previous source node. Swap in a fresh
-      // element so playback can continue (EQ off for the session).
-      console.warn('Web Audio EQ element binding failed; swapping audio element and disabling EQ for this session.');
-      swapAudioElementAfterWedge();
+    onRecovered: () => {
+      syncEqAvailabilityFromReroute();
     },
   });
-  const syncEqAvailability = () => {
-    eqState.available = webAudioEq.isRerouted;
-    eqState.reason = eqState.available ? '' : '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。';
-  };
-  syncEqAvailability();
-  // Phase 2 transitional: legacy init attaches asynchronously after worklet load.
-  void webAudioEq.awaitReady().then(syncEqAvailability);
+}
+
+/** Post-play attach: captureStream → worklet (spec §5.2). Skips when not CORS-safe. */
+export async function attachWebAudioEqSource(
+  audio: HTMLAudioElement,
+  crossOriginSafe = false,
+) {
+  if (!crossOriginSafe) {
+    eqState.available = false;
+    eqState.reason = EQ_UNAVAILABLE_REASON;
+    audio.volume = playerStore.volume;
+    return;
+  }
+
+  await webAudioEq.awaitReady();
+  webAudioEq.attachSource(audio);
+  syncEqAvailabilityFromReroute();
+  setWebAudioEqVolume(playerStore.volume);
+}
+
+export function disconnectWebAudioEqSource() {
+  webAudioEq.disconnectSource();
+  syncEqAvailabilityFromReroute();
+}
+
+export function setWebAudioEqVolume(vol: number) {
+  webAudioEq.setVolume(vol);
 }
 
 export function setWebAudioEqBand(index: number, gainDb: number) {
@@ -308,111 +305,19 @@ export async function initPlayerBackend() {
     console.error('No HTML5 audio element available');
     return;
   }
+  initWebAudioEQ();
   activeBackend = new Html5AudioBackend(playerStore.audio, {
     prepareSourceUrl: prepareAudioSourceUrl,
-    initEq: initWebAudioEQ,
+    initEq: (audio, crossOriginSafe) => {
+      void attachWebAudioEqSource(audio, crossOriginSafe);
+    },
+    disconnectEq: disconnectWebAudioEqSource,
+    isEqRerouted: () => webAudioEq.isRerouted,
+    setEqVolume: setWebAudioEqVolume,
   });
   playerStore.backend = 'html5';
 
   eventUnsub = activeBackend.onEvent(handlePlaybackEvent);
-}
-
-// #16: re-entrancy guard for swapAudioElementAfterWedge. The swap re-triggers
-// playback via switchTrack, which (in pathological cases) could re-wedge and
-// re-fire onElementWedged synchronously. eqDisabledForSession already prevents
-// the re-wedge (the fresh element skips graph building), but this flag is a
-// belt-and-suspenders guard against any swap-during-swap recursion.
-let swapInProgress = false;
-
-/**
- * #16: Recover from an irreversible WebAudio element-wedge by replacing the
- * <audio> element entirely. Called from initWebAudioEQ's `onElementWedged`
- * callback when `createMediaElementSource` throws InvalidStateError (the
- * element is already bound to a previous source node and can never be used
- * for EQ again).
- *
- * The swap:
- *   1. Sets `eqDisabledForSession = true` so the fresh element never calls
- *      createMediaElementSource (EQ off for the rest of the session). This
- *      is also the infinite-loop guard: a second wedge is impossible.
- *   2. Tears down the current backend, EQ context, and old <audio> element.
- *   3. Creates a fresh `new Audio()` with the same metadata/play listeners.
- *   4. Re-inits the Html5AudioBackend on the fresh element.
- *   5. Re-triggers playback of the current track so the user's selected song
- *      actually plays through the fresh (un-bound) element.
- */
-function swapAudioElementAfterWedge() {
-  if (swapInProgress) {
-    return;
-  }
-  if (eqDisabledForSession) {
-    // Already swapped once this session; EQ is off. A second wedge should be
-    // impossible (fresh element skips graph building), but defensively no-op.
-    return;
-  }
-  swapInProgress = true;
-  eqDisabledForSession = true;
-
-  const g = window as unknown as { __bottlemusic_audio__?: HTMLAudioElement };
-
-  // 1. Tear down the old backend, EQ, and element (mirror initPlayer's HMR
-  //    zombie-audio teardown path).
-  try {
-    eventUnsub?.();
-    eventUnsub = null;
-    activeBackend?.shutdown().catch(() => {});
-    activeBackend = null;
-    webAudioEq.close();
-    const old = playerStore.audio ?? g.__bottlemusic_audio__;
-    if (old) {
-      old.pause();
-      old.removeAttribute('src');
-      old.load();
-    }
-  } catch { /* ignore */ }
-
-  // 2. Create a fresh <audio> element (un-bound to any MediaElementSourceNode).
-  const audio = new Audio();
-  g.__bottlemusic_audio__ = audio;
-  playerStore.audio = audio;
-  audio.volume = playerStore.volume;
-
-  // 3. Re-attach the metadata + play listeners (same as initPlayer).
-  audio.addEventListener('durationchange', () => {
-    if (audio.duration) {
-      playerStore.duration = audio.duration;
-    }
-  });
-  audio.addEventListener('loadedmetadata', () => {
-    if (audio.duration) {
-      playerStore.duration = audio.duration;
-    }
-  });
-  audio.addEventListener('play', () => {
-    resumeAudioContext();
-  });
-
-  // 4. Re-init the backend on the fresh element. initPlayerBackend() builds a
-  //    new Html5AudioBackend; its initEq callback will call initWebAudioEQ,
-  //    which now forces crossOriginSafe=false (eqDisabledForSession=true) →
-  //    webAudioEq.init skips graph building → fresh element plays directly.
-  initPlayerBackend();
-
-  // 5. Surface the degradation in the UI.
-  eqState.available = false;
-  eqState.reason = 'EQ 已因音频元素冲突降级，刷新页面可重试。';
-
-  swapInProgress = false;
-
-  // 6. Re-trigger playback of the current track on the fresh element. The
-  //    orchestrator's switchTrack will resolve the URL and call playUrl on
-  //    the new backend. Fire-and-forget; failures are logged by the orchestrator.
-  const current = playerStore.currentTrack;
-  if (current) {
-    playbackOrchestrator
-      .switchTrack(current)
-      .catch((err) => console.error('Playback recovery after EQ downgrade failed:', err));
-  }
 }
 
 function handlePlaybackEvent(e: PlaybackEvent) {
@@ -453,6 +358,7 @@ function handlePlaybackEvent(e: PlaybackEvent) {
 // Watch volume and queue to persist
 watch(() => playerStore.volume, (newVol) => {
   localStorage.setItem('player_volume', String(newVol));
+  setWebAudioEqVolume(newVol);
   if (activeBackend) {
     activeBackend.setVolume(newVol).catch(() => {});
   } else if (playerStore.audio) {
