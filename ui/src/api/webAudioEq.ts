@@ -21,10 +21,6 @@ export interface EqOptions {
   onDegraded?: () => void;
   /** Called when resume succeeds after a prior degradation. */
   onRecovered?: () => void;
-  /** @deprecated Use onDegraded */
-  onSuspendedFail?: () => void;
-  /** @deprecated No longer used — captureStream avoids element wedge */
-  onElementWedged?: () => void;
 }
 
 export interface AudioNodeLike {
@@ -84,25 +80,9 @@ export class WebAudioEq {
     private readonly deps: WebAudioEqDeps = {},
   ) {}
 
-  /**
-   * Build the long-lived worklet graph once at app startup.
-   * Legacy overload `init(audio, opts)` delegates to init(opts) + attachSource(audio).
-   */
-  init(opts: EqOptions): void;
-  init(audio: HTMLAudioElement, opts: EqOptions): void;
-  init(audioOrOpts: HTMLAudioElement | EqOptions, opts?: EqOptions): void {
-    if (opts !== undefined) {
-      this.doInit(opts);
-      if (opts.crossOriginSafe !== false && !this.workletFailed) {
-        void this.whenReady().then(() => {
-          if (!this.workletFailed && this.ctx) {
-            this.attachSource(audioOrOpts as HTMLAudioElement);
-          }
-        });
-      }
-      return;
-    }
-    this.doInit(audioOrOpts as EqOptions);
+  /** Build the long-lived worklet graph once at app startup. */
+  init(opts: EqOptions): void {
+    this.doInit(opts);
   }
 
   attachSource(audio: HTMLAudioElement): void {
@@ -265,11 +245,7 @@ export class WebAudioEq {
   }
 
   private resolveOnDegraded(opts: EqOptions): (() => void) | undefined {
-    if (!opts.onDegraded && !opts.onSuspendedFail) return undefined;
-    return () => {
-      opts.onDegraded?.();
-      opts.onSuspendedFail?.();
-    };
+    return opts.onDegraded;
   }
 
   private whenReady(): Promise<void> {

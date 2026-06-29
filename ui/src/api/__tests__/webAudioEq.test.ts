@@ -10,10 +10,6 @@ import { WebAudioEq, type EqOptions } from '../webAudioEq';
  * worklet node + gain node + media stream source so we can assert graph
  * topology, postMessage payloads, and the §4.2 re-entrancy / resource-release
  * contracts.
- *
- * Legacy compat (init(audio, opts)) is covered in a separate describe block at
- * the bottom — those tests pin the OLD createMediaElementSource path that
- * playerStore.ts still depends on until Phase 3.
  */
 
 // ---------------------------------------------------------------------------
@@ -245,13 +241,6 @@ function mockCtxFactory(ctx: MockCtx) {
 async function initAndReady(eq: WebAudioEq, opts: EqOptions): Promise<void> {
   eq.init(opts);
   await eq.awaitReady();
-}
-
-async function initLegacyAndReady(eq: WebAudioEq, audio: HTMLAudioElement, opts: EqOptions): Promise<void> {
-  eq.init(audio, opts);
-  await eq.awaitReady();
-  // attachSource runs in whenReady().then() — flush microtask queue.
-  await Promise.resolve();
 }
 
 // ---------------------------------------------------------------------------
@@ -610,96 +599,6 @@ await initAndReady(eq, {
     expect(ctx._gainNode.disconnect).toHaveBeenCalled();
     expect(ctx.close).toHaveBeenCalled();
   });
-});
-
-// ---------------------------------------------------------------------------
-// Legacy compat — init(audio, opts) transitional overload (playerStore Phase 2)
-// ---------------------------------------------------------------------------
-
-describe('WebAudioEq (legacy compat) — init(audio, opts) overload', () => {
-  let mocks: ReturnType<typeof setupMocks>;
-
-  beforeEach(() => {
-    mocks = setupMocks();
-  });
-  afterEach(() => mocks.teardown());
-
-  it('init(audio, opts) builds worklet graph and attachSource when crossOriginSafe=true', async () => {
-    const ctx = mocks.makeMockCtx();
-    const eq = new WebAudioEq(mockCtxFactory(ctx));
-    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
-    await initLegacyAndReady(eq, audio, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-    });
-    expect(ctx.createMediaElementSource).not.toHaveBeenCalled();
-    expect(ctx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
-    expect(mocks.captureStreamImpl).toHaveBeenCalledTimes(1);
-    expect(eq.isRerouted).toBe(true);
-  });
-
-  it('init(audio, opts) skips attachSource when crossOriginSafe=false', async () => {
-    const ctx = mocks.makeMockCtx();
-    const eq = new WebAudioEq(mockCtxFactory(ctx));
-    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
-    await initLegacyAndReady(eq, audio, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      crossOriginSafe: false,
-    });
-    expect(ctx.createMediaElementSource).not.toHaveBeenCalled();
-    expect(mocks.captureStreamImpl).not.toHaveBeenCalled();
-    expect(eq.isRerouted).toBe(false);
-  });
-
-  it('second init(audio, opts) does not reload worklet module (initStarted guard)', async () => {
-    const ctx = mocks.makeMockCtx();
-    const eq = new WebAudioEq(mockCtxFactory(ctx));
-    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
-    await initLegacyAndReady(eq, audio, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-    });
-    const addModuleCalls = ctx.audioWorklet.addModule.mock.calls.length;
-    await initLegacyAndReady(eq, audio, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-    });
-    expect(ctx.audioWorklet.addModule.mock.calls.length).toBe(addModuleCalls);
-  });
-
-  it('enterDegradation on failed resume path sets isRerouted=false', async () => {
-    const onDegraded = vi.fn();
-    const ctx = mocks.makeMockCtx();
-    const eq = new WebAudioEq(mockCtxFactory(ctx));
-    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
-    await initLegacyAndReady(eq, audio, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-      onDegraded,
-    });
-    eq.enterDegradation(audio, 0.7);
-    expect(onDegraded).toHaveBeenCalledTimes(1);
-    expect(eq.isRerouted).toBe(false);
-  });
-
-  it('close() closes the AudioContext', async () => {
-    const ctx = mocks.makeMockCtx();
-    const eq = new WebAudioEq(mockCtxFactory(ctx));
-    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
-    await initLegacyAndReady(eq, audio, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-    });
-    eq.close();
-    expect(ctx.close).toHaveBeenCalled();
-  });
-
 });
 
 // ---------------------------------------------------------------------------
