@@ -88,6 +88,26 @@ describe('Html5AudioBackend', () => {
     expect(audio.src).toBe('https://example.com/song.mp3');
   });
 
+  it('playUrl uses prepared CORS-safe sources and initializes WebAudio EQ', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    const prepareSourceUrl = vi.fn().mockResolvedValue({
+      url: 'http://127.0.0.1:17631/audio/1',
+      crossOriginSafe: true,
+    });
+    const initEq = vi.fn();
+    const backend = new Html5AudioBackend(audio, { prepareSourceUrl, initEq });
+
+    const ok = await backend.playUrl('https://cdn.example/song.mp3');
+
+    expect(ok).toBe(true);
+    expect(prepareSourceUrl).toHaveBeenCalledWith('https://cdn.example/song.mp3');
+    expect(audio.crossOrigin).toBe('anonymous');
+    expect(audio.src).toBe('http://127.0.0.1:17631/audio/1');
+    expect(initEq).toHaveBeenCalledWith(audio, true);
+    expect(audio.play).toHaveBeenCalled();
+  });
+
   it('switchUrl waits for metadata before restoring position and respects autoplay false', async () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
     audio.play = vi.fn().mockResolvedValue(undefined);

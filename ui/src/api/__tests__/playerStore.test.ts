@@ -20,6 +20,8 @@ import {
   togglePlay,
   __getActiveBackend,
   __getPlaySession,
+  __resetEqDisabledForSession,
+  eqState,
 } from '../playerStore';
 import type { Track } from '../normalizer';
 
@@ -33,6 +35,7 @@ function resetStore() {
   playerStore.currentIndex = -1;
   playerStore.currentTrack = null;
   playerStore.isPlaying = false;
+  playerStore.isLoading = false;
   playerStore.currentTime = 0;
   playerStore.duration = 0;
   playerStore.errorMsg = '';
@@ -40,6 +43,10 @@ function resetStore() {
   // Clear the zombie-audio sentinel so initPlayer() doesn't run its teardown
   // path (which nulls activeBackend) and skip re-creating the backend.
   (window as any).__bottlemusic_audio__ = undefined;
+  // #16: reset the session-disable flag so each swap test starts fresh.
+  __resetEqDisabledForSession();
+  eqState.available = false;
+  eqState.reason = '';
 }
 
 describe('playerStore integration', () => {
@@ -122,7 +129,7 @@ describe('playerStore integration', () => {
     const mod = await import('../playerStore');
     // Import did not throw, and state fell back to safe defaults.
     expect(mod.playerStore.queue).toEqual([]);
-    expect(mod.playerStore.eqBands).toEqual([0, 0, 0, 0, 0]);
+    expect(mod.playerStore.eqBands).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
   it('calls playSession.intend() on a successful play (session opens for the new track)', async () => {
@@ -249,5 +256,225 @@ describe('playerStore integration', () => {
     // playTrack path → songUrlCalled=true (we want to assert this is FALSE)
     expect(songUrlCalled, 'togglePlay must not fall through to playTrack when src is valid').toBe(false);
     expect(playUrlCalls, 'playUrl must not be called for resume').toEqual([]);
+  });
+
+  it('togglePlay cancels an in-flight play before delayed playUrl can start audio', async () => {
+    initPlayer();
+    initPlayerBackend();
+
+    const track = mkTrack('slow-load-track');
+    track.Image = 'http://img/';
+    playerStore.queue = [track];
+
+    const backend = __getActiveBackend() as any;
+    const realPlayUrl = backend.playUrl;
+    let releasePlayUrl!: () => void;
+    let releasedPlayUrl = false;
+    const playUrlCanFinish = new Promise<void>((resolve) => {
+      releasePlayUrl = () => {
+        if (releasedPlayUrl) return;
+        releasedPlayUrl = true;
+        resolve();
+      };
+    });
+    const playUrlStarted = new Promise<void>((resolve) => {
+      backend.playUrl = async (url: string) => {
+        (playerStore.audio as HTMLAudioElement).src = url;
+        resolve();
+        await playUrlCanFinish;
+        (playerStore.audio as HTMLAudioElement).dispatchEvent(new Event('play'));
+        return true;
+      };
+    });
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://x/slow.mp3' } });
+    });
+
+    try {
+      const playPromise = playTrack(track);
+      await playUrlStarted;
+      expect(playerStore.isPlaying).toBe(false);
+
+      const togglePromise = togglePlay();
+      releasePlayUrl();
+      await Promise.allSettled([playPromise, togglePromise]);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    } finally {
+      releasePlayUrl();
+      backend.playUrl = realPlayUrl;
+    }
+
+    expect(playerStore.isPlaying, 'canceling during load must not let delayed playUrl flip back to playing').toBe(false);
+    expect((playerStore.audio as HTMLAudioElement).paused).toBe(true);
+    expect(playerStore.errorMsg).toBe('');
+  });
+
+  // ── #16: element-swap after WebAudio wedge (auto-advance silence bug) ──
+  // Confirmed root cause: createMediaElementSource is irreversible for the
+  // <audio> element's lifetime. Song 1 binds the element + builds the graph.
+  // On song 2 auto-advance, the AudioContext may be suspended (no user gesture
+  // on auto-advance); resume() rejects → onSuspendedFail fires on an already-
+  // bound element → audio is silently trapped. The fix swaps in a fresh
+  // <audio> element (un-bound), rebuilds the backend, and re-triggers the
+  // current track with EQ disabled for the session.
+  it('swaps the <audio> element and re-triggers playback when onSuspendedFail fires on a bound element', async () => {
+    // Mock AudioContext: graph builds successfully (createMediaElementSource
+    // returns a source node). ctx starts 'running' so song 1's resume() is a
+    // no-op. We'll flip it to 'suspended' + rejecting resume for song 2.
+    const sourceNode = { connect: vi.fn(() => sourceNode) };
+    const mockCtx: any = {
+      state: 'running',
+      destination: { connect: vi.fn() },
+      resume: vi.fn(async () => { mockCtx.state = 'running'; }),
+      close: vi.fn(async () => { mockCtx.state = 'closed'; }),
+      createMediaElementSource: vi.fn(() => sourceNode),
+      createBiquadFilter: vi.fn(() => ({
+        connect: vi.fn(() => ({})),
+        type: '', frequency: { value: 0 }, Q: { value: 0 }, gain: { value: 0 },
+      })),
+      createGain: vi.fn(() => ({ connect: vi.fn(() => ({})), gain: { value: 0 } })),
+    };
+    // Re-stub AudioContext (the file stubs it as undefined at top). The
+    // webAudioEq factory reads window.AudioContext lazily on each init().
+    vi.stubGlobal('AudioContext', function () { return mockCtx; });
+
+    initPlayer();
+    initPlayerBackend();
+
+    // Stub audio.play() to resolve (jsdom's rejects). Track which element
+    // instances get a src set so we can detect the swap.
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const t1 = mkTrack('song1'); t1.Image = 'http://img/';
+    const t2 = mkTrack('song2'); t2.Image = 'http://img/';
+    playerStore.queue = [t1, t2];
+
+    // invoke: audio_proxy_url returns a CORS-safe proxy URL (crossOriginSafe
+    // true → graph builds); /song/url returns that proxy URL; stats no-op.
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/1';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/1' } });
+    });
+
+    // Song 1: plays fine. Graph builds, element bound, ctx running.
+    await playTrack(t1);
+    expect(mockCtx.createMediaElementSource, 'song 1 must bind the element').toHaveBeenCalledTimes(1);
+    expect(eqState.available, 'EQ available after song 1').toBe(true);
+    const audioAfterSong1 = playerStore.audio;
+
+    // Simulate the auto-advance condition: ctx suspends, resume rejects (no
+    // user gesture on auto-advance). This is the exact condition that fires
+    // onSuspendedFail on song 2.
+    mockCtx.state = 'suspended';
+    mockCtx.resume = vi.fn(async () => {
+      throw new Error('NotAllowedError: no user gesture');
+    });
+
+    // Song 2: playUrl → setPreparedSource → initEq (no-op, ctx guard) →
+    // audio.play() resolves. In a real browser, audio.play() fires a 'play'
+    // event → resumeAudioContext() → resume() rejects → onSuspendedFail on
+    // the bound element → SWAP. jsdom's play() is a stub that doesn't fire
+    // the event, so dispatch it manually to drive the swap path.
+    await playTrack(t2);
+    const audioAfterSong2 = playerStore.audio;
+    expect(audioAfterSong2).toBe(audioAfterSong1); // no swap yet
+    audioAfterSong2!.dispatchEvent(new Event('play'));
+
+    // The swap is triggered from within the 'play' event handler (async).
+    // Wait for the swap + re-trigger to settle.
+    await vi.waitFor(() => {
+      expect(playerStore.audio, 'a fresh <audio> element must have been swapped in').not.toBe(audioAfterSong1);
+    });
+    // Let the re-trigger finish.
+    await new Promise((r) => setTimeout(r, 50));
+
+    // EQ must be disabled for the session and unavailable in the UI.
+    expect(eqState.available, 'EQ must be unavailable after the swap').toBe(false);
+    expect(eqState.reason, 'degradation reason must be set').toBeTruthy();
+
+    // The fresh element must NOT have a new MediaElementSourceNode bound —
+    // createMediaElementSource must not be called again after the swap.
+    const cmesCallsAfter = mockCtx.createMediaElementSource.mock.calls.length;
+    // Trigger a third "track" to verify the fresh element skips graph building.
+    const t3 = mkTrack('song3'); t3.Image = 'http://img/';
+    playerStore.queue.push(t3);
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/2';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/2' } });
+    });
+    await playTrack(t3);
+    expect(mockCtx.createMediaElementSource.mock.calls.length, 'third track must NOT re-bind the fresh element (eqDisabledForSession)').toBe(cmesCallsAfter);
+
+    HTMLAudioElement.prototype.play = realPlay;
+  });
+
+  // ── #16: zombie-teardown root cause (the actual InvalidStateError trigger) ──
+  // The F12 trace showed InvalidStateError on song 2's createMediaElementSource.
+  // Root cause: initPlayer's HMR zombie-teardown fired on EVERY playTrack()
+  // call (because __bottlemusic_audio__ is set after the first play), calling
+  // webAudioEq.close() → nulling this.ctx → defeating init()'s guard → the
+  // next init() re-called createMediaElementSource on the already-bound
+  // element → InvalidStateError → silent wedge.
+  //
+  // The fix: only run the zombie teardown on a genuine HMR reload (when
+  // playerStore.audio is null). This test verifies that a second playTrack()
+  // does NOT close the WebAudio context (ctx stays set, guard holds, no
+  // re-bind of the element).
+  it('does NOT close the WebAudio context on a second playTrack (zombie teardown only fires on HMR)', async () => {
+    const sourceNode = { connect: vi.fn(() => sourceNode) };
+    let closeCalls = 0;
+    const mockCtx: any = {
+      state: 'running',
+      destination: { connect: vi.fn() },
+      resume: vi.fn(async () => { mockCtx.state = 'running'; }),
+      close: vi.fn(async () => { closeCalls++; mockCtx.state = 'closed'; }),
+      createMediaElementSource: vi.fn(() => sourceNode),
+      createBiquadFilter: vi.fn(() => ({
+        connect: vi.fn(() => ({})),
+        type: '', frequency: { value: 0 }, Q: { value: 0 }, gain: { value: 0 },
+      })),
+      createGain: vi.fn(() => ({ connect: vi.fn(() => ({})), gain: { value: 0 } })),
+    };
+    vi.stubGlobal('AudioContext', function () { return mockCtx; });
+
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const t1 = mkTrack('song1'); t1.Image = 'http://img/';
+    const t2 = mkTrack('song2'); t2.Image = 'http://img/';
+    playerStore.queue = [t1, t2];
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/1';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/1' } });
+    });
+
+    // Song 1: builds graph, binds element. createMediaElementSource called once.
+    await playTrack(t1);
+    expect(mockCtx.createMediaElementSource).toHaveBeenCalledTimes(1);
+    const cmesAfterSong1 = mockCtx.createMediaElementSource.mock.calls.length;
+    expect(closeCalls, 'song 1 must not have closed the context').toBe(0);
+
+    // Song 2: playTrack → initPlayer. WITHOUT the fix, the zombie teardown
+    // would fire here (g.__bottlemusic_audio__ is set), close the context,
+    // null webAudioEq.ctx, and init() would re-call createMediaElementSource
+    // → InvalidStateError. WITH the fix, the teardown does NOT fire (because
+    // playerStore.audio is set), so the guard holds and init() is a no-op.
+    await playTrack(t2);
+
+    expect(closeCalls, 'song 2 must NOT close the WebAudio context (zombie teardown must not fire)').toBe(0);
+    expect(mockCtx.createMediaElementSource.mock.calls.length, 'song 2 must NOT re-call createMediaElementSource (guard holds)').toBe(cmesAfterSong1);
+    expect(eqState.available, 'EQ must still be available after song 2').toBe(true);
+
+    HTMLAudioElement.prototype.play = realPlay;
   });
 });

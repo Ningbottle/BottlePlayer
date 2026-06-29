@@ -1,4 +1,5 @@
 mod ai_analysis;
+mod audio_proxy;
 mod backend_api;
 mod playback;
 mod stats;
@@ -125,6 +126,19 @@ pub fn run() {
             // Store AppHandle for event emission from C++ callbacks.
             backend_api::set_app_handle(app.handle().clone());
 
+            match audio_proxy::bind_listener() {
+                Ok((listener, port)) => {
+                    let state = audio_proxy::AudioProxyState::new(port);
+                    app.manage(state.clone());
+                    tauri::async_runtime::spawn(audio_proxy::serve(listener, state));
+                    println!("[AudioProxy] Listening on 127.0.0.1:{}", port);
+                }
+                Err(e) => {
+                    eprintln!("[AudioProxy ERR] Failed to bind local audio proxy: {}", e);
+                    app.manage(audio_proxy::AudioProxyState::disabled());
+                }
+            }
+
             let dll_name = if cfg!(target_os = "windows") {
                 "EchoCAPI.dll"
             } else {
@@ -204,6 +218,7 @@ pub fn run() {
             backend_base_url,
             get_memory_usage,
             native_request,
+            audio_proxy::audio_proxy_url,
             playback::playback_initialize,
             playback::playback_play_url,
             playback::playback_pause,

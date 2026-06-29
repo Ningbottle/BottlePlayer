@@ -1,21 +1,41 @@
 import type { PlayerBackend, PlaybackEvent, PlaybackState } from './playerBackend';
 
+export interface PreparedAudioSource {
+  url: string;
+  crossOriginSafe: boolean;
+}
+
+export interface Html5AudioBackendOptions {
+  prepareSourceUrl?: (url: string) => Promise<PreparedAudioSource>;
+  initEq?: (audio: HTMLAudioElement, crossOriginSafe: boolean) => void;
+}
+
 export class Html5AudioBackend implements PlayerBackend {
   readonly kind = 'html5' as const;
 
-  constructor(private audio: HTMLAudioElement) {
+  constructor(
+    private audio: HTMLAudioElement,
+    private readonly options: Html5AudioBackendOptions = {},
+  ) {
     this.audio.volume = parseFloat(localStorage.getItem('player_volume') || '0.7');
   }
 
   async initialize(): Promise<boolean> { return true; }
 
   async playUrl(url: string): Promise<boolean> {
-    this.audio.src = url;
+    await this.setPreparedSource(url);
     try {
       await this.audio.play();
       return true;
     } catch (e) {
-      console.warn('Html5AudioBackend play failed:', e);
+      console.warn('Html5AudioBackend playUrl play failed:', {
+        url,
+        error: e,
+        readyState: this.audio.readyState,
+        networkState: this.audio.networkState,
+        mediaError: this.audio.error ? { code: this.audio.error.code, message: this.audio.error.message } : null,
+        hasSrc: this.audio.hasAttribute('src'),
+      });
       return false;
     }
   }
@@ -24,7 +44,7 @@ export class Html5AudioBackend implements PlayerBackend {
     url: string,
     options: { position?: number; autoplay: boolean },
   ): Promise<boolean> {
-    this.audio.src = url;
+    await this.setPreparedSource(url);
 
     if (options.position && options.position > 0) {
       await this.waitForMetadata();
@@ -117,5 +137,20 @@ export class Html5AudioBackend implements PlayerBackend {
       const timer = window.setTimeout(done, timeoutMs);
       this.audio.addEventListener('loadedmetadata', done, { once: true });
     });
+  }
+
+  private async setPreparedSource(url: string): Promise<void> {
+    const prepared = this.options.prepareSourceUrl
+      ? await this.options.prepareSourceUrl(url)
+      : { url, crossOriginSafe: false };
+
+    if (prepared.crossOriginSafe) {
+      this.audio.crossOrigin = 'anonymous';
+    } else {
+      this.audio.removeAttribute('crossorigin');
+    }
+
+    this.audio.src = prepared.url;
+    this.options.initEq?.(this.audio, prepared.crossOriginSafe);
   }
 }

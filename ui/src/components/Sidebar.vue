@@ -18,6 +18,7 @@ const sidebarNav = [
   { id: 'home', name: '首页', icon: 'M3 11l9-8 9 8v10a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2V11z' },
   { id: 'stats', name: '统计', icon: 'M3 3v18h18M7 14l4-4 4 4 5-5' },
   { id: 'history', name: '最近播放', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
+  { id: 'equalizer', name: '均衡器', icon: 'M4 21v-7M4 10V3m8 18v-9m0-4V3m8 18v-5m0-4V3M2 14h4m4-6h4m4 5h4' },
 ];
 
 type SidebarPlaylist = Pick<UserPlaylist, 'id' | 'name'>;
@@ -181,5 +182,4 @@ function handlePlaylist(playlist: { id: string; name: string }) {
 </template>
 
 <style scoped>
-/* Scoped overrides if any, but mostly relies on style.css */
 </style>

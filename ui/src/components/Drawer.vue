@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import EqualizerPanel from './EqualizerPanel.vue';
 
 defineProps<{
   collapsed: boolean;
@@ -22,8 +21,6 @@ const lyricAlign = ref(localStorage.getItem('tweak_lyric_align') || 'center');
 const fontFamily = ref(localStorage.getItem('tweak_font') || 'serif');
 const bgImageUrl = ref(localStorage.getItem('tweak_bg_img') || '');
 const bgDim = ref(parseInt(localStorage.getItem('tweak_bg_dim') || '50', 10));
-
-const eqExpanded = ref(false);
 
 const accentsList = [
   { value: '#a8311b', deep: '#7a2010' },
@@ -238,12 +235,6 @@ onMounted(() => {
             ></div>
           </div>
         </div>
-      </div>
-
-      <!-- Equalizer -->
-      <div class="drawer-section">
-        <h4>均衡器 <span class="en">Equalizer</span></h4>
-        <EqualizerPanel v-model="eqExpanded" />
       </div>
 
       <!-- Background Customization -->

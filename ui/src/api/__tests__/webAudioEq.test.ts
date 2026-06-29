@@ -8,6 +8,7 @@ import { WebAudioEq } from '../webAudioEq';
  */
 function makeMockContext() {
   const calls: string[] = [];
+  const filters: any[] = [];
   const connectTo = (selfName: string) => ({
     connect: (node: any) => {
       calls.push(`${selfName}->${node.__name}`);
@@ -34,16 +35,18 @@ function makeMockContext() {
     createMediaElementSource: vi.fn(() => mkNode('source')),
     createBiquadFilter: vi.fn(() => {
       biquadCount++;
-      return mkNode(`filter${biquadCount}`, {
+      const filter = mkNode(`filter${biquadCount}`, {
         type: '',
         frequency: { value: 0 },
         Q: { value: 0 },
         gain: { value: 0 },
       });
+      filters.push(filter);
+      return filter;
     }),
     createGain: vi.fn(() => mkNode('gain', { gain: { value: 0 } })),
   };
-  return { ctx, calls };
+  return { ctx, calls, filters };
 }
 
 describe('WebAudioEq', () => {
@@ -59,7 +62,7 @@ describe('WebAudioEq', () => {
     });
 
     const sourceIdx = calls.indexOf('source->filter1');
-    const lastFilterToGain = calls.indexOf('filter5->gain');
+    const lastFilterToGain = calls.indexOf('filter10->gain');
     const gainToDest = calls.indexOf('gain->destination');
 
     // graph to destination is wired before source connects to filter1
@@ -145,15 +148,150 @@ describe('WebAudioEq', () => {
   });
 
   it('applies band gains to the biquad filters when enabled', () => {
-    const { ctx } = makeMockContext();
+    const { ctx, filters } = makeMockContext();
     const eq = new WebAudioEq(() => ctx);
     eq.init({} as HTMLAudioElement, {
       enabled: true,
-      bands: [5, -3, 0, 2, -1],
+      bands: [5, -3, 0, 2, -1, 1, 2, -2, 3, -4],
       crossOriginSafe: true,
       onSuspendedFail: () => {},
     });
-    // 5 filters created, each with gain.value set from the bands
-    expect(ctx.createBiquadFilter).toHaveBeenCalledTimes(5);
+    expect(ctx.createBiquadFilter).toHaveBeenCalledTimes(10);
+    expect(filters.map(filter => filter.gain.value)).toEqual([5, -3, 0, 2, -1, 1, 2, -2, 3, -4]);
+  });
+
+  it('creates filters at the 10 reference frequencies', () => {
+    const { ctx, filters } = makeMockContext();
+    const eq = new WebAudioEq(() => ctx);
+    eq.init({} as HTMLAudioElement, {
+      enabled: true,
+      bands: [0, 0, 6, 0, 0, 0, 0, 0, 0, 0],
+      crossOriginSafe: true,
+      onSuspendedFail: () => {},
+    });
+    expect(filters.map(filter => filter.frequency.value)).toEqual([
+      31,
+      62,
+      125,
+      250,
+      500,
+      1000,
+      2000,
+      4000,
+      8000,
+      16000,
+    ]);
+  });
+
+  // ── Regression: auto-advance wedge (#16) ──
+  // CONFIRMED ROOT CAUSE (from browser F12 trace):
+  // `createMediaElementSource(audio)` is irreversible for the element's
+  // lifetime — calling it a SECOND time on the same element throws
+  // InvalidStateError. The new audio-proxy + WebAudio EQ chain calls
+  // `initEq` → `WebAudioEq.init` on EVERY `setPreparedSource` (every track
+  // switch). Song 1 binds the element. Song 2's `init` either (a) no-ops via
+  // the `if (this.ctx) return` guard if ctx survived, or (b) THROWS
+  // InvalidStateError if ctx was nulled — and either way the element is
+  // permanently bound to song 1's source node.
+  //
+  // The fix has two parts:
+  //   1. WebAudioEq.init's catch block detects InvalidStateError and fires
+  //      `onElementWedged` so the caller can swap in a fresh <audio> element.
+  //      It keeps `this.ctx` set so subsequent init() calls on the SAME
+  //      element short-circuit (don't re-throw on every track).
+  //   2. playerStore.swapAudioElementAfterWedge() tears down the old element
+  //      + backend, creates a fresh `new Audio()`, rebuilds the backend, and
+  //      re-triggers the current track. A session flag `eqDisabledForSession`
+  //      ensures the fresh element never calls createMediaElementSource
+  //      again (EQ off for the rest of the session → no second wedge).
+  //
+  // The first test below pins the WebAudioEq-side behavior; the second pins
+  // the suspended-context resume behavior (degraded but NOT torn down, so the
+  // init guard holds).
+  it('fires onElementWedged and keeps ctx set when createMediaElementSource throws InvalidStateError on an already-bound element', () => {
+    const { ctx } = makeMockContext();
+    // A minimal source node with a connect() stub (the graph code calls
+    // source.connect(filters[0])).
+    const sourceNode = { connect: vi.fn(() => sourceNode) };
+    // Make the SECOND call to createMediaElementSource throw, simulating an
+    // element that was already bound by song 1's successful call.
+    let cmesCalls = 0;
+    ctx.createMediaElementSource = vi.fn(() => {
+      cmesCalls++;
+      if (cmesCalls === 1) {
+        // Song 1: succeeds, returns a source node (element becomes bound).
+        return sourceNode;
+      }
+      // Song 2: element already bound → throws.
+      const err = new Error("Failed to execute 'createMediaElementSource' on 'AudioContext': HTMLMediaElement already connected previously to a different MediaElementSourceNode.");
+      (err as Error & { name: string }).name = 'InvalidStateError';
+      throw err;
+    });
+
+    let wedged = false;
+    const eq = new WebAudioEq(() => ctx);
+    const audio = {} as HTMLAudioElement;
+
+    // Song 1: graph builds successfully, element bound.
+    eq.init(audio, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      crossOriginSafe: true,
+      onElementWedged: () => { wedged = true; },
+    });
+    expect(eq.isRerouted).toBe(true);
+    expect(wedged).toBe(false);
+
+    // Simulate the ctx being nulled (e.g. by a prior buggy resume path) so
+    // init's guard does NOT short-circuit on song 2. This is exactly the
+    // condition that produced the F12 InvalidStateError trace.
+    (eq as unknown as { ctx: unknown }).ctx = null;
+
+    // Song 2: init re-runs, createMediaElementSource throws → onElementWedged.
+    eq.init(audio, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      crossOriginSafe: true,
+      onElementWedged: () => { wedged = true; },
+    });
+    expect(wedged, 'onElementWedged must fire when createMediaElementSource throws InvalidStateError').toBe(true);
+    expect((eq as unknown as { ctx: unknown }).ctx, 'ctx must stay set so init guard holds and prevents re-throws on subsequent tracks').toBe(ctx);
+
+    // Song 3: init on the same (still-bound) element must NOT re-throw — the
+    // guard short-circuits. Verify by asserting createMediaElementSource is
+    // not called a third time.
+    const cmesBefore = (ctx.createMediaElementSource as ReturnType<typeof vi.fn>).mock.calls.length;
+    eq.init(audio, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      crossOriginSafe: true,
+      onElementWedged: () => { wedged = true; },
+    });
+    const cmesAfter = (ctx.createMediaElementSource as ReturnType<typeof vi.fn>).mock.calls.length;
+    expect(cmesAfter, 'subsequent init() on the wedged element must short-circuit, not re-throw').toBe(cmesBefore);
+  });
+
+  it('surfaces onSuspendedFail on a failed resume but keeps ctx set (does not wedge init guard)', async () => {
+    const { ctx } = makeMockContext();
+    let degraded = false;
+    const eq = new WebAudioEq(() => ctx);
+    eq.init({} as HTMLAudioElement, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      crossOriginSafe: true,
+      onSuspendedFail: () => { degraded = true; },
+    });
+    expect(eq.isRerouted).toBe(true);
+
+    ctx.state = 'suspended';
+    ctx.resume = vi.fn(async () => {
+      throw new Error('NotAllowedError: no user gesture');
+    });
+
+    await eq.resume();
+
+    expect(degraded, 'onSuspendedFail must fire so the UI can degrade').toBe(true);
+    expect((eq as unknown as { ctx: unknown }).ctx, 'ctx must stay set so init guard holds').toBe(ctx);
+    expect(eq.isRerouted, 'graph must stay routed (tearing it down would silence the still-bound element)').toBe(true);
   });
 });

@@ -1,8 +1,8 @@
 /**
  * Web Audio API EQ controller for the HTML5 <audio> backend.
  *
- * Routes the <audio> element through a 5-band BiquadFilter peaking chain
- * (frequencies matching the C++ MFT equalizer: 60/230/910/3600/14000 Hz).
+ * Routes the <audio> element through a 10-band BiquadFilter peaking chain
+ * (31/62/125/250/500/1K/2K/4K/8K/16K Hz).
  *
  * Design notes (fixing the EQ bugs from the player-fix design):
  *
@@ -26,7 +26,7 @@
  *   onSuspendedFail instead of swallowed, so the caller can degrade.
  */
 
-const EQ_FREQS = [60, 230, 910, 3600, 14000];
+import { EQ_BANDS, clampEqGain } from './equalizerConfig';
 
 export interface EqOptions {
   enabled: boolean;
@@ -36,6 +36,11 @@ export interface EqOptions {
   crossOriginSafe?: boolean;
   /** Called when the AudioContext cannot resume (suspended, no gesture). */
   onSuspendedFail?: () => void;
+  /** Called when createMediaElementSource throws InvalidStateError — the
+   *  <audio> element is already (irreversibly) bound to a previous
+   *  MediaElementSourceNode, so EQ can never work on THIS element again.
+   *  The caller must swap in a fresh <audio> element to recover playback. */
+  onElementWedged?: () => void;
 }
 
 export interface AudioContextLike {
@@ -69,11 +74,14 @@ export class WebAudioEq {
   private source: AudioNodeLike | null = null;
   private rerouted = false;
   private onSuspendedFail?: () => void;
+  private onElementWedged?: () => void;
 
   constructor(private readonly createCtx: AudioContextFactory) {}
 
   init(audio: HTMLAudioElement, opts: EqOptions): void {
-    // If already initialized for this element, do nothing.
+    // If already initialized for this element, do nothing. This guard is ALSO
+    // what prevents a second createMediaElementSource call on the same element
+    // (which would throw InvalidStateError — see the catch block below).
     if (this.ctx) return;
 
     const crossOriginSafe = opts.crossOriginSafe !== false;
@@ -86,22 +94,23 @@ export class WebAudioEq {
     if (!ctx) return;
     this.ctx = ctx;
     this.onSuspendedFail = opts.onSuspendedFail;
+    this.onElementWedged = opts.onElementWedged;
 
     try {
       // #4: build the full destination-connected graph FIRST.
-      this.filters = EQ_FREQS.map((freq, i) => {
+      this.filters = EQ_BANDS.map((band, i) => {
         const filter = ctx.createBiquadFilter();
         filter.type = 'peaking';
-        filter.frequency.value = freq;
+        filter.frequency.value = band.frequency;
         filter.Q.value = 1 / Math.SQRT2;
-        filter.gain.value = opts.enabled ? opts.bands[i] || 0 : 0;
+        filter.gain.value = opts.enabled ? clampEqGain(opts.bands[i] ?? 0) : 0;
         return filter;
       });
 
       const gain = ctx.createGain();
       gain.gain.value = 1.0;
 
-      // chain: filter[0] -> filter[1] -> ... -> filter[4] -> gain -> destination
+      // chain: filter[0] -> filter[1] -> ... -> last filter -> gain -> destination
       for (let i = 0; i < this.filters.length - 1; i++) {
         this.filters[i].connect(this.filters[i + 1]);
       }
@@ -113,9 +122,19 @@ export class WebAudioEq {
       this.source.connect(this.filters[0]);
       this.rerouted = true;
     } catch (e) {
-      console.warn('Web Audio API EQ init failed:', e);
       // Best-effort cleanup; the element was only rerouted if source was set.
       this.disposeGraph();
+      // #16: InvalidStateError means the <audio> element was already bound to
+      // a previous MediaElementSourceNode (from an earlier track). The binding
+      // is irreversible for the element's lifetime, so EQ can never work on
+      // THIS element again. Signal the caller to swap in a fresh element.
+      // Keep this.ctx set so a subsequent init() on the SAME element short-
+      // circuits via the guard above (avoids re-throwing on every track).
+      if (isElementWedgedError(e)) {
+        this.onElementWedged?.();
+      } else {
+        console.warn('Web Audio API EQ init failed:', e);
+      }
     }
   }
 
@@ -123,14 +142,14 @@ export class WebAudioEq {
     if (!this.ctx || index < 0 || index >= this.filters.length) return;
     if (!enabled) return;
     if (this.filters[index]) {
-      this.filters[index].gain.value = gainDb;
+      this.filters[index].gain.value = clampEqGain(gainDb);
     }
   }
 
   setEnabled(enabled: boolean, bands: number[]): void {
     if (!this.ctx) return;
     this.filters.forEach((filter, i) => {
-      filter.gain.value = enabled ? bands[i] || 0 : 0;
+      filter.gain.value = enabled ? clampEqGain(bands[i] ?? 0) : 0;
     });
   }
 
@@ -140,8 +159,15 @@ export class WebAudioEq {
     if (this.ctx.state === 'suspended') {
       try {
         await this.ctx.resume();
-      } catch {
-        // #10: surface the failure instead of swallowing it.
+      } catch (e) {
+        console.warn('Web Audio API EQ resume failed; EQ will be degraded.', e);
+        // #10: surface the failure so the UI can degrade. Do NOT null
+        // this.ctx or close the context here — nulling would defeat init()'s
+        // `if (this.ctx) return` guard and cause the next init() to call
+        // createMediaElementSource again on the already-bound element,
+        // throwing InvalidStateError and wedging playback (#16). The graph
+        // stays routed; if the context stays suspended the audio is silent,
+        // but that is a separate (rarer) failure mode than the element-wedge.
         this.onSuspendedFail?.();
       }
     }
@@ -165,4 +191,16 @@ export class WebAudioEq {
     this.source = null;
     this.rerouted = false;
   }
+}
+
+/** Detect the InvalidStateError thrown when createMediaElementSource is called
+ *  on an <audio> element that's already bound to a previous source node. The
+ *  binding is irreversible for the element's lifetime, so the caller must swap
+ *  in a fresh element. */
+function isElementWedgedError(e: unknown): boolean {
+  const err = e as { name?: string; message?: string };
+  if (!err) return false;
+  if (err.name === 'InvalidStateError') return true;
+  const msg = err.message || '';
+  return msg.includes('already connected') || msg.includes('MediaElementSourceNode');
 }

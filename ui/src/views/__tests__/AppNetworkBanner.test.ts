@@ -63,6 +63,7 @@ vi.mock('../SettingsView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../LoginView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../HistoryView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../StatsView.vue', () => ({ default: { template: '<main />' } }));
+vi.mock('../EqualizerView.vue', () => ({ default: { template: '<main />' } }));
 
 import App from '../../App.vue';
 
