@@ -1,297 +1,707 @@
-import { describe, it, expect, vi } from 'vitest';
-import { WebAudioEq } from '../webAudioEq';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { WebAudioEq, type EqOptions } from '../webAudioEq';
 
 /**
- * A minimal AudioContext mock that records node creation and connection order.
- * jsdom has no Web Audio API, so the EQ controller must be drivable from a
- * pluggable context factory in tests.
+ * Phase 2 tests for the rewritten WebAudioEq (AudioWorklet + captureStream path).
+ *
+ * jsdom has no Web Audio API, no AudioWorkletNode, no captureStream. We stub
+ * the global constructors + HTMLAudioElement.prototype.captureStream per the
+ * plan (§7.2, R2.2). The mock factory below builds a recording mock ctx +
+ * worklet node + gain node + media stream source so we can assert graph
+ * topology, postMessage payloads, and the §4.2 re-entrancy / resource-release
+ * contracts.
+ *
+ * Legacy compat (init(audio, opts)) is covered in a separate describe block at
+ * the bottom — those tests pin the OLD createMediaElementSource path that
+ * playerStore.ts still depends on until Phase 3.
  */
-function makeMockContext() {
-  const calls: string[] = [];
-  const filters: any[] = [];
-  const connectTo = (selfName: string) => ({
-    connect: (node: any) => {
-      calls.push(`${selfName}->${node.__name}`);
-      return node;
-    },
-  });
-  const mkNode = (name: string, extra: any = {}) => ({
-    __name: name,
-    ...connectTo(name),
-    ...extra,
-  });
 
-  let biquadCount = 0;
-  const ctx: any = {
-    __name: 'destination',
-    state: 'suspended',
-    resume: vi.fn(async () => {
-      ctx.state = 'running';
-    }),
-    close: vi.fn(async () => {
-      ctx.state = 'closed';
-    }),
-    destination: mkNode('destination'),
-    createMediaElementSource: vi.fn(() => mkNode('source')),
-    createBiquadFilter: vi.fn(() => {
-      biquadCount++;
-      const filter = mkNode(`filter${biquadCount}`, {
+// ---------------------------------------------------------------------------
+// Mock factories
+// ---------------------------------------------------------------------------
+
+interface MockTrack {
+  stop: ReturnType<typeof vi.fn>;
+  kind: string;
+  readyState: string;
+}
+
+interface MockStream {
+  getAudioTracks: ReturnType<typeof vi.fn>;
+  getVideoTracks: ReturnType<typeof vi.fn>;
+  _tracks: MockTrack[];
+}
+
+interface MockSourceNode {
+  connect: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+  _stream: MockStream;
+}
+
+interface MockGainNode {
+  connect: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+  gain: { value: number };
+}
+
+interface MockWorkletNode {
+  port: { postMessage: ReturnType<typeof vi.fn>; onmessage: unknown; close: ReturnType<typeof vi.fn> };
+  connect: ReturnType<typeof vi.fn>;
+  disconnect: ReturnType<typeof vi.fn>;
+  /** Tracks how many source nodes are currently connected as inputs. */
+  _inputs: MockSourceNode[];
+}
+
+interface MockCtx {
+  state: string;
+  destination: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
+  resume: ReturnType<typeof vi.fn>;
+  close: ReturnType<typeof vi.fn>;
+  createGain: ReturnType<typeof vi.fn>;
+  createMediaStreamSource: ReturnType<typeof vi.fn>;
+  createMediaElementSource: ReturnType<typeof vi.fn>;
+  createBiquadFilter: ReturnType<typeof vi.fn>;
+  audioWorklet: { addModule: ReturnType<typeof vi.fn> };
+  sampleRate: number;
+  _gainNode: MockGainNode;
+  _workletNode: MockWorkletNode;
+  _sourceNodes: MockSourceNode[];
+}
+
+function makeMockTrack(): MockTrack {
+  return { stop: vi.fn(), kind: 'audio', readyState: 'live' };
+}
+
+function makeMockStream(): MockStream {
+  const tracks = [makeMockTrack()];
+  return {
+    getAudioTracks: vi.fn(() => tracks),
+    getVideoTracks: vi.fn(() => []),
+    _tracks: tracks,
+  };
+}
+
+/**
+ * Build a recording mock AudioContext + the global AudioWorkletNode constructor
+ * + HTMLAudioElement.prototype.captureStream stub. Returns handles to every
+ * mock node so tests can assert call counts and payloads.
+ *
+ * The workletNode._inputs array tracks source-node connect/disconnect so the
+ * §4.2 re-entrancy contract ("workletNode input count == 1 after 2x
+ * attachSource") can be asserted directly.
+ */
+function setupMocks(opts: { workletAddModuleRejects?: boolean } = {}) {
+  const createdCtxs: MockCtx[] = [];
+  const createdWorkletNodes: MockWorkletNode[] = [];
+  const createdStreams: MockStream[] = [];
+
+  // Per-ctx gain + worklet nodes. The workletNode is created by the global
+  // AudioWorkletNode constructor (stubbed below), so we need a way to hand it
+  // back. We stash it on the ctx via a closure.
+  let pendingWorkletNode: MockWorkletNode | null = null;
+
+  /** vi.fn() cannot be used with `new`; use a real constructor that returns the pending node. */
+  function AudioWorkletNodeCtor(this: unknown, _ctx: unknown, _name: string) {
+    if (!pendingWorkletNode) {
+      throw new Error('test setup: pendingWorkletNode not set before AudioWorkletNode ctor');
+    }
+    return pendingWorkletNode;
+  }
+  const audioWorkletNodeCtorSpy = vi.fn(AudioWorkletNodeCtor);
+
+  function makeMockCtx(): MockCtx {
+    const gainNode: MockGainNode = {
+      connect: vi.fn((dest: unknown) => dest),
+      disconnect: vi.fn(),
+      gain: { value: 1.0 },
+    };
+    const workletNode: MockWorkletNode = {
+      port: { postMessage: vi.fn(), onmessage: null, close: vi.fn() },
+      connect: vi.fn((dest: unknown) => dest),
+      disconnect: vi.fn(),
+      _inputs: [],
+    };
+    createdWorkletNodes.push(workletNode);
+
+    const sourceNodes: MockSourceNode[] = [];
+    const ctx: MockCtx = {
+      state: 'running',
+      destination: { connect: vi.fn(), disconnect: vi.fn() },
+      resume: vi.fn(async () => { ctx.state = 'running'; }),
+      close: vi.fn(async () => { ctx.state = 'closed'; }),
+      createGain: vi.fn(() => gainNode),
+      createMediaStreamSource: vi.fn((_stream: MockStream) => {
+        const sn: MockSourceNode = {
+          connect: vi.fn((dest: unknown) => {
+            if (dest === workletNode) {
+              workletNode._inputs.push(sn);
+            }
+            return dest;
+          }),
+          disconnect: vi.fn(() => {
+            const idx = workletNode._inputs.indexOf(sn);
+            if (idx >= 0) workletNode._inputs.splice(idx, 1);
+          }),
+          _stream: _stream,
+        };
+        sourceNodes.push(sn);
+        return sn;
+      }),
+      createMediaElementSource: vi.fn(() => ({
+        connect: vi.fn(() => ({})),
+      })),
+      createBiquadFilter: vi.fn(() => ({
+        connect: vi.fn(() => ({})),
         type: '',
         frequency: { value: 0 },
         Q: { value: 0 },
         gain: { value: 0 },
-      });
-      filters.push(filter);
-      return filter;
-    }),
-    createGain: vi.fn(() => mkNode('gain', { gain: { value: 0 } })),
+      })),
+      audioWorklet: {
+        addModule: opts.workletAddModuleRejects
+          ? vi.fn(async () => { throw new Error('worklet load failed (test)'); })
+          : vi.fn(async () => {}),
+      },
+      sampleRate: 48000,
+      _gainNode: gainNode,
+      _workletNode: workletNode,
+      _sourceNodes: sourceNodes,
+    };
+    createdCtxs.push(ctx);
+
+    // Stash the workletNode so the AudioWorkletNode ctor stub can return it
+    // when the code under test does `new AudioWorkletNode(ctx, 'eq-processor')`.
+    pendingWorkletNode = workletNode;
+    return ctx;
+  }
+
+  // Stub the global AudioWorkletNode constructor.
+  vi.stubGlobal('AudioWorkletNode', audioWorkletNodeCtorSpy);
+
+  // Stub URL.createObjectURL / revokeObjectURL (loadEqWorklet uses them).
+  const createObjectURLSpy = vi.fn((_blob: Blob) => 'blob:fake-url-' + Math.random());
+  const revokeObjectURLSpy = vi.fn();
+  vi.stubGlobal('URL', {
+    createObjectURL: createObjectURLSpy,
+    revokeObjectURL: revokeObjectURLSpy,
+  });
+  // Blob needs to exist for loadEqWorklet. jsdom has it, but the URL stub
+  // above replaces the whole URL object — keep Blob from the real global.
+  // (jsdom provides Blob; we don't stub it.)
+
+  // Stub HTMLAudioElement.prototype.captureStream so attachSource can call it.
+  const captureStreamImpl = vi.fn(() => {
+    const s = makeMockStream();
+    createdStreams.push(s);
+    return s;
+  });
+  // Save the original so we can restore. jsdom doesn't have captureStream, so
+  // it's undefined originally.
+  const origCaptureStream = (HTMLAudioElement.prototype as unknown as { captureStream?: unknown }).captureStream;
+  (HTMLAudioElement.prototype as unknown as { captureStream: unknown }).captureStream = captureStreamImpl;
+
+  function teardown() {
+    vi.unstubAllGlobals();
+    if (origCaptureStream === undefined) {
+      delete (HTMLAudioElement.prototype as unknown as { captureStream?: unknown }).captureStream;
+    } else {
+      (HTMLAudioElement.prototype as unknown as { captureStream: unknown }).captureStream = origCaptureStream;
+    }
+  }
+
+  return {
+    makeMockCtx,
+    AudioWorkletNodeCtor: audioWorkletNodeCtorSpy,
+    createdCtxs,
+    createdWorkletNodes,
+    createdStreams,
+    createObjectURLSpy,
+    revokeObjectURLSpy,
+    captureStreamImpl,
+    teardown,
   };
-  return { ctx, calls, filters };
 }
 
-describe('WebAudioEq', () => {
-  it('builds the full filter/gain graph to destination BEFORE creating the source node', () => {
-    // The #4 bug: createMediaElementSource was called before the connect chain,
-    // so a mid-init throw orphaned the audio into a disconnected graph.
-    const { ctx, calls } = makeMockContext();
-    const eq = new WebAudioEq(() => ctx);
-    eq.init({} as HTMLAudioElement, {
-      enabled: false,
-      bands: [0, 0, 0, 0, 0],
-      onSuspendedFail: () => {},
-    });
+/** Make a minimal mock HTMLAudioElement for attachSource tests. */
+function makeMockAudio(
+  captureStreamImpl?: () => MockStream,
+): HTMLAudioElement {
+  return {
+    volume: 1.0,
+    crossOrigin: null,
+    src: '',
+    captureStream: () =>
+      (captureStreamImpl ? captureStreamImpl() : makeMockStream()) as unknown as MediaStream,
+  } as unknown as HTMLAudioElement;
+}
 
-    const sourceIdx = calls.indexOf('source->filter1');
-    const lastFilterToGain = calls.indexOf('filter10->gain');
-    const gainToDest = calls.indexOf('gain->destination');
+function mockCtxFactory(ctx: MockCtx) {
+  return () => ctx as unknown as import('../webAudioEq').AudioContextLike;
+}
 
-    // graph to destination is wired before source connects to filter1
-    expect(lastFilterToGain).toBeGreaterThanOrEqual(0);
-    expect(gainToDest).toBeGreaterThan(lastFilterToGain);
-    expect(sourceIdx).toBeGreaterThan(gainToDest);
+/** init() kicks off async buildGraph; tests must await this before asserting graph state. */
+async function initAndReady(eq: WebAudioEq, opts: EqOptions): Promise<void> {
+  eq.init(opts);
+  await eq.awaitReady();
+}
+
+async function initLegacyAndReady(eq: WebAudioEq, audio: HTMLAudioElement, opts: EqOptions): Promise<void> {
+  eq.init(audio, opts);
+  await eq.awaitReady();
+  // attachSource runs in whenReady().then() — flush microtask queue.
+  await Promise.resolve();
+}
+
+// ---------------------------------------------------------------------------
+// Step 2.1 — init graph construction (RED)
+// ---------------------------------------------------------------------------
+
+describe('WebAudioEq (new path) — Step 2.1: init graph construction', () => {
+  let mocks: ReturnType<typeof setupMocks>;
+
+  beforeEach(() => {
+    mocks = setupMocks();
+  });
+  afterEach(() => mocks.teardown());
+
+  it('creates exactly one AudioContext via the factory', async () => {
+    const ctx = mocks.makeMockCtx();
+    const factory = vi.fn(mockCtxFactory(ctx));
+    const eq = new WebAudioEq(factory);
+await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    expect(factory).toHaveBeenCalledTimes(1);
   });
 
-  it('does not call createMediaElementSource when the media URL is cross-origin non-CORS', () => {
-    // The #1 bug: forcing crossOrigin='anonymous' on KuGou's non-CORS CDN breaks
-    // playback entirely. When the source is cross-origin and not CORS-enabled,
-    // EQ must be skipped (audio plays directly) rather than break the load.
-    const { ctx } = makeMockContext();
-    const eq = new WebAudioEq(() => ctx);
-    eq.init({} as HTMLAudioElement, {
-      enabled: true,
-      bands: [3, 0, 0, 0, 0],
-      crossOriginSafe: false, // simulate non-CORS CDN
-      onSuspendedFail: () => {},
-    });
+  it('calls audioWorklet.addModule once with a blob: URL', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    expect(ctx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
+    const arg = ctx.audioWorklet.addModule.mock.calls[0][0] as string;
+    expect(typeof arg).toBe('string');
+    expect(arg.startsWith('blob:')).toBe(true);
+  });
+
+  it('constructs exactly one AudioWorkletNode(ctx, "eq-processor")', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    expect(mocks.AudioWorkletNodeCtor).toHaveBeenCalledTimes(1);
+    expect(mocks.AudioWorkletNodeCtor.mock.calls[0][0]).toBe(ctx);
+    expect(mocks.AudioWorkletNodeCtor.mock.calls[0][1]).toBe('eq-processor');
+  });
+
+  it('creates exactly one GainNode via ctx.createGain', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    expect(ctx.createGain).toHaveBeenCalledTimes(1);
+  });
+
+  it('connects workletNode -> gainNode -> ctx.destination', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    const { _workletNode, _gainNode } = ctx;
+    // workletNode.connect(gainNode)
+    expect(_workletNode.connect).toHaveBeenCalledWith(_gainNode);
+    // gainNode.connect(ctx.destination)
+    expect(_gainNode.connect).toHaveBeenCalledWith(ctx.destination);
+  });
+
+  it('postMessages initial setBands + setEnabled to the worklet port', async () => {
+    const ctx = mocks.makeMockCtx();
+    const bands = [1, -2, 3, 0, 0, 0, 0, 0, 0, 0];
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands });
+    const port = ctx._workletNode.port;
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'setBands', bands });
+    expect(port.postMessage).toHaveBeenCalledWith({ type: 'setEnabled', enabled: true });
+  });
+
+  it('does NOT call createMediaElementSource (spec §3.1 invariant)', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
     expect(ctx.createMediaElementSource).not.toHaveBeenCalled();
   });
 
-  it('calls createMediaElementSource when the media source is CORS-safe', () => {
-    const { ctx } = makeMockContext();
-    const eq = new WebAudioEq(() => ctx);
-    eq.init({} as HTMLAudioElement, {
-      enabled: true,
-      bands: [3, 0, 0, 0, 0],
-      crossOriginSafe: true,
-      onSuspendedFail: () => {},
-    });
-    expect(ctx.createMediaElementSource).toHaveBeenCalledTimes(1);
+  it('init does NOT receive an audio element (new signature: init(opts))', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+    // The new init takes a single EqOptions argument — no audio element.
+await initAndReady(eq, { enabled: false, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    // Sanity: captureStream was never called because init doesn't attach a source.
+    expect(mocks.captureStreamImpl).not.toHaveBeenCalled();
   });
 
-  it('close() closes the AudioContext and allows re-init on a new audio element', () => {
-    // The #9 bug: AudioContext was never closed; HMR leaked contexts until the
-    // browser cap was hit. close() must release it so a fresh context can be built.
-    const { ctx } = makeMockContext();
-    const eq = new WebAudioEq(() => ctx);
-    eq.init({} as HTMLAudioElement, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-      onSuspendedFail: () => {},
-    });
-    eq.close();
-    expect(ctx.close).toHaveBeenCalled();
-    // re-init on a new element builds a new source without throwing
-    const { ctx: ctx2 } = makeMockContext();
-    // a fresh WebAudioEq with a fresh context factory re-inits cleanly
-    const eq2 = new WebAudioEq(() => ctx2);
-    eq2.init({} as HTMLAudioElement, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-      onSuspendedFail: () => {},
-    });
-    expect(ctx2.createMediaElementSource).toHaveBeenCalledTimes(1);
+  it('isRerouted is false after init (no source attached yet)', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    expect(eq.isRerouted).toBe(false);
   });
 
-  it('signals degraded passthrough when resume() rejects (suspended context)', async () => {
-    // The #10 bug: resume() rejection was swallowed by .catch(()=>{}), leaving
-    // the graph suspended (silence) while isPlaying stayed true. Now a failed
-    // resume must notify the caller so it can degrade gracefully.
-    const { ctx } = makeMockContext();
-    ctx.resume = vi.fn(async () => {
-      throw new Error('not allowed');
+  it('fires onDegraded when worklet addModule rejects', async () => {
+    const mocks2 = setupMocks({ workletAddModuleRejects: true });
+    try {
+      const ctx = mocks2.makeMockCtx();
+      const onDegraded = vi.fn();
+      const eq = new WebAudioEq(mockCtxFactory(ctx));
+  await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], onDegraded });
+      expect(onDegraded).toHaveBeenCalledTimes(1);
+    } finally {
+      mocks2.teardown();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 2.3 — attachSource + re-entrancy contract
+// ---------------------------------------------------------------------------
+
+describe('WebAudioEq (new path) — Step 2.3: attachSource + re-entrancy', () => {
+  let mocks: ReturnType<typeof setupMocks>;
+
+  beforeEach(() => {
+    mocks = setupMocks();
+  });
+  afterEach(() => mocks.teardown());
+
+  async function makeInitializedEq() {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    return { eq, ctx };
+  }
+
+  it('attachSource sets audio.volume=0, calls captureStream, createMediaStreamSource, connect to workletNode', async () => {
+    const { eq, ctx } = await makeInitializedEq();
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    eq.attachSource(audio);
+    expect(audio.volume).toBe(0);
+    expect(mocks.captureStreamImpl).toHaveBeenCalledTimes(1);
+    expect(ctx.createMediaStreamSource).toHaveBeenCalledTimes(1);
+    const sourceNode = ctx._sourceNodes[0];
+    expect(sourceNode.connect).toHaveBeenCalledWith(ctx._workletNode);
+    expect(eq.isRerouted).toBe(true);
+  });
+
+  it('re-entrancy: 2x attachSource without disconnectSource — first sourceNode.disconnect called, first stream tracks stopped, workletNode input count == 1, captureStream called 2x', async () => {
+    const { eq, ctx } = await makeInitializedEq();
+    const audio1 = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    const audio2 = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+
+    eq.attachSource(audio1);
+    const firstSourceNode = ctx._sourceNodes[0];
+    const firstStream = mocks.createdStreams[0];
+    const firstTracks = firstStream._tracks;
+
+    eq.attachSource(audio2);
+
+    // First sourceNode.disconnect was called (re-entrancy self-cleanup).
+    expect(firstSourceNode.disconnect).toHaveBeenCalled();
+    // First stream's audio tracks were stopped.
+    expect(firstTracks.length).toBe(1);
+    expect(firstTracks[0].stop).toHaveBeenCalled();
+    // workletNode input count is exactly 1 (old disconnected, new connected).
+    expect(ctx._workletNode._inputs.length).toBe(1);
+    // captureStream was called twice (once per attachSource).
+    expect(mocks.captureStreamImpl).toHaveBeenCalledTimes(2);
+    // isRerouted stays true.
+    expect(eq.isRerouted).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 2.4 — disconnectSource resource release
+// ---------------------------------------------------------------------------
+
+describe('WebAudioEq (new path) — Step 2.4: disconnectSource resource release', () => {
+  let mocks: ReturnType<typeof setupMocks>;
+
+  beforeEach(() => {
+    mocks = setupMocks();
+  });
+  afterEach(() => mocks.teardown());
+
+  async function makeInitializedEqWithSource() {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    eq.attachSource(audio);
+    const sourceNode = ctx._sourceNodes[0];
+    const stream = mocks.createdStreams[0];
+    return { eq, ctx, sourceNode, stream, audio };
+  }
+
+  it('disconnectSource disconnects sourceNode, stops all audio tracks, nulls refs, sets isRerouted=false', async () => {
+    const { eq, sourceNode, stream } = await makeInitializedEqWithSource();
+    eq.disconnectSource();
+    expect(sourceNode.disconnect).toHaveBeenCalled();
+    expect(stream.getAudioTracks).toHaveBeenCalled();
+    const tracks = stream._tracks;
+    expect(tracks[0].stop).toHaveBeenCalled();
+    expect(eq.isRerouted).toBe(false);
+  });
+
+  it('disconnectSource is idempotent (2x calls do not throw)', async () => {
+    const { eq } = await makeInitializedEqWithSource();
+    expect(() => {
+      eq.disconnectSource();
+      eq.disconnectSource();
+    }).not.toThrow();
+  });
+
+  it('disconnectSource before attachSource is a no-op (no throw)', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    expect(() => eq.disconnectSource()).not.toThrow();
+    expect(eq.isRerouted).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 2.5 — setBand / setEnabled / setVolume
+// ---------------------------------------------------------------------------
+
+describe('WebAudioEq (new path) — Step 2.5: setBand / setEnabled / setVolume', () => {
+  let mocks: ReturnType<typeof setupMocks>;
+
+  beforeEach(() => {
+    mocks = setupMocks();
+  });
+  afterEach(() => mocks.teardown());
+
+  async function makeInitializedEq(bands = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]) {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, { enabled: true, bands });
+    return { eq, ctx };
+  }
+
+  it('setBand posts setBands with the updated bands array at the given index', async () => {
+    const { eq, ctx } = await makeInitializedEq([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    ctx._workletNode.port.postMessage.mockClear();
+    eq.setBand(2, 3.5, true);
+    const expectedBands = [0, 0, 3.5, 0, 0, 0, 0, 0, 0, 0];
+    expect(ctx._workletNode.port.postMessage).toHaveBeenCalledWith({
+      type: 'setBands',
+      bands: expectedBands,
+    });
+  });
+
+  it('setBand with enabled=false does not postMessage (EQ disabled, no-op)', async () => {
+    const { eq, ctx } = await makeInitializedEq();
+    ctx._workletNode.port.postMessage.mockClear();
+    eq.setBand(2, 3.5, false);
+    expect(ctx._workletNode.port.postMessage).not.toHaveBeenCalled();
+  });
+
+  it('setEnabled posts setEnabled with the new enabled flag', async () => {
+    const { eq, ctx } = await makeInitializedEq();
+    ctx._workletNode.port.postMessage.mockClear();
+    eq.setEnabled(false, [0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+    expect(ctx._workletNode.port.postMessage).toHaveBeenCalledWith({
+      type: 'setEnabled',
+      enabled: false,
+    });
+  });
+
+  it('setVolume writes gainNode.gain.value when isRerouted', async () => {
+    const { eq, ctx } = await makeInitializedEq();
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    eq.attachSource(audio);
+    expect(eq.isRerouted).toBe(true);
+    eq.setVolume(0.7);
+    expect(ctx._gainNode.gain.value).toBe(0.7);
+  });
+
+  it('setVolume does NOT write gainNode when !isRerouted (degraded mode — backend.setVolume handles audio.volume)', async () => {
+    const { eq, ctx } = await makeInitializedEq();
+    // No attachSource → isRerouted is false.
+    expect(eq.isRerouted).toBe(false);
+    const before = ctx._gainNode.gain.value;
+    eq.setVolume(0.4);
+    expect(ctx._gainNode.gain.value).toBe(before);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Step 2.6 — resume + degradation trigger + close
+// ---------------------------------------------------------------------------
+
+describe('WebAudioEq (new path) — Step 2.6: resume / degradation / close', () => {
+  let mocks: ReturnType<typeof setupMocks>;
+
+  beforeEach(() => {
+    mocks = setupMocks();
+  });
+  afterEach(() => mocks.teardown());
+
+  async function makeInitializedEq() {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      onDegraded: () => {},
+    });
+    return { eq, ctx };
+  }
+
+  it('resume success: ctx.resume resolves, onDegraded NOT called', async () => {
+    await makeInitializedEq();
+    const onDegraded = vi.fn();
+    // Re-init with the spy so we can assert it wasn't called.
+    const ctx2 = mocks.makeMockCtx();
+    const eq2 = new WebAudioEq(mockCtxFactory(ctx2));
+    await initAndReady(eq2, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      onDegraded,
+    });
+    ctx2.state = 'suspended';
+    ctx2.resume = vi.fn(async () => { ctx2.state = 'running'; });
+    await eq2.resume();
+    expect(ctx2.resume).toHaveBeenCalledTimes(1);
+    expect(onDegraded).not.toHaveBeenCalled();
+  });
+
+  it('resume failure: ctx.resume rejects, onDegraded called once', async () => {
+    const onDegraded = vi.fn();
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+await initAndReady(eq, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      onDegraded,
     });
     ctx.state = 'suspended';
-    let degraded = false;
-    const eq = new WebAudioEq(() => ctx);
-    eq.init({} as HTMLAudioElement, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-      onSuspendedFail: () => {
-        degraded = true;
-      },
+    ctx.resume = vi.fn(async () => {
+      throw new Error('NotAllowedError: no user gesture');
     });
     await eq.resume();
-    expect(degraded).toBe(true);
+    expect(onDegraded).toHaveBeenCalledTimes(1);
   });
 
-  it('applies band gains to the biquad filters when enabled', () => {
-    const { ctx, filters } = makeMockContext();
-    const eq = new WebAudioEq(() => ctx);
-    eq.init({} as HTMLAudioElement, {
-      enabled: true,
-      bands: [5, -3, 0, 2, -1, 1, 2, -2, 3, -4],
-      crossOriginSafe: true,
-      onSuspendedFail: () => {},
-    });
-    expect(ctx.createBiquadFilter).toHaveBeenCalledTimes(10);
-    expect(filters.map(filter => filter.gain.value)).toEqual([5, -3, 0, 2, -1, 1, 2, -2, 3, -4]);
+  it('close: disconnects workletNode + gainNode, closes ctx, cleans source/stream', async () => {
+    const { eq, ctx } = await makeInitializedEq();
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    eq.attachSource(audio);
+    const sourceNode = ctx._sourceNodes[0];
+    const stream = mocks.createdStreams[0];
+
+    eq.close();
+
+    expect(sourceNode.disconnect).toHaveBeenCalled();
+    expect(stream._tracks[0].stop).toHaveBeenCalled();
+    expect(ctx._workletNode.disconnect).toHaveBeenCalled();
+    expect(ctx._gainNode.disconnect).toHaveBeenCalled();
+    expect(ctx.close).toHaveBeenCalled();
+    expect(eq.isRerouted).toBe(false);
   });
 
-  it('creates filters at the 10 reference frequencies', () => {
-    const { ctx, filters } = makeMockContext();
-    const eq = new WebAudioEq(() => ctx);
-    eq.init({} as HTMLAudioElement, {
-      enabled: true,
-      bands: [0, 0, 6, 0, 0, 0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-      onSuspendedFail: () => {},
-    });
-    expect(filters.map(filter => filter.frequency.value)).toEqual([
-      31,
-      62,
-      125,
-      250,
-      500,
-      1000,
-      2000,
-      4000,
-      8000,
-      16000,
-    ]);
+  it('close without attachSource: disconnects workletNode + gainNode, closes ctx (no throw)', async () => {
+    const { eq, ctx } = await makeInitializedEq();
+    expect(() => eq.close()).not.toThrow();
+    expect(ctx._workletNode.disconnect).toHaveBeenCalled();
+    expect(ctx._gainNode.disconnect).toHaveBeenCalled();
+    expect(ctx.close).toHaveBeenCalled();
   });
+});
 
-  // ── Regression: auto-advance wedge (#16) ──
-  // CONFIRMED ROOT CAUSE (from browser F12 trace):
-  // `createMediaElementSource(audio)` is irreversible for the element's
-  // lifetime — calling it a SECOND time on the same element throws
-  // InvalidStateError. The new audio-proxy + WebAudio EQ chain calls
-  // `initEq` → `WebAudioEq.init` on EVERY `setPreparedSource` (every track
-  // switch). Song 1 binds the element. Song 2's `init` either (a) no-ops via
-  // the `if (this.ctx) return` guard if ctx survived, or (b) THROWS
-  // InvalidStateError if ctx was nulled — and either way the element is
-  // permanently bound to song 1's source node.
-  //
-  // The fix has two parts:
-  //   1. WebAudioEq.init's catch block detects InvalidStateError and fires
-  //      `onElementWedged` so the caller can swap in a fresh <audio> element.
-  //      It keeps `this.ctx` set so subsequent init() calls on the SAME
-  //      element short-circuit (don't re-throw on every track).
-  //   2. playerStore.swapAudioElementAfterWedge() tears down the old element
-  //      + backend, creates a fresh `new Audio()`, rebuilds the backend, and
-  //      re-triggers the current track. A session flag `eqDisabledForSession`
-  //      ensures the fresh element never calls createMediaElementSource
-  //      again (EQ off for the rest of the session → no second wedge).
-  //
-  // The first test below pins the WebAudioEq-side behavior; the second pins
-  // the suspended-context resume behavior (degraded but NOT torn down, so the
-  // init guard holds).
-  it('fires onElementWedged and keeps ctx set when createMediaElementSource throws InvalidStateError on an already-bound element', () => {
-    const { ctx } = makeMockContext();
-    // A minimal source node with a connect() stub (the graph code calls
-    // source.connect(filters[0])).
-    const sourceNode = { connect: vi.fn(() => sourceNode) };
-    // Make the SECOND call to createMediaElementSource throw, simulating an
-    // element that was already bound by song 1's successful call.
-    let cmesCalls = 0;
-    ctx.createMediaElementSource = vi.fn(() => {
-      cmesCalls++;
-      if (cmesCalls === 1) {
-        // Song 1: succeeds, returns a source node (element becomes bound).
-        return sourceNode;
-      }
-      // Song 2: element already bound → throws.
-      const err = new Error("Failed to execute 'createMediaElementSource' on 'AudioContext': HTMLMediaElement already connected previously to a different MediaElementSourceNode.");
-      (err as Error & { name: string }).name = 'InvalidStateError';
-      throw err;
-    });
+// ---------------------------------------------------------------------------
+// Legacy compat — init(audio, opts) transitional overload (playerStore Phase 2)
+// ---------------------------------------------------------------------------
 
-    let wedged = false;
-    const eq = new WebAudioEq(() => ctx);
-    const audio = {} as HTMLAudioElement;
+describe('WebAudioEq (legacy compat) — init(audio, opts) overload', () => {
+  let mocks: ReturnType<typeof setupMocks>;
 
-    // Song 1: graph builds successfully, element bound.
-    eq.init(audio, {
+  beforeEach(() => {
+    mocks = setupMocks();
+  });
+  afterEach(() => mocks.teardown());
+
+  it('init(audio, opts) builds worklet graph and attachSource when crossOriginSafe=true', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    await initLegacyAndReady(eq, audio, {
       enabled: true,
       bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       crossOriginSafe: true,
-      onElementWedged: () => { wedged = true; },
     });
+    expect(ctx.createMediaElementSource).not.toHaveBeenCalled();
+    expect(ctx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
+    expect(mocks.captureStreamImpl).toHaveBeenCalledTimes(1);
     expect(eq.isRerouted).toBe(true);
-    expect(wedged).toBe(false);
-
-    // Simulate the ctx being nulled (e.g. by a prior buggy resume path) so
-    // init's guard does NOT short-circuit on song 2. This is exactly the
-    // condition that produced the F12 InvalidStateError trace.
-    (eq as unknown as { ctx: unknown }).ctx = null;
-
-    // Song 2: init re-runs, createMediaElementSource throws → onElementWedged.
-    eq.init(audio, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-      onElementWedged: () => { wedged = true; },
-    });
-    expect(wedged, 'onElementWedged must fire when createMediaElementSource throws InvalidStateError').toBe(true);
-    expect((eq as unknown as { ctx: unknown }).ctx, 'ctx must stay set so init guard holds and prevents re-throws on subsequent tracks').toBe(ctx);
-
-    // Song 3: init on the same (still-bound) element must NOT re-throw — the
-    // guard short-circuits. Verify by asserting createMediaElementSource is
-    // not called a third time.
-    const cmesBefore = (ctx.createMediaElementSource as ReturnType<typeof vi.fn>).mock.calls.length;
-    eq.init(audio, {
-      enabled: true,
-      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      crossOriginSafe: true,
-      onElementWedged: () => { wedged = true; },
-    });
-    const cmesAfter = (ctx.createMediaElementSource as ReturnType<typeof vi.fn>).mock.calls.length;
-    expect(cmesAfter, 'subsequent init() on the wedged element must short-circuit, not re-throw').toBe(cmesBefore);
   });
 
-  it('surfaces onSuspendedFail on a failed resume but keeps ctx set (does not wedge init guard)', async () => {
-    const { ctx } = makeMockContext();
+  it('init(audio, opts) skips attachSource when crossOriginSafe=false', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    await initLegacyAndReady(eq, audio, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      crossOriginSafe: false,
+    });
+    expect(ctx.createMediaElementSource).not.toHaveBeenCalled();
+    expect(mocks.captureStreamImpl).not.toHaveBeenCalled();
+    expect(eq.isRerouted).toBe(false);
+  });
+
+  it('second init(audio, opts) does not reload worklet module (initStarted guard)', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    await initLegacyAndReady(eq, audio, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      crossOriginSafe: true,
+    });
+    const addModuleCalls = ctx.audioWorklet.addModule.mock.calls.length;
+    await initLegacyAndReady(eq, audio, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      crossOriginSafe: true,
+    });
+    expect(ctx.audioWorklet.addModule.mock.calls.length).toBe(addModuleCalls);
+  });
+
+  it('fires onSuspendedFail on failed resume and keeps graph routed', async () => {
+    const ctx = mocks.makeMockCtx();
     let degraded = false;
-    const eq = new WebAudioEq(() => ctx);
-    eq.init({} as HTMLAudioElement, {
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    await initLegacyAndReady(eq, audio, {
       enabled: true,
       bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
       crossOriginSafe: true,
       onSuspendedFail: () => { degraded = true; },
     });
-    expect(eq.isRerouted).toBe(true);
-
     ctx.state = 'suspended';
     ctx.resume = vi.fn(async () => {
-      throw new Error('NotAllowedError: no user gesture');
+      throw new Error('NotAllowedError');
     });
-
     await eq.resume();
+    expect(degraded).toBe(true);
+    expect(eq.isRerouted).toBe(true);
+  });
 
-    expect(degraded, 'onSuspendedFail must fire so the UI can degrade').toBe(true);
-    expect((eq as unknown as { ctx: unknown }).ctx, 'ctx must stay set so init guard holds').toBe(ctx);
-    expect(eq.isRerouted, 'graph must stay routed (tearing it down would silence the still-bound element)').toBe(true);
+  it('close() closes the AudioContext', async () => {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    await initLegacyAndReady(eq, audio, {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      crossOriginSafe: true,
+    });
+    eq.close();
+    expect(ctx.close).toHaveBeenCalled();
   });
 });

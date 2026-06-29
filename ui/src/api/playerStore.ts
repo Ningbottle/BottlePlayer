@@ -163,6 +163,11 @@ export function __resetEqDisabledForSession() {
   eqDisabledForSession = false;
 }
 
+/** Test-only seam: tear down the EQ graph between tests. */
+export function __resetWebAudioEqForTests() {
+  webAudioEq.close();
+}
+
 export function initWebAudioEQ(audio: HTMLAudioElement, crossOriginSafe = false) {
   // #16: after a wedge-triggered element swap, never rebuild the WebAudio
   // graph — the user's environment already wedged once and may wedge again.
@@ -195,8 +200,13 @@ export function initWebAudioEQ(audio: HTMLAudioElement, crossOriginSafe = false)
       swapAudioElementAfterWedge();
     },
   });
-  eqState.available = webAudioEq.isRerouted;
-  eqState.reason = eqState.available ? '' : '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。';
+  const syncEqAvailability = () => {
+    eqState.available = webAudioEq.isRerouted;
+    eqState.reason = eqState.available ? '' : '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。';
+  };
+  syncEqAvailability();
+  // Phase 2 transitional: legacy init attaches asynchronously after worklet load.
+  void webAudioEq.awaitReady().then(syncEqAvailability);
 }
 
 export function setWebAudioEqBand(index: number, gainDb: number) {

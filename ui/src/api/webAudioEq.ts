@@ -1,206 +1,277 @@
 /**
  * Web Audio API EQ controller for the HTML5 <audio> backend.
  *
- * Routes the <audio> element through a 10-band BiquadFilter peaking chain
- * (31/62/125/250/500/1K/2K/4K/8K/16K Hz).
+ * Phase 2 of the AudioWorklet redesign: routes audio via captureStream →
+ * MediaStreamAudioSourceNode → AudioWorkletNode (10-band RBJ peaking EQ) →
+ * GainNode → destination. The <audio> element is never passed through
+ * createMediaElementSource.
  *
- * Design notes (fixing the EQ bugs from the player-fix design):
- *
- * - #4 Graph build order: the full filter→gain→destination chain is wired
- *   BEFORE createMediaElementSource is called. createMediaElementSource
- *   irreversibly reroutes the element's output into the graph; if it ran first
- *   and a later step threw, the element would be stranded in a disconnected
- *   graph → permanent silence. Building the destination-connected graph first
- *   means any throw happens before the reroute.
- *
- * - #1 CORS: createMediaElementSource requires the media to be same-origin or
- *   CORS-enabled, otherwise it taints (silent PCM) — and setting
- *   crossOrigin='anonymous' on a non-CORS CDN makes the load fail entirely.
- *   KuGou's CDN sends no Access-Control-Allow-Origin (verified 2026-06-25), so
- *   for cross-origin non-CORS sources we skip the graph entirely and the
- *   <audio> plays directly (EQ off for that source). Playback is never broken.
- *
- * - #9 The AudioContext is close()'d on teardown so HMR doesn't leak contexts.
- *
- * - #10 A failed resume() (suspended context, no user gesture) is surfaced via
- *   onSuspendedFail instead of swallowed, so the caller can degrade.
+ * See docs/superpowers/specs/2026-06-28-eq-audioworklet-redesign-design.md §3.1, §4.2.
  */
 
-import { EQ_BANDS, clampEqGain } from './equalizerConfig';
+import { clampEqGain } from './equalizerConfig';
+import { loadEqWorklet, type AudioContextForWorklet } from './eqWorkletProcessor';
 
 export interface EqOptions {
   enabled: boolean;
   bands: number[];
-  /** Whether the media source is same-origin or CORS-enabled. When false, the
-   *  EQ graph is not built (audio plays directly) to avoid breaking playback. */
+  /** When false, skip captureStream attach (element plays directly). */
   crossOriginSafe?: boolean;
-  /** Called when the AudioContext cannot resume (suspended, no gesture). */
+  /** Called when AudioContext cannot resume or worklet load fails. */
+  onDegraded?: () => void;
+  /** Called when resume succeeds after a prior degradation. */
+  onRecovered?: () => void;
+  /** @deprecated Use onDegraded */
   onSuspendedFail?: () => void;
-  /** Called when createMediaElementSource throws InvalidStateError — the
-   *  <audio> element is already (irreversibly) bound to a previous
-   *  MediaElementSourceNode, so EQ can never work on THIS element again.
-   *  The caller must swap in a fresh <audio> element to recover playback. */
+  /** @deprecated No longer used — captureStream avoids element wedge */
   onElementWedged?: () => void;
-}
-
-export interface AudioContextLike {
-  state: string;
-  destination: AudioNodeLike;
-  resume(): Promise<void>;
-  close(): Promise<void>;
-  createMediaElementSource(el: HTMLMediaElement): AudioNodeLike;
-  createBiquadFilter(): BiquadFilterLike;
-  createGain(): GainNodeLike;
 }
 
 export interface AudioNodeLike {
   connect(dest: AudioNodeLike): AudioNodeLike;
+  disconnect(): void;
 }
-export interface BiquadFilterLike extends AudioNodeLike {
-  type: string;
-  frequency: { value: number };
-  Q: { value: number };
-  gain: { value: number };
-}
+
 export interface GainNodeLike extends AudioNodeLike {
   gain: { value: number };
 }
 
+export interface AudioWorkletNodeLike extends AudioNodeLike {
+  port: { postMessage(data: unknown): void };
+}
+
+export interface AudioContextLike extends AudioContextForWorklet {
+  state: string;
+  destination: AudioNodeLike;
+  resume(): Promise<void>;
+  close(): Promise<void>;
+  createGain(): GainNodeLike;
+  createMediaStreamSource(stream: MediaStream): AudioNodeLike;
+}
+
 export type AudioContextFactory = () => AudioContextLike | null;
+
+export type LoadEqWorkletFn = typeof loadEqWorklet;
+
+export interface WebAudioEqDeps {
+  loadWorklet?: LoadEqWorkletFn;
+  WorkletNodeCtor?: new (ctx: unknown, name: string) => AudioWorkletNodeLike;
+}
+
+/** HTMLAudioElement with captureStream (Chrome / WebView2). */
+interface CapturableAudioElement extends HTMLAudioElement {
+  captureStream(): MediaStream;
+}
 
 export class WebAudioEq {
   private ctx: AudioContextLike | null = null;
-  private filters: BiquadFilterLike[] = [];
-  private source: AudioNodeLike | null = null;
+  private workletNode: AudioWorkletNodeLike | null = null;
+  private gainNode: GainNodeLike | null = null;
+  private sourceNode: AudioNodeLike | null = null;
+  private currentStream: MediaStream | null = null;
   private rerouted = false;
-  private onSuspendedFail?: () => void;
-  private onElementWedged?: () => void;
+  private bands: number[] = [];
+  private enabled = false;
+  private initStarted = false;
+  private workletFailed = false;
+  private blobUrl: string | null = null;
+  private readyPromise: Promise<void> | null = null;
+  private onDegradedCb?: () => void;
+  private onRecoveredCb?: () => void;
 
-  constructor(private readonly createCtx: AudioContextFactory) {}
+  constructor(
+    private readonly createCtx: AudioContextFactory,
+    private readonly deps: WebAudioEqDeps = {},
+  ) {}
 
-  init(audio: HTMLAudioElement, opts: EqOptions): void {
-    // If already initialized for this element, do nothing. This guard is ALSO
-    // what prevents a second createMediaElementSource call on the same element
-    // (which would throw InvalidStateError — see the catch block below).
-    if (this.ctx) return;
-
-    const crossOriginSafe = opts.crossOriginSafe !== false;
-    // Non-CORS cross-origin media: skip the graph so playback isn't broken.
-    if (!crossOriginSafe) {
+  /**
+   * Build the long-lived worklet graph once at app startup.
+   * Legacy overload `init(audio, opts)` delegates to init(opts) + attachSource(audio).
+   */
+  init(opts: EqOptions): void;
+  init(audio: HTMLAudioElement, opts: EqOptions): void;
+  init(audioOrOpts: HTMLAudioElement | EqOptions, opts?: EqOptions): void {
+    if (opts !== undefined) {
+      this.doInit(opts);
+      if (opts.crossOriginSafe !== false && !this.workletFailed) {
+        void this.whenReady().then(() => {
+          if (!this.workletFailed && this.ctx) {
+            this.attachSource(audioOrOpts as HTMLAudioElement);
+          }
+        });
+      }
       return;
     }
+    this.doInit(audioOrOpts as EqOptions);
+  }
 
-    const ctx = this.createCtx();
-    if (!ctx) return;
-    this.ctx = ctx;
-    this.onSuspendedFail = opts.onSuspendedFail;
-    this.onElementWedged = opts.onElementWedged;
+  attachSource(audio: HTMLAudioElement): void {
+    if (!this.ctx || !this.workletNode || this.workletFailed) return;
 
-    try {
-      // #4: build the full destination-connected graph FIRST.
-      this.filters = EQ_BANDS.map((band, i) => {
-        const filter = ctx.createBiquadFilter();
-        filter.type = 'peaking';
-        filter.frequency.value = band.frequency;
-        filter.Q.value = 1 / Math.SQRT2;
-        filter.gain.value = opts.enabled ? clampEqGain(opts.bands[i] ?? 0) : 0;
-        return filter;
-      });
+    this.disconnectSource();
 
-      const gain = ctx.createGain();
-      gain.gain.value = 1.0;
+    const capturable = audio as CapturableAudioElement;
+    capturable.volume = 0;
+    this.currentStream = capturable.captureStream();
+    this.sourceNode = this.ctx.createMediaStreamSource(this.currentStream);
+    this.sourceNode.connect(this.workletNode);
+    this.rerouted = true;
+  }
 
-      // chain: filter[0] -> filter[1] -> ... -> last filter -> gain -> destination
-      for (let i = 0; i < this.filters.length - 1; i++) {
-        this.filters[i].connect(this.filters[i + 1]);
-      }
-      this.filters[this.filters.length - 1].connect(gain);
-      gain.connect(ctx.destination);
-
-      // #4: only NOW reroute the element into the (already-connected) graph.
-      this.source = ctx.createMediaElementSource(audio);
-      this.source.connect(this.filters[0]);
-      this.rerouted = true;
-    } catch (e) {
-      // Best-effort cleanup; the element was only rerouted if source was set.
-      this.disposeGraph();
-      // #16: InvalidStateError means the <audio> element was already bound to
-      // a previous MediaElementSourceNode (from an earlier track). The binding
-      // is irreversible for the element's lifetime, so EQ can never work on
-      // THIS element again. Signal the caller to swap in a fresh element.
-      // Keep this.ctx set so a subsequent init() on the SAME element short-
-      // circuits via the guard above (avoids re-throwing on every track).
-      if (isElementWedgedError(e)) {
-        this.onElementWedged?.();
-      } else {
-        console.warn('Web Audio API EQ init failed:', e);
-      }
+  disconnectSource(): void {
+    if (this.sourceNode) {
+      this.sourceNode.disconnect();
+      this.sourceNode = null;
     }
+    if (this.currentStream) {
+      this.currentStream.getAudioTracks().forEach((t) => t.stop());
+      this.currentStream = null;
+    }
+    this.rerouted = false;
   }
 
   setBand(index: number, gainDb: number, enabled: boolean): void {
-    if (!this.ctx || index < 0 || index >= this.filters.length) return;
-    if (!enabled) return;
-    if (this.filters[index]) {
-      this.filters[index].gain.value = clampEqGain(gainDb);
+    if (!this.workletNode || this.workletFailed || index < 0 || index >= this.bands.length) {
+      return;
     }
+    if (!enabled) return;
+    this.bands[index] = clampEqGain(gainDb);
+    this.workletNode.port.postMessage({ type: 'setBands', bands: [...this.bands] });
   }
 
   setEnabled(enabled: boolean, bands: number[]): void {
-    if (!this.ctx) return;
-    this.filters.forEach((filter, i) => {
-      filter.gain.value = enabled ? clampEqGain(bands[i] ?? 0) : 0;
-    });
-  }
-
-  /** Resume the AudioContext after a user gesture (autoplay policy). */
-  async resume(): Promise<void> {
-    if (!this.ctx) return;
-    if (this.ctx.state === 'suspended') {
-      try {
-        await this.ctx.resume();
-      } catch (e) {
-        console.warn('Web Audio API EQ resume failed; EQ will be degraded.', e);
-        // #10: surface the failure so the UI can degrade. Do NOT null
-        // this.ctx or close the context here — nulling would defeat init()'s
-        // `if (this.ctx) return` guard and cause the next init() to call
-        // createMediaElementSource again on the already-bound element,
-        // throwing InvalidStateError and wedging playback (#16). The graph
-        // stays routed; if the context stays suspended the audio is silent,
-        // but that is a separate (rarer) failure mode than the element-wedge.
-        this.onSuspendedFail?.();
-      }
+    if (!this.workletNode || this.workletFailed) return;
+    this.enabled = enabled;
+    this.bands = bands.map((g) => (enabled ? clampEqGain(g ?? 0) : 0));
+    this.workletNode.port.postMessage({ type: 'setEnabled', enabled });
+    if (enabled) {
+      this.workletNode.port.postMessage({ type: 'setBands', bands: [...this.bands] });
     }
   }
 
-  /** Tear down the context (call on player re-init / HMR zombie cleanup). */
-  close(): void {
-    this.disposeGraph();
-    if (this.ctx) {
-      this.ctx.close().catch(() => {});
-      this.ctx = null;
-    }
+  /** User volume when EQ is rerouted (gainNode path). No-op when not rerouted. */
+  setVolume(vol: number): void {
+    if (!this.rerouted || !this.gainNode) return;
+    this.gainNode.gain.value = vol;
   }
 
   get isRerouted(): boolean {
     return this.rerouted;
   }
 
-  private disposeGraph(): void {
-    this.filters = [];
-    this.source = null;
-    this.rerouted = false;
+  /** Resolves when the worklet graph has finished initializing (Phase 2 transitional). */
+  awaitReady(): Promise<void> {
+    return this.whenReady();
   }
-}
 
-/** Detect the InvalidStateError thrown when createMediaElementSource is called
- *  on an <audio> element that's already bound to a previous source node. The
- *  binding is irreversible for the element's lifetime, so the caller must swap
- *  in a fresh element. */
-function isElementWedgedError(e: unknown): boolean {
-  const err = e as { name?: string; message?: string };
-  if (!err) return false;
-  if (err.name === 'InvalidStateError') return true;
-  const msg = err.message || '';
-  return msg.includes('already connected') || msg.includes('MediaElementSourceNode');
+  async resume(): Promise<void> {
+    if (!this.ctx || this.workletFailed) return;
+    if (this.ctx.state === 'suspended') {
+      try {
+        await this.ctx.resume();
+        this.onRecoveredCb?.();
+      } catch (e) {
+        console.warn('Web Audio API EQ resume failed; EQ will be degraded.', e);
+        this.onDegradedCb?.();
+      }
+    }
+  }
+
+  close(): void {
+    this.disconnectSource();
+    this.workletNode?.disconnect();
+    this.gainNode?.disconnect();
+    if (this.blobUrl) {
+      URL.revokeObjectURL(this.blobUrl);
+      this.blobUrl = null;
+    }
+    if (this.ctx) {
+      this.ctx.close().catch(() => {});
+      this.ctx = null;
+    }
+    this.workletNode = null;
+    this.gainNode = null;
+    this.initStarted = false;
+    this.workletFailed = false;
+    this.readyPromise = null;
+  }
+
+  /** Phase 4: disconnect worklet input and unmute element. Stub until Phase 4. */
+  enterDegradation(_volume: number): void {
+    // Phase 4 implementation
+  }
+
+  /** Phase 4: resume context and re-attach capture stream. Stub until Phase 4. */
+  recoverFromDegradation(_audio: HTMLAudioElement): void {
+    // Phase 4 implementation
+  }
+
+  private doInit(opts: EqOptions): void {
+    this.onDegradedCb = this.resolveOnDegraded(opts);
+    this.onRecoveredCb = opts.onRecovered;
+
+    if (this.initStarted) {
+      if (this.workletNode && !this.workletFailed) {
+        this.enabled = opts.enabled;
+        this.bands = opts.bands.map((g) => (opts.enabled ? clampEqGain(g ?? 0) : 0));
+        this.postBands();
+        this.postEnabled(opts.enabled);
+      }
+      return;
+    }
+
+    this.initStarted = true;
+    this.enabled = opts.enabled;
+    this.bands = opts.bands.map((g) => (opts.enabled ? clampEqGain(g ?? 0) : 0));
+    this.readyPromise = this.buildGraph(opts);
+  }
+
+  private async buildGraph(_opts: EqOptions): Promise<void> {
+    const ctx = this.createCtx();
+    if (!ctx) {
+      this.workletFailed = true;
+      this.onDegradedCb?.();
+      return;
+    }
+    this.ctx = ctx;
+
+    const loadWorklet = this.deps.loadWorklet ?? loadEqWorklet;
+    const WorkletNodeCtor = this.deps.WorkletNodeCtor
+      ?? (AudioWorkletNode as unknown as new (ctx: unknown, name: string) => AudioWorkletNodeLike);
+
+    try {
+      this.blobUrl = await loadWorklet(ctx);
+      this.workletNode = new WorkletNodeCtor(ctx, 'eq-processor');
+      this.gainNode = ctx.createGain();
+      this.gainNode.gain.value = 1;
+      this.workletNode.connect(this.gainNode);
+      this.gainNode.connect(ctx.destination);
+      this.postBands();
+      this.postEnabled(this.enabled);
+    } catch (e) {
+      console.warn('Web Audio API EQ worklet init failed:', e);
+      this.workletFailed = true;
+      this.onDegradedCb?.();
+    }
+  }
+
+  private postBands(): void {
+    this.workletNode?.port.postMessage({ type: 'setBands', bands: [...this.bands] });
+  }
+
+  private postEnabled(enabled: boolean): void {
+    this.workletNode?.port.postMessage({ type: 'setEnabled', enabled });
+  }
+
+  private resolveOnDegraded(opts: EqOptions): (() => void) | undefined {
+    if (!opts.onDegraded && !opts.onSuspendedFail) return undefined;
+    return () => {
+      opts.onDegraded?.();
+      opts.onSuspendedFail?.();
+    };
+  }
+
+  private whenReady(): Promise<void> {
+    return this.readyPromise ?? Promise.resolve();
+  }
 }

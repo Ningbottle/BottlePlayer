@@ -21,12 +21,72 @@ import {
   __getActiveBackend,
   __getPlaySession,
   __resetEqDisabledForSession,
+  __resetWebAudioEqForTests,
   eqState,
 } from '../playerStore';
 import type { Track } from '../normalizer';
 
 function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'A', Duration: 100 } as Track;
+}
+
+/** Mock AudioContext + captureStream for Phase 2 worklet EQ in integration tests. */
+function setupWorkletEqMocks() {
+  const workletNode = {
+    connect: vi.fn((n: unknown) => n),
+    disconnect: vi.fn(),
+    port: { postMessage: vi.fn() },
+  };
+  const gainNode = {
+    connect: vi.fn((n: unknown) => n),
+    disconnect: vi.fn(),
+    gain: { value: 1 },
+  };
+  let closeCalls = 0;
+  const mockCtx: Record<string, unknown> = {
+    state: 'running',
+    destination: { connect: vi.fn() },
+    resume: vi.fn(async () => {
+      mockCtx.state = 'running';
+    }),
+    close: vi.fn(async () => {
+      closeCalls++;
+      mockCtx.state = 'closed';
+    }),
+    audioWorklet: { addModule: vi.fn(async () => {}) },
+    createGain: vi.fn(() => gainNode),
+    createMediaStreamSource: vi.fn(() => ({
+      connect: vi.fn((n: unknown) => n),
+      disconnect: vi.fn(),
+    })),
+  };
+  vi.stubGlobal('AudioContext', function MockAudioContext() {
+    return mockCtx;
+  });
+  function MockAudioWorkletNode(this: typeof workletNode) {
+    return workletNode;
+  }
+  vi.stubGlobal('AudioWorkletNode', MockAudioWorkletNode);
+  vi.stubGlobal('URL', {
+    createObjectURL: vi.fn(() => 'blob:eq-test'),
+    revokeObjectURL: vi.fn(),
+  });
+  const captureStream = vi.fn(function (this: HTMLMediaElement) {
+    return { getAudioTracks: () => [{ stop: vi.fn() }] };
+  });
+  (HTMLMediaElement.prototype as HTMLMediaElement & {
+    captureStream: typeof captureStream;
+  }).captureStream = captureStream;
+  return {
+    mockCtx: mockCtx as typeof mockCtx & {
+      audioWorklet: { addModule: ReturnType<typeof vi.fn> };
+      createMediaStreamSource: ReturnType<typeof vi.fn>;
+      resume: ReturnType<typeof vi.fn>;
+      close: ReturnType<typeof vi.fn>;
+    },
+    captureStream,
+    getCloseCalls: () => closeCalls,
+  };
 }
 
 /** Reset the playerStore singleton state between tests. */
@@ -45,6 +105,7 @@ function resetStore() {
   (window as any).__bottlemusic_audio__ = undefined;
   // #16: reset the session-disable flag so each swap test starts fresh.
   __resetEqDisabledForSession();
+  __resetWebAudioEqForTests();
   eqState.available = false;
   eqState.reason = '';
 }
@@ -320,25 +381,8 @@ describe('playerStore integration', () => {
   // <audio> element (un-bound), rebuilds the backend, and re-triggers the
   // current track with EQ disabled for the session.
   it('swaps the <audio> element and re-triggers playback when onSuspendedFail fires on a bound element', async () => {
-    // Mock AudioContext: graph builds successfully (createMediaElementSource
-    // returns a source node). ctx starts 'running' so song 1's resume() is a
-    // no-op. We'll flip it to 'suspended' + rejecting resume for song 2.
-    const sourceNode = { connect: vi.fn(() => sourceNode) };
-    const mockCtx: any = {
-      state: 'running',
-      destination: { connect: vi.fn() },
-      resume: vi.fn(async () => { mockCtx.state = 'running'; }),
-      close: vi.fn(async () => { mockCtx.state = 'closed'; }),
-      createMediaElementSource: vi.fn(() => sourceNode),
-      createBiquadFilter: vi.fn(() => ({
-        connect: vi.fn(() => ({})),
-        type: '', frequency: { value: 0 }, Q: { value: 0 }, gain: { value: 0 },
-      })),
-      createGain: vi.fn(() => ({ connect: vi.fn(() => ({})), gain: { value: 0 } })),
-    };
-    // Re-stub AudioContext (the file stubs it as undefined at top). The
-    // webAudioEq factory reads window.AudioContext lazily on each init().
-    vi.stubGlobal('AudioContext', function () { return mockCtx; });
+    const { mockCtx, captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
 
     initPlayer();
     initPlayerBackend();
@@ -360,10 +404,11 @@ describe('playerStore integration', () => {
       return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/1' } });
     });
 
-    // Song 1: plays fine. Graph builds, element bound, ctx running.
+    // Song 1: plays fine. Graph builds, captureStream attach, ctx running.
     await playTrack(t1);
-    expect(mockCtx.createMediaElementSource, 'song 1 must bind the element').toHaveBeenCalledTimes(1);
-    expect(eqState.available, 'EQ available after song 1').toBe(true);
+    await vi.waitFor(() => expect(eqState.available).toBe(true));
+    expect(captureStream, 'song 1 must attach via captureStream').toHaveBeenCalled();
+    expect(mockCtx.createMediaStreamSource).toHaveBeenCalled();
     const audioAfterSong1 = playerStore.audio;
 
     // Simulate the auto-advance condition: ctx suspends, resume rejects (no
@@ -374,7 +419,7 @@ describe('playerStore integration', () => {
       throw new Error('NotAllowedError: no user gesture');
     });
 
-    // Song 2: playUrl → setPreparedSource → initEq (no-op, ctx guard) →
+    // Song 2: playUrl → setPreparedSource → initEq (re-attach) →
     // audio.play() resolves. In a real browser, audio.play() fires a 'play'
     // event → resumeAudioContext() → resume() rejects → onSuspendedFail on
     // the bound element → SWAP. jsdom's play() is a stub that doesn't fire
@@ -396,10 +441,9 @@ describe('playerStore integration', () => {
     expect(eqState.available, 'EQ must be unavailable after the swap').toBe(false);
     expect(eqState.reason, 'degradation reason must be set').toBeTruthy();
 
-    // The fresh element must NOT have a new MediaElementSourceNode bound —
-    // createMediaElementSource must not be called again after the swap.
-    const cmesCallsAfter = mockCtx.createMediaElementSource.mock.calls.length;
-    // Trigger a third "track" to verify the fresh element skips graph building.
+    // The fresh element must NOT get a new captureStream attach after swap —
+    // eqDisabledForSession skips attach on subsequent tracks.
+    const streamCallsAfter = captureStream.mock.calls.length;
     const t3 = mkTrack('song3'); t3.Image = 'http://img/';
     playerStore.queue.push(t3);
     mockInvoke.mockImplementation(async (cmd: string) => {
@@ -408,7 +452,7 @@ describe('playerStore integration', () => {
       return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/2' } });
     });
     await playTrack(t3);
-    expect(mockCtx.createMediaElementSource.mock.calls.length, 'third track must NOT re-bind the fresh element (eqDisabledForSession)').toBe(cmesCallsAfter);
+    expect(captureStream.mock.calls.length, 'third track must NOT re-attach (eqDisabledForSession)').toBe(streamCallsAfter);
 
     HTMLAudioElement.prototype.play = realPlay;
   });
@@ -426,21 +470,8 @@ describe('playerStore integration', () => {
   // does NOT close the WebAudio context (ctx stays set, guard holds, no
   // re-bind of the element).
   it('does NOT close the WebAudio context on a second playTrack (zombie teardown only fires on HMR)', async () => {
-    const sourceNode = { connect: vi.fn(() => sourceNode) };
-    let closeCalls = 0;
-    const mockCtx: any = {
-      state: 'running',
-      destination: { connect: vi.fn() },
-      resume: vi.fn(async () => { mockCtx.state = 'running'; }),
-      close: vi.fn(async () => { closeCalls++; mockCtx.state = 'closed'; }),
-      createMediaElementSource: vi.fn(() => sourceNode),
-      createBiquadFilter: vi.fn(() => ({
-        connect: vi.fn(() => ({})),
-        type: '', frequency: { value: 0 }, Q: { value: 0 }, gain: { value: 0 },
-      })),
-      createGain: vi.fn(() => ({ connect: vi.fn(() => ({})), gain: { value: 0 } })),
-    };
-    vi.stubGlobal('AudioContext', function () { return mockCtx; });
+    const { mockCtx, getCloseCalls } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
 
     initPlayer();
     initPlayerBackend();
@@ -458,21 +489,21 @@ describe('playerStore integration', () => {
       return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://127.0.0.1:17631/audio/1' } });
     });
 
-    // Song 1: builds graph, binds element. createMediaElementSource called once.
+    // Song 1: builds worklet graph once, attach via captureStream.
     await playTrack(t1);
-    expect(mockCtx.createMediaElementSource).toHaveBeenCalledTimes(1);
-    const cmesAfterSong1 = mockCtx.createMediaElementSource.mock.calls.length;
-    expect(closeCalls, 'song 1 must not have closed the context').toBe(0);
+    await vi.waitFor(() => expect(eqState.available).toBe(true));
+    expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
+    expect(getCloseCalls(), 'song 1 must not have closed the context').toBe(0);
 
     // Song 2: playTrack → initPlayer. WITHOUT the fix, the zombie teardown
     // would fire here (g.__bottlemusic_audio__ is set), close the context,
-    // null webAudioEq.ctx, and init() would re-call createMediaElementSource
-    // → InvalidStateError. WITH the fix, the teardown does NOT fire (because
-    // playerStore.audio is set), so the guard holds and init() is a no-op.
+    // and break the long-lived worklet graph. WITH the fix, the teardown does
+    // NOT fire (because playerStore.audio is set), so the graph stays alive
+    // and re-attaches via captureStream (no InvalidStateError).
     await playTrack(t2);
 
-    expect(closeCalls, 'song 2 must NOT close the WebAudio context (zombie teardown must not fire)').toBe(0);
-    expect(mockCtx.createMediaElementSource.mock.calls.length, 'song 2 must NOT re-call createMediaElementSource (guard holds)').toBe(cmesAfterSong1);
+    expect(getCloseCalls(), 'song 2 must NOT close the WebAudio context (zombie teardown must not fire)').toBe(0);
+    expect(mockCtx.audioWorklet.addModule, 'worklet graph must be built only once').toHaveBeenCalledTimes(1);
     expect(eqState.available, 'EQ must still be available after song 2').toBe(true);
 
     HTMLAudioElement.prototype.play = realPlay;
