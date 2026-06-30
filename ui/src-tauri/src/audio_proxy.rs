@@ -35,6 +35,7 @@ struct RouteEntry {
 
 const ROUTE_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_ROUTES: usize = 128;
+const BODY_RETRY_LIMIT: usize = 2;
 
 impl AudioProxyState {
     pub fn new(port: u16) -> Self {
@@ -180,10 +181,10 @@ async fn handle_client(mut stream: TcpStream, state: AudioProxyState) -> Result<
 
     let client = reqwest::Client::new();
     let mut req = client
-        .get(upstream_url)
+        .get(upstream_url.clone())
         .header(USER_AGENT, "BottleMusic/1.0 audio proxy")
         .header(ACCEPT, "audio/*,*/*");
-    if let Some(range) = range {
+    if let Some(ref range) = range {
         req = req.header(RANGE, range);
     }
 
@@ -192,6 +193,8 @@ async fn handle_client(mut stream: TcpStream, state: AudioProxyState) -> Result<
             &route_id,
             upstream_host.as_deref(),
             None,
+            "upstream_request",
+            0,
             format!("upstream request failed: {e}"),
         )
     })?;
@@ -225,35 +228,184 @@ async fn handle_client(mut stream: TcpStream, state: AudioProxyState) -> Result<
     }
 
     response.push_str("\r\n");
-    stream
-        .write_all(response.as_bytes())
-        .await
-        .map_err(|e| {
-            proxy_error(
-                &route_id,
-                upstream_host.as_deref(),
-                Some(upstream_status),
-                format!("client write failed (response headers): {e}"),
-            )
-        })?;
+    stream.write_all(response.as_bytes()).await.map_err(|e| {
+        proxy_error(
+            &route_id,
+            upstream_host.as_deref(),
+            Some(upstream_status),
+            "response_headers",
+            0,
+            format!("client write failed (response headers): {e}"),
+        )
+    })?;
+    let resume_plan = ResumePlan::from_headers(range.as_deref(), upstream_status, &headers);
     let mut body = upstream.bytes_stream();
-    while let Some(chunk) = body.next().await {
-        let chunk = chunk.map_err(|e| {
-            proxy_error(
-                &route_id,
-                upstream_host.as_deref(),
-                Some(upstream_status),
-                format!("upstream body read failed: {e}"),
-            )
-        })?;
-        stream.write_all(&chunk).await.map_err(|e| {
-            proxy_error(
-                &route_id,
-                upstream_host.as_deref(),
-                Some(upstream_status),
-                format!("client write failed (body chunk): {e}"),
-            )
-        })?;
+    let mut forwarded_bytes = 0u64;
+    let mut retry_count = 0usize;
+    'streaming: loop {
+        while let Some(chunk) = body.next().await {
+            let chunk = match chunk {
+                Ok(chunk) => chunk,
+                Err(e) => {
+                    let Some(plan) = resume_plan else {
+                        return Err(proxy_error(
+                            &route_id,
+                            upstream_host.as_deref(),
+                            Some(upstream_status),
+                            "upstream_body",
+                            forwarded_bytes,
+                            format!("upstream body read failed: {e}"),
+                        ));
+                    };
+
+                    let Some(retry_range) = plan.retry_range(forwarded_bytes) else {
+                        return Err(proxy_error(
+                            &route_id,
+                            upstream_host.as_deref(),
+                            Some(upstream_status),
+                            "upstream_body",
+                            forwarded_bytes,
+                            format!("upstream body read failed after complete body: {e}"),
+                        ));
+                    };
+
+                    if retry_count >= BODY_RETRY_LIMIT {
+                        return Err(proxy_error(
+                            &route_id,
+                            upstream_host.as_deref(),
+                            Some(upstream_status),
+                            "upstream_body",
+                            forwarded_bytes,
+                            format!("upstream body read failed after retries: {e}"),
+                        ));
+                    }
+
+                    retry_count += 1;
+                    let retry_start = plan.body_start + forwarded_bytes;
+                    let retry = client
+                        .get(upstream_url.clone())
+                        .header(USER_AGENT, "BottleMusic/1.0 audio proxy")
+                        .header(ACCEPT, "audio/*,*/*")
+                        .header(RANGE, retry_range)
+                        .send()
+                        .await
+                        .map_err(|retry_err| {
+                            proxy_error(
+                                &route_id,
+                                upstream_host.as_deref(),
+                                None,
+                                "upstream_retry_request",
+                                forwarded_bytes,
+                                format!(
+                                    "upstream body read failed: {e}; retry request failed: {retry_err}"
+                                ),
+                            )
+                        })?;
+                    validate_retry_response(&retry, retry_start).map_err(|retry_err| {
+                        proxy_error(
+                            &route_id,
+                            upstream_host.as_deref(),
+                            Some(retry.status().as_u16()),
+                            "upstream_retry_response",
+                            forwarded_bytes,
+                            retry_err,
+                        )
+                    })?;
+                    body = retry.bytes_stream();
+                    continue 'streaming;
+                }
+            };
+            stream.write_all(&chunk).await.map_err(|e| {
+                proxy_error(
+                    &route_id,
+                    upstream_host.as_deref(),
+                    Some(upstream_status),
+                    "client_body",
+                    forwarded_bytes,
+                    format!("client write failed (body chunk): {e}"),
+                )
+            })?;
+            forwarded_bytes += chunk.len() as u64;
+        }
+        break;
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy)]
+struct ResumePlan {
+    body_start: u64,
+    body_end: u64,
+    expected_len: u64,
+}
+
+impl ResumePlan {
+    fn from_headers(
+        request_range: Option<&str>,
+        status: u16,
+        headers: &reqwest::header::HeaderMap,
+    ) -> Option<Self> {
+        if status != 200 && status != 206 {
+            return None;
+        }
+        let expected_len = headers
+            .get(CONTENT_LENGTH)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.parse::<u64>().ok())?;
+        if expected_len == 0 {
+            return None;
+        }
+
+        let (body_start, body_end) = headers
+            .get(CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_content_range_bounds)
+            .unwrap_or_else(|| {
+                let start = request_range.and_then(parse_range_start).unwrap_or(0);
+                (start, start + expected_len - 1)
+            });
+
+        Some(Self {
+            body_start,
+            body_end,
+            expected_len,
+        })
+    }
+
+    fn retry_range(&self, forwarded_bytes: u64) -> Option<String> {
+        if forwarded_bytes >= self.expected_len {
+            return None;
+        }
+        let start = self.body_start.checked_add(forwarded_bytes)?;
+        if start > self.body_end {
+            return None;
+        }
+        Some(format!("bytes={}-{}", start, self.body_end))
+    }
+}
+
+fn validate_retry_response(
+    response: &reqwest::Response,
+    expected_start: u64,
+) -> Result<(), String> {
+    if response.status().as_u16() != 206 {
+        return Err(format!(
+            "retry returned non-partial status {}",
+            response.status().as_u16()
+        ));
+    }
+    let Some((actual_start, _)) = response
+        .headers()
+        .get(CONTENT_RANGE)
+        .and_then(|v| v.to_str().ok())
+        .and_then(parse_content_range_bounds)
+    else {
+        return Err("retry response missing valid Content-Range".to_string());
+    };
+    if actual_start != expected_start {
+        return Err(format!(
+            "retry Content-Range started at {actual_start}, expected {expected_start}"
+        ));
     }
     Ok(())
 }
@@ -301,7 +453,7 @@ async fn write_text_response(
     let mut response = format!("HTTP/1.1 {} {}\r\n", status, status_reason(status));
     append_cors_headers(&mut response, origin);
     response.push_str("Content-Type: text/plain; charset=utf-8\r\n");
-    response.push_str(&format!("Content-Length: {}\r\n", body.as_bytes().len()));
+    response.push_str(&format!("Content-Length: {}\r\n", body.len()));
     response.push_str("Connection: close\r\n\r\n");
     response.push_str(body);
     stream
@@ -366,6 +518,20 @@ fn header_value(request: &str, header: &str) -> Option<String> {
     })
 }
 
+fn parse_range_start(range: &str) -> Option<u64> {
+    let range = range.trim();
+    let rest = range.strip_prefix("bytes=")?;
+    let (start, _) = rest.split_once('-')?;
+    start.parse::<u64>().ok()
+}
+
+fn parse_content_range_bounds(content_range: &str) -> Option<(u64, u64)> {
+    let rest = content_range.trim().strip_prefix("bytes ")?;
+    let (range, _) = rest.split_once('/')?;
+    let (start, end) = range.split_once('-')?;
+    Some((start.parse::<u64>().ok()?, end.parse::<u64>().ok()?))
+}
+
 fn prune_routes(routes: &mut HashMap<String, RouteEntry>) {
     let now = Instant::now();
     routes.retain(|_, route| now.duration_since(route.created_at) <= ROUTE_TTL);
@@ -398,15 +564,19 @@ fn proxy_error(
     route_id: &str,
     upstream_host: Option<&str>,
     upstream_status: Option<u16>,
+    phase: &str,
+    forwarded_bytes: u64,
     detail: String,
 ) -> String {
     format!(
-        "route={} upstream={} status={}: {}",
+        "route={} upstream={} status={} phase={} bytes={}: {}",
         route_id,
         upstream_host.unwrap_or("?"),
         upstream_status
             .map(|status| status.to_string())
             .unwrap_or_else(|| "?".into()),
+        phase,
+        forwarded_bytes,
         detail
     )
 }
@@ -543,11 +713,8 @@ mod tests {
             "https://tauri.localhost",
             "http://localhost:1420",
         ] {
-            let request = format!(
-                "OPTIONS /audio/route HTTP/1.1\r\nOrigin: {origin}\r\n\r\n"
-            );
-            let response =
-                send_one_proxy_request(AudioProxyState::new(12345), &request).await;
+            let request = format!("OPTIONS /audio/route HTTP/1.1\r\nOrigin: {origin}\r\n\r\n");
+            let response = send_one_proxy_request(AudioProxyState::new(12345), &request).await;
 
             assert!(
                 response.contains(&format!("Access-Control-Allow-Origin: {origin}\r\n")),
@@ -631,6 +798,138 @@ mod tests {
         let response = String::from_utf8_lossy(&collected);
         assert!(response.contains("hello"), "response so far: {response:?}");
         proxy_task.await.unwrap();
+        upstream_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn upstream_body_errors_report_phase_and_forwarded_byte_count() {
+        let upstream = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let upstream_addr = upstream.local_addr().unwrap();
+        let upstream_task = tokio::spawn(async move {
+            let (mut stream, _) = upstream.accept().await.unwrap();
+            let mut request = [0u8; 1024];
+            let _ = stream.read(&mut request).await.unwrap();
+            stream
+                .write_all(
+                    b"HTTP/1.1 200 OK\r\nContent-Type: audio/mpeg\r\nTransfer-Encoding: chunked\r\n\r\n5\r\nhello\r\nZ\r\n",
+                )
+                .await
+                .unwrap();
+        });
+
+        let state = AudioProxyState::new(12345);
+        state.inner.routes.lock().unwrap().insert(
+            "stream".to_string(),
+            RouteEntry {
+                url: format!("http://{}/song.mp3", upstream_addr),
+                created_at: Instant::now(),
+            },
+        );
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let proxy_addr = listener.local_addr().unwrap();
+        let proxy_task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_client(stream, state).await
+        });
+
+        let mut client = TcpStream::connect(proxy_addr).await.unwrap();
+        client
+            .write_all(b"GET /audio/stream HTTP/1.1\r\nOrigin: http://localhost:1420\r\n\r\n")
+            .await
+            .unwrap();
+        client.shutdown().await.unwrap();
+
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).await.unwrap();
+
+        let err = proxy_task
+            .await
+            .unwrap()
+            .expect_err("truncated upstream body should fail");
+        assert!(err.contains("route=stream"), "{err}");
+        assert!(err.contains("upstream=127.0.0.1"), "{err}");
+        assert!(err.contains("status=200"), "{err}");
+        assert!(err.contains("phase=upstream_body"), "{err}");
+        assert!(err.contains("bytes=5"), "{err}");
+
+        upstream_task.await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn upstream_body_error_resumes_partial_content_from_failed_offset() {
+        let upstream = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let upstream_addr = upstream.local_addr().unwrap();
+        let upstream_task = tokio::spawn(async move {
+            let (mut first, _) = upstream.accept().await.unwrap();
+            let mut first_request = [0u8; 1024];
+            let _ = first.read(&mut first_request).await.unwrap();
+            first
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Type: audio/mpeg\r\nContent-Length: 10\r\nContent-Range: bytes 100-109/200\r\nAccept-Ranges: bytes\r\n\r\nabcde",
+                )
+                .await
+                .unwrap();
+            drop(first);
+
+            let (mut second, _) = upstream.accept().await.unwrap();
+            let mut second_request = Vec::new();
+            let mut buf = [0u8; 256];
+            loop {
+                let n = second.read(&mut buf).await.unwrap();
+                if n == 0 {
+                    break;
+                }
+                second_request.extend_from_slice(&buf[..n]);
+                if second_request.windows(4).any(|w| w == b"\r\n\r\n") {
+                    break;
+                }
+            }
+            let second_request = String::from_utf8_lossy(&second_request);
+            let second_request_lower = second_request.to_ascii_lowercase();
+            assert!(
+                second_request_lower.contains("range: bytes=105-109\r\n"),
+                "retry request should resume at failed offset, got: {second_request:?}"
+            );
+            second
+                .write_all(
+                    b"HTTP/1.1 206 Partial Content\r\nContent-Type: audio/mpeg\r\nContent-Length: 5\r\nContent-Range: bytes 105-109/200\r\nAccept-Ranges: bytes\r\n\r\nfghij",
+                )
+                .await
+                .unwrap();
+        });
+
+        let state = AudioProxyState::new(12345);
+        state.inner.routes.lock().unwrap().insert(
+            "stream".to_string(),
+            RouteEntry {
+                url: format!("http://{}/song.mp3", upstream_addr),
+                created_at: Instant::now(),
+            },
+        );
+
+        let listener = TcpListener::bind(("127.0.0.1", 0)).await.unwrap();
+        let proxy_addr = listener.local_addr().unwrap();
+        let proxy_task = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            handle_client(stream, state).await
+        });
+
+        let mut client = TcpStream::connect(proxy_addr).await.unwrap();
+        client
+            .write_all(b"GET /audio/stream HTTP/1.1\r\nOrigin: http://localhost:1420\r\nRange: bytes=100-109\r\n\r\n")
+            .await
+            .unwrap();
+        client.shutdown().await.unwrap();
+
+        let mut response = Vec::new();
+        client.read_to_end(&mut response).await.unwrap();
+        let response = String::from_utf8_lossy(&response);
+        assert!(response.contains("\r\n\r\nabcdefghij"), "{response:?}");
+        proxy_task
+            .await
+            .unwrap()
+            .expect("proxy should resume and complete the response body");
         upstream_task.await.unwrap();
     }
 
