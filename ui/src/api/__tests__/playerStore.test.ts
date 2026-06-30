@@ -22,6 +22,7 @@ import {
   attachWebAudioEqSource,
   disconnectWebAudioEqSource,
   setWebAudioEqVolume,
+  setWebAudioEqEnabled,
   setVolume,
   resumeAudioContext,
   __getActiveBackend,
@@ -38,6 +39,7 @@ function mkTrack(hash: string, name = hash): Track {
 
 /** Mock AudioContext + captureStream for Phase 2/3 worklet EQ in integration tests. */
 function setupWorkletEqMocks() {
+  playerStore.eqEnabled = true;
   const workletNode = {
     connect: vi.fn((n: unknown) => n),
     disconnect: vi.fn(),
@@ -138,6 +140,7 @@ function resetStore() {
   // Clear the zombie-audio sentinel so initPlayer() doesn't run its teardown
   // path (which nulls activeBackend) and skip re-creating the backend.
   (window as any).__bottlemusic_audio__ = undefined;
+  (window as any).__bottlemusic_player_cleanup__ = undefined;
   __resetWebAudioEqForTests();
   eqState.available = false;
   eqState.reason = '';
@@ -528,6 +531,114 @@ describe('playerStore integration', () => {
     expect(playerStore.volume).toBe(0.42);
   });
 
+  it('turning EQ OFF during playback restores direct HTML5 output and releases the captured stream', async () => {
+    const { allStreams } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+    playerStore.volume = 0.57;
+
+    const audio = playerStore.audio!;
+    await attachWebAudioEqSource(audio, true);
+    const streamTrack = allStreams[0]!.getAudioTracks()[0]!;
+
+    setWebAudioEqEnabled(false);
+
+    expect(streamTrack.stop).toHaveBeenCalled();
+    expect(eqState.available).toBe(false);
+    expect(audio.volume).toBeCloseTo(0.57);
+  });
+
+  it('turning EQ back ON during playback reattaches the same safe audio source', async () => {
+    const { allStreams, captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+    const audio = playerStore.audio!;
+    audio.src = 'http://127.0.0.1:17631/audio/eq-live';
+    await attachWebAudioEqSource(audio, true);
+    const firstTrack = allStreams[0]!.getAudioTracks()[0]!;
+
+    setWebAudioEqEnabled(false);
+    expect(firstTrack.stop).toHaveBeenCalled();
+    expect(eqState.available).toBe(false);
+
+    setWebAudioEqEnabled(true);
+
+    await vi.waitFor(() => expect(captureStream).toHaveBeenCalledTimes(2));
+    expect(eqState.available).toBe(true);
+    expect(allStreams[1]!.getAudioTracks()[0]!.stop).not.toHaveBeenCalled();
+  });
+
+  it('does not reuse a stale safe EQ source marker after switching to a direct fallback while EQ is off', async () => {
+    const { captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initPlayerBackend();
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const safeTrack = mkTrack('safe-eq'); safeTrack.Image = 'http://img/';
+    const directTrack = mkTrack('direct-eq'); directTrack.Image = 'http://img/';
+    let proxyShouldFail = false;
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') {
+        if (proxyShouldFail) throw new Error('proxy down');
+        return 'http://127.0.0.1:17631/audio/safe-eq';
+      }
+      if (cmd === 'stats_record_play') return '';
+      const url = proxyShouldFail
+        ? 'https://fs.wbpz.kugou.com/direct.mp3'
+        : 'https://fs.wbpz.kugou.com/safe.mp3';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url } });
+    });
+
+    try {
+      await playTrack(safeTrack);
+      await vi.waitFor(() => expect(captureStream).toHaveBeenCalledTimes(1));
+
+      playerStore.eqEnabled = false;
+      setWebAudioEqEnabled(false);
+      proxyShouldFail = true;
+      await playTrack(directTrack);
+
+      playerStore.eqEnabled = true;
+      setWebAudioEqEnabled(true);
+      await new Promise((resolve) => setTimeout(resolve, 20));
+
+      expect(captureStream, 'direct fallback must not be rerouted from a stale safe marker')
+        .toHaveBeenCalledTimes(1);
+      expect(eqState.available).toBe(false);
+    } finally {
+      HTMLAudioElement.prototype.play = realPlay;
+    }
+  });
+
+  it('does not reroute a direct source when a previous safe EQ marker is stale', async () => {
+    const { captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    initPlayer();
+    initWebAudioEQ();
+    const audio = playerStore.audio!;
+    audio.src = 'http://127.0.0.1:17631/audio/safe-before-direct';
+    await attachWebAudioEqSource(audio, true);
+    expect(captureStream).toHaveBeenCalledTimes(1);
+
+    setWebAudioEqEnabled(false);
+    audio.src = 'https://fs.wbpz.kugou.com/direct-after-safe.mp3';
+
+    setWebAudioEqEnabled(true);
+    await new Promise((resolve) => setTimeout(resolve, 20));
+
+    expect(captureStream, 'a stale safe marker must not reroute a direct CDN source')
+      .toHaveBeenCalledTimes(1);
+    expect(eqState.available).toBe(false);
+  });
+
   // ── P2.4: resumeAudioContext failure enters degradation when rerouted ──
   it('P2.4: resumeAudioContext reject while rerouted enters degradation', async () => {
     const { mockCtx, sourceNodes } = setupWorkletEqMocks();
@@ -667,6 +778,36 @@ describe('playerStore integration', () => {
     HTMLAudioElement.prototype.play = realPlay;
   });
 
+  it('keeps EQ OFF on the direct CDN path without registering the local audio proxy', async () => {
+    const { captureStream } = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+
+    playerStore.eqEnabled = false;
+    playerStore.volume = 0.64;
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') throw new Error('EQ off must not register proxy routes');
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'https://fs.wbpz.kugou.com/song.mp3' } });
+    });
+
+    const track = mkTrack('eq-off-direct'); track.Image = 'http://img/';
+    await playTrack(track);
+
+    expect(captureStream, 'EQ OFF should not reroute audio through AudioWorklet').not.toHaveBeenCalled();
+    expect(mockInvoke.mock.calls.some((c) => c[0] === 'audio_proxy_url')).toBe(false);
+    expect(eqState.available).toBe(false);
+    expect(playerStore.audio!.volume).toBeCloseTo(0.64);
+    expect(playerStore.audio!.src).toContain('https://fs.wbpz.kugou.com/song.mp3');
+
+    HTMLAudioElement.prototype.play = realPlay;
+  });
+
   // ── 10-track attachSource regression (spec §7.2 / §10.1) ──
   it('10 consecutive tracks attach distinct streams without graph rebuild or leaks', async () => {
     const { mockCtx, workletNode, sourceNodes, allStreams, captureStream } = setupWorkletEqMocks();
@@ -749,6 +890,47 @@ describe('playerStore integration', () => {
     expect(eqState.available, 'EQ must still be available after song 2').toBe(true);
 
     HTMLAudioElement.prototype.play = realPlay;
+  });
+
+  it('reuses the existing audio element across HMR without unloading the current source', () => {
+    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    oldAudio.src = 'http://127.0.0.1:17631/audio/hmr-live';
+    Object.defineProperty(oldAudio, 'duration', { value: 227, configurable: true });
+    Object.defineProperty(oldAudio, 'currentTime', { value: 42, writable: true, configurable: true });
+    const pauseSpy = vi.spyOn(oldAudio, 'pause').mockImplementation(() => {});
+    const loadSpy = vi.spyOn(oldAudio, 'load').mockImplementation(() => {});
+    const removeAttrSpy = vi.spyOn(oldAudio, 'removeAttribute');
+
+    (window as any).__bottlemusic_audio__ = oldAudio;
+    (playerStore as any).audio = null;
+    playerStore.currentTime = 0;
+    playerStore.duration = 0;
+
+    initPlayer();
+
+    expect(playerStore.audio).toBe(oldAudio);
+    expect(playerStore.audio!.src).toContain('/audio/hmr-live');
+    expect(playerStore.currentTime).toBe(42);
+    expect(playerStore.duration).toBe(227);
+    expect(pauseSpy).not.toHaveBeenCalled();
+    expect(loadSpy).not.toHaveBeenCalled();
+    expect(removeAttrSpy).not.toHaveBeenCalledWith('src');
+  });
+
+  it('syncs playing state from a reused audio element after HMR', () => {
+    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    oldAudio.src = 'http://127.0.0.1:17631/audio/hmr-playing';
+    Object.defineProperty(oldAudio, 'paused', { value: false, configurable: true });
+    Object.defineProperty(oldAudio, 'ended', { value: false, configurable: true });
+
+    (window as any).__bottlemusic_audio__ = oldAudio;
+    (playerStore as any).audio = null;
+    playerStore.isPlaying = false;
+
+    initPlayer();
+
+    expect(playerStore.audio).toBe(oldAudio);
+    expect(playerStore.isPlaying).toBe(true);
   });
 
   // ── Phase 4: retryEq failure count (spec §6.3) ──
