@@ -131,7 +131,15 @@ export class Html5AudioBackend implements PlayerBackend {
       play: () => cb({ type: 'state', state: 'playing' }),
       pause: () => cb({ type: 'state', state: 'paused' }),
       ended: () => cb({ type: 'ended' }),
-      error: () => cb({ type: 'error', error: 'playback failed' }),
+      error: () => {
+        const details = this.getMediaEventDetails('error');
+        console.warn('Html5AudioBackend media event:', details);
+        cb({ type: 'error', error: this.formatMediaEventDetails(details) });
+      },
+      waiting: () => this.warnMediaEvent('waiting'),
+      stalled: () => this.warnMediaEvent('stalled'),
+      suspend: () => this.warnMediaEvent('suspend'),
+      abort: () => this.warnMediaEvent('abort'),
     };
     for (const [evt, h] of Object.entries(handlers)) {
       this.audio.addEventListener(evt, h);
@@ -163,6 +171,43 @@ export class Html5AudioBackend implements PlayerBackend {
   private shouldAttachEq(attachSeq: number | undefined): boolean {
     if (attachSeq === undefined) return true;
     return this.options.isAttachTransitionCurrent?.(attachSeq) ?? false;
+  }
+
+  private warnMediaEvent(event: string): void {
+    console.warn('Html5AudioBackend media event:', this.getMediaEventDetails(event));
+  }
+
+  private getMediaEventDetails(event: string) {
+    return {
+      event,
+      readyState: this.audio.readyState,
+      networkState: this.audio.networkState,
+      currentTime: this.audio.currentTime,
+      duration: this.audio.duration,
+      paused: this.audio.paused,
+      ended: this.audio.ended,
+      src: this.audio.currentSrc || this.audio.src || this.audio.getAttribute('src') || '',
+      mediaError: this.audio.error
+        ? { code: this.audio.error.code, message: this.audio.error.message }
+        : null,
+    };
+  }
+
+  private formatMediaEventDetails(details: ReturnType<Html5AudioBackend['getMediaEventDetails']>): string {
+    const mediaError = details.mediaError
+      ? `${details.mediaError.code}: ${details.mediaError.message || 'unknown'}`
+      : 'none';
+    return [
+      `HTML5 media ${details.event}`,
+      `readyState=${details.readyState}`,
+      `networkState=${details.networkState}`,
+      `currentTime=${details.currentTime}`,
+      `duration=${details.duration}`,
+      `paused=${details.paused}`,
+      `ended=${details.ended}`,
+      `src=${details.src || '(empty)'}`,
+      `mediaError=${mediaError}`,
+    ].join('; ');
   }
 
   private async setPreparedSource(url: string): Promise<void> {

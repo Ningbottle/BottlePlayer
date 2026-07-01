@@ -488,6 +488,9 @@ fn is_supported_audio_url(url: &str) -> bool {
 }
 
 fn is_allowed_kugou_cdn_host(host: &str) -> bool {
+    if host == "imge.kugou.com" {
+        return true;
+    }
     let Some(rest) = host.strip_prefix("fs.") else {
         return false;
     };
@@ -595,6 +598,8 @@ mod tests {
     fn supported_audio_url_allows_only_kugou_file_cdn_hosts() {
         assert!(is_supported_audio_url("https://fs.wbpz.kugou.com/song.mp3"));
         assert!(is_supported_audio_url("http://fs.ab12.kugou.com/song.mp3"));
+        assert!(is_supported_audio_url("https://imge.kugou.com/song.mp3"));
+        assert!(!is_supported_audio_url("https://imge.kugou.com.evil.com/song.mp3"));
         assert!(!is_supported_audio_url("file:///tmp/song.mp3"));
         assert!(!is_supported_audio_url("https://cdn.example/song.mp3"));
         assert!(!is_supported_audio_url("https://127.0.0.1/song.mp3"));

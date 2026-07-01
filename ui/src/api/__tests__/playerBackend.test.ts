@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { NativePlaybackBackend } from '../nativeBackend';
 import { Html5AudioBackend } from '../html5Backend';
 
@@ -78,6 +78,8 @@ describe('NativePlaybackBackend', () => {
 });
 
 describe('Html5AudioBackend', () => {
+  afterEach(() => { vi.restoreAllMocks(); });
+
   it('playUrl triggers audio.play()', async () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
     audio.play = vi.fn().mockResolvedValue(undefined);
@@ -86,6 +88,47 @@ describe('Html5AudioBackend', () => {
     expect(ok).toBe(true);
     expect(audio.play).toHaveBeenCalled();
     expect(audio.src).toBe('https://example.com/song.mp3');
+  });
+
+  it('reports HTML5 media event diagnostics for error and stall-like events', () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    Object.defineProperty(audio, 'readyState', { value: 3, configurable: true });
+    Object.defineProperty(audio, 'networkState', { value: 2, configurable: true });
+    Object.defineProperty(audio, 'error', {
+      value: { code: 3, message: 'decode failed' },
+      configurable: true,
+    });
+    audio.src = 'https://example.com/song.mp3';
+    audio.currentTime = 12;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const backend = new Html5AudioBackend(audio);
+    const events: Array<{ type: string; error?: string }> = [];
+
+    const unsubscribe = backend.onEvent((event) => events.push(event));
+    audio.dispatchEvent(new Event('error'));
+    audio.dispatchEvent(new Event('waiting'));
+    unsubscribe();
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        type: 'error',
+        error: expect.stringContaining('HTML5 media error'),
+      }),
+    ]);
+    expect(events[0].error).toEqual(expect.stringContaining('readyState=3'));
+    expect(events[0].error).toEqual(expect.stringContaining('networkState=2'));
+    expect(events[0].error).toEqual(expect.stringContaining('mediaError=3: decode failed'));
+    expect(warnSpy).toHaveBeenCalledWith(
+      'Html5AudioBackend media event:',
+      expect.objectContaining({
+        event: 'waiting',
+        readyState: 3,
+        networkState: 2,
+        currentTime: 12,
+        src: 'https://example.com/song.mp3',
+        mediaError: { code: 3, message: 'decode failed' },
+      }),
+    );
   });
 
   it('playUrl uses prepared CORS-safe sources and initializes WebAudio EQ after play()', async () => {

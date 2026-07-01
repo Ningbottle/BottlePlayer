@@ -108,8 +108,33 @@ interface PlayerState {
   activePreset: string;
 }
 
+type BottleMusicAudioGlobal = Window & {
+  __bottlemusic_audio__?: HTMLAudioElement;
+  __bottlemusic_player_cleanup__?: () => void;
+};
+
 let activeBackend: PlayerBackend | null = null;
 export let eventUnsub: (() => void) | null = null;
+let initListenerCleanup: (() => void) | null = null;
+let currentEqSafeSource = '';
+
+function audioGlobal(): BottleMusicAudioGlobal {
+  return window as unknown as BottleMusicAudioGlobal;
+}
+
+function cleanupCurrentModuleForHmr() {
+  initListenerCleanup?.();
+  initListenerCleanup = null;
+  eventUnsub?.();
+  eventUnsub = null;
+  activeBackend = null;
+  if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
+  webAudioEq.close();
+}
+
+function publishPlayerCleanup() {
+  audioGlobal().__bottlemusic_player_cleanup__ = cleanupCurrentModuleForHmr;
+}
 
 /** Test-only seam: the wired playback backend. */
 export function __getActiveBackend(): PlayerBackend | null {
@@ -163,6 +188,29 @@ const EQ_UNAVAILABLE_REASON = '当前音源直连播放，未经过本地音频�
 
 const EQ_DEGRADED_REASON = 'EQ 暂不可用，点击重试';
 
+function getAudioSource(audio: HTMLAudioElement): string {
+  return audio.getAttribute('src') || audio.currentSrc || audio.src || '';
+}
+
+function isLocalAudioProxySource(src: string): boolean {
+  if (!src) return false;
+  try {
+    const url = new URL(src, window.location.href);
+    return url.protocol === 'http:'
+      && url.hostname === '127.0.0.1'
+      && url.pathname.startsWith('/audio/');
+  } catch {
+    return false;
+  }
+}
+
+async function preparePlaybackAudioSourceUrl(url: string) {
+  if (!playerStore.eqEnabled) {
+    return { url, crossOriginSafe: false };
+  }
+  return prepareAudioSourceUrl(url);
+}
+
 function syncEqAvailabilityFromReroute() {
   eqState.available = webAudioEq.isRerouted;
   eqState.reason = eqState.available ? '' : EQ_UNAVAILABLE_REASON;
@@ -188,6 +236,7 @@ export async function attachWebAudioEqSource(
   audio: HTMLAudioElement,
   crossOriginSafe = false,
 ) {
+  currentEqSafeSource = crossOriginSafe ? getAudioSource(audio) : '';
   if (!crossOriginSafe) {
     eqState.available = false;
     eqState.reason = EQ_UNAVAILABLE_REASON;
@@ -202,6 +251,7 @@ export async function attachWebAudioEqSource(
 }
 
 export function disconnectWebAudioEqSource() {
+  currentEqSafeSource = '';
   webAudioEq.disconnectSource();
   syncEqAvailabilityFromReroute();
 }
@@ -216,6 +266,21 @@ export function setWebAudioEqBand(index: number, gainDb: number) {
 
 export function setWebAudioEqEnabled(enabled: boolean) {
   webAudioEq.setEnabled(enabled, playerStore.eqBands);
+  if (!enabled) {
+    webAudioEq.disconnectSource();
+    if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
+    syncEqAvailabilityFromReroute();
+    return;
+  }
+  const audio = playerStore.audio;
+  const source = audio ? getAudioSource(audio) : '';
+  const sourceSafe = source
+    && (source === currentEqSafeSource || isLocalAudioProxySource(source));
+  if (audio && !webAudioEq.isRerouted && sourceSafe) {
+    void attachWebAudioEqSource(audio, true);
+  } else {
+    syncEqAvailabilityFromReroute();
+  }
 }
 
 /** Resume the AudioContext after a user gesture (autoplay policy). */
@@ -248,75 +313,80 @@ export async function retryEq() {
 export function initPlayer() {
   // ── 僵尸音频防护 (Zombie Audio，见 PROJECT_LOGIC §13) ──
   // Vite HMR 热重载会重新求值本模块、生成全新的 playerStore（其 audio 为 null），
-  // 而上一个模块实例创建的 <audio> 仍在后台播放 → 多个实例重音、新代码 pause 不掉。
-  // 把元素挂到 window 上：每次重载先把上一个彻底销毁，再建新的，保证全局只有一个。
-  const g = window as unknown as { __bottlemusic_audio__?: HTMLAudioElement };
-
-  // #9 #15: tear down the previous backend/EQ/context before rebuilding, so
-  // HMR doesn't leak AudioContexts (browser cap ~6) or orphan event listeners.
-  // #16: ONLY run this teardown on a genuine HMR reload — i.e. when the module
-  // was re-evaluated (playerStore.audio is null) but a previous instance left
-  // a zombie <audio> on window. Without the `!playerStore.audio` guard this
-  // would fire on EVERY playTrack() call (since __bottlemusic_audio__ is set
-  // after the first play), closing the WebAudio context and nulling
-  // webAudioEq.ctx — which defeats init()'s `if (this.ctx) return` guard,
-  // causing the next init() to call createMediaElementSource again on the
-  // already-bound element → InvalidStateError → silent playback wedge.
-  if (g.__bottlemusic_audio__ && !playerStore.audio) {
-    try {
-      eventUnsub?.();
-      eventUnsub = null;
-      activeBackend?.shutdown().catch(() => {});
-      activeBackend = null;
-      webAudioEq.close();
-      const old = g.__bottlemusic_audio__;
-      old.pause();
-      old.removeAttribute('src');
-      old.load();
-    } catch { /* ignore */ }
-  }
+  // 而上一个模块实例创建的 <audio> 仍可能在播放。HMR 时复用同一个元素，
+  // 只清理旧模块监听/Worklet，避免把当前 src 卸掉导致暂停和 00:00。
+  const g = audioGlobal();
+  const reusableAudio = g.__bottlemusic_audio__;
 
   if (playerStore.audio) return;
 
-  if (activeBackend) {
+  let audio: HTMLAudioElement;
+  if (reusableAudio) {
     try {
-      eventUnsub?.();
-      eventUnsub = null;
-      activeBackend.shutdown().catch(() => {});
+      g.__bottlemusic_player_cleanup__?.();
     } catch { /* ignore */ }
-    activeBackend = null;
+    audio = reusableAudio;
+  } else {
+    if (activeBackend) {
+      try {
+        eventUnsub?.();
+        eventUnsub = null;
+        activeBackend.shutdown().catch(() => {});
+      } catch { /* ignore */ }
+      activeBackend = null;
+    }
+    audio = new Audio();
+    g.__bottlemusic_audio__ = audio;
   }
 
-  const audio = new Audio();
-  g.__bottlemusic_audio__ = audio;
   playerStore.audio = audio;
+  playerStore.isPlaying = !audio.paused && !audio.ended;
   audio.volume = playerStore.volume;
+  if (Number.isFinite(audio.currentTime)) {
+    playerStore.currentTime = audio.currentTime;
+  }
+  if (Number.isFinite(audio.duration) && audio.duration > 0) {
+    playerStore.duration = audio.duration;
+  }
 
   // Event ownership (#2): the backend (initPlayerBackend → onEvent) is the
   // SOLE source of play/pause/timeupdate/ended/error events. Only duration
   // metadata listeners live here (EQ-irrelevant, and the backend doesn't
   // surface them). This eliminates the double-'ended' handler that double-
   // fetched /song/url on every natural song end.
-  audio.addEventListener('durationchange', () => {
-    if (audio.duration) {
+  const onDurationChange = () => {
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
       playerStore.duration = audio.duration;
     }
-  });
+  };
 
-  audio.addEventListener('loadedmetadata', () => {
-    if (audio.duration) {
+  const onLoadedMetadata = () => {
+    if (Number.isFinite(audio.duration) && audio.duration > 0) {
       playerStore.duration = audio.duration;
     }
-  });
+  };
 
   // Resume the AudioContext on the first user-driven play (autoplay policy).
-  audio.addEventListener('play', () => {
+  const onPlay = () => {
     resumeAudioContext();
-  });
+  };
+
+  audio.addEventListener('durationchange', onDurationChange);
+  audio.addEventListener('loadedmetadata', onLoadedMetadata);
+  audio.addEventListener('play', onPlay);
+  initListenerCleanup = () => {
+    audio.removeEventListener('durationchange', onDurationChange);
+    audio.removeEventListener('loadedmetadata', onLoadedMetadata);
+    audio.removeEventListener('play', onPlay);
+  };
+  publishPlayerCleanup();
 
   // Restore previous track on init without playing
   if (playerStore.currentIndex >= 0 && playerStore.currentIndex < playerStore.queue.length) {
     playerStore.currentTrack = playerStore.queue[playerStore.currentIndex];
+    if (!playerStore.duration && playerStore.currentTrack.Duration) {
+      playerStore.duration = playerStore.currentTrack.Duration;
+    }
   }
 }
 
@@ -332,10 +402,17 @@ export async function initPlayerBackend() {
   }
   initWebAudioEQ();
   activeBackend = new Html5AudioBackend(playerStore.audio, {
-    prepareSourceUrl: prepareAudioSourceUrl,
+    prepareSourceUrl: preparePlaybackAudioSourceUrl,
     getAttachTransitionSeq: () => playbackOrchestrator.getTransitionSeq(),
     isAttachTransitionCurrent: (seq) => playbackOrchestrator.isTransitionCurrent(seq),
     initEq: (audio, crossOriginSafe) => {
+      if (!playerStore.eqEnabled) {
+        currentEqSafeSource = crossOriginSafe ? getAudioSource(audio) : '';
+        eqState.available = false;
+        eqState.reason = EQ_UNAVAILABLE_REASON;
+        audio.volume = playerStore.volume;
+        return;
+      }
       void attachWebAudioEqSource(audio, crossOriginSafe);
     },
     disconnectEq: disconnectWebAudioEqSource,
@@ -353,7 +430,9 @@ function handlePlaybackEvent(e: PlaybackEvent) {
       playerStore.currentTime = e.position;
       playSession.onTimeUpdate(e.position);
     }
-    if (typeof e.duration === 'number') playerStore.duration = e.duration;
+    if (typeof e.duration === 'number' && Number.isFinite(e.duration) && e.duration > 0) {
+      playerStore.duration = e.duration;
+    }
   } else if (e.type === 'state') {
     if (e.state === 'playing') {
       playSession.onPlay();
