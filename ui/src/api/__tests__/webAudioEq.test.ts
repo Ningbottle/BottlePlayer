@@ -35,10 +35,17 @@ interface MockSourceNode {
   _disconnectTarget?: unknown;
 }
 
+interface MockGainParam {
+  value: number;
+  cancelScheduledValues: ReturnType<typeof vi.fn>;
+  setValueAtTime: ReturnType<typeof vi.fn>;
+  linearRampToValueAtTime: ReturnType<typeof vi.fn>;
+}
+
 interface MockGainNode {
   connect: ReturnType<typeof vi.fn>;
   disconnect: ReturnType<typeof vi.fn>;
-  gain: { value: number };
+  gain: MockGainParam;
 }
 
 interface MockWorkletNode {
@@ -51,6 +58,7 @@ interface MockWorkletNode {
 
 interface MockCtx {
   state: string;
+  currentTime: number;
   destination: { connect: ReturnType<typeof vi.fn>; disconnect: ReturnType<typeof vi.fn> };
   resume: ReturnType<typeof vi.fn>;
   close: ReturnType<typeof vi.fn>;
@@ -107,10 +115,22 @@ function setupMocks(opts: { workletAddModuleRejects?: boolean } = {}) {
   const audioWorkletNodeCtorSpy = vi.fn(AudioWorkletNodeCtor);
 
   function makeMockCtx(): MockCtx {
+    const gainParam: MockGainParam = {
+      value: 1.0,
+      cancelScheduledValues: vi.fn(function (this: MockGainParam) { return this; }),
+      setValueAtTime: vi.fn(function (this: MockGainParam, v: number) {
+        this.value = v;
+        return this;
+      }),
+      linearRampToValueAtTime: vi.fn(function (this: MockGainParam, v: number) {
+        this.value = v;
+        return this;
+      }),
+    };
     const gainNode: MockGainNode = {
       connect: vi.fn((dest: unknown) => dest),
       disconnect: vi.fn(),
-      gain: { value: 1.0 },
+      gain: gainParam,
     };
     const workletNode: MockWorkletNode = {
       port: { postMessage: vi.fn(), onmessage: null, close: vi.fn() },
@@ -123,6 +143,7 @@ function setupMocks(opts: { workletAddModuleRejects?: boolean } = {}) {
     const sourceNodes: MockSourceNode[] = [];
     const ctx: MockCtx = {
       state: 'running',
+      currentTime: 0,
       destination: { connect: vi.fn(), disconnect: vi.fn() },
       resume: vi.fn(async () => { ctx.state = 'running'; }),
       close: vi.fn(async () => { ctx.state = 'closed'; }),
@@ -609,9 +630,13 @@ describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
   let mocks: ReturnType<typeof setupMocks>;
 
   beforeEach(() => {
+    vi.useFakeTimers();
     mocks = setupMocks();
   });
-  afterEach(() => mocks.teardown());
+  afterEach(() => {
+    vi.useRealTimers();
+    mocks.teardown();
+  });
 
   async function makeReroutedEq(onDegraded = vi.fn(), onRecovered = vi.fn()) {
     const ctx = mocks.makeMockCtx();
@@ -645,10 +670,25 @@ describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
     });
 
     eq.enterDegradation(audio, 0.65);
+    expect(onDegraded).not.toHaveBeenCalled();
+    expect(callOrder.indexOf('disconnect')).toBeGreaterThanOrEqual(0);
+    vi.advanceTimersByTime(50);
 
     expect(callOrder.indexOf('disconnect')).toBeLessThan(callOrder.indexOf('volume=0.65'));
     expect(onDegraded).toHaveBeenCalledTimes(1);
     expect(eq.isRerouted).toBe(false);
+  });
+
+  it('enterDegradation ramps gainNode to 0 before unmute (spec §4.4)', async () => {
+    const { eq, ctx, audio } = await makeReroutedEq();
+    eq.setVolume(0.8);
+
+    eq.enterDegradation(audio, 0.65);
+
+    const { gain } = ctx._gainNode;
+    expect(gain.cancelScheduledValues).toHaveBeenCalledWith(0);
+    expect(gain.setValueAtTime).toHaveBeenCalledWith(0.8, 0);
+    expect(gain.linearRampToValueAtTime).toHaveBeenCalledWith(0, 0.05);
   });
 
   it('enterDegradation stops all audio tracks on currentStream (spec §4.2)', async () => {
@@ -657,6 +697,7 @@ describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
     const tracks = stream._tracks;
 
     eq.enterDegradation(makeMockAudio(), 0.7);
+    vi.advanceTimersByTime(50);
 
     expect(tracks[0].stop).toHaveBeenCalled();
     expect(ctx._sourceNodes[0]!.disconnect).toHaveBeenCalledWith(ctx._workletNode);
@@ -686,5 +727,18 @@ describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
     expect(attachSpy).toHaveBeenCalledWith(audio);
     expect(onRecovered).toHaveBeenCalledTimes(1);
     attachSpy.mockRestore();
+  });
+
+  it('recoverFromDegradation ramps gainNode back to outputVolume (spec §4.4)', async () => {
+    const { eq, ctx, audio } = await makeReroutedEq();
+    eq.setVolume(0.55);
+    ctx._gainNode.gain.value = 0;
+
+    eq.recoverFromDegradation(audio);
+
+    const { gain } = ctx._gainNode;
+    expect(gain.cancelScheduledValues).toHaveBeenCalledWith(0);
+    expect(gain.setValueAtTime).toHaveBeenCalledWith(0, 0);
+    expect(gain.linearRampToValueAtTime).toHaveBeenCalledWith(0.55, 0.05);
   });
 });

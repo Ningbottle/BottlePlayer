@@ -49,12 +49,24 @@ function setupWorkletEqMocks() {
   const gainNode = {
     connect: vi.fn((n: unknown) => n),
     disconnect: vi.fn(),
-    gain: { value: 1 },
+    gain: {
+      value: 1,
+      cancelScheduledValues: vi.fn(function (this: { value: number }) { return this; }),
+      setValueAtTime: vi.fn(function (this: { value: number }, v: number) {
+        this.value = v;
+        return this;
+      }),
+      linearRampToValueAtTime: vi.fn(function (this: { value: number }, v: number) {
+        this.value = v;
+        return this;
+      }),
+    },
   };
   const sourceNodes: Array<{ disconnect: ReturnType<typeof vi.fn>; _connected: boolean }> = [];
   let closeCalls = 0;
   const mockCtx: Record<string, unknown> = {
     state: 'running',
+    currentTime: 0,
     destination: { connect: vi.fn() },
     resume: vi.fn(async () => {
       mockCtx.state = 'running';

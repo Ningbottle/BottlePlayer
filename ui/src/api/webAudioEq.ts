@@ -28,8 +28,15 @@ export interface AudioNodeLike {
   disconnect(dest?: AudioNodeLike): void;
 }
 
+export interface AudioParamLike {
+  value: number;
+  cancelScheduledValues(time: number): AudioParamLike;
+  setValueAtTime(value: number, time: number): AudioParamLike;
+  linearRampToValueAtTime(value: number, time: number): AudioParamLike;
+}
+
 export interface GainNodeLike extends AudioNodeLike {
-  gain: { value: number };
+  gain: AudioParamLike;
 }
 
 export interface AudioWorkletNodeLike extends AudioNodeLike {
@@ -38,6 +45,7 @@ export interface AudioWorkletNodeLike extends AudioNodeLike {
 
 export interface AudioContextLike extends AudioContextForWorklet {
   state: string;
+  currentTime: number;
   destination: AudioNodeLike;
   resume(): Promise<void>;
   close(): Promise<void>;
@@ -59,6 +67,8 @@ interface CapturableAudioElement extends HTMLAudioElement {
   captureStream(): MediaStream;
 }
 
+const GAIN_CROSSFADE_MS = 50;
+
 export class WebAudioEq {
   private ctx: AudioContextLike | null = null;
   private workletNode: AudioWorkletNodeLike | null = null;
@@ -74,6 +84,9 @@ export class WebAudioEq {
   private readyPromise: Promise<void> | null = null;
   private onDegradedCb?: () => void;
   private onRecoveredCb?: () => void;
+  /** Last user volume on the gainNode path (preserved across degradation). */
+  private outputVolume = 1;
+  private degradationTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(
     private readonly createCtx: AudioContextFactory,
@@ -131,6 +144,7 @@ export class WebAudioEq {
 
   /** User volume when EQ is rerouted (gainNode path). No-op when not rerouted. */
   setVolume(vol: number): void {
+    this.outputVolume = vol;
     if (!this.rerouted || !this.gainNode) return;
     this.gainNode.gain.value = vol;
   }
@@ -152,6 +166,7 @@ export class WebAudioEq {
   }
 
   close(): void {
+    this.clearDegradationTimer();
     this.disconnectSource();
     this.workletNode?.disconnect();
     this.gainNode?.disconnect();
@@ -170,8 +185,10 @@ export class WebAudioEq {
     this.readyPromise = null;
   }
 
-  /** §3.3: disconnect worklet input before unmute element (anti double-audio). */
+  /** §3.3 / §4.4: fade gainNode out, disconnect worklet input, then unmute element. */
   enterDegradation(audio: HTMLAudioElement, vol: number): void {
+    this.clearDegradationTimer();
+    this.rampGainTo(0);
     if (this.sourceNode && this.workletNode) {
       this.sourceNode.disconnect(this.workletNode);
     }
@@ -180,15 +197,20 @@ export class WebAudioEq {
       this.currentStream = null;
     }
     this.sourceNode = null;
-    audio.volume = vol;
     this.rerouted = false;
-    this.onDegradedCb?.();
+    this.degradationTimer = setTimeout(() => {
+      this.degradationTimer = null;
+      audio.volume = vol;
+      this.onDegradedCb?.();
+    }, GAIN_CROSSFADE_MS);
   }
 
-  /** §3.3: mute element before attachSource (anti double-audio). */
+  /** §3.3 / §4.4: mute element, attachSource, fade gainNode back in. */
   recoverFromDegradation(audio: HTMLAudioElement): void {
+    this.clearDegradationTimer();
     audio.volume = 0;
     this.attachSource(audio);
+    this.rampGainTo(this.outputVolume);
     this.onRecoveredCb?.();
   }
 
@@ -255,5 +277,22 @@ export class WebAudioEq {
 
   private whenReady(): Promise<void> {
     return this.readyPromise ?? Promise.resolve();
+  }
+
+  private clearDegradationTimer(): void {
+    if (this.degradationTimer !== null) {
+      clearTimeout(this.degradationTimer);
+      this.degradationTimer = null;
+    }
+  }
+
+  /** ~50ms linear ramp on gainNode.gain (spec §4.4). */
+  private rampGainTo(target: number): void {
+    if (!this.ctx || !this.gainNode) return;
+    const param = this.gainNode.gain;
+    const now = this.ctx.currentTime;
+    param.cancelScheduledValues(now);
+    param.setValueAtTime(param.value, now);
+    param.linearRampToValueAtTime(target, now + GAIN_CROSSFADE_MS / 1000);
   }
 }
