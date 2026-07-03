@@ -45,4 +45,21 @@ describe('backend resilience', () => {
     await expect(apiGet('/login/qr/check', { key: 'x' })).rejects.toThrow('fail');
     expect(mockInvoke).toHaveBeenCalledTimes(1);
   });
+
+  it('retries personal FM recommendation reads after transient native errors', async () => {
+    vi.useFakeTimers();
+    mockInvoke
+      .mockRejectedValueOnce(new Error('WinHttpSendRequest/WinHttpReceiveResponse failed with Win32 error 12175'))
+      .mockResolvedValueOnce(JSON.stringify({
+        status: 200,
+        headers: {},
+        body: { status: 1, data: { song_list: [] } },
+      }));
+
+    const p = apiGet('/personal/fm', { hash: 'abc' });
+    await vi.advanceTimersByTimeAsync(3_000);
+
+    await expect(p).resolves.toEqual({ status: 1, data: { song_list: [] } });
+    expect(mockInvoke).toHaveBeenCalledTimes(2);
+  });
 });

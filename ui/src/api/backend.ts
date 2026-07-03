@@ -16,7 +16,7 @@ const circuitBreaker = new CircuitBreaker({
 });
 
 const IDEMPOTENT_GETS =
-  /^\/(healthz|song\/url|search|playlist|rank|top|album|artist|images\/audio|user\/history)/;
+  /^\/(healthz|song\/url|personal\/fm|search|playlist|rank|top|album|artist|images\/audio|user\/history)/;
 
 const RETRY_DELAYS_MS = [500, 2_000];
 

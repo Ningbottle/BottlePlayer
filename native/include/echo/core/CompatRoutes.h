@@ -71,6 +71,7 @@ CompatResponse HandleRankAudio(const QueryMap& query);
 CompatResponse HandleEverydayRecommend(
     storage::Database& database,
     const std::function<nlohmann::json(std::string, std::string)>& handler);
+CompatResponse HandlePersonalFm(storage::Database& database, const QueryMap& query);
 
 CompatResponse HandlePrivilegeLite(const QueryMap& query);
 CompatResponse HandleSearchLyric(

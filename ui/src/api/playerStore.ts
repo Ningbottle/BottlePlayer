@@ -18,6 +18,7 @@ import {
 export type { Track };
 
 export type LoopMode = 'list' | 'single' | 'random';
+export type QueueMode = 'normal' | 'personalFm';
 
 /** 上传播放历史到酷狗服务器（静默失败，不影响播放） */
 async function uploadPlayHistory(track: Track) {
@@ -93,6 +94,7 @@ interface PlayerState {
   queue: Track[];
   currentIndex: number;
   loopMode: LoopMode;
+  queueMode: QueueMode;
   audio: HTMLAudioElement | null;
   isLoading: boolean;
   errorMsg: string;
@@ -117,6 +119,7 @@ let activeBackend: PlayerBackend | null = null;
 export let eventUnsub: (() => void) | null = null;
 let initListenerCleanup: (() => void) | null = null;
 let currentEqSafeSource = '';
+let endedAdvanceInFlight = false;
 
 function audioGlobal(): BottleMusicAudioGlobal {
   return window as unknown as BottleMusicAudioGlobal;
@@ -155,6 +158,7 @@ export const playerStore = reactive<PlayerState>({
   queue: loadJSON<Track[]>('player_queue', []),
   currentIndex: parseInt(localStorage.getItem('player_index') || '-1', 10),
   loopMode: (localStorage.getItem('player_loop_mode') || 'list') as LoopMode,
+  queueMode: (localStorage.getItem('player_queue_mode') || 'normal') as QueueMode,
   audio: null,
   isLoading: false,
   errorMsg: '',
@@ -453,11 +457,21 @@ function handlePlaybackEvent(e: PlaybackEvent) {
         .replaySameTrack()
         .catch((err) => console.error('single-loop replay failed', err));
     } else {
-      next();
+      advanceAfterEnded().catch((err) => console.error('auto-next failed', err));
     }
   } else if (e.type === 'error' && e.error) {
     playerStore.isLoading = false;
     playerStore.errorMsg = e.error;
+  }
+}
+
+async function advanceAfterEnded() {
+  if (endedAdvanceInFlight) return;
+  endedAdvanceInFlight = true;
+  try {
+    await next();
+  } finally {
+    endedAdvanceInFlight = false;
   }
 }
 
@@ -474,6 +488,10 @@ watch(() => playerStore.volume, (newVol) => {
 
 watch(() => playerStore.loopMode, (newMode) => {
   localStorage.setItem('player_loop_mode', newMode);
+});
+
+watch(() => playerStore.queueMode, (newMode) => {
+  localStorage.setItem('player_queue_mode', newMode);
 });
 
 function saveQueue() {
@@ -528,6 +546,50 @@ export function setQuality(quality: string) {
   }
 }
 
+function extractSongList(payload: any): any[] {
+  const data = payload?.data?.data || payload?.data || payload || {};
+  const list = data.song_list || data.info || data.list || data.songs || [];
+  return Array.isArray(list) ? list : [];
+}
+
+function isPersonalFmFailure(payload: any): boolean {
+  return payload?.status === 0;
+}
+
+async function fetchPersonalFmRecommendations(query: Record<string, string | number>): Promise<any> {
+  let lastResponse: any;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    lastResponse = await apiGet<any>('/personal/fm', query);
+    if (!isPersonalFmFailure(lastResponse)) return lastResponse;
+  }
+  return lastResponse;
+}
+
+async function appendPersonalFmRecommendations(): Promise<boolean> {
+  const current = playerStore.currentTrack;
+  const remain = Math.max(0, playerStore.queue.length - playerStore.currentIndex - 1);
+  const response = await fetchPersonalFmRecommendations({
+    hash: current?.FileHash || '',
+    songid: current?.AlbumAudioID || current?.MixSongID || '',
+    playtime: Math.floor(playerStore.currentTime || 0),
+    remain_songcnt: remain,
+    is_overplay: remain === 0 ? 1 : 0,
+  });
+  if (isPersonalFmFailure(response)) {
+    console.warn('Personal FM recommendation returned an error:', response?.error || response);
+    return false;
+  }
+  const existing = new Set(playerStore.queue.map((track) => track.FileHash).filter(Boolean));
+  const fresh = extractSongList(response)
+    .map(normalizeTrack)
+    .filter((track) => track.FileHash && !existing.has(track.FileHash));
+
+  if (fresh.length === 0) return false;
+  playerStore.queue.push(...fresh);
+  saveQueue();
+  return true;
+}
+
 export async function togglePlay() {
   if (!playerStore.currentTrack) return;
 
@@ -545,7 +607,7 @@ export async function togglePlay() {
   }
 }
 
-export function next() {
+export async function next() {
   if (playerStore.queue.length === 0) return;
 
   let nextIdx = playerStore.currentIndex;
@@ -554,12 +616,21 @@ export function next() {
   // made UI-next and auto-next disagree.
   if (playerStore.loopMode === 'random') {
     nextIdx = Math.floor(Math.random() * playerStore.queue.length);
+  } else if (playerStore.queueMode === 'personalFm' && playerStore.currentIndex >= playerStore.queue.length - 1) {
+    try {
+      const appended = await appendPersonalFmRecommendations();
+      if (!appended) return;
+      nextIdx = playerStore.currentIndex + 1;
+    } catch (e) {
+      console.warn('Personal FM recommendation append failed:', e);
+      return;
+    }
   } else {
     nextIdx = (playerStore.currentIndex + 1) % playerStore.queue.length;
   }
 
   if (nextIdx >= 0 && nextIdx < playerStore.queue.length) {
-    playTrack(playerStore.queue[nextIdx]);
+    await playTrack(playerStore.queue[nextIdx]);
   }
 }
 
@@ -591,6 +662,17 @@ export async function setVolume(vol: number) {
 export function playAll(tracks: Track[], startIndex = 0) {
   playerStore.queue = tracks.map(normalizeTrack);
   playerStore.currentIndex = startIndex;
+  playerStore.queueMode = 'normal';
+  saveQueue();
+  if (playerStore.queue.length > startIndex) {
+    playTrack(playerStore.queue[startIndex]);
+  }
+}
+
+export function playPersonalFm(tracks: Track[], startIndex = 0) {
+  playerStore.queue = tracks.map(normalizeTrack);
+  playerStore.currentIndex = startIndex;
+  playerStore.queueMode = 'personalFm';
   saveQueue();
   if (playerStore.queue.length > startIndex) {
     playTrack(playerStore.queue[startIndex]);

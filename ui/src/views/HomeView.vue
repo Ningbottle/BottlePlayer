@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue';
 import { apiGet } from '../api/backend';
-import { playTrack, playAll } from '../api/playerStore';
+import { playTrack, playPersonalFm } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
 
 // Subtitle below the date — varies by hour so the "晚刊" feel is honest.
@@ -36,7 +36,7 @@ interface SectionState<T> {
   data: T;
 }
 
-const trendingSongs = ref<SectionState<SongInfo[]>>({
+const dailyRecommendations = ref<SectionState<SongInfo[]>>({
   loading: true,
   error: '',
   data: [],
@@ -52,7 +52,7 @@ const newAlbums = ref<SectionState<PlaylistInfo[]>>({
   data: [],
 });
 
-// A solid default track to play for the Headline
+// A solid default track to play only when daily recommendations are unavailable.
 const headlineTrack = {
   FileHash: 'F2D87B5E148C20020020020020020020', // Placeholder hash
   SongName: '读懂一首歌 (晚秋)',
@@ -60,28 +60,28 @@ const headlineTrack = {
   Duration: 249,
 };
 
-async function loadTrending() {
-  trendingSongs.value.loading = true;
-  trendingSongs.value.error = '';
+async function loadDailyRecommendations() {
+  dailyRecommendations.value.loading = true;
+  dailyRecommendations.value.error = '';
   try {
     const songRes = await apiGet<any>('/everyday/recommend', { pagesize: 6 });
     const songData = songRes.data?.data || songRes.data || {};
     const songList = songData.song_list || songData.info || songData.list;
     if (songRes.status === 1 && songList && songList.length > 0) {
-      trendingSongs.value.data = songList.slice(0, 6).map(normalizeTrack);
+      dailyRecommendations.value.data = songList.slice(0, 6).map(normalizeTrack);
     } else {
       const fallbackRes = await apiGet<any>('/top/song', { pagesize: 6 });
       const fData = fallbackRes.data?.data || fallbackRes.data || {};
       const fList = fData.info || fData.list;
       if (fallbackRes.status === 1 && fList) {
-        trendingSongs.value.data = fList.slice(0, 6).map(normalizeTrack);
+        dailyRecommendations.value.data = fList.slice(0, 6).map(normalizeTrack);
       }
     }
   } catch (e) {
-    trendingSongs.value.error = '加载失败';
-    console.error('Failed to load trending songs', e);
+    dailyRecommendations.value.error = '加载失败';
+    console.error('Failed to load daily recommendations', e);
   } finally {
-    trendingSongs.value.loading = false;
+    dailyRecommendations.value.loading = false;
   }
 }
 
@@ -128,7 +128,7 @@ async function loadNewAlbums() {
 }
 
 function loadHomeData() {
-  loadTrending();
+  loadDailyRecommendations();
   loadRecommended();
   loadNewAlbums();
 }
@@ -138,8 +138,8 @@ onMounted(() => {
 });
 
 function handlePlaySong(song: SongInfo) {
-  const idx = trendingSongs.value.data.findIndex(s => s.FileHash === song.FileHash);
-  playAll(trendingSongs.value.data, idx >= 0 ? idx : 0);
+  const idx = dailyRecommendations.value.data.findIndex(s => s.FileHash === song.FileHash);
+  playPersonalFm(dailyRecommendations.value.data, idx >= 0 ? idx : 0);
 }
 
 function handlePlaylistClick(playlist: PlaylistInfo) {
@@ -147,9 +147,8 @@ function handlePlaylistClick(playlist: PlaylistInfo) {
 }
 
 function playHeadline() {
-  // Try to play first trending song, or fallback to mock headline
-  if (trendingSongs.value.data.length > 0) {
-    handlePlaySong(trendingSongs.value.data[0]);
+  if (dailyRecommendations.value.data.length > 0) {
+    handlePlaySong(dailyRecommendations.value.data[0]);
   } else {
     playTrack(headlineTrack);
   }
@@ -173,9 +172,9 @@ function playHeadline() {
     <div class="feature">
       <div class="hero">
         <div>
-          <div class="label">Headline · 头条</div>
-          <h2>读懂一首歌</h2>
-          <p>每周一期 · 编辑部为你拆解一段旋律的来路与去处。本期：从〈晚秋〉到〈八月将军令〉，民谣在城市边缘的二十年。</p>
+          <div class="label">Daily Picks · 私荐</div>
+          <h2>今日适合这几首</h2>
+          <p>根据每日推荐为你排好一组歌。想少一点选择困难，就从第一首开始慢慢听。</p>
         </div>
         <button class="play-cta" @click="playHeadline">
           <span class="pp">
@@ -183,7 +182,7 @@ function playHeadline() {
               <polygon points="6,4 20,12 6,20"/>
             </svg>
           </span>
-          立即收听 · 推荐头条
+          立即收听 · 每日推荐
         </button>
         <!-- Engraved Circle Art -->
         <svg class="hero-art" viewBox="0 0 200 200" fill="none">
@@ -202,14 +201,14 @@ function playHeadline() {
         </svg>
       </div>
       
-      <!-- Trending sidebar list -->
+      <!-- Daily recommendation sidebar list -->
       <div class="side-list">
         <div class="sl-head">
-          <h3>每周飙升 <i style="font-style:italic;font-family:'EB Garamond',serif;font-weight:400;color:var(--ink-mute);font-size:.7em">Trending</i></h3>
-          <span class="more" @click="loadHomeData">刷新自检 ↻</span>
+          <h3>每日推荐 <i style="font-style:italic;font-family:'EB Garamond',serif;font-weight:400;color:var(--ink-mute);font-size:.7em">Daily Picks</i></h3>
+          <span class="more" @click="loadHomeData">刷新推荐 ↻</span>
         </div>
         
-        <div v-if="trendingSongs.loading && trendingSongs.data.length === 0" class="spinner">
+        <div v-if="dailyRecommendations.loading && dailyRecommendations.data.length === 0" class="spinner">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="12" cy="12" r="10" stroke="rgba(34,27,18,0.1)"></circle>
             <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
@@ -219,7 +218,7 @@ function playHeadline() {
         
         <ol v-else>
           <li
-            v-for="(song, idx) in trendingSongs.data"
+            v-for="(song, idx) in dailyRecommendations.data"
             :key="song.FileHash"
             @click="handlePlaySong(song)"
           >
@@ -230,11 +229,11 @@ function playHeadline() {
             </span>
             <span class="dur">{{ Math.floor(song.Duration / 60) }}:{{ String(song.Duration % 60).padStart(2, '0') }}</span>
           </li>
-          <li v-if="trendingSongs.error" style="padding: 10px; font-style: italic; color: var(--accent);">
-            {{ trendingSongs.error }} · <span class="more" @click="loadTrending">重试</span>
+          <li v-if="dailyRecommendations.error" style="padding: 10px; font-style: italic; color: var(--accent);">
+            {{ dailyRecommendations.error }} · <span class="more" @click="loadDailyRecommendations">重试</span>
           </li>
-          <li v-else-if="trendingSongs.data.length === 0" style="padding: 10px; font-style: italic; color: var(--ink-mute);">
-            暂时没有热门歌曲
+          <li v-else-if="dailyRecommendations.data.length === 0" style="padding: 10px; font-style: italic; color: var(--ink-mute);">
+            暂时没有推荐歌曲
           </li>
         </ol>
       </div>

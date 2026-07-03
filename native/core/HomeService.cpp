@@ -1,5 +1,6 @@
 #include "echo/core/HomeService.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/DeviceService.h"
 #include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
 #include "echo/core/SafeStoll.h"
@@ -9,6 +10,7 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <chrono>
 
 namespace echo::core {
 namespace {
@@ -128,6 +130,77 @@ nlohmann::json HomeService::GetEverydayRecommend(
           {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
           {"x-router", "everydayrec.service.kugou.com"},
       });
+
+  if (!result.error.empty()) return MakeError(result.error, result.statusCode);
+
+  try {
+    return nlohmann::json::parse(result.body);
+  } catch (const nlohmann::json::exception& e) {
+    return MakeError(std::string("JSON parse error: ") + e.what());
+  }
+}
+
+nlohmann::json HomeService::GetPersonalFm(
+    const std::string& userId,
+    const std::string& token,
+    const std::string& hash,
+    const std::string& songId,
+    int playtime,
+    int remainSongCount,
+    bool isOverplay,
+    const DeviceInfo& device,
+    const std::string& action,
+    int songPoolId) const {
+  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+      std::chrono::system_clock::now().time_since_epoch()).count();
+  const std::string clientTime = std::to_string(nowMs);
+  const std::string mid = ResolveAndroidMid(device);
+
+  nlohmann::json dataPayload = {
+      {"appid", profile.appid},
+      {"clienttime", nowMs},
+      {"mid", mid},
+      {"action", action.empty() ? "play" : action},
+      {"recommend_source_locked", 0},
+      {"song_pool_id", songPoolId},
+      {"callerid", 0},
+      {"m_type", 1},
+      {"platform", "ios"},
+      {"area_code", 1},
+      {"remain_songcnt", std::max(0, remainSongCount)},
+      {"clientver", profile.clientver},
+      {"is_overplay", isOverplay ? 1 : 0},
+      {"mode", "normal"},
+      {"fakem", "ca981cfc583a4c37f28d2d49000013c16a0a"},
+      {"key", SignParamsKey(clientTime, profile.appid, profile.clientver, profile.saltKind)},
+  };
+
+  if (!userId.empty() && userId != "0") {
+    dataPayload["userid"] = userId;
+    dataPayload["kguid"] = userId;
+  }
+  if (!token.empty()) dataPayload["token"] = token;
+  if (!hash.empty()) dataPayload["hash"] = hash;
+  if (!songId.empty()) dataPayload["songid"] = songId;
+  if (playtime > 0) dataPayload["playtime"] = playtime;
+
+  const std::string body = dataPayload.dump();
+
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/v2/personal_recommend";
+  req.profile = profile;
+  req.device = device;
+  req.body = body;
+  req.params["clienttime"] = clientTime;
+
+  const std::string url = BuildSignedUrl(req);
+  auto headers = BuildAndroidHeaders(req);
+  headers["Content-Type"] = "application/json";
+  headers["User-Agent"] = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
+  headers["x-router"] = "persnfm.service.kugou.com";
+
+  const auto result = httpPost_(url, body, headers);
 
   if (!result.error.empty()) return MakeError(result.error, result.statusCode);
 

@@ -91,6 +91,7 @@ const std::unordered_map<std::string, RouteHandlerFn>& GetRouteTable() {
       {"/top/song",      [](const RouteContext& ctx, const std::string&) { return HandleTopSong(ctx.query); }},
       {"/rank/audio",    [](const RouteContext& ctx, const std::string&) { return HandleRankAudio(ctx.query); }},
       {"/everyday/recommend", [](const RouteContext& ctx, const std::string&) { return HandleEverydayRecommend(ctx.database, ctx.handlers.everydayRecommend); }},
+      {"/personal/fm",   [](const RouteContext& ctx, const std::string&) { return HandlePersonalFm(ctx.database, ctx.query); }},
       // Grouped: /top/album, /playlist/recommend, /rank/top, /top/ip share a handler
       {"/top/album",         [](const RouteContext&, const std::string& path) { return HandleTopAlbumPlaylistRecommendRankTopTopIp(path); }},
       {"/playlist/recommend",[](const RouteContext&, const std::string& path) { return HandleTopAlbumPlaylistRecommendRankTopTopIp(path); }},

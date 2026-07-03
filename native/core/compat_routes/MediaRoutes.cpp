@@ -6,6 +6,7 @@
 #include "echo/core/RankService.h"
 #include "echo/core/SearchService.h"
 #include "echo/core/SongService.h"
+#include "echo/core/CompatRequestContext.h"
 #include "echo/storage/DeviceRepository.h"
 #include "echo/storage/SessionRepository.h"
 #include "echo/core/DeviceService.h"
@@ -85,6 +86,22 @@ CompatResponse HandleEverydayRecommend(
   }
   HomeService homeSvc;
   return JsonResponse(homeSvc.GetEverydayRecommend(userId, token));
+}
+
+CompatResponse HandlePersonalFm(storage::Database& database, const QueryMap& query) {
+  CompatRequestContext ctx(database);
+  HomeService homeSvc;
+  return JsonResponse(homeSvc.GetPersonalFm(
+      ctx.UserIdOr(""),
+      ctx.TokenOrEmpty(),
+      QueryValue(query, "hash"),
+      QueryValue(query, "songid", QueryValue(query, "song_id", QueryValue(query, "album_audio_id"))),
+      QueryInt(query, "playtime", 0),
+      QueryInt(query, "remain_songcnt", QueryInt(query, "remainSongCount", 0)),
+      QueryInt(query, "is_overplay", 0) != 0,
+      ctx.Device(),
+      QueryValue(query, "action", "play"),
+      QueryInt(query, "song_pool_id", 0)));
 }
 
 // Song & Lyric

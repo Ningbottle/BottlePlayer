@@ -17,6 +17,7 @@ import {
   initPlayerBackend,
   playTrack,
   playAll,
+  next,
   togglePlay,
   initWebAudioEQ,
   attachWebAudioEqSource,
@@ -142,6 +143,7 @@ function setupWorkletEqMocks() {
 function resetStore() {
   playerStore.queue = [];
   playerStore.currentIndex = -1;
+  playerStore.queueMode = 'normal';
   playerStore.currentTrack = null;
   playerStore.isPlaying = false;
   playerStore.isLoading = false;
@@ -241,6 +243,159 @@ describe('playerStore integration', () => {
     // Import did not throw, and state fell back to safe defaults.
     expect(mod.playerStore.queue).toEqual([]);
     expect(mod.playerStore.eqBands).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  });
+
+  it('personal FM appends fresh recommendations instead of wrapping at the queue tail', async () => {
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const t1 = mkTrack('fm-1'); t1.Image = 'http://img/';
+    const t2 = mkTrack('fm-2'); t2.Image = 'http://img/';
+    playerStore.queue = [t1, t2];
+    playerStore.currentIndex = 1;
+    playerStore.currentTrack = t2;
+    playerStore.queueMode = 'personalFm';
+
+    mockInvoke.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === 'stats_record_play') return '';
+      if (cmd === 'native_request' && args?.path === '/personal/fm') {
+        return JSON.stringify({
+          status: 200,
+          headers: {},
+          body: {
+            status: 1,
+            data: {
+              song_list: [
+                { hash: 'fm-3', songname: 'Fresh FM', singername: 'Reco', duration: 210, album_audio_id: '3003', img: 'http://img/' },
+              ],
+            },
+          },
+        });
+      }
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://x/fm.mp3' } });
+    });
+
+    await next();
+
+    HTMLAudioElement.prototype.play = realPlay;
+
+    expect(playerStore.queue.map((track) => track.FileHash)).toEqual(['fm-1', 'fm-2', 'fm-3']);
+    expect(playerStore.currentIndex).toBe(2);
+    expect(playerStore.currentTrack?.FileHash).toBe('fm-3');
+  });
+
+  it('personal FM retries semantic recommendation failures before giving up at the queue tail', async () => {
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const t1 = mkTrack('fm-1'); t1.Image = 'http://img/';
+    const t2 = mkTrack('fm-2'); t2.Image = 'http://img/';
+    playerStore.queue = [t1, t2];
+    playerStore.currentIndex = 1;
+    playerStore.currentTrack = t2;
+    playerStore.queueMode = 'personalFm';
+
+    let personalFmCalls = 0;
+    mockInvoke.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === 'stats_record_play') return '';
+      if (cmd === 'native_request' && args?.path === '/personal/fm') {
+        personalFmCalls++;
+        if (personalFmCalls === 1) {
+          return JSON.stringify({
+            status: 200,
+            headers: {},
+            body: { status: 0, error: 'WinHttpSendRequest/WinHttpReceiveResponse failed with Win32 error 12175' },
+          });
+        }
+        return JSON.stringify({
+          status: 200,
+          headers: {},
+          body: {
+            status: 1,
+            data: {
+              song_list: [
+                { hash: 'fm-3', songname: 'Fresh FM', singername: 'Reco', duration: 210, album_audio_id: '3003', img: 'http://img/' },
+              ],
+            },
+          },
+        });
+      }
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://x/fm.mp3' } });
+    });
+
+    await next();
+
+    HTMLAudioElement.prototype.play = realPlay;
+
+    expect(personalFmCalls).toBe(2);
+    expect(playerStore.currentIndex).toBe(2);
+    expect(playerStore.currentTrack?.FileHash).toBe('fm-3');
+  });
+
+  it('ignores duplicate ended events while personal FM tail advance is still switching to the first fresh track', async () => {
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const lastOld = mkTrack('old-last'); lastOld.Image = 'http://img/';
+    playerStore.queue = [lastOld];
+    playerStore.currentIndex = 0;
+    playerStore.currentTrack = lastOld;
+    playerStore.queueMode = 'personalFm';
+
+    let resolveFirstSongUrl!: (value: string) => void;
+    const firstSongUrl = new Promise<string>((resolve) => { resolveFirstSongUrl = resolve; });
+
+    mockInvoke.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === 'stats_record_play') return '';
+      if (cmd === 'native_request' && args?.path === '/personal/fm') {
+        return JSON.stringify({
+          status: 200,
+          headers: {},
+          body: {
+            status: 1,
+            data: {
+              song_list: [
+                { hash: 'fresh-1', songname: '风吹麦浪', singername: 'A', duration: 210, album_audio_id: '3001', img: 'http://img/' },
+                { hash: 'fresh-2', songname: '凉凉', singername: 'B', duration: 220, album_audio_id: '3002', img: 'http://img/' },
+              ],
+            },
+          },
+        });
+      }
+      if (cmd === 'native_request' && args?.path === '/song/url') {
+        if (args?.queryJson?.includes('fresh-1')) return firstSongUrl;
+        return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://x/fresh-2.mp3' } });
+      }
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1 } });
+    });
+
+    const audio = playerStore.audio as HTMLAudioElement;
+    audio.dispatchEvent(new Event('ended'));
+
+    await vi.waitFor(() => {
+      expect(playerStore.currentTrack?.FileHash).toBe('fresh-1');
+    });
+
+    audio.dispatchEvent(new Event('ended'));
+    resolveFirstSongUrl(JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://x/fresh-1.mp3' } }));
+
+    await vi.waitFor(() => {
+      expect(playerStore.isLoading).toBe(false);
+    });
+
+    HTMLAudioElement.prototype.play = realPlay;
+
+    expect(playerStore.currentTrack?.FileHash).toBe('fresh-1');
+    expect(playerStore.currentIndex).toBe(1);
   });
 
   it('calls playSession.intend() on a successful play (session opens for the new track)', async () => {

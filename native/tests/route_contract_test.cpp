@@ -73,6 +73,7 @@ int main() {
         "/top/song",
         "/top/album",
         "/everyday/recommend",
+        "/personal/fm",
         "/song/climax",
         "/song/ranking",
         "/song/ranking/filter",
