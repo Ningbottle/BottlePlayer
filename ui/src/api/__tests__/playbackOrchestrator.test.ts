@@ -77,6 +77,9 @@ function makeHarness(options: { calls?: string[] } = {}) {
   const uploadPlayHistory = vi.fn((track: Track) => {
     calls.push(`upload:${track.FileHash}`);
   });
+  const recordRecentPlayed = vi.fn((track: Track) => {
+    calls.push(`record:${track.FileHash}`);
+  });
   const saveQueue = vi.fn(() => {
     calls.push('saveQueue');
   });
@@ -87,6 +90,7 @@ function makeHarness(options: { calls?: string[] } = {}) {
     resolveTrack,
     fetchCover,
     uploadPlayHistory,
+    recordRecentPlayed,
     getState: () => state,
     patchState: (patch) => Object.assign(state, patch),
     saveQueue,
@@ -98,6 +102,7 @@ function makeHarness(options: { calls?: string[] } = {}) {
     fetchCover,
     orchestrator,
     playSession,
+    recordRecentPlayed,
     resolveTrack,
     saveQueue,
     state,
@@ -124,6 +129,22 @@ function resolvedTrack(url: string): ResolveTrackResult {
 }
 
 describe('PlaybackOrchestrator', () => {
+  it('records recent-played after a successful switchTrack (not on failure or stale)', async () => {
+    const h = makeHarness();
+
+    // Success: recordRecentPlayed fires with the played track.
+    await h.orchestrator.switchTrack(mkTrack('ok'));
+    expect(h.recordRecentPlayed).toHaveBeenCalledWith(
+      expect.objectContaining({ FileHash: 'ok' }),
+    );
+
+    // Failure (playUrl returns false): does NOT fire.
+    h.recordRecentPlayed.mockClear();
+    h.backend.playUrl.mockResolvedValue(false);
+    await h.orchestrator.switchTrack(mkTrack('bad'));
+    expect(h.recordRecentPlayed).not.toHaveBeenCalled();
+  });
+
   it('switchTrack orders skip, Resolve, intend, playUrl, saveQueue', async () => {
     const calls: string[] = [];
     const h = makeHarness({ calls });
@@ -139,6 +160,7 @@ describe('PlaybackOrchestrator', () => {
       'playUrl:http://x/song.mp3',
       'saveQueue',
       'upload:h1',
+      'record:h1',
     ]);
     expect(h.state.currentTrack?.FileHash).toBe('h1');
     expect(h.state.currentIndex).toBe(0);

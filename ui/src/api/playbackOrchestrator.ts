@@ -60,6 +60,7 @@ export interface PlaybackOrchestratorDeps {
   resolveTrack: (track: Track, quality: string) => Promise<ResolveTrackResult>;
   fetchCover: (hash: string) => Promise<string | null | undefined>;
   uploadPlayHistory: (track: Track) => void;
+  recordRecentPlayed: (track: Track) => void;
   getState: () => PlaybackStateSlice;
   patchState: (patch: Partial<PlaybackStateSlice>) => void;
   saveQueue: () => void;
@@ -150,6 +151,7 @@ export class PlaybackOrchestrator {
     this.deps.patchState({ isLoading: false });
     this.deps.saveQueue();
     this.deps.uploadPlayHistory(normalized);
+    this.deps.recordRecentPlayed(normalized);
     return { status: 'played' };
   }
 

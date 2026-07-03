@@ -9,6 +9,7 @@ import { PlaySessionTracker, type PlayRecord } from './playSessionTracker';
 import { WebAudioEq } from './webAudioEq';
 import { normalizeEqBands } from './equalizerConfig';
 import { prepareAudioSourceUrl } from './audioProxy';
+import { recentPlayedStore } from './recentPlayedStore';
 import {
   PlaybackOrchestrator,
   type QualityOption,
@@ -514,6 +515,7 @@ const playbackOrchestrator = new PlaybackOrchestrator({
   resolveTrack,
   fetchCover: fetchCoverImage,
   uploadPlayHistory,
+  recordRecentPlayed: (track) => recentPlayedStore.recordRecentPlayed(track),
   getState: () => playerStore,
   patchState: (patch) => Object.assign(playerStore, patch),
   saveQueue,
