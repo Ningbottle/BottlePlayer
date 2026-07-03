@@ -12,12 +12,14 @@ BottleMusic is a Tauri 2.0 + Vue 3 + C++ unofficial KuGou Concept Edition music 
 Vue 3 Frontend (ui/src/)
   ├─ playerStore.ts — reactive player state + coordination (event handler dispatch)
   ├─ playSessionTracker.ts — stats session state machine + seek-immune listened accumulator
-  ├─ webAudioEq.ts — Web Audio API EQ graph controller (CORS-gated, safe build order)
+  ├─ webAudioEq.ts — Web Audio API AudioWorklet EQ graph controller (proxy-enabled, safe build order)
   ├─ backend.ts — Tauri invoke wrapper with timeout/retry/circuit-breaker
   ├─ themeStore.ts — skin/mode management (Newsprint + Aurora)
   ├─ playerBackend.ts — PlayerBackend interface
   ├─ html5Backend.ts — HTML5 Audio wrapper (current default, sole event source)
   ├─ nativeBackend.ts — Native playback via Tauri commands (disabled)
+  ├─ audioProxy.ts — frontend wrapper for audio_proxy_url Tauri command (CORS bypass for CDN media)
+  ├─ eqWorkletProcessor.ts — AudioWorklet DSP (RBJ peaking, 10-band)
   ├─ circuitBreaker.ts — frontend resilience
   └─ views/StatsView.vue — statistics dashboard (overview + top lists + timeline + recent + AI)
        │ Tauri IPC
@@ -27,6 +29,7 @@ Rust FFI (ui/src-tauri/src/)
   ├─ playback.rs — 13 Tauri commands for playback control (unused — HTML5 default)
   ├─ stats.rs — 6 Tauri commands (stats_record_play, stats_get_summary/top/timeline/recent/recommendations)
   ├─ ai_analysis.rs — DeepSeek v4 flash AI analysis (async, user-provided API key)
+  ├─ audio_proxy.rs — local HTTP proxy (loopback, CORS + range/resume + SSRF allowlist) for cross-origin CDN media
   └─ lib.rs — Tauri app setup, invoke_handler registration
        │ extern "C" FFI
        ▼
@@ -58,9 +61,9 @@ C++ Core (native/) → EchoCAPI.dll
 
 - **Default backend**: HTML5 Audio (Html5AudioBackend) — sole source of play/pause/timeupdate/ended/error events
 - **Stop cleanup**: `Html5AudioBackend.stop()` unloads the current `src`, so a failed next-track resolve cannot resume stale media.
-- **EQ implementation**: Web Audio API BiquadFilterNode chain (5 bands: 60/230/910/3600/14000 Hz), controlled by `webAudioEq.ts`
+- **EQ implementation**: Web Audio API AudioWorklet graph (10 bands: 31/62/125/250/500/1K/2K/4K/8K/16K Hz), `webAudioEq.ts` controller + `eqWorkletProcessor.ts` DSP (RBJ peaking from Audio EQ Cookbook), routed via captureStream → MediaStreamAudioSourceNode → AudioWorkletNode → GainNode → destination
 - **EQ UI**: `EqualizerPanel.vue` in `Drawer.vue` (right sidebar), uses skin CSS variables
-- **CORS-gated EQ (#1)**: KuGou CDN sends no CORS headers → EQ graph is skipped for cross-origin non-CORS media, audio plays directly. `eqState.available` exposed to UI; degradation banner shown when EQ is not active.
+- **EQ + audio proxy (#1)**: KuGou CDN sends no CORS headers, so a local Tauri HTTP proxy (`audio_proxy.rs`, loopback 127.0.0.1) re-serves CDN media with CORS headers + range/resume, letting the EQ graph attach to cross-origin media. `eqState.available` exposed to UI; degradation banner shown only when the proxy is unavailable.
 - **EQ graph build order (#4)**: full filter→gain→destination chain built BEFORE `createMediaElementSource`; throws are safe (element never gets stranded in a disconnected graph)
 - **AudioContext lifecycle (#9)**: `webAudioEq.close()` releases context on teardown (HMR-safe)
 - **Suspended resume (#10)**: failed `resume()` surfaces via `onSuspendedFail` instead of being swallowed
@@ -92,16 +95,18 @@ C++ Core (native/) → EchoCAPI.dll
 | `ui/src/api/playerStore.ts` | Vue reactive player state + UI-facing commands; delegates playback transitions |
 | `ui/src/api/playbackOrchestrator.ts` | Playback transition orchestrator (Resolve + PlaySession + Backend sequencing) |
 | `ui/src/api/playSessionTracker.ts` | Stats session state machine + seek-immune accumulator |
-| `ui/src/api/webAudioEq.ts` | Web Audio API EQ graph controller (CORS-gated, safe build order) |
+| `ui/src/api/webAudioEq.ts` | Web Audio API AudioWorklet EQ graph controller (proxy-enabled, safe build order) |
 | `ui/src/api/backend.ts` | Tauri invoke wrapper with S1 resilience |
 | `ui/src/api/themeStore.ts` | Skin/mode management |
-| `ui/src/components/EqualizerPanel.vue` | EQ UI (5 sliders, 4 presets, degradation banner) |
+| `ui/src/components/EqualizerPanel.vue` | EQ UI (10 sliders, 6 presets, degradation banner) |
 | `ui/src/components/Drawer.vue` | Right sidebar (EQ, theme, tweaks) |
 | `ui/src/views/StatsView.vue` | Statistics dashboard (overview + top + timeline + recent + AI) |
 | `ui/src-tauri/src/backend_api.rs` | CApiHandle, DLL loading, event bridge |
 | `ui/src-tauri/src/playback.rs` | 13 Tauri playback commands (unused — HTML5 default) |
 | `ui/src-tauri/src/stats.rs` | 6 Tauri stats commands |
 | `ui/src-tauri/src/ai_analysis.rs` | DeepSeek AI analysis async command |
+| `ui/src-tauri/src/audio_proxy.rs` | Local HTTP proxy for cross-origin CDN media (CORS, range/resume, SSRF allowlist) |
+| `ui/src/api/audioProxy.ts` | Frontend wrapper for audio_proxy_url Tauri command |
 | `native/core/C_API.cpp` | C API exports, g_api, g_playback, g_scheduler, g_stats |
 | `native/core/HttpClient.cpp` | WinHTTP + watchdog + retry budget |
 | `native/async/RequestScheduler.cpp` | Thread pool + bounded shutdown/restart |
@@ -139,17 +144,17 @@ cargo test --manifest-path C:\BottleMusic\ui\src-tauri\Cargo.toml --lib
 cd C:\BottleMusic\ui && pnpm test -- --run
 ```
 
-## Test Counts (as of 2026-06-26)
+## Test Counts (as of 2026-07-03)
 
 - C++ ctest: 11 tests
-- Rust cargo test: 11 tests
+- Rust cargo test: 22 tests (audio_proxy.rs added 11)
 - Frontend vitest: 98 tests
-- **Total: 120 tests**
+- **Total: 131 tests**
 
 ## Known Issues
 
 1. **MFS native playback broken** — topology resolution fails, deadlock on exit. Disabled, using HTML5 fallback. (Will not be fixed — MFS path abandoned in favor of Web Audio API.)
-2. **EQ unavailable for KuGou CDN** — cross-origin non-CORS media skips the EQ graph (audio plays directly). UI shows a degradation banner. (Will not be fixed at CORS layer — would require Tauri stream proxy; acceptable UX trade-off.)
+2. **EQ for KuGou CDN (RESOLVED)** — the local audio proxy (`audio_proxy.rs`) re-serves cross-origin CDN media with CORS headers + range/resume, so the EQ graph attaches. Degradation banner shows only when the proxy is unavailable.
 3. **`Music Player.html` was rewritten in `0bedf68`** — spec called for a one-line syntax fix at line 673, but the rewrite also normalized formatting and removed dead code. The file is tracked in the repo; not a v2 source file but ships with the app.
 4. **Minor findings deferred** (from PR review `0bedf68..ce5233c`):
    - EQ re-init order on repeated `initPlayer` (currently harmless — EQ always disabled via CORS)
@@ -183,7 +188,7 @@ Turn a song identity into a playable URL via KuGou API routes.
 _Avoid_: fetch url, get link
 
 **EQ graph**:
-The Web Audio API BiquadFilterNode chain (5 bands), CORS-gated; skipped when CDN media lacks CORS headers.
+The Web Audio API AudioWorklet graph (10 bands), routed through the local audio proxy so cross-origin CDN media can be EQ'd.
 _Avoid_: equalizer, filter chain
 
 ### Statistics
