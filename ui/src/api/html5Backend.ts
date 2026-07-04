@@ -1,4 +1,5 @@
 import type { PlayerBackend, PlaybackEvent, PlaybackState } from './playerBackend';
+import type { DiagEvent } from './playbackDiagnostics';
 
 export interface PreparedAudioSource {
   url: string;
@@ -15,6 +16,8 @@ export interface Html5AudioBackendOptions {
   disconnectEq?: () => void;
   isEqRerouted?: () => boolean;
   setEqVolume?: (vol: number) => void;
+  /** Records a playback diagnostic event (media_event / proxy_prep). */
+  recordDiagnostic?: (e: Omit<DiagEvent, 'ts'>) => void;
 }
 
 export class Html5AudioBackend implements PlayerBackend {
@@ -130,11 +133,16 @@ export class Html5AudioBackend implements PlayerBackend {
       }),
       play: () => cb({ type: 'state', state: 'playing' }),
       pause: () => cb({ type: 'state', state: 'paused' }),
-      ended: () => cb({ type: 'ended' }),
+      ended: () => {
+        this.options.recordDiagnostic?.({ kind: 'media_event', phase: 'ok', detail: 'ended' });
+        cb({ type: 'ended' });
+      },
       error: () => {
         const details = this.getMediaEventDetails('error');
         console.warn('Html5AudioBackend media event:', details);
-        cb({ type: 'error', error: this.formatMediaEventDetails(details) });
+        const detailStr = this.formatMediaEventDetails(details);
+        this.options.recordDiagnostic?.({ kind: 'media_event', phase: 'fail', detail: detailStr });
+        cb({ type: 'error', error: detailStr });
       },
       waiting: () => this.warnMediaEvent('waiting'),
       stalled: () => this.warnMediaEvent('stalled'),
@@ -174,7 +182,13 @@ export class Html5AudioBackend implements PlayerBackend {
   }
 
   private warnMediaEvent(event: string): void {
-    console.warn('Html5AudioBackend media event:', this.getMediaEventDetails(event));
+    const details = this.getMediaEventDetails(event);
+    console.warn('Html5AudioBackend media event:', details);
+    this.options.recordDiagnostic?.({
+      kind: 'media_event',
+      phase: 'noop',
+      detail: this.formatMediaEventDetails(details),
+    });
   }
 
   private getMediaEventDetails(event: string) {
@@ -211,9 +225,26 @@ export class Html5AudioBackend implements PlayerBackend {
   }
 
   private async setPreparedSource(url: string): Promise<void> {
-    const prepared = this.options.prepareSourceUrl
-      ? await this.options.prepareSourceUrl(url)
-      : { url, crossOriginSafe: false };
+    let prepared: PreparedAudioSource;
+    if (this.options.prepareSourceUrl) {
+      try {
+        prepared = await this.options.prepareSourceUrl(url);
+      } catch (e) {
+        this.options.recordDiagnostic?.({
+          kind: 'proxy_prep',
+          phase: 'fail',
+          detail: `prepareSourceUrl threw: ${e instanceof Error ? e.message : String(e)}; url=${url}`,
+        });
+        throw e;
+      }
+      this.options.recordDiagnostic?.({
+        kind: 'proxy_prep',
+        phase: 'ok',
+        detail: `prepared; crossOriginSafe=${prepared.crossOriginSafe}; url=${url}`,
+      });
+    } else {
+      prepared = { url, crossOriginSafe: false };
+    }
 
     if (prepared.crossOriginSafe) {
       this.audio.crossOrigin = 'anonymous';

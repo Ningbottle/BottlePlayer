@@ -1,0 +1,68 @@
+import { describe, it, expect } from 'vitest';
+import { PlaybackDiagnostics } from '../playbackDiagnostics';
+
+function mkStore(opts: { now?: () => number; capacity?: number } = {}) {
+  return new PlaybackDiagnostics({
+    now: opts.now ?? (() => 0),
+    capacity: opts.capacity,
+  });
+}
+
+describe('PlaybackDiagnostics', () => {
+  it('records an event with a timestamp and returns it via getEvents', () => {
+    const store = mkStore({ now: () => 1000 });
+    store.recordEvent({ kind: 'track_switch', phase: 'start', detail: 'switched to h1' });
+
+    const events = store.getEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0]).toEqual({
+      ts: 1000,
+      kind: 'track_switch',
+      phase: 'start',
+      detail: 'switched to h1',
+    });
+  });
+
+  it('evicts the oldest event when capacity is exceeded (FIFO, newest-first)', () => {
+    let now = 0;
+    const store = mkStore({ now: () => now, capacity: 3 });
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'first' });
+    now++;
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'second' });
+    now++;
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'third' });
+    now++;
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'fourth' });
+    now++;
+
+    const events = store.getEvents();
+    expect(events).toHaveLength(3);
+    // newest-first: fourth, third, second — "first" evicted as oldest
+    expect(events.map((e) => e.detail)).toEqual(['fourth', 'third', 'second']);
+  });
+
+  it('copyAsText produces compact multi-line text (newest-first), one event per line', () => {
+    const store = mkStore({ now: () => 1000 });
+    store.recordEvent({ kind: 'track_switch', phase: 'start', detail: 'switched to h1', trackKey: 'h1' });
+    store.recordEvent({ kind: 'url_resolve', phase: 'ok', detail: 'resolved h1' });
+
+    const text = store.copyAsText();
+    const lines = text.split('\n').filter((l) => l.length > 0);
+    expect(lines).toHaveLength(2);
+    // newest-first
+    expect(lines[0]).toContain('url_resolve');
+    expect(lines[0]).toContain('ok');
+    expect(lines[0]).toContain('resolved h1');
+    expect(lines[1]).toContain('track_switch');
+    expect(lines[1]).toContain('h1'); // trackKey appears
+  });
+
+  it('reset clears the buffer', () => {
+    const store = mkStore({ now: () => 1000 });
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'x' });
+    expect(store.getEvents()).toHaveLength(1);
+    store.reset();
+    expect(store.getEvents()).toHaveLength(0);
+    expect(store.copyAsText()).toBe('');
+  });
+});

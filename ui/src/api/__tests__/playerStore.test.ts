@@ -33,6 +33,7 @@ import {
   retryEq,
 } from '../playerStore';
 import type { Track } from '../normalizer';
+import { playbackDiagnostics } from '../playbackDiagnostics';
 
 function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'A', Duration: 100 } as Track;
@@ -285,6 +286,50 @@ describe('playerStore integration', () => {
     expect(playerStore.queue.map((track) => track.FileHash)).toEqual(['fm-1', 'fm-2', 'fm-3']);
     expect(playerStore.currentIndex).toBe(2);
     expect(playerStore.currentTrack?.FileHash).toBe('fm-3');
+  });
+
+  it('records fm_fetch diagnostics when personal FM recommendations are appended', async () => {
+    initPlayer();
+    initPlayerBackend();
+
+    const realPlay = HTMLAudioElement.prototype.play;
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    const t1 = mkTrack('fm-1'); t1.Image = 'http://img/';
+    const t2 = mkTrack('fm-2'); t2.Image = 'http://img/';
+    playerStore.queue = [t1, t2];
+    playerStore.currentIndex = 1;
+    playerStore.currentTrack = t2;
+    playerStore.queueMode = 'personalFm';
+
+    mockInvoke.mockImplementation(async (cmd: string, args?: any) => {
+      if (cmd === 'stats_record_play') return '';
+      if (cmd === 'native_request' && args?.path === '/personal/fm') {
+        return JSON.stringify({
+          status: 200,
+          headers: {},
+          body: {
+            status: 1,
+            data: {
+              song_list: [
+                { hash: 'fm-3', songname: 'Fresh FM', singername: 'Reco', duration: 210, album_audio_id: '3003', img: 'http://img/' },
+              ],
+            },
+          },
+        });
+      }
+      return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://x/fm.mp3' } });
+    });
+
+    playbackDiagnostics.reset();
+    await next();
+    HTMLAudioElement.prototype.play = realPlay;
+
+    const fmDiags = playbackDiagnostics.getEvents().filter((e) => e.kind === 'fm_fetch');
+    expect(fmDiags.length).toBeGreaterThan(0);
+    expect(fmDiags).toContainEqual(
+      expect.objectContaining({ kind: 'fm_fetch', phase: 'ok' }),
+    );
   });
 
   it('personal FM retries semantic recommendation failures before giving up at the queue tail', async () => {
