@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ref, nextTick } from 'vue';
-import { useLyricFollow } from '../useLyricFollow';
+import { ref, nextTick, effectScope } from 'vue';
+import { useLyricFollow, type UseLyricFollowReturn } from '../useLyricFollow';
 
 function setup(opts: { activeIndex?: number; now?: () => number } = {}) {
   const activeIndex = ref(opts.activeIndex ?? 0);
@@ -184,5 +184,26 @@ describe('useLyricFollow', () => {
     const { scrolledTo } = setup({ activeIndex: 5 });
     await nextTick();
     expect(scrolledTo).toEqual([]);
+  });
+
+  it('clears the idle timer when the composable scope is disposed (no late mutation)', () => {
+    const scope = effectScope();
+    let follow!: UseLyricFollowReturn;
+    scope.run(() => {
+      follow = useLyricFollow({
+        activeIndex: ref(0),
+        scrollToLine: () => {},
+        now: () => 1000,
+      });
+    });
+    follow.onUserScroll(); // schedules a 3s resume
+    expect(follow.autoFollowing.value).toBe(false);
+
+    scope.stop(); // dispose — should clear the pending idle timer
+
+    // Advance well past the idle window. If the timer was cleared, autoFollowing
+    // stays false (no late mutation on a disposed scope).
+    vi.advanceTimersByTime(5000);
+    expect(follow.autoFollowing.value).toBe(false);
   });
 });

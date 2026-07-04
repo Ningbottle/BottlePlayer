@@ -1,4 +1,4 @@
-import { ref, watch, type Ref } from 'vue';
+import { ref, watch, onScopeDispose, type Ref } from 'vue';
 
 export interface UseLyricFollowOptions {
   activeIndex: Ref<number>;
@@ -27,6 +27,13 @@ export function useLyricFollow(opts: UseLyricFollowOptions): UseLyricFollowRetur
   watch(opts.activeIndex, (idx) => {
     if (autoFollowing.value && idx >= 0) {
       opts.scrollToLine(idx);
+    }
+  });
+
+  onScopeDispose(() => {
+    if (idleTimer) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
     }
   });
 
