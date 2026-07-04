@@ -82,6 +82,12 @@ export class RecentPlayedStore {
     return Array.from(byHash.values()).sort((a, b) => b.playedAt - a.playedAt);
   }
 
+  /** Clear all entries (in-memory + persisted). Used on logout / test reset. */
+  reset(): void {
+    this.entries.value = [];
+    this.persist();
+  }
+
   private persist(): void {
     if (!this.storage) return;
     try {
