@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { playerStore, playTrack } from '../api/playerStore';
 import { apiGet } from '../api/backend';
+import { useLyricFollow } from '../api/useLyricFollow';
 
 interface LyricLine {
   time: number;
@@ -126,16 +127,20 @@ const activeIndex = computed(() => {
   return Math.max(0, idx - 1);
 });
 
-// Autoscroll watcher
-watch(activeIndex, (newIdx) => {
-  if (newIdx === -1) return;
-  const el = document.getElementById(`lyric-line-${newIdx}`);
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
+// Auto-follow state machine — scrolls to the active line while following,
+// suspends on manual wheel/touch scroll, resumes after 3s idle or via the
+// return-to-current button. See useLyricFollow.ts for the state machine.
+function scrollToLine(idx: number) {
+  const el = document.getElementById(`lyric-line-${idx}`);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+const { autoFollowing, onUserScroll, resumeFollow, resetForTrack } = useLyricFollow({
+  activeIndex,
+  scrollToLine,
 });
 
-watch(currentTrack, () => {
+watch(currentTrack, (track) => {
+  resetForTrack(track?.FileHash || '');
   loadLyrics();
 }, { deep: true });
 
@@ -203,7 +208,11 @@ onMounted(() => {
 
       <!-- Right scrolling lyrics -->
       <div class="lyric-right">
-        <div class="lyric-scroll">
+        <div
+          class="lyric-scroll"
+          @wheel.passive="onUserScroll()"
+          @touchmove.passive="onUserScroll()"
+        >
           <div 
             v-for="(line, idx) in parsedLyrics" 
             :key="idx"
@@ -214,6 +223,12 @@ onMounted(() => {
             {{ line.text }}
           </div>
         </div>
+        <button
+          v-if="!autoFollowing"
+          class="return-to-current"
+          data-test="return-to-current"
+          @click="resumeFollow()"
+        >回到当前行</button>
       </div>
 
       <!-- Compact queue (album art only) when lyrics are left-aligned -->
@@ -239,6 +254,33 @@ onMounted(() => {
 </template>
 
 <style scoped>
+/* Return-to-current floating button (visible when auto-follow is suspended) */
+.lyric-right {
+  position: relative;
+}
+.return-to-current {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(40, 28, 12, 0.12);
+  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  z-index: 5;
+}
+.return-to-current:hover {
+  transform: translateX(-50%) scale(1.04);
+  box-shadow: 0 4px 14px rgba(40, 28, 12, 0.2);
+}
+
 /* Responsive layout squeeze when Queue is open */
 .lyric-container {
   transition: padding 0.3s cubic-bezier(0.16, 1, 0.3, 1);
