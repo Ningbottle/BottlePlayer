@@ -437,12 +437,14 @@ function handlePlaybackEvent(e: PlaybackEvent) {
       playerStore.currentTime = e.position;
       playSession.onTimeUpdate(e.position);
     }
+    playbackDiagnostics.markActivity();
     if (typeof e.duration === 'number' && Number.isFinite(e.duration) && e.duration > 0) {
       playerStore.duration = e.duration;
     }
   } else if (e.type === 'state') {
     if (e.state === 'playing') {
       playSession.onPlay();
+      playbackDiagnostics.markActivity();
       playerStore.isLoading = false;
       playerStore.isPlaying = true;
     } else if (e.state === 'paused') {

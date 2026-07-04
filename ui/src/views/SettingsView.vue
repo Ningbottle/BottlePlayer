@@ -6,6 +6,7 @@ import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { useThemeStore } from '../api/themeStore';
 import { setSkippedVersion } from '../api/skippedVersion';
+import { playbackDiagnostics, type DiagEvent } from '../api/playbackDiagnostics';
 
 const themeStore = useThemeStore();
 
@@ -264,6 +265,7 @@ async function claimAdVip() {
 onMounted(() => {
   loadDiagnostics();
   loadDevice();
+  refreshDiag();
 });
 
 function formatBytes(bytes: number) {
@@ -273,6 +275,19 @@ function formatBytes(bytes: number) {
 
 function clearCache() {
   alert('本地 SQLite3 设置缓存与图片 LRU 缓存已执行清理回收！');
+}
+
+// ── Playback diagnostics (frontend event ring buffer) ──
+const diagEvents = ref<DiagEvent[]>([]);
+function refreshDiag() {
+  diagEvents.value = playbackDiagnostics.getEvents();
+}
+async function copyDiag() {
+  try {
+    await navigator.clipboard.writeText(playbackDiagnostics.copyAsText());
+  } catch (e) {
+    console.warn('clipboard write failed', e);
+  }
 }
 </script>
 
@@ -479,9 +494,42 @@ function clearCache() {
         无法连通 C++ Diagnostics 诊断端子
       </div>
     </section>
+
+    <section class="card" data-test="playback-diagnostics">
+      <p class="kicker">PLAYBACK DIAGNOSTICS · 播放诊断 (前端事件)</p>
+      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom: 14px;">
+        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">播放边界事件 ({{ diagEvents.length }})</h3>
+        <div style="display:flex; gap:8px;">
+          <button class="more" @click="refreshDiag">刷新 ↻</button>
+          <button class="more" data-test="copy-diagnostics" @click="copyDiag">复制</button>
+        </div>
+      </div>
+      <div v-if="diagEvents.length === 0" style="padding: 16px; text-align:center; font-style:italic; color: var(--ink-mute);">
+        暂无诊断事件
+      </div>
+      <div v-else style="max-height: 360px; overflow-y: auto; font-family: var(--font-sans); font-size: 11px; line-height: 1.6;">
+        <div
+          v-for="(e, idx) in diagEvents"
+          :key="idx"
+          class="diag-row"
+          :class="{ 'diag-stall': e.kind === 'potential_stall' }"
+          style="display:flex; gap:8px; padding: 3px 6px; border-bottom: 1px solid var(--rule-soft);"
+        >
+          <span style="color: var(--ink-mute); min-width: 90px;">{{ e.ts }}</span>
+          <span style="min-width: 110px; font-weight: 600;">{{ e.kind }}</span>
+          <span style="min-width: 50px; color: var(--ink-soft);">{{ e.phase }}</span>
+          <span style="flex:1; color: var(--ink-soft);">{{ e.detail }}</span>
+          <span v-if="e.trackKey" style="color: var(--ink-mute);">[{{ e.trackKey }}]</span>
+        </div>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
 /* Settings view specific styles */
+.diag-stall {
+  background: rgba(220, 50, 47, 0.08) !important;
+  border-left: 3px solid #dc322f !important;
+}
 </style>

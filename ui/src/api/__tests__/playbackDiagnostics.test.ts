@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PlaybackDiagnostics } from '../playbackDiagnostics';
 
 function mkStore(opts: { now?: () => number; capacity?: number } = {}) {
@@ -134,5 +134,42 @@ describe('PlaybackDiagnostics', () => {
     expect(events).toHaveLength(200);
     expect(events[0].detail).toBe('overflow'); // newest first
     expect(events[events.length - 1].detail).toBe('e1'); // e0 evicted as oldest
+  });
+});
+
+describe('PlaybackDiagnostics stall auto-flag', () => {
+  beforeEach(() => vi.useFakeTimers());
+  afterEach(() => vi.useRealTimers());
+
+  it('flags a potential_stall after 5s of no activity following a stalled event', () => {
+    const store = mkStore({ capacity: 10 });
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'stalled' });
+
+    vi.advanceTimersByTime(4999);
+    expect(store.getEvents().filter((e) => e.kind === 'potential_stall')).toHaveLength(0);
+
+    vi.advanceTimersByTime(1);
+    const stalls = store.getEvents().filter((e) => e.kind === 'potential_stall');
+    expect(stalls).toHaveLength(1);
+  });
+
+  it('does not flag a potential_stall when markActivity arrives within 5s', () => {
+    const store = mkStore({ capacity: 10 });
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'waiting' });
+
+    vi.advanceTimersByTime(3000);
+    store.markActivity(); // playback recovered — clears the stall timer
+    vi.advanceTimersByTime(6000); // well past 5s since the stalled event
+
+    expect(store.getEvents().filter((e) => e.kind === 'potential_stall')).toHaveLength(0);
+  });
+
+  it('does not arm the stall detector for non-stall media events (error/ended)', () => {
+    const store = mkStore({ capacity: 10 });
+    store.recordEvent({ kind: 'media_event', phase: 'fail', detail: 'error' });
+    store.recordEvent({ kind: 'media_event', phase: 'ok', detail: 'ended' });
+    vi.advanceTimersByTime(10000);
+
+    expect(store.getEvents().filter((e) => e.kind === 'potential_stall')).toHaveLength(0);
   });
 });
