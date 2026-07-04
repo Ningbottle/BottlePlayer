@@ -99,4 +99,90 @@ describe('useLyricFollow', () => {
     vi.advanceTimersByTime(5000);
     expect(follow.autoFollowing.value).toBe(true);
   });
+
+  it('does not auto-scroll when activeIndex becomes negative (guard: idx >= 0)', async () => {
+    const { activeIndex, scrolledTo } = setup({ activeIndex: 2 });
+    activeIndex.value = -1;
+    await nextTick();
+    expect(scrolledTo).toEqual([]);
+  });
+
+  it('repeated onUserScroll pushes out the idle timer; resumes 3s after the LAST scroll', () => {
+    const { follow } = setup({ now: () => 1000 });
+    follow.onUserScroll(); // schedules resume in 3000ms
+    vi.advanceTimersByTime(2000); // 1000ms before resume
+
+    follow.onUserScroll(); // cancels old timer, schedules a NEW 3000ms resume
+    vi.advanceTimersByTime(2000); // past the FIRST schedule, but only 2000ms past the second
+    expect(follow.autoFollowing.value).toBe(false); // still suspended
+
+    vi.advanceTimersByTime(1000); // 3000ms past the second scroll
+    expect(follow.autoFollowing.value).toBe(true);
+  });
+
+  it('resetForTrack("") is a no-op when trackKey is already empty (initial state)', () => {
+    const { follow } = setup();
+    expect(follow.trackKey.value).toBe('');
+    expect(follow.autoFollowing.value).toBe(true);
+
+    follow.resetForTrack(''); // same key — no-op
+
+    expect(follow.trackKey.value).toBe('');
+    expect(follow.autoFollowing.value).toBe(true);
+    expect(follow.manualScrollUntil.value).toBe(0);
+    // No timer should have been scheduled.
+    vi.advanceTimersByTime(5000);
+    expect(follow.autoFollowing.value).toBe(true);
+  });
+
+  it('resetForTrack transitions to an empty key ("") from a non-empty key and resets', () => {
+    const { follow } = setup();
+    follow.resetForTrack('track-A');
+    expect(follow.trackKey.value).toBe('track-A');
+    follow.onUserScroll(); // suspend
+    expect(follow.autoFollowing.value).toBe(false);
+
+    follow.resetForTrack(''); // different key — resets
+    expect(follow.trackKey.value).toBe('');
+    expect(follow.autoFollowing.value).toBe(true);
+    expect(follow.manualScrollUntil.value).toBe(0);
+  });
+
+  it('resumeFollow clears the pending idle timer so it cannot fire later', () => {
+    const { follow } = setup({ activeIndex: 3 });
+    follow.onUserScroll(); // schedules 3s resume
+    follow.resumeFollow(); // should cancel the pending timer
+    expect(follow.autoFollowing.value).toBe(true);
+
+    vi.advanceTimersByTime(5000); // well past the idle window
+    expect(follow.autoFollowing.value).toBe(true);
+    expect(follow.manualScrollUntil.value).toBe(0);
+  });
+
+  it('resumeFollow does not scroll when activeIndex is negative', () => {
+    const { follow, scrolledTo } = setup({ activeIndex: -1 });
+    follow.onUserScroll(); // suspend
+    scrolledTo.length = 0;
+
+    follow.resumeFollow();
+    expect(follow.autoFollowing.value).toBe(true);
+    expect(scrolledTo).toEqual([]); // idx is -1, guard prevents scroll
+  });
+
+  it('after resumeFollow, subsequent activeIndex changes auto-scroll again', async () => {
+    const { follow, activeIndex, scrolledTo } = setup({ activeIndex: 0 });
+    follow.onUserScroll(); // suspend
+    follow.resumeFollow(); // re-enable (scrolls to current idx=0 by design)
+    scrolledTo.length = 0; // clear AFTER resume so we only capture the subsequent change
+
+    activeIndex.value = 7;
+    await nextTick();
+    expect(scrolledTo).toEqual([7]);
+  });
+
+  it('does not scroll on initial setup (watch is not immediate)', async () => {
+    const { scrolledTo } = setup({ activeIndex: 5 });
+    await nextTick();
+    expect(scrolledTo).toEqual([]);
+  });
 });

@@ -112,4 +112,132 @@ describe('RecentPlayedStore', () => {
     expect(store.entries.value[0].FileHash).toBe('h2');
     expect(store.entries.value[0].playedAt).toBe(2000);
   });
+
+  it('mergeRemote with empty remote returns a sorted copy of local entries without mutating the store', () => {
+    let now = 0;
+    const store = mkStore({ now: () => now });
+    now = 1000;
+    store.recordRecentPlayed(mkTrack({ FileHash: 'h1' }));
+    now = 2000;
+    store.recordRecentPlayed(mkTrack({ FileHash: 'h2' }));
+    // local: [h2@2000, h1@1000]
+
+    const before = [...store.entries.value];
+    const merged = store.mergeRemote([]);
+
+    expect(merged.map((e) => e.FileHash)).toEqual(['h2', 'h1']);
+    expect(merged).not.toBe(store.entries.value); // new ref, not the internal ref
+    expect(store.entries.value).toEqual(before); // store untouched
+  });
+
+  it('mergeRemote with empty local returns the remote entries sorted desc', () => {
+    const store = mkStore({ now: () => 0 });
+    const remote: RecentPlayedEntry[] = [
+      { FileHash: 'h1', SongName: 'R1', SingerName: '', Duration: 0, playedAt: 1000 },
+      { FileHash: 'h2', SongName: 'R2', SingerName: '', Duration: 0, playedAt: 3000 },
+      { FileHash: 'h3', SongName: 'R3', SingerName: '', Duration: 0, playedAt: 2000 },
+    ];
+
+    const merged = store.mergeRemote(remote);
+
+    expect(merged.map((e) => e.FileHash)).toEqual(['h2', 'h3', 'h1']);
+    expect(store.entries.value).toHaveLength(0); // local still empty
+  });
+
+  it('mergeRemote dedupes duplicate FileHash within the remote input (latest playedAt wins)', () => {
+    const store = mkStore({ now: () => 0 });
+    const remote: RecentPlayedEntry[] = [
+      { FileHash: 'h1', SongName: 'older', SingerName: '', Duration: 0, playedAt: 1000 },
+      { FileHash: 'h1', SongName: 'newer', SingerName: '', Duration: 0, playedAt: 5000 },
+      { FileHash: 'h1', SongName: 'middle', SingerName: '', Duration: 0, playedAt: 3000 },
+    ];
+
+    const merged = store.mergeRemote(remote);
+
+    expect(merged).toHaveLength(1);
+    expect(merged[0].FileHash).toBe('h1');
+    expect(merged[0].SongName).toBe('newer');
+    expect(merged[0].playedAt).toBe(5000);
+  });
+
+  it('mergeRemote does not write to storage (pure read)', () => {
+    const storage = memStorage();
+    const store = mkStore({ now: () => 1000, storage });
+    store.recordRecentPlayed(mkTrack({ FileHash: 'h1' }));
+    const storageBefore = storage.getItem('recent_played');
+
+    store.mergeRemote([
+      { FileHash: 'h2', SongName: 'R2', SingerName: '', Duration: 0, playedAt: 3000 },
+    ]);
+
+    expect(storage.getItem('recent_played')).toBe(storageBefore);
+  });
+
+  it('works without storage (storage undefined) without throwing', () => {
+    const store = new RecentPlayedStore({ now: () => 1000 });
+    expect(() => store.recordRecentPlayed(mkTrack({ FileHash: 'h1', SongName: 'No-storage' }))).not.toThrow();
+    expect(store.entries.value).toHaveLength(1);
+    expect(store.entries.value[0].FileHash).toBe('h1');
+
+    // mergeRemote still works without storage.
+    const merged = store.mergeRemote([
+      { FileHash: 'h2', SongName: 'R', SingerName: '', Duration: 0, playedAt: 2000 },
+    ]);
+    expect(merged).toHaveLength(2);
+  });
+
+  it('swallows storage setItem failures (quota/private mode) without breaking recording', () => {
+    const storage = memStorage();
+    const original = storage.setItem;
+    storage.setItem = () => {
+      throw new Error('QuotaExceededError');
+    };
+    const store = mkStore({ now: () => 1000, storage });
+
+    expect(() => store.recordRecentPlayed(mkTrack({ FileHash: 'h1' }))).not.toThrow();
+    // In-memory state still updated even though persist failed.
+    expect(store.entries.value).toHaveLength(1);
+    expect(store.entries.value[0].FileHash).toBe('h1');
+
+    storage.setItem = original;
+  });
+
+  it('honors a custom storageKey for persist and reload', () => {
+    const storage = memStorage();
+    const store = new RecentPlayedStore({ now: () => 1000, storage, storageKey: 'custom_key' });
+    store.recordRecentPlayed(mkTrack({ FileHash: 'h-custom' }));
+
+    expect(storage.getItem('recent_played')).toBeNull(); // default key untouched
+    expect(storage.getItem('custom_key')).toContain('h-custom');
+
+    const reloaded = new RecentPlayedStore({ now: () => 9999, storage, storageKey: 'custom_key' });
+    expect(reloaded.entries.value).toHaveLength(1);
+    expect(reloaded.entries.value[0].FileHash).toBe('h-custom');
+  });
+
+  it('recordRecentPlayed copies all track fields including optional Album/AlbumID/Image', () => {
+    const store = mkStore({ now: () => 1000 });
+    store.recordRecentPlayed(
+      mkTrack({
+        FileHash: 'h-full',
+        SongName: 'Full Song',
+        SingerName: 'Full Artist',
+        AlbumName: 'Full Album',
+        AlbumID: 'album-123',
+        Image: 'https://img/400.jpg',
+        Duration: 250,
+      }),
+    );
+
+    expect(store.entries.value[0]).toEqual({
+      FileHash: 'h-full',
+      SongName: 'Full Song',
+      SingerName: 'Full Artist',
+      AlbumName: 'Full Album',
+      AlbumID: 'album-123',
+      Image: 'https://img/400.jpg',
+      Duration: 250,
+      playedAt: 1000,
+    });
+  });
 });

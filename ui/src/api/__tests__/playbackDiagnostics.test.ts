@@ -65,4 +65,74 @@ describe('PlaybackDiagnostics', () => {
     expect(store.getEvents()).toHaveLength(0);
     expect(store.copyAsText()).toBe('');
   });
+
+  it('copyAsText on an empty buffer returns an empty string', () => {
+    const store = mkStore();
+    expect(store.copyAsText()).toBe('');
+  });
+
+  it('getEvents returns a defensive copy; mutating the result does not affect the store', () => {
+    const store = mkStore({ now: () => 1000 });
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'x' });
+
+    const events = store.getEvents();
+    events.pop();
+    events.push({ ts: 9999, kind: 'potential_stall', phase: 'fail', detail: 'injected' });
+
+    const fresh = store.getEvents();
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0].detail).toBe('x');
+  });
+
+  it('keeps all events when buffer is exactly at capacity (no eviction)', () => {
+    let now = 0;
+    const store = mkStore({ now: () => now, capacity: 3 });
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'a' });
+    now++;
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'b' });
+    now++;
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'c' });
+
+    const events = store.getEvents();
+    expect(events).toHaveLength(3);
+    expect(events.map((e) => e.detail)).toEqual(['c', 'b', 'a']);
+  });
+
+  it('reset-then-record: buffer is usable again after reset', () => {
+    const store = mkStore({ now: () => 1000 });
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'before' });
+    store.reset();
+    expect(store.getEvents()).toHaveLength(0);
+
+    store.recordEvent({ kind: 'track_switch', phase: 'start', detail: 'after' });
+    const events = store.getEvents();
+    expect(events).toHaveLength(1);
+    expect(events[0].detail).toBe('after');
+    expect(events[0].ts).toBe(1000);
+  });
+
+  it('recordEvent without trackKey produces a line with no [trackKey] suffix', () => {
+    const store = mkStore({ now: () => 1000 });
+    store.recordEvent({ kind: 'url_resolve', phase: 'ok', detail: 'resolved h1' });
+
+    const line = store.copyAsText();
+    expect(line).toBe('1000 url_resolve ok: resolved h1');
+    expect(line).not.toContain('[');
+  });
+
+  it('default capacity (200) holds exactly 200 events; the 201st evicts the oldest', () => {
+    let now = 0;
+    const store = mkStore({ now: () => now });
+    for (let i = 0; i < 200; i++) {
+      store.recordEvent({ kind: 'media_event', phase: 'noop', detail: `e${i}` });
+      now++;
+    }
+    expect(store.getEvents()).toHaveLength(200);
+
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'overflow' });
+    const events = store.getEvents();
+    expect(events).toHaveLength(200);
+    expect(events[0].detail).toBe('overflow'); // newest first
+    expect(events[events.length - 1].detail).toBe('e1'); // e0 evicted as oldest
+  });
 });
