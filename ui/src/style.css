@@ -170,10 +170,10 @@ button {
 ::-webkit-scrollbar-thumb:hover {
   background: rgba(34, 27, 18, 0.35);
 }
-html.dark ::-webkit-scrollbar-thumb {
+:root[data-mode="dark"] ::-webkit-scrollbar-thumb {
   background: rgba(255, 255, 255, 0.15);
 }
-html.dark ::-webkit-scrollbar-thumb:hover {
+:root[data-mode="dark"] ::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.3);
 }
 
@@ -1327,216 +1327,216 @@ html.lyric-left .lyric-line {
 }
 
 /* Lyric scrollbar dark mode */
-html.dark .lyric-right {
+:root[data-mode="dark"] .lyric-right {
   scrollbar-color: rgba(255,255,255,0.12) transparent;
 }
-html.dark .lyric-right::-webkit-scrollbar-thumb {
+:root[data-mode="dark"] .lyric-right::-webkit-scrollbar-thumb {
   background: rgba(255,255,255,0.12);
 }
 
 /* ---------- Dark mode overrides (VS Code Dark+ style) ---------- */
 
 /* Mix-blend-mode patterns: switch to normal + reduce opacity */
-html.dark .avatar::after { mix-blend-mode: normal; opacity: .08; }
-html.dark .card .cover::after { mix-blend-mode: normal; opacity: .06; }
-html.dark .drawer::before { mix-blend-mode: normal; opacity: .08; }
-html.dark .artist .ah::after { mix-blend-mode: normal; opacity: .06; }
-html.dark .player::before { mix-blend-mode: normal; opacity: .06; }
+:root[data-mode="dark"] .avatar::after { mix-blend-mode: normal; opacity: .08; }
+:root[data-mode="dark"] .card .cover::after { mix-blend-mode: normal; opacity: .06; }
+:root[data-mode="dark"] .drawer::before { mix-blend-mode: normal; opacity: .08; }
+:root[data-mode="dark"] .artist .ah::after { mix-blend-mode: normal; opacity: .06; }
+:root[data-mode="dark"] .player::before { mix-blend-mode: normal; opacity: .06; }
 
 /* Nav hover/active */
-html.dark .nav a:hover { background: rgba(255,255,255,0.06); }
-html.dark .nav a.active { background: rgba(255,255,255,0.08); }
+:root[data-mode="dark"] .nav a:hover { background: rgba(255,255,255,0.06); }
+:root[data-mode="dark"] .nav a.active { background: rgba(255,255,255,0.08); }
 
 /* Playlists */
-html.dark .playlists a:hover { background: rgba(255,255,255,0.06); }
+:root[data-mode="dark"] .playlists a:hover { background: rgba(255,255,255,0.06); }
 
 /* Icon buttons */
-html.dark .icon-btn {
+:root[data-mode="dark"] .icon-btn {
   background: rgba(255,255,255,0.08);
   border-color: rgba(255,255,255,0.12);
   color: var(--ink-soft);
 }
-html.dark .icon-btn:hover {
+:root[data-mode="dark"] .icon-btn:hover {
   background: rgba(255,255,255,0.14);
   border-color: rgba(255,255,255,0.25);
   color: var(--ink);
 }
 
 /* Feature hero dashed border */
-html.dark .feature .hero::before { border-color: rgba(255,255,255,0.08); }
+:root[data-mode="dark"] .feature .hero::before { border-color: rgba(255,255,255,0.08); }
 
 /* Side list */
-html.dark .side-list li:hover { background: rgba(255,255,255,0.03); }
+:root[data-mode="dark"] .side-list li:hover { background: rgba(255,255,255,0.03); }
 
 /* Drawer */
-html.dark .drawer-head { border-bottom-color: rgba(255,255,255,0.08); }
-html.dark .drawer-head .dot-row span { background: rgba(255,255,255,0.18); }
-html.dark .drawer-close {
+:root[data-mode="dark"] .drawer-head { border-bottom-color: rgba(255,255,255,0.08); }
+:root[data-mode="dark"] .drawer-head .dot-row span { background: rgba(255,255,255,0.18); }
+:root[data-mode="dark"] .drawer-close {
   border-color: rgba(255,255,255,0.12);
   background: rgba(255,255,255,0.05);
 }
 
 /* Recent items */
-html.dark .recent .item { border-bottom-color: rgba(255,255,255,0.06); }
-html.dark .recent .item:hover { background: rgba(255,255,255,0.04); }
-html.dark .recent .item .mini { border-color: rgba(255,255,255,0.08); }
+:root[data-mode="dark"] .recent .item { border-bottom-color: rgba(255,255,255,0.06); }
+:root[data-mode="dark"] .recent .item:hover { background: rgba(255,255,255,0.04); }
+:root[data-mode="dark"] .recent .item .mini { border-color: rgba(255,255,255,0.08); }
 
 /* Player bar */
-html.dark .np .cv { border-color: rgba(255,255,255,0.1); }
-html.dark .track .rule {
+:root[data-mode="dark"] .np .cv { border-color: rgba(255,255,255,0.1); }
+:root[data-mode="dark"] .track .rule {
   background: linear-gradient(90deg, rgba(255,255,255,0.15) 0 4px, transparent 4px 8px);
 }
-html.dark .volume .bar::before { background: rgba(255,255,255,0.15); }
+:root[data-mode="dark"] .volume .bar::before { background: rgba(255,255,255,0.15); }
 
 /* Song rows */
-html.dark .song-row:hover { background: rgba(255,255,255,0.04); }
-html.dark .song-row.active { background: rgba(255,255,255,0.08); }
+:root[data-mode="dark"] .song-row:hover { background: rgba(255,255,255,0.04); }
+:root[data-mode="dark"] .song-row.active { background: rgba(255,255,255,0.08); }
 
 /* Titlebar */
-html.dark .titlebar-controls .control-btn:hover {
+:root[data-mode="dark"] .titlebar-controls .control-btn:hover {
   border-color: rgba(255,255,255,0.25);
   background: rgba(255,255,255,0.06);
 }
 
 /* Paper layers: dark vignette, subdued grain/fibers */
-html.dark .paper-vignette {
+:root[data-mode="dark"] .paper-vignette {
   background: radial-gradient(ellipse 130% 110% at 50% 40%, transparent 55%, rgba(0,0,0,0.45) 100%);
 }
-html.dark .paper-grain { mix-blend-mode: soft-light; opacity: 0.4; }
-html.dark .paper-fibers { mix-blend-mode: soft-light; opacity: 0.02; }
+:root[data-mode="dark"] .paper-grain { mix-blend-mode: soft-light; opacity: 0.4; }
+:root[data-mode="dark"] .paper-fibers { mix-blend-mode: soft-light; opacity: 0.02; }
 
 /* Shadows: switch warm brown to pure dark */
-html.dark .card { box-shadow: 0 2px 0 -1px var(--paper-edge), 0 1px 12px -6px rgba(0,0,0,0.5); }
-html.dark .func {
+:root[data-mode="dark"] .card { box-shadow: 0 2px 0 -1px var(--paper-edge), 0 1px 12px -6px rgba(0,0,0,0.5); }
+:root[data-mode="dark"] .func {
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.06), 0 1px 2px rgba(0,0,0,0.2);
 }
-html.dark .artist .ah {
+:root[data-mode="dark"] .artist .ah {
   box-shadow: 0 1px 2px rgba(0,0,0,0.25), inset 0 0 0 1px rgba(255,255,255,0.04);
 }
-html.dark .toast {
+:root[data-mode="dark"] .toast {
   box-shadow: 0 6px 20px -8px rgba(0,0,0,0.5);
 }
-html.dark .player {
+:root[data-mode="dark"] .player {
   box-shadow: 0 -16px 40px -12px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
 }
-html.dark .np .cv { box-shadow: 0 2px 6px rgba(0,0,0,0.35); }
-html.dark .t-btn.play {
+:root[data-mode="dark"] .np .cv { box-shadow: 0 2px 6px rgba(0,0,0,0.35); }
+:root[data-mode="dark"] .t-btn.play {
   box-shadow: 0 2px 6px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.1);
 }
-html.dark .player .slider-thumb {
+:root[data-mode="dark"] .player .slider-thumb {
   box-shadow: 0 1px 3px rgba(0,0,0,0.4);
 }
-html.dark .toast-2 {
+:root[data-mode="dark"] .toast-2 {
   box-shadow: 0 20px 50px -10px rgba(0,0,0,0.55);
 }
-html.dark .lyric-meta .big-cover {
+:root[data-mode="dark"] .lyric-meta .big-cover {
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
 /* Inline SVG hardcoded colors */
-html.dark .spinner circle[stroke="rgba(34,27,18,0.1)"] {
+:root[data-mode="dark"] .spinner circle[stroke="rgba(34,27,18,0.1)"] {
   stroke: rgba(255,255,255,0.15);
 }
-html.dark .hero-art circle[fill="rgba(34,27,18,0.06)"] {
+:root[data-mode="dark"] .hero-art circle[fill="rgba(34,27,18,0.06)"] {
   fill: rgba(255,255,255,0.08);
 }
-html.dark .hero-art circle[fill="rgba(34,27,18,0.45)"] {
+:root[data-mode="dark"] .hero-art circle[fill="rgba(34,27,18,0.45)"] {
   fill: rgba(255,255,255,0.3);
 }
-html.dark .hero-art circle[stroke="rgba(34,27,18,0.25)"] {
+:root[data-mode="dark"] .hero-art circle[stroke="rgba(34,27,18,0.25)"] {
   stroke: rgba(255,255,255,0.2);
 }
 
 /* ---------- Dark glass / warm-white overrides ---------- */
 
 /* Sidebar & topbar gradients */
-html.dark .sidebar {
+:root[data-mode="dark"] .sidebar {
   background: linear-gradient(180deg, rgba(255,255,255,0.04) 0%, rgba(255,255,255,0) 30%);
 }
-html.dark .topbar {
+:root[data-mode="dark"] .topbar {
   background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0) 100%);
 }
 
 /* Nav arrows button */
-html.dark .nav-arrows button {
+:root[data-mode="dark"] .nav-arrows button {
   background: rgba(255,255,255,0.06);
 }
 
 /* Search bar */
-html.dark .search {
+:root[data-mode="dark"] .search {
   background: rgba(255,255,255,0.06);
 }
 
 /* Feature side-list */
-html.dark .feature .side-list {
+:root[data-mode="dark"] .feature .side-list {
   background: rgba(255,255,255,0.04);
 }
 
 /* Card play button */
-html.dark .card .cover .play {
+:root[data-mode="dark"] .card .cover .play {
   background: rgba(0,0,0,0.55);
   border-color: rgba(255,255,255,0.12);
   color: #fff;
 }
 
 /* Drawer border (glass uses variables but border is hardcoded) */
-html.dark .drawer {
+:root[data-mode="dark"] .drawer {
   border-color: rgba(255,255,255,0.1);
 }
 
 /* Drawer close button */
-html.dark .drawer-close {
+:root[data-mode="dark"] .drawer-close {
   background: rgba(255,255,255,0.05);
 }
 
 /* Func hover / icon box */
-html.dark .func:hover { background: rgba(255,255,255,0.06); }
-html.dark .func .ic {
+:root[data-mode="dark"] .func:hover { background: rgba(255,255,255,0.06); }
+:root[data-mode="dark"] .func .ic {
   background: rgba(255,255,255,0.06);
   border-color: rgba(255,255,255,0.1);
   box-shadow: inset 0 1px 0 rgba(255,255,255,0.04), 0 1px 2px rgba(0,0,0,0.2);
 }
 
 /* Artist avatar */
-html.dark .artist .ah {
+:root[data-mode="dark"] .artist .ah {
   border-color: rgba(255,255,255,0.1);
   box-shadow: 0 1px 2px rgba(0,0,0,0.25), inset 0 0 0 1px rgba(255,255,255,0.04);
 }
 
 /* Recent item hover */
-html.dark .recent .item:hover {
+:root[data-mode="dark"] .recent .item:hover {
   background: rgba(255,255,255,0.04);
 }
 
 /* Drawer toggle */
-html.dark .drawer-toggle {
+:root[data-mode="dark"] .drawer-toggle {
   border-color: rgba(255,255,255,0.1);
   box-shadow: 0 6px 20px -8px rgba(0,0,0,0.45);
 }
 
 /* Player bar */
-html.dark .player {
+:root[data-mode="dark"] .player {
   border-top-color: rgba(255,255,255,0.08);
   box-shadow: 0 -16px 40px -12px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06);
 }
 
 /* Play button inset highlight */
-html.dark .t-btn.play {
+:root[data-mode="dark"] .t-btn.play {
   box-shadow: 0 2px 6px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.1);
 }
 
 /* Quality badge */
-html.dark .quality {
+:root[data-mode="dark"] .quality {
   background: rgba(255,255,255,0.06);
 }
 
 /* Lyric icon button */
-html.dark .p-icon.lyric {
+:root[data-mode="dark"] .p-icon.lyric {
   background: rgba(255,255,255,0.06);
 }
 
 /* Tweaks panel (old hardcoded warm glass) */
-html.dark .tweaks {
+:root[data-mode="dark"] .tweaks {
   background: rgba(30,30,30,0.85);
   border-color: rgba(255,255,255,0.1);
   box-shadow: 0 20px 50px -10px rgba(0,0,0,0.55);
