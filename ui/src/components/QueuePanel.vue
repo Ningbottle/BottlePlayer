@@ -212,7 +212,7 @@ watch(() => playerStore.queue, () => {
 
 .slide-up-enter-active,
 .slide-up-leave-active {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.25s var(--ease-spa);
 }
 .slide-up-enter-from,
 .slide-up-leave-to {

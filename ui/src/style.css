@@ -45,6 +45,13 @@
   --paper-alt: var(--paper-2);
   --ink-light: var(--ink-faint);
   --ink-soft-10: rgba(34, 27, 18, 0.1);
+
+  /* Motion tokens (spec §3 Animation System) */
+  --ease-spa: cubic-bezier(0.16, 1, 0.3, 1);
+  --ease-material: cubic-bezier(0.4, 0, 0.2, 1);
+  --dur-fast: 0.15s;
+  --dur-normal: 0.25s;
+  --dur-slow: 0.4s;
 }
 
 /* ─── Aurora skin (v2 — Apple Music light style) ─── */
@@ -1533,4 +1540,13 @@ html.dark .tweaks {
   background: rgba(30,30,30,0.85);
   border-color: rgba(255,255,255,0.1);
   box-shadow: 0 20px 50px -10px rgba(0,0,0,0.55);
+}
+
+/* Reduced motion: disable all transitions/animations (spec §3) */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
 }

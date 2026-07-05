@@ -200,7 +200,7 @@ onMounted(() => {
         <div class="big-cover">
           <!-- Stable img with inline-SVG fallback (computed). Avoids
                flicker by keeping the element mounted; cover swaps smoothly. -->
-          <img :src="coverUrl" alt="cover" style="transition: opacity 0.2s ease;" />
+          <img :src="coverUrl" alt="cover" style="transition: opacity 0.2s var(--ease-spa);" />
         </div>
         <h2>{{ currentTrack.SongName }}</h2>
         <p>{{ currentTrack.SingerName }}</p>
@@ -273,7 +273,7 @@ onMounted(() => {
   font-size: 12px;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(40, 28, 12, 0.12);
-  transition: transform 0.15s ease, box-shadow 0.15s ease;
+  transition: transform 0.15s var(--ease-spa), box-shadow 0.15s var(--ease-spa);
   z-index: 5;
 }
 .return-to-current:hover {
@@ -283,7 +283,7 @@ onMounted(() => {
 
 /* Responsive layout squeeze when Queue is open */
 .lyric-container {
-  transition: padding 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: padding 0.3s var(--ease-spa);
 }
 
 .lyric-container.with-queue {
@@ -293,7 +293,7 @@ onMounted(() => {
 
 /* Big cover overrides */
 .big-cover {
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.3s var(--ease-spa);
 }
 
 .with-queue .big-cover {
@@ -303,7 +303,7 @@ onMounted(() => {
 
 /* Text overrides */
 .lyric-meta h2 {
-  transition: font-size 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: font-size 0.3s var(--ease-spa);
 }
 
 .with-queue .lyric-meta h2 {
@@ -344,7 +344,7 @@ onMounted(() => {
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(40,28,12,0.15);
   border: 1px solid var(--rule-soft);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s var(--ease-spa), box-shadow 0.2s var(--ease-spa);
 }
 
 .compact-cover:hover {

@@ -166,7 +166,7 @@ function toggleLyricView() {
       <div class="cv">
         <!-- Stable <img> with fallback data URL — avoids v-if remount flicker
              when switching tracks while a cover is still loading. -->
-        <img :src="coverUrl" alt="cover" style="transition: opacity 0.15s ease;" />
+        <img :src="coverUrl" alt="cover" style="transition: opacity 0.15s var(--ease-spa);" />
       </div>
 
       <div class="info">
@@ -402,7 +402,7 @@ html.dark .mode-toast {
 
 .toast-fade-enter-active,
 .toast-fade-leave-active {
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.3s var(--ease-spa);
 }
 .toast-fade-enter-from,
 .toast-fade-leave-to {
@@ -502,7 +502,7 @@ html.dark .quality-menu {
 /* Menu fade transition */
 .menu-fade-enter-active,
 .menu-fade-leave-active {
-  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.2s var(--ease-spa);
 }
 
 .menu-fade-enter-from,
