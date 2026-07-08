@@ -162,4 +162,23 @@ describe('LyricView fullscreen', () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
     expect(lyricFullscreen.value).toBe(false);
   });
+
+  it('the exit-fullscreen button exits fullscreen', async () => {
+    setLyricFullscreen(true);
+    const w = mountLyric();
+    await flushPromises();
+    const btn = w.find('.exit-fullscreen');
+    expect(btn.exists()).toBe(true);
+    await btn.trigger('click');
+    expect(lyricFullscreen.value).toBe(false);
+  });
+
+  it('resets lyricFullscreen to false on unmount', async () => {
+    setLyricFullscreen(true);
+    const w = mountLyric();
+    await flushPromises();
+    expect(lyricFullscreen.value).toBe(true);
+    w.unmount();
+    expect(lyricFullscreen.value).toBe(false);
+  });
 });

@@ -20,6 +20,11 @@ const props = defineProps<{
 const loading = ref(false);
 const rawLyricText = ref('');
 const parsedLyrics = ref<LyricLine[]>([]);
+
+// Template ref on the .big-cover container so the GSAP fullscreen tween
+// targets the layout box (240×240, overflow-controlled) rather than the img,
+// which would overflow the container and get stuck at the wrong size on exit.
+const coverRef = ref<HTMLElement | null>(null);
 const currentTrack = computed(() => playerStore.currentTrack);
 const currentTime = computed(() => playerStore.currentTime);
 
@@ -182,10 +187,24 @@ onUnmounted(() => {
   if (lyricFullscreen.value) setLyricFullscreen(false); // reset on unmount
 });
 
+// Cover scale on fullscreen: animate the .big-cover *container* (not the img)
+// between the CSS baseline (240px) and the fullscreen size (320px). On exit we
+// clear the inline width so the CSS baseline (240px, or 180px with queue) takes
+// over again — without clearProps the img would be stuck at the tweened value.
+// Reduced-motion users still get the size change, just applied instantly.
 watch(lyricFullscreen, (fs) => {
-  if (isReducedMotion()) return;
-  const cover = document.querySelector('.big-cover img');
-  if (cover) gsap.to(cover, { width: fs ? '320px' : '200px', duration: 0.4, ease: 'power2.out' });
+  const cover = coverRef.value;
+  if (!cover) return;
+  if (isReducedMotion()) {
+    if (fs) gsap.set(cover, { width: 320 });
+    else gsap.set(cover, { clearProps: 'width' });
+    return;
+  }
+  if (fs) {
+    gsap.to(cover, { width: 320, duration: 0.4, ease: 'power2.out' });
+  } else {
+    gsap.to(cover, { width: 240, duration: 0.4, ease: 'power2.out', clearProps: 'width' });
+  }
 });
 </script>
 
@@ -220,7 +239,7 @@ watch(lyricFullscreen, (fs) => {
     <div v-else class="lyric-container" :class="{ 'with-queue': isQueueOpen }">
       <!-- Left cover & name -->
       <div class="lyric-meta" @dblclick="setLyricFullscreen(true)">
-        <div class="big-cover">
+        <div class="big-cover" ref="coverRef">
           <!-- Stable img with inline-SVG fallback (computed). Avoids
                flicker by keeping the element mounted; cover swaps smoothly. -->
           <img :src="coverUrl" alt="cover" style="transition: opacity 0.2s var(--ease-spa);" />
@@ -316,11 +335,12 @@ watch(lyricFullscreen, (fs) => {
   padding-right: 340px; 
 }
 
-/* Big cover overrides */
-.big-cover {
-  transition: all 0.3s var(--ease-spa);
-}
-
+/* Big cover overrides
+   Note: no `transition` on .big-cover itself — the fullscreen size change is
+   driven by a GSAP tween (see watch(lyricFullscreen)), and a CSS `transition:
+   all` here would fight it frame-by-frame. The .with-queue squeeze below is
+   applied instantly; the surrounding .lyric-container padding transition still
+   smooths the overall layout shift. */
 .with-queue .big-cover {
   width: 180px !important;
   height: 180px !important;

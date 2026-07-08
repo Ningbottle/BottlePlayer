@@ -62,8 +62,9 @@ function onLeave(el: Element, done: () => void) {
 </script>
 
 <template>
-  <Transition :css="false" appear @enter="onEnter" @leave="onLeave">
-    <div v-if="show" class="modal-overlay" @click.self="handleClose">
+  <Teleport to="body">
+    <Transition :css="false" appear @enter="onEnter" @leave="onLeave">
+      <div v-if="show" class="modal-overlay" @click.self="handleClose">
         <div class="playlist-modal">
           <div class="modal-header">
             <h3>收藏到歌单</h3>
@@ -99,7 +100,8 @@ function onLeave(el: Element, done: () => void) {
           </div>
       </div>
     </div>
-  </Transition>
+    </Transition>
+  </Teleport>
 </template>
 
 <style scoped>

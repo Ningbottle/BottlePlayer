@@ -1,6 +1,6 @@
 # Task 3+ Report — Settings Redesign + Lyric Fullscreen + Modal Motion
 
-**Status:** DONE
+**Status:** DONE (Task 4 Steps 4-5 DEFERRED — see "Deferred to a follow-up wave" below)
 **Branch:** `product-stability`
 **Scope:** Plan Tasks 3 (settings), 4 (animation: modal + theme crossfade + section switch), 5 (lyric fullscreen) — committed together as one wave.
 
@@ -26,9 +26,16 @@
 - Added the unified button system + settings layout + per-skin variants (Aurora minimalist / Newsprint retro) to `style.css` (plan Task 3 Step 4 — this was missing from the prior working tree).
 
 ### Task 4 — Animation (modal + theme crossfade + section switch)
-- `AddToPlaylistModal.vue` wrapped in `<Transition :css="false" appear @enter @leave>`; `onEnter` calls `transitionEnter` + a GSAP scale-up on `.playlist-modal`; `onLeave` calls `transitionLeave`.
+- `AddToPlaylistModal.vue` wrapped in `<Teleport to="body"><Transition :css="false" appear @enter @leave>` (Teleport restored so the modal escapes the `.player` z-index:6 stacking context); `onEnter` calls `transitionEnter` + a GSAP scale-up on `.playlist-modal`; `onLeave` calls `transitionLeave`.
 - `SettingsView` Appearance uses `crossfadeTheme(() => themeStore.setSkin/setMode(...))`.
 - Settings section switch uses `transitionEnter`/`transitionLeave` from `motion.ts`.
+
+### Deferred to a follow-up wave (Task 4 Steps 4-5)
+The following two steps from the plan's Task 4 were NOT implemented in this wave and are deferred:
+- **Step 4 — App.vue view-switch `<Transition>` with GSAP hooks:** the `v-if`/`v-else-if` view chain in `App.vue` is not yet wrapped in a `<Transition>`; view swaps are instant.
+- **Step 5 — StatsView count-up + bar-chart tween:** `animateCountUp` / `animateBarHeight` from `motion.ts` are not yet wired into `StatsView.vue`; stats render with hardcoded numbers.
+
+Impact on the spec acceptance criterion "view-switch, modal, count-up, bar-chart, theme-crossfade, section-switch animations work": **partially unmet** — modal + theme-crossfade + section-switch are in; view-switch + count-up + bar-chart are out. These will be picked up in a follow-up wave.
 
 ### Task 5 — Lyric fullscreen
 - `lyricFullscreen.ts`: shared `ref<boolean>` + `setLyricFullscreen()`.
