@@ -3,6 +3,9 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { playerStore, playTrack } from '../api/playerStore';
 import { apiGet } from '../api/backend';
 import { useLyricFollow } from '../api/useLyricFollow';
+import { lyricFullscreen, setLyricFullscreen } from '../api/lyricFullscreen';
+import { gsap } from 'gsap';
+import { isReducedMotion } from '../api/motion';
 
 interface LyricLine {
   time: number;
@@ -151,19 +154,38 @@ function onStorage(e: StorageEvent) {
   }
 }
 
+let alignInterval: ReturnType<typeof setInterval> | null = null;
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && lyricFullscreen.value) setLyricFullscreen(false);
+}
+
+function toggleFullscreen() {
+  setLyricFullscreen(!lyricFullscreen.value);
+}
+
 onMounted(() => {
   loadLyrics();
   window.addEventListener('storage', onStorage);
+  window.addEventListener('keydown', onKeydown);
   // Also poll periodically (same-tab changes don't fire storage event)
-  const interval = setInterval(() => {
+  alignInterval = setInterval(() => {
     const v = localStorage.getItem('tweak_lyric_align') || 'center';
     if (v !== lyricAlign.value) lyricAlign.value = v;
   }, 500);
-  // Cleanup on unmount
-  onUnmounted(() => {
-    window.removeEventListener('storage', onStorage);
-    clearInterval(interval);
-  });
+});
+
+onUnmounted(() => {
+  window.removeEventListener('storage', onStorage);
+  window.removeEventListener('keydown', onKeydown);
+  if (alignInterval) clearInterval(alignInterval);
+  if (lyricFullscreen.value) setLyricFullscreen(false); // reset on unmount
+});
+
+watch(lyricFullscreen, (fs) => {
+  if (isReducedMotion()) return;
+  const cover = document.querySelector('.big-cover img');
+  if (cover) gsap.to(cover, { width: fs ? '320px' : '200px', duration: 0.4, ease: 'power2.out' });
 });
 </script>
 
@@ -177,6 +199,7 @@ onMounted(() => {
       <div class="date">
         同步滚动中
       </div>
+      <button data-test="lyric-fullscreen-toggle" @click="toggleFullscreen">全屏</button>
     </div>
 
     <!-- Empty/No track state -->
@@ -196,7 +219,7 @@ onMounted(() => {
     <!-- Lyric layout -->
     <div v-else class="lyric-container" :class="{ 'with-queue': isQueueOpen }">
       <!-- Left cover & name -->
-      <div class="lyric-meta">
+      <div class="lyric-meta" @dblclick="setLyricFullscreen(true)">
         <div class="big-cover">
           <!-- Stable img with inline-SVG fallback (computed). Avoids
                flicker by keeping the element mounted; cover swaps smoothly. -->
@@ -250,6 +273,8 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <button v-if="lyricFullscreen" class="exit-fullscreen" @click="setLyricFullscreen(false)">退出全屏</button>
   </div>
 </template>
 

@@ -22,6 +22,7 @@ import { checkLoginStatus } from './api/userStore';
 import { ping } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { lyricFullscreen } from './api/lyricFullscreen';
 
 const currentView = ref('home');
 const searchQuery = ref('');
@@ -186,7 +187,7 @@ onUnmounted(() => {
   <div class="paper-vignette"></div>
 
   <!-- Main grid app shell -->
-  <div class="app">
+  <div class="app" :class="{ 'lyric-fullscreen-active': lyricFullscreen }">
     <!-- Custom Drag-enabled Titlebar -->
     <div class="titlebar" data-tauri-drag-region @dblclick="handleTitlebarDoubleClick">
       <div class="titlebar-logo">
@@ -217,7 +218,8 @@ onUnmounted(() => {
     <div v-if="networkDegraded" class="network-banner">应用后台连接不稳定，部分功能可能暂不可用</div>
 
     <!-- Sidebar Navigation -->
-    <Sidebar 
+    <Sidebar
+      v-show="!lyricFullscreen"
       :active-view="currentView" 
       @navigate="handleNavigate" 
     />
@@ -226,6 +228,7 @@ onUnmounted(() => {
     <section class="main">
       <!-- Search & actions Topbar -->
       <Topbar 
+        v-show="!lyricFullscreen"
         v-model:searchQuery="searchQuery" 
         @search="handleSearch"
         @toggle-tweaks="tweaksCollapsed = !tweaksCollapsed"
@@ -286,7 +289,8 @@ onUnmounted(() => {
     </section>
 
     <!-- Bottom player controller bar -->
-    <PlayerBar 
+    <PlayerBar
+      v-show="!lyricFullscreen"
       :active-view="currentView"
       @navigate="handleNavigate" 
       @toggle-queue="isQueueOpen = !isQueueOpen"

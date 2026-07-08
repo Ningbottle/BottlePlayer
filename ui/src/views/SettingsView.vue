@@ -1,14 +1,25 @@
-<script setup lang="ts">
+﻿<script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { apiGet } from '../api/backend';
 import { checkLoginStatus } from '../api/userStore';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { useThemeStore } from '../api/themeStore';
+import { useThemeStore, type SkinId, type Mode } from '../api/themeStore';
 import { setSkippedVersion } from '../api/skippedVersion';
 import { playbackDiagnostics, type DiagEvent } from '../api/playbackDiagnostics';
+import { crossfadeTheme, transitionEnter, transitionLeave } from '../api/motion';
 
 const themeStore = useThemeStore();
+
+type SectionId = 'appearance' | 'device' | 'vip' | 'update' | 'storage' | 'diagnostics';
+const activeSection = ref<SectionId>('appearance');
+
+async function selectSkin(id: SkinId) {
+  await crossfadeTheme(() => themeStore.setSkin(id));
+}
+async function selectMode(m: Mode) {
+  await crossfadeTheme(() => themeStore.setMode(m));
+}
 
 interface MemoryData {
   working_set_bytes: number;
@@ -273,8 +284,11 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
+const showClearConfirm = ref(false);
+const cacheStatus = ref('');
 function clearCache() {
-  alert('本地 SQLite3 设置缓存与图片 LRU 缓存已执行清理回收！');
+  cacheStatus.value = '✓ 本地 SQLite3 设置缓存与图片 LRU 缓存已执行清理回收！';
+  showClearConfirm.value = false;
 }
 
 // ── Playback diagnostics (frontend event ring buffer) ──
@@ -303,226 +317,240 @@ async function copyDiag() {
       </div>
     </div>
 
-    <!-- Appearance -->
-    <section class="card" style="margin-bottom: 24px;">
-      <p class="kicker">APPEARANCE · 外观</p>
-      <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">Skin & Mode</h3>
-      <p style="color: var(--ink-soft); font-size: 13px;">选择皮肤和明暗模式。Newsprint 是 v1 报纸风；Aurora 是 v2 全新苹果风。</p>
-      <div style="margin-top: 14px; display: flex; gap: 10px; flex-wrap: wrap;">
-        <button
-          v-for="s in [{id:'aurora',label:'Aurora (v2)'},{id:'newsprint',label:'Newsprint (v1)'}]"
-          :key="s.id"
-          class="cta"
-          :style="themeStore.skinId.value === s.id ? 'background: var(--accent);' : 'background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);'"
-          @click="themeStore.setSkin(s.id as any)"
-        >{{ s.label }}</button>
-        <button
-          class="cta"
-          :style="themeStore.mode.value === 'light' ? 'background: var(--accent);' : 'background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);'"
-          @click="themeStore.setMode('light')"
-        >☀️ 浅色</button>
-        <button
-          class="cta"
-          :style="themeStore.mode.value === 'dark' ? 'background: var(--accent);' : 'background: transparent; color: var(--ink-soft); border: 1px solid var(--rule);'"
-          @click="themeStore.setMode('dark')"
-        >🌙 深色</button>
+    <div class="settings-shell">
+      <nav class="settings-nav">
+        <button class="settings-nav-item" :class="{ active: activeSection === 'appearance' }" data-test="settings-nav-item" @click="activeSection = 'appearance'">外观</button>
+        <button class="settings-nav-item" :class="{ active: activeSection === 'device' }" data-test="settings-nav-item" @click="activeSection = 'device'">设备</button>
+        <button class="settings-nav-item" :class="{ active: activeSection === 'vip' }" data-test="settings-nav-item" @click="activeSection = 'vip'">VIP</button>
+        <button class="settings-nav-item" :class="{ active: activeSection === 'update' }" data-test="settings-nav-item" @click="activeSection = 'update'">更新</button>
+        <button class="settings-nav-item" :class="{ active: activeSection === 'storage' }" data-test="settings-nav-item" @click="activeSection = 'storage'">存储</button>
+        <button class="settings-nav-item" :class="{ active: activeSection === 'diagnostics' }" data-test="settings-nav-item" @click="activeSection = 'diagnostics'">诊断</button>
+      </nav>
+
+      <div class="settings-content">
+        <Transition :css="false" @enter="transitionEnter" @leave="transitionLeave">
+          <!-- ── Appearance ── -->
+          <section v-if="activeSection === 'appearance'" key="appearance" data-test="settings-section-appearance">
+            <h3 class="settings-section-title">外观 · Skin &amp; Mode</h3>
+            <p class="settings-hint">选择皮肤和明暗模式。Newsprint 是 v1 报纸风；Aurora 是 v2 全新苹果风。</p>
+            <div class="settings-row">
+              <button
+                data-test="select-skin-aurora"
+                :class="themeStore.skinId.value === 'aurora' ? 'btn-primary' : 'btn-secondary'"
+                @click="selectSkin('aurora')"
+              >Aurora (v2)</button>
+              <button
+                data-test="select-skin-newsprint"
+                :class="themeStore.skinId.value === 'newsprint' ? 'btn-primary' : 'btn-secondary'"
+                @click="selectSkin('newsprint')"
+              >Newsprint (v1)</button>
+            </div>
+            <div class="settings-row">
+              <button
+                data-test="select-mode-light"
+                :class="themeStore.mode.value === 'light' ? 'btn-primary' : 'btn-secondary'"
+                @click="selectMode('light')"
+              >☀️ 浅色</button>
+              <button
+                data-test="select-mode-dark"
+                :class="themeStore.mode.value === 'dark' ? 'btn-primary' : 'btn-secondary'"
+                @click="selectMode('dark')"
+              >🌙 深色</button>
+            </div>
+          </section>
+
+          <!-- ── Device Fingerprint ── -->
+          <section v-else-if="activeSection === 'device'" key="device" data-test="settings-section-device">
+            <h3 class="settings-section-title">
+              设备指纹 · Device Fingerprint
+              <span v-if="device?.registered" class="settings-badge">已注册</span>
+            </h3>
+
+            <p class="settings-hint">
+              登录后 App 会自动生成并通过 <code>/register/dev</code> 注册设备指纹（dfid / mid / uuid），正常播放 VIP 音频与歌单<strong>无需手动设置</strong>。下面三个框是<strong>可选的高级覆盖</strong>——若你想用从酷狗官方 App / 网页抓到的真实指纹替代自动生成的，填进去即可，所有 KuGou API 调用都会改用你输入的指纹。（格式：dfid 24 位 base64，mid 约 32–40 位 hex，uuid 32 位 hex / GUID）
+              <br>
+              <strong>怎么获取</strong>：浏览器打开 <a href="https://m.kugou.com/" target="_blank">m.kugou.com</a> → F12 → Network → 找任意请求里的 query 字符串 → 复制 <code>dfid=</code><code>mid=</code><code>uuid=</code> 三个字段。
+              <br>
+              <strong class="settings-warn">注意</strong>：三个框留空即用 App 自动生成 / 注册的指纹，绝大多数情况够用——随机生成的 dfid 也能正常领 VIP 与播放。仅当个别接口因风控偶发受限（如歌单 20017、song/url 只给 60s 试听）时，再尝试填入官方渠道抓到的真实指纹覆盖。
+            </p>
+
+            <!-- Use monospace font for these three inputs because dfid contains
+                 visually-ambiguous chars (I vs l, O vs 0, 1 vs l). A previous user
+                 typo I→l broke the dfid registration silently — KuGou returned
+                 errcode 20028 and the user had no way to see what went wrong. -->
+            <div class="settings-field">
+              <label class="settings-field-label">
+                <span>dfid（24 字符 base64-like，如 <code class="settings-mono">2ULHpc3qaLZa43ln8x0fLJQp</code>）</span>
+                <span class="settings-mono">{{ dfidInput.length }} 字符</span>
+              </label>
+              <input v-model="dfidInput" type="text" placeholder="-" spellcheck="false" autocorrect="off" autocapitalize="off" class="settings-input" />
+            </div>
+            <div class="settings-field">
+              <label class="settings-field-label">
+                <span>mid（hex 设备串，约 32–40 字符）</span>
+                <span class="settings-mono">{{ midInput.length }} 字符</span>
+              </label>
+              <input v-model="midInput" type="text" placeholder="0" spellcheck="false" autocorrect="off" autocapitalize="off" class="settings-input" />
+            </div>
+            <div class="settings-field">
+              <label class="settings-field-label">
+                <span>uuid（32 字符 hex / GUID）</span>
+                <span class="settings-mono">{{ uuidInput.length }} 字符</span>
+              </label>
+              <input v-model="uuidInput" type="text" placeholder="-" spellcheck="false" autocorrect="off" autocapitalize="off" class="settings-input" />
+            </div>
+
+            <div class="settings-row">
+              <button class="btn-primary" @click="saveDevice">保存指纹</button>
+              <button class="btn-secondary" @click="testDevice">测试连接</button>
+              <button class="btn-ghost" @click="resetDevice">清除设备指纹</button>
+              <span v-if="deviceStatus" class="settings-status">{{ deviceStatus }}</span>
+            </div>
+          </section>
+
+          <!-- ── VIP Daily Rewards ── -->
+          <section v-else-if="activeSection === 'vip'" key="vip" data-test="settings-section-vip">
+            <h3 class="settings-section-title">每日福利 · VIP Rewards</h3>
+            <p class="settings-hint">
+              通过酷狗概念版「听歌领 VIP / 看广告领 VIP」端点领取每日免费 VIP。每日限领一次，已领取会返回 130012（正常业务限制，非错误）。领取成功后会员到期时间会从 /user/vip/detail 刷新。
+            </p>
+            <div class="settings-row">
+              <button class="btn-primary" @click="claimListenVip" :disabled="listenVipLoading || adVipLoading">
+                {{ listenVipLoading ? '领取中…' : '听歌领 VIP' }}
+              </button>
+              <span v-if="listenVipMsg" class="settings-status">{{ listenVipMsg }}</span>
+            </div>
+            <div class="settings-row">
+              <button class="btn-primary" @click="claimAdVip" :disabled="adVipLoading || listenVipLoading">
+                {{ adVipLoading ? '领取中…' : '看广告领 VIP' }}
+              </button>
+              <span v-if="adVipMsg" class="settings-status">{{ adVipMsg }}</span>
+            </div>
+          </section>
+
+          <!-- ── Auto Update ── -->
+          <section v-else-if="activeSection === 'update'" key="update" data-test="settings-section-update">
+            <h3 class="settings-section-title">版本更新 · Update</h3>
+            <p class="settings-hint">
+              从 GitHub Releases 拉取最新版本。发现新版本后可一键下载安装，重启应用即可生效。
+            </p>
+            <div class="settings-row">
+              <button class="btn-primary" @click="checkForUpdate" :disabled="updateLoading || updateDownloading">
+                {{ updateLoading ? '检查中…' : '检查更新' }}
+              </button>
+              <button
+                v-if="updateVersion"
+                class="btn-primary"
+                @click="downloadAndInstall"
+                :disabled="updateDownloading"
+              >
+                {{ updateDownloading ? `下载中 ${updateProgress}%` : `下载并安装 v${updateVersion}` }}
+              </button>
+              <button
+                v-if="updateVersion && !updateDownloading"
+                class="btn-ghost"
+                @click="skipVersion"
+              >
+                跳过此版本
+              </button>
+              <span v-if="updateStatus" class="settings-status">{{ updateStatus }}</span>
+              <div v-if="updateBody" class="settings-changelog">{{ updateBody }}</div>
+            </div>
+          </section>
+
+          <!-- ── Storage & Cache ── -->
+          <section v-else-if="activeSection === 'storage'" key="storage" data-test="settings-section-storage">
+            <h3 class="settings-section-title">存储与缓存 · Storage</h3>
+            <p class="settings-hint">
+              项目当前把缓存记录在 SQLite3 中。图片解码走 WIC 缓存通道，内存 LRU 自动在 16MB 满额时启动淘汰。
+            </p>
+            <div class="settings-row">
+              <button class="btn-secondary" @click="showClearConfirm = true">清理本地数据缓存</button>
+              <span v-if="cacheStatus" class="settings-status">{{ cacheStatus }}</span>
+            </div>
+            <div v-if="showClearConfirm" class="settings-confirm">
+              <p>确认清理本地数据缓存？</p>
+              <div class="settings-row">
+                <button class="btn-primary" @click="clearCache">确认清理</button>
+                <button class="btn-ghost" @click="showClearConfirm = false">取消</button>
+              </div>
+            </div>
+          </section>
+
+          <!-- ── Diagnostics (native memory + frontend playback merged) ── -->
+          <section v-else key="diagnostics" data-test="settings-section-diagnostics">
+            <h3 class="settings-section-title">诊断 · Diagnostics</h3>
+
+            <!-- Sub-panel 1: native C++ memory -->
+            <div class="settings-subpanel">
+              <div class="settings-subpanel-head">
+                <h4 class="settings-subpanel-title">后端内核自检 (EchoCAPI.dll · FFI)</h4>
+                <button class="btn-ghost" @click="loadDiagnostics">手动刷新 ↻</button>
+              </div>
+              <div v-if="loading && !memoryInfo" class="spinner">
+                正在拉取内存快照…
+              </div>
+              <div v-else-if="memoryInfo">
+                <ul class="status-list">
+                  <li>
+                    <span class="label">Working Set (工作物理集)</span>
+                    <span class="value">{{ formatBytes(memoryInfo.working_set_bytes) }}</span>
+                  </li>
+                  <li>
+                    <span class="label">Private committed (专用虚拟集)</span>
+                    <span class="value">{{ formatBytes(memoryInfo.private_bytes) }}</span>
+                  </li>
+                  <li>
+                    <span class="label">Image Cache LRU (图片解码缓存)</span>
+                    <span class="value">{{ formatBytes(memoryInfo.image_cache_bytes) }}</span>
+                  </li>
+                  <li>
+                    <span class="label">C++ Async Threads (就绪异步任务)</span>
+                    <span class="value">{{ memoryInfo.pending_task_count }} 项</span>
+                  </li>
+                  <li>
+                    <span class="label">Native Playback State</span>
+                    <span class="value">{{ memoryInfo.playback_state }}</span>
+                  </li>
+                </ul>
+                <div class="settings-preformatted">{{ memoryInfo.text }}</div>
+              </div>
+              <div v-else class="settings-empty">
+                无法连通 C++ Diagnostics 诊断端子
+              </div>
+            </div>
+
+            <!-- Sub-panel 2: frontend playback diagnostics -->
+            <div class="settings-subpanel" data-test="playback-diagnostics">
+              <div class="settings-subpanel-head">
+                <h4 class="settings-subpanel-title">播放边界事件 ({{ diagEvents.length }})</h4>
+                <div class="settings-row">
+                  <button class="btn-ghost" @click="refreshDiag">刷新 ↻</button>
+                  <button class="btn-ghost" data-test="copy-diagnostics" @click="copyDiag">复制</button>
+                </div>
+              </div>
+              <div v-if="diagEvents.length === 0" class="settings-empty">
+                暂无诊断事件
+              </div>
+              <div v-else class="settings-diag-list">
+                <div
+                  v-for="(e, idx) in diagEvents"
+                  :key="idx"
+                  class="diag-row"
+                  :class="{ 'diag-stall': e.kind === 'potential_stall' }"
+                >
+                  <span class="diag-ts">{{ e.ts }}</span>
+                  <span class="diag-kind">{{ e.kind }}</span>
+                  <span class="diag-phase">{{ e.phase }}</span>
+                  <span class="diag-detail">{{ e.detail }}</span>
+                  <span v-if="e.trackKey" class="diag-track">[{{ e.trackKey }}]</span>
+                </div>
+              </div>
+            </div>
+          </section>
+        </Transition>
       </div>
-    </section>
-    <section class="card" style="margin-bottom: 24px;">
-      <p class="kicker">ADVANCED · 自定义设备指纹</p>
-      <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">
-        Device Fingerprint
-        <span v-if="device?.registered" style="font-size: 11px; background: var(--accent); color: var(--paper); padding: 2px 6px; border-radius: 3px; margin-left: 8px;">已注册</span>
-      </h3>
-
-      <p style="color: var(--ink-soft); font-size: 13px; line-height: 1.7;">
-        登录后 App 会自动生成并通过 <code>/register/dev</code> 注册设备指纹（dfid / mid / uuid），正常播放 VIP 音频与歌单<strong>无需手动设置</strong>。下面三个框是<strong>可选的高级覆盖</strong>——若你想用从酷狗官方 App / 网页抓到的真实指纹替代自动生成的，填进去即可，所有 KuGou API 调用都会改用你输入的指纹。（格式：dfid 24 位 base64，mid 约 32–40 位 hex，uuid 32 位 hex / GUID）
-        <br>
-        <strong>怎么获取</strong>：浏览器打开 <a href="https://m.kugou.com/" target="_blank" style="color: var(--accent);">m.kugou.com</a> → F12 → Network → 找任意请求里的 query 字符串 → 复制 <code>dfid=</code><code>mid=</code><code>uuid=</code> 三个字段。
-        <br>
-        <strong style="color: var(--accent);">注意</strong>：三个框留空即用 App 自动生成 / 注册的指纹，绝大多数情况够用——随机生成的 dfid 也能正常领 VIP 与播放。仅当个别接口因风控偶发受限（如歌单 20017、song/url 只给 60s 试听）时，再尝试填入官方渠道抓到的真实指纹覆盖。
-      </p>
-
-      <!-- Use monospace font for these three inputs because dfid contains
-           visually-ambiguous chars (I vs l, O vs 0, 1 vs l). A previous user
-           typo I→l broke the dfid registration silently — KuGou returned
-           errcode 20028 and the user had no way to see what went wrong. -->
-      <div style="margin-top: 14px;">
-        <label style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">
-          <span>dfid（24 字符 base64-like，如 <code style="font-family: 'JetBrains Mono', 'Consolas', monospace;">2ULHpc3qaLZa43ln8x0fLJQp</code>）</span>
-          <span style="font-family: monospace;">{{ dfidInput.length }} 字符</span>
-        </label>
-        <input v-model="dfidInput" type="text" placeholder="-" spellcheck="false" autocorrect="off" autocapitalize="off" style="width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace; font-size: 14px; letter-spacing: 0.5px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
-      </div>
-      <div style="margin-top: 10px;">
-        <label style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">
-          <span>mid（hex 设备串，约 32–40 字符）</span>
-          <span style="font-family: monospace;">{{ midInput.length }} 字符</span>
-        </label>
-        <input v-model="midInput" type="text" placeholder="0" spellcheck="false" autocorrect="off" autocapitalize="off" style="width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace; font-size: 14px; letter-spacing: 0.5px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
-      </div>
-      <div style="margin-top: 10px;">
-        <label style="display: flex; justify-content: space-between; font-size: 12px; margin-bottom: 4px; color: var(--ink-soft);">
-          <span>uuid（32 字符 hex / GUID）</span>
-          <span style="font-family: monospace;">{{ uuidInput.length }} 字符</span>
-        </label>
-        <input v-model="uuidInput" type="text" placeholder="-" spellcheck="false" autocorrect="off" autocapitalize="off" style="width: 100%; padding: 8px 10px; font-family: 'JetBrains Mono', 'Consolas', 'Courier New', monospace; font-size: 14px; letter-spacing: 0.5px; border: 1px solid var(--rule); border-radius: 4px; background: var(--paper);" />
-      </div>
-
-      <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-        <button class="cta" @click="saveDevice">保存指纹</button>
-        <button class="more" @click="testDevice" style="color: var(--accent);">测试连接</button>
-        <button class="more" @click="resetDevice" style="color: var(--ink-mute);">清除设备指纹</button>
-        <span v-if="deviceStatus" style="font-size: 12px; color: var(--ink-soft); flex-basis: 100%;">{{ deviceStatus }}</span>
-      </div>
-    </section>
-
-    <!-- VIP Daily Rewards -->
-    <section class="card" style="margin-bottom: 24px;">
-      <p class="kicker">VIP · 每日福利</p>
-      <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">领取免费 VIP</h3>
-
-      <p style="color: var(--ink-soft); font-size: 13px; line-height: 1.7;">
-        通过酷狗概念版「听歌领 VIP / 看广告领 VIP」端点领取每日免费 VIP。每日限领一次，已领取会返回 130012（正常业务限制，非错误）。领取成功后会员到期时间会从 /user/vip/detail 刷新。
-      </p>
-
-      <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-        <button class="cta" @click="claimListenVip" :disabled="listenVipLoading || adVipLoading">
-          {{ listenVipLoading ? '领取中…' : '听歌领 VIP' }}
-        </button>
-        <span v-if="listenVipMsg" style="font-size: 12px; color: var(--ink-soft);">{{ listenVipMsg }}</span>
-      </div>
-
-      <div style="margin-top: 10px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-        <button class="cta" @click="claimAdVip" :disabled="adVipLoading || listenVipLoading">
-          {{ adVipLoading ? '领取中…' : '看广告领 VIP' }}
-        </button>
-        <span v-if="adVipMsg" style="font-size: 12px; color: var(--ink-soft);">{{ adVipMsg }}</span>
-      </div>
-    </section>
-
-    <!-- Auto Update -->
-    <section class="card" style="margin-bottom: 24px;">
-      <p class="kicker">UPDATE · 版本更新</p>
-      <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">检查更新</h3>
-
-      <p style="color: var(--ink-soft); font-size: 13px; line-height: 1.7;">
-        从 GitHub Releases 拉取最新版本。发现新版本后可一键下载安装，重启应用即可生效。
-      </p>
-
-      <div style="margin-top: 14px; display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
-        <button class="cta" @click="checkForUpdate" :disabled="updateLoading || updateDownloading">
-          {{ updateLoading ? '检查中…' : '检查更新' }}
-        </button>
-        <button 
-          v-if="updateVersion" 
-          class="cta" 
-          style="background: var(--accent);" 
-          @click="downloadAndInstall" 
-          :disabled="updateDownloading"
-        >
-          {{ updateDownloading ? `下载中 ${updateProgress}%` : `下载并安装 v${updateVersion}` }}
-        </button>
-        <button
-          v-if="updateVersion && !updateDownloading"
-          class="cta"
-          style="background: transparent; color: var(--ink-mute); border: 1px solid var(--rule);"
-          @click="skipVersion"
-        >
-          跳过此版本
-        </button>
-        <span v-if="updateStatus" style="font-size: 12px; color: var(--ink-soft); flex-basis: 100%;">{{ updateStatus }}</span>
-        <div v-if="updateBody" style="flex-basis: 100%; margin-top: 4px; padding: 10px; background: var(--paper-edge); border-radius: 6px; font-size: 12px; color: var(--ink-soft); white-space: pre-wrap; max-height: 200px; overflow-y: auto;">{{ updateBody }}</div>
-      </div>
-    </section>
-
-    <section class="card" style="margin-bottom: 24px;">
-      <h3 style="margin-top: 0; font-size: 18px; font-weight: 600;">存储与缓存控制</h3>
-      
-      <p style="color: var(--ink-soft); font-size: 13px; line-height: 1.6;">
-        项目当前把缓存记录在 SQLite3 中。图片解码走 WIC 缓存通道，内存 LRU 自动在 16MB 满额时启动淘汰。
-      </p>
-
-      <button class="cta" style="margin-top: 10px;" @click="clearCache">
-        清理本地数据缓存
-      </button>
-    </section>
-
-    <!-- Sidecar Diagnostics -->
-    <section class="card">
-      <p class="kicker">DIAGNOSTICS · 后端内核自检 (EchoCAPI.dll · FFI)</p>
-      
-      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom: 14px;">
-        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">资源内存开销</h3>
-        <button class="more" @click="loadDiagnostics">手动刷新自检 ↻</button>
-      </div>
-
-      <div v-if="loading && !memoryInfo" class="spinner">
-        正在拉取内存快照…
-      </div>
-
-      <div v-else-if="memoryInfo">
-        <ul class="status-list" style="margin-bottom: 16px;">
-          <li>
-            <span class="label">Working Set (工作物理集)</span>
-            <span class="value">{{ formatBytes(memoryInfo.working_set_bytes) }}</span>
-          </li>
-          <li>
-            <span class="label">Private committed (专用虚拟集)</span>
-            <span class="value">{{ formatBytes(memoryInfo.private_bytes) }}</span>
-          </li>
-          <li>
-            <span class="label">Image Cache LRU (图片解码缓存)</span>
-            <span class="value">{{ formatBytes(memoryInfo.image_cache_bytes) }}</span>
-          </li>
-          <li>
-            <span class="label">C++ Async Threads (就绪异步任务)</span>
-            <span class="value">{{ memoryInfo.pending_task_count }} 项</span>
-          </li>
-          <li>
-            <span class="label">Native Playback State</span>
-            <span class="value">{{ memoryInfo.playback_state }}</span>
-          </li>
-        </ul>
-
-        <div style="background: var(--paper-edge); padding: 14px; border-radius: 6px; font-family: var(--font-sans); font-size: 12px; white-space: pre-wrap; overflow-x: auto; color: var(--ink-soft); line-height: 1.5;">
-          {{ memoryInfo.text }}
-        </div>
-      </div>
-
-      <div v-else style="padding: 24px; text-align: center; font-style: italic; color: var(--ink-mute);">
-        无法连通 C++ Diagnostics 诊断端子
-      </div>
-    </section>
-
-    <section class="card" data-test="playback-diagnostics">
-      <p class="kicker">PLAYBACK DIAGNOSTICS · 播放诊断 (前端事件)</p>
-      <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom: 14px;">
-        <h3 style="margin: 0; font-size: 18px; font-weight: 600;">播放边界事件 ({{ diagEvents.length }})</h3>
-        <div style="display:flex; gap:8px;">
-          <button class="more" @click="refreshDiag">刷新 ↻</button>
-          <button class="more" data-test="copy-diagnostics" @click="copyDiag">复制</button>
-        </div>
-      </div>
-      <div v-if="diagEvents.length === 0" style="padding: 16px; text-align:center; font-style:italic; color: var(--ink-mute);">
-        暂无诊断事件
-      </div>
-      <div v-else style="max-height: 360px; overflow-y: auto; font-family: var(--font-sans); font-size: 11px; line-height: 1.6;">
-        <div
-          v-for="(e, idx) in diagEvents"
-          :key="idx"
-          class="diag-row"
-          :class="{ 'diag-stall': e.kind === 'potential_stall' }"
-          style="display:flex; gap:8px; padding: 3px 6px; border-bottom: 1px solid var(--rule-soft);"
-        >
-          <span style="color: var(--ink-mute); min-width: 90px;">{{ e.ts }}</span>
-          <span style="min-width: 110px; font-weight: 600;">{{ e.kind }}</span>
-          <span style="min-width: 50px; color: var(--ink-soft);">{{ e.phase }}</span>
-          <span style="flex:1; color: var(--ink-soft);">{{ e.detail }}</span>
-          <span v-if="e.trackKey" style="color: var(--ink-mute);">[{{ e.trackKey }}]</span>
-        </div>
-      </div>
-    </section>
+    </div>
   </div>
 </template>
 

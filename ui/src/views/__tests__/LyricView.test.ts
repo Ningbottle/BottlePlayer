@@ -18,6 +18,7 @@ vi.mock('../../api/backend', () => ({
 
 import LyricView from '../LyricView.vue';
 import { playerStore } from '../../api/playerStore';
+import { lyricFullscreen, setLyricFullscreen } from '../../api/lyricFullscreen';
 import type { Track } from '../../api/normalizer';
 
 function mkTrack(hash: string): Track {
@@ -39,9 +40,15 @@ function mockLyricApi() {
   });
 }
 
+let wrapper: VueWrapper<any> | undefined;
+
+function mountLyric(): VueWrapper<any> {
+  wrapper = mount(LyricView, { attachTo: document.body });
+  return wrapper;
+}
+
 describe('LyricView auto-follow integration', () => {
   let scrollSpy: ReturnType<typeof vi.fn>;
-  let wrapper: VueWrapper<any> | undefined;
 
   beforeEach(() => {
     mockLyricApi();
@@ -59,11 +66,6 @@ describe('LyricView auto-follow integration', () => {
     mockApiGet.mockReset();
     document.body.innerHTML = '';
   });
-
-  function mountLyric(): VueWrapper<any> {
-    wrapper = mount(LyricView, { attachTo: document.body });
-    return wrapper;
-  }
 
   it('shows a return-to-current button when auto-follow is suspended by wheel scroll', async () => {
     const wrapper = mountLyric();
@@ -116,5 +118,48 @@ describe('LyricView auto-follow integration', () => {
     await flushPromises(); // loadLyrics for new track + resetForTrack
 
     expect(wrapper.find('[data-test="return-to-current"]').exists()).toBe(false);
+  });
+});
+
+describe('LyricView fullscreen', () => {
+  beforeEach(() => {
+    mockLyricApi();
+    (Element.prototype as any).scrollIntoView = vi.fn();
+    playerStore.currentTrack = mkTrack('h1');
+    playerStore.currentTime = 0;
+    playerStore.queue = [mkTrack('h1')];
+    playerStore.currentIndex = 0;
+    setLyricFullscreen(false);
+  });
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    delete (Element.prototype as any).scrollIntoView;
+    mockApiGet.mockReset();
+    document.body.innerHTML = '';
+    setLyricFullscreen(false);
+  });
+
+  it('has a fullscreen toggle button that sets lyricFullscreen to true', async () => {
+    const w = mountLyric();
+    await flushPromises();
+    const btn = w.find('[data-test="lyric-fullscreen-toggle"]');
+    await btn.trigger('click');
+    expect(lyricFullscreen.value).toBe(true);
+  });
+
+  it('double-clicking the cover area enters fullscreen', async () => {
+    const w = mountLyric();
+    await flushPromises();
+    await w.find('.lyric-meta').trigger('dblclick');
+    expect(lyricFullscreen.value).toBe(true);
+  });
+
+  it('pressing Esc exits fullscreen', async () => {
+    setLyricFullscreen(true);
+    mountLyric();
+    await flushPromises();
+    window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    expect(lyricFullscreen.value).toBe(false);
   });
 });
