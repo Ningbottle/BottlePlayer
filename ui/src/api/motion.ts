@@ -27,7 +27,7 @@ export function animateCountUp(ref: Ref<number>, target: number, opts: CountUpOp
 }
 
 /** Animate a bar element's height to targetPx. */
-export function animateBarHeight(el: HTMLElement, targetPx: number, opts: { duration?: number; ease?: string } = {}): void {
+export function animateBarHeight(el: HTMLElement, targetPx: number, opts: { duration?: number; ease?: string; delay?: number } = {}): void {
   if (isReducedMotion()) {
     el.style.height = `${targetPx}px`;
     return;
@@ -36,6 +36,7 @@ export function animateBarHeight(el: HTMLElement, targetPx: number, opts: { dura
     height: targetPx,
     duration: opts.duration ?? 0.55,
     ease: opts.ease ?? 'expo.out',
+    delay: opts.delay ?? 0,
   });
 }
 

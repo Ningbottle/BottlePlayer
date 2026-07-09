@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, onMounted, watch } from 'vue';
+import { ref, onMounted, watch, nextTick } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { normalizeTrack, type Track } from '../api/normalizer';
 import { playAll, playerStore } from '../api/playerStore';
+import { animateBarHeight, animateCountUp, isReducedMotion } from '../api/motion';
 
 type Range = '7d' | '30d' | 'all';
 const range = ref<Range>('30d');
@@ -17,6 +18,10 @@ interface Summary {
   completion_rate: number;
 }
 const summary = ref<Summary | null>(null);
+const displayTotalPlays = ref(0);
+const displayListenedSeconds = ref(0);
+const displayUniqueSongs = ref(0);
+const displayCompletionPercent = ref(0);
 
 interface TopItem {
   song_hash?: string;
@@ -38,6 +43,7 @@ interface TimelineItem {
 }
 const timeline = ref<TimelineItem[]>([]);
 const maxTimelineCount = ref(1);
+const timelineBarEls = ref<HTMLElement[]>([]);
 
 const aiApiKey = ref(localStorage.getItem('deepseek_api_key') || '');
 const aiResult = ref('');
@@ -81,6 +87,39 @@ function isCurrentHash(hash?: string) {
   return !!hash && playerStore.currentTrack?.FileHash === hash;
 }
 
+function setTimelineBarEl(el: Element | null, index: number) {
+  if (el instanceof HTMLElement) timelineBarEls.value[index] = el;
+}
+
+function timelineHeight(item: TimelineItem): number {
+  return Math.round((item.count / maxTimelineCount.value) * 100);
+}
+
+async function animateSummaryValues(s: Summary) {
+  await Promise.all([
+    animateCountUp(displayTotalPlays, s.total_plays, { delay: 0 }),
+    animateCountUp(displayListenedSeconds, s.total_listened_seconds, { delay: 0.04 }),
+    animateCountUp(displayUniqueSongs, s.unique_songs, { delay: 0.08 }),
+    animateCountUp(displayCompletionPercent, Math.round(s.completion_rate * 100), { delay: 0.12 }),
+  ]);
+}
+
+async function animateTimelineBars() {
+  await nextTick();
+  timelineBarEls.value = timelineBarEls.value.slice(0, timeline.value.length);
+  timeline.value.forEach((item, index) => {
+    const el = timelineBarEls.value[index];
+    if (!el) return;
+    const height = timelineHeight(item);
+    if (isReducedMotion()) {
+      el.style.height = `${height}px`;
+      return;
+    }
+    el.style.height = '2px';
+    animateBarHeight(el, height, { delay: index * 0.015 });
+  });
+}
+
 async function loadTimeline() {
   try {
     const tl = await invoke<string>('stats_get_timeline', { range: range.value });
@@ -94,6 +133,7 @@ async function loadTimeline() {
 async function loadStats() {
   loading.value = true;
   error.value = '';
+  timelineBarEls.value = [];
   try {
     const [s, songs, artists, albums] = await Promise.all([
       invoke<string>('stats_get_summary', { range: range.value }),
@@ -106,6 +146,10 @@ async function loadStats() {
     topArtists.value = JSON.parse(artists).items || [];
     topAlbums.value = JSON.parse(albums).items || [];
     await loadTimeline();
+    loading.value = false;
+    await nextTick();
+    if (summary.value) await animateSummaryValues(summary.value);
+    await animateTimelineBars();
   } catch (e) {
     console.error('Stats load failed:', e);
     error.value = '统计数据加载失败';
@@ -185,19 +229,19 @@ watch(range, loadStats);
     <template v-else-if="summary">
       <div class="stats-overview">
         <div class="stat-card">
-          <span class="stat-value">{{ summary.total_plays }}</span>
+          <span class="stat-value">{{ displayTotalPlays }}</span>
           <span class="stat-label">总播放</span>
         </div>
         <div class="stat-card">
-          <span class="stat-value">{{ formatDuration(summary.total_listened_seconds) }}</span>
+          <span class="stat-value">{{ formatDuration(displayListenedSeconds) }}</span>
           <span class="stat-label">总时长</span>
         </div>
         <div class="stat-card">
-          <span class="stat-value">{{ summary.unique_songs }}</span>
+          <span class="stat-value">{{ displayUniqueSongs }}</span>
           <span class="stat-label">不同歌曲</span>
         </div>
         <div class="stat-card">
-          <span class="stat-value">{{ Math.round(summary.completion_rate * 100) }}%</span>
+          <span class="stat-value">{{ displayCompletionPercent }}%</span>
           <span class="stat-label">完成率</span>
         </div>
       </div>
@@ -255,9 +299,13 @@ watch(range, loadStats);
       <div class="stats-timeline" v-if="timeline.length > 0">
         <h3>播放时间线</h3>
         <div class="timeline-chart">
-          <div v-for="item in timeline" :key="item.date" class="timeline-bar">
+          <div v-for="(item, i) in timeline" :key="item.date" class="timeline-bar">
             <span class="bar-count">{{ item.count }}</span>
-            <div class="bar-fill" :style="{ height: (item.count / maxTimelineCount * 100) + '%' }"></div>
+            <div
+              class="bar-fill"
+              :ref="(el) => setTimelineBarEl(el, i)"
+              :style="{ height: isReducedMotion() ? timelineHeight(item) + 'px' : '2px' }"
+            ></div>
             <span class="bar-label">{{ item.date.slice(5) }}</span>
           </div>
         </div>
