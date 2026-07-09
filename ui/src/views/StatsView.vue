@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick } from 'vue';
+import { ref, onMounted, watch, nextTick, type ComponentPublicInstance } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { normalizeTrack, type Track } from '../api/normalizer';
 import { playAll, playerStore } from '../api/playerStore';
@@ -87,7 +87,7 @@ function isCurrentHash(hash?: string) {
   return !!hash && playerStore.currentTrack?.FileHash === hash;
 }
 
-function setTimelineBarEl(el: Element | null, index: number) {
+function setTimelineBarEl(el: Element | ComponentPublicInstance | null, index: number) {
   if (el instanceof HTMLElement) timelineBarEls.value[index] = el;
 }
 
