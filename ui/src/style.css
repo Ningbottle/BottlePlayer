@@ -1215,7 +1215,11 @@ svg { display:block; }
   width: 100%;
   font-size: 16px;
   color: var(--ink-mute);
-  transition: all 0.3s ease;
+  transition:
+    color 0.3s var(--ease-spa),
+    opacity 0.3s var(--ease-spa),
+    transform 0.3s var(--ease-spa),
+    font-size 0.3s var(--ease-spa);
   text-align: center;
   font-family: var(--font-serif);
   line-height: 1.6;

@@ -196,14 +196,14 @@ watch(lyricFullscreen, (fs) => {
   const cover = coverRef.value;
   if (!cover) return;
   if (isReducedMotion()) {
-    if (fs) gsap.set(cover, { width: 320 });
-    else gsap.set(cover, { clearProps: 'width' });
+    if (fs) gsap.set(cover, { width: 320, height: 320 });
+    else gsap.set(cover, { clearProps: 'width,height' });
     return;
   }
   if (fs) {
-    gsap.to(cover, { width: 320, duration: 0.4, ease: 'power2.out' });
+    gsap.to(cover, { width: 320, height: 320, duration: 0.4, ease: 'expo.out' });
   } else {
-    gsap.to(cover, { width: 240, duration: 0.4, ease: 'power2.out', clearProps: 'width' });
+    gsap.to(cover, { width: 240, height: 240, duration: 0.4, ease: 'power2.out', clearProps: 'width,height' });
   }
 });
 </script>

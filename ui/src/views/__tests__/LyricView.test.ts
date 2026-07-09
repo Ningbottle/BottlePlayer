@@ -11,6 +11,18 @@ vi.mock('../../api/playerStore', async () => {
   return { ...actual, playTrack: vi.fn() };
 });
 
+const gsapSetMock = vi.hoisted(() => vi.fn());
+const gsapToMock = vi.hoisted(() => vi.fn((_, opts) => {
+  if (opts?.onComplete) opts.onComplete();
+}));
+
+vi.mock('gsap', () => ({
+  gsap: {
+    set: gsapSetMock,
+    to: gsapToMock,
+  },
+}));
+
 const mockApiGet = vi.fn();
 vi.mock('../../api/backend', () => ({
   apiGet: (...args: any[]) => mockApiGet(...args),
@@ -123,6 +135,7 @@ describe('LyricView auto-follow integration', () => {
 
 describe('LyricView fullscreen', () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockLyricApi();
     (Element.prototype as any).scrollIntoView = vi.fn();
     playerStore.currentTrack = mkTrack('h1');
@@ -180,5 +193,26 @@ describe('LyricView fullscreen', () => {
     expect(lyricFullscreen.value).toBe(true);
     w.unmount();
     expect(lyricFullscreen.value).toBe(false);
+  });
+
+  it('animates fullscreen cover as a square on enter and clears both dimensions on exit', async () => {
+    const w = mountLyric();
+    await flushPromises();
+
+    setLyricFullscreen(true);
+    await nextTick();
+
+    expect(gsapToMock).toHaveBeenCalledWith(
+      w.find('.big-cover').element,
+      expect.objectContaining({ width: 320, height: 320 }),
+    );
+
+    setLyricFullscreen(false);
+    await nextTick();
+
+    expect(gsapToMock).toHaveBeenCalledWith(
+      w.find('.big-cover').element,
+      expect.objectContaining({ width: 240, height: 240, clearProps: 'width,height' }),
+    );
   });
 });
