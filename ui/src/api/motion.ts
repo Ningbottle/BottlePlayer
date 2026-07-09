@@ -9,12 +9,16 @@ export interface CountUpOptions {
 
 /** Animate a ref from its current value to target, rounding on each update. */
 export function animateCountUp(ref: Ref<number>, target: number, opts: CountUpOptions = {}): Promise<void> {
+  if (isReducedMotion()) {
+    ref.value = target;
+    return Promise.resolve();
+  }
   const obj = { value: ref.value };
   return new Promise((resolve) => {
     gsap.to(obj, {
       value: target,
-      duration: opts.duration ?? 0.8,
-      ease: opts.ease ?? 'power2.out',
+      duration: opts.duration ?? 0.9,
+      ease: opts.ease ?? 'expo.out',
       delay: opts.delay ?? 0,
       onUpdate: () => { ref.value = Math.round(obj.value); },
       onComplete: () => { ref.value = target; resolve(); },
@@ -24,10 +28,14 @@ export function animateCountUp(ref: Ref<number>, target: number, opts: CountUpOp
 
 /** Animate a bar element's height to targetPx. */
 export function animateBarHeight(el: HTMLElement, targetPx: number, opts: { duration?: number; ease?: string } = {}): void {
+  if (isReducedMotion()) {
+    el.style.height = `${targetPx}px`;
+    return;
+  }
   gsap.to(el, {
     height: targetPx,
-    duration: opts.duration ?? 0.4,
-    ease: opts.ease ?? 'power2.out',
+    duration: opts.duration ?? 0.55,
+    ease: opts.ease ?? 'expo.out',
   });
 }
 
@@ -49,15 +57,15 @@ export function crossfadeTheme(applyFn: () => void): Promise<void> {
 /** Vue <Transition> JS hook: enter (fade + translateY). */
 export function transitionEnter(el: Element, done?: () => void): void {
   if (isReducedMotion()) { done?.(); return; }
-  gsap.fromTo(el, { opacity: 0, y: 12 }, {
-    opacity: 1, y: 0, duration: 0.25, ease: 'power2.out', onComplete: done,
+  gsap.fromTo(el, { opacity: 0, y: 20 }, {
+    opacity: 1, y: 0, duration: 0.34, ease: 'expo.out', onComplete: done,
   });
 }
 
 /** Vue <Transition> JS hook: leave (fade + translateY). */
 export function transitionLeave(el: Element, done?: () => void): void {
   if (isReducedMotion()) { done?.(); return; }
-  gsap.to(el, { opacity: 0, y: -12, duration: 0.2, ease: 'power2.in', onComplete: done });
+  gsap.to(el, { opacity: 0, y: -16, duration: 0.18, ease: 'power2.in', onComplete: done });
 }
 
 /** True when the OS prefers reduced motion. */
