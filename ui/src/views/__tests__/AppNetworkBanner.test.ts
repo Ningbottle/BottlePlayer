@@ -3,6 +3,8 @@ import { mount, flushPromises } from '@vue/test-utils';
 
 const backendHealthMock = vi.hoisted(() => vi.fn());
 const pingMock = vi.hoisted(() => vi.fn());
+const transitionEnterMock = vi.hoisted(() => vi.fn());
+const transitionLeaveMock = vi.hoisted(() => vi.fn());
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(0),
@@ -20,6 +22,11 @@ vi.mock('../../api/backend', () => ({
   backendHealth: backendHealthMock,
   isCircuitOpen: () => true,
   ping: pingMock,
+}));
+
+vi.mock('../../api/motion', () => ({
+  transitionEnter: transitionEnterMock,
+  transitionLeave: transitionLeaveMock,
 }));
 
 vi.mock('../../api/playerStore', () => ({
@@ -118,5 +125,17 @@ describe('App network banner', () => {
     expect(titlebarIndex).toBeGreaterThanOrEqual(0);
     expect(bannerIndex).toBeGreaterThan(titlebarIndex);
     expect(wrapper.find('.titlebar-controls .close').exists()).toBe(true);
+  });
+
+  it('wraps the main scroll view in JS transition hooks', () => {
+    const wrapper = mount(App);
+
+    const transition = wrapper.findComponent({ name: 'Transition' });
+
+    expect(transition.exists()).toBe(true);
+    expect(transition.props('css')).toBe(false);
+    expect(transition.props('mode')).toBe('out-in');
+    expect(transition.props('onEnter')).toBe(transitionEnterMock);
+    expect(transition.props('onLeave')).toBe(transitionLeaveMock);
   });
 });

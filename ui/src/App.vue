@@ -23,6 +23,7 @@ import { ping } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { lyricFullscreen } from './api/lyricFullscreen';
+import { transitionEnter, transitionLeave } from './api/motion';
 
 const currentView = ref('home');
 const searchQuery = ref('');
@@ -144,6 +145,12 @@ function handleSearch(query: string) {
   }
 }
 
+function viewTransitionKey() {
+  if (currentView.value === 'playlist') return `playlist:${playlistId.value}`;
+  if (currentView.value === 'search') return `search:${searchQuery.value}`;
+  return currentView.value;
+}
+
 function goBack() {
   if (historyIndex.value > 0) {
     historyIndex.value--;
@@ -239,40 +246,49 @@ onUnmounted(() => {
 
       <!-- View Switcher -->
       <div class="scroll">
-        <HomeView 
-          v-if="currentView === 'home'" 
-          @navigate="handleNavigate" 
-        />
-        <SearchView 
-          v-else-if="currentView === 'search'" 
-          :query="searchQuery" 
-        />
-        <PlaylistView 
-          v-else-if="currentView === 'playlist'" 
-          :playlist-id="playlistId"
-          :playlist-name="playlistName"
-        />
-        <LyricView 
-          v-else-if="currentView === 'lyric'" 
-          :is-queue-open="isQueueOpen"
-          :is-drawer-open="!tweaksCollapsed"
-        />
-        <SettingsView 
-          v-else-if="currentView === 'settings'" 
-        />
-        <LoginView 
-          v-else-if="currentView === 'login'" 
-          @navigate="handleNavigate"
-        />
-        <HistoryView 
-          v-else-if="currentView === 'history'" 
-        />
-        <StatsView
-          v-else-if="currentView === 'stats'"
-        />
-        <EqualizerView
-          v-else-if="currentView === 'equalizer'"
-        />
+        <Transition
+          mode="out-in"
+          :css="false"
+          @enter="transitionEnter"
+          @leave="transitionLeave"
+        >
+          <div :key="viewTransitionKey()" class="view-transition-frame">
+            <HomeView 
+              v-if="currentView === 'home'" 
+              @navigate="handleNavigate" 
+            />
+            <SearchView 
+              v-else-if="currentView === 'search'" 
+              :query="searchQuery" 
+            />
+            <PlaylistView 
+              v-else-if="currentView === 'playlist'" 
+              :playlist-id="playlistId"
+              :playlist-name="playlistName"
+            />
+            <LyricView 
+              v-else-if="currentView === 'lyric'" 
+              :is-queue-open="isQueueOpen"
+              :is-drawer-open="!tweaksCollapsed"
+            />
+            <SettingsView 
+              v-else-if="currentView === 'settings'" 
+            />
+            <LoginView 
+              v-else-if="currentView === 'login'" 
+              @navigate="handleNavigate"
+            />
+            <HistoryView 
+              v-else-if="currentView === 'history'" 
+            />
+            <StatsView
+              v-else-if="currentView === 'stats'"
+            />
+            <EqualizerView
+              v-else-if="currentView === 'equalizer'"
+            />
+          </div>
+        </Transition>
       </div>
 
       <!-- Collapsible Tweaks Panel Drawer -->
@@ -309,6 +325,10 @@ onUnmounted(() => {
   padding: 6px 12px;
   font-size: 13px;
   font-family: var(--font-sans);
+}
+
+.view-transition-frame {
+  min-height: 100%;
 }
 
 /* App root shell layout settings */
