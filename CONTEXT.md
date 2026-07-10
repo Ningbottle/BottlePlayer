@@ -21,6 +21,9 @@ Vue 3 Frontend (ui/src/)
   ├─ audioProxy.ts — frontend wrapper for audio_proxy_url Tauri command (CORS bypass for CDN media)
   ├─ eqWorkletProcessor.ts — AudioWorklet DSP (RBJ peaking, 10-band)
   ├─ circuitBreaker.ts — frontend resilience
+  ├─ recentPlayedStore.ts — local-first recent-played store (Vue reactive + localStorage, FileHash dedupe, mergeRemote)
+  ├─ useLyricFollow.ts — lyric auto-follow state machine composable (autoFollowing, 3s idle resume, trackKey reset)
+  ├─ playbackDiagnostics.ts — in-memory ring buffer for playback boundary events (track_switch/url_resolve/media_event/proxy_prep/fm_fetch)
   └─ views/StatsView.vue — statistics dashboard (overview + top lists + timeline + recent + AI)
        │ Tauri IPC
        ▼
@@ -98,6 +101,10 @@ C++ Core (native/) → EchoCAPI.dll
 | `ui/src/api/webAudioEq.ts` | Web Audio API AudioWorklet EQ graph controller (proxy-enabled, safe build order) |
 | `ui/src/api/backend.ts` | Tauri invoke wrapper with S1 resilience |
 | `ui/src/api/themeStore.ts` | Skin/mode management |
+| `ui/src/api/circuitBreaker.ts` | Frontend resilience (CircuitBreaker) |
+| `ui/src/api/recentPlayedStore.ts` | Local-first recent-played store (localStorage, FileHash dedupe, mergeRemote) |
+| `ui/src/api/useLyricFollow.ts` | Lyric auto-follow state machine composable |
+| `ui/src/api/playbackDiagnostics.ts` | Playback boundary event ring buffer (diagnostics) |
 | `ui/src/components/EqualizerPanel.vue` | EQ UI (10 sliders, 6 presets, degradation banner) |
 | `ui/src/components/Drawer.vue` | Right sidebar (EQ, theme, tweaks) |
 | `ui/src/views/StatsView.vue` | Statistics dashboard (overview + top + timeline + recent + AI) |

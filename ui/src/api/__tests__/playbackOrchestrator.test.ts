@@ -5,6 +5,7 @@ import {
   type PlaybackStateSlice,
   type ResolveTrackResult,
 } from '../playbackOrchestrator';
+import type { DiagEvent } from '../playbackDiagnostics';
 
 function mkTrack(hash: string, name = hash): Track {
   return {
@@ -77,6 +78,12 @@ function makeHarness(options: { calls?: string[] } = {}) {
   const uploadPlayHistory = vi.fn((track: Track) => {
     calls.push(`upload:${track.FileHash}`);
   });
+  const recordRecentPlayed = vi.fn((track: Track) => {
+    calls.push(`record:${track.FileHash}`);
+  });
+  const recordDiagnostic = vi.fn((e: Omit<DiagEvent, 'ts'>) => {
+    calls.push(`diag:${e.kind}:${e.phase}`);
+  });
   const saveQueue = vi.fn(() => {
     calls.push('saveQueue');
   });
@@ -87,6 +94,8 @@ function makeHarness(options: { calls?: string[] } = {}) {
     resolveTrack,
     fetchCover,
     uploadPlayHistory,
+    recordRecentPlayed,
+    recordDiagnostic,
     getState: () => state,
     patchState: (patch) => Object.assign(state, patch),
     saveQueue,
@@ -98,6 +107,8 @@ function makeHarness(options: { calls?: string[] } = {}) {
     fetchCover,
     orchestrator,
     playSession,
+    recordDiagnostic,
+    recordRecentPlayed,
     resolveTrack,
     saveQueue,
     state,
@@ -124,6 +135,48 @@ function resolvedTrack(url: string): ResolveTrackResult {
 }
 
 describe('PlaybackOrchestrator', () => {
+  it('records recent-played after a successful switchTrack (not on failure or stale)', async () => {
+    const h = makeHarness();
+
+    // Success: recordRecentPlayed fires with the played track.
+    await h.orchestrator.switchTrack(mkTrack('ok'));
+    expect(h.recordRecentPlayed).toHaveBeenCalledWith(
+      expect.objectContaining({ FileHash: 'ok' }),
+    );
+
+    // Failure (playUrl returns false): does NOT fire.
+    h.recordRecentPlayed.mockClear();
+    h.backend.playUrl.mockResolvedValue(false);
+    await h.orchestrator.switchTrack(mkTrack('bad'));
+    expect(h.recordRecentPlayed).not.toHaveBeenCalled();
+  });
+
+  it('records track_switch start + url_resolve start/ok diagnostics on a successful switchTrack', async () => {
+    const h = makeHarness();
+    await h.orchestrator.switchTrack(mkTrack('h1'));
+
+    const diags = h.recordDiagnostic.mock.calls.map((c) => c[0]);
+    expect(diags).toContainEqual(
+      expect.objectContaining({ kind: 'track_switch', phase: 'start', trackKey: 'h1' }),
+    );
+    expect(diags).toContainEqual(
+      expect.objectContaining({ kind: 'url_resolve', phase: 'start' }),
+    );
+    expect(diags).toContainEqual(
+      expect.objectContaining({ kind: 'url_resolve', phase: 'ok' }),
+    );
+  });
+
+  it('records url_resolve fail diagnostic when resolve throws', async () => {
+    const h = makeHarness();
+    h.resolveTrack.mockRejectedValue(new Error('vip'));
+    await h.orchestrator.switchTrack(mkTrack('bad'));
+    const diags = h.recordDiagnostic.mock.calls.map((c) => c[0]);
+    expect(diags).toContainEqual(
+      expect.objectContaining({ kind: 'url_resolve', phase: 'fail' }),
+    );
+  });
+
   it('switchTrack orders skip, Resolve, intend, playUrl, saveQueue', async () => {
     const calls: string[] = [];
     const h = makeHarness({ calls });
@@ -134,11 +187,15 @@ describe('PlaybackOrchestrator', () => {
     expect(calls).toEqual([
       'skip',
       'stop',
+      'diag:track_switch:start',
+      'diag:url_resolve:start',
       'resolve:h1',
+      'diag:url_resolve:ok',
       'intend:h1',
       'playUrl:http://x/song.mp3',
       'saveQueue',
       'upload:h1',
+      'record:h1',
     ]);
     expect(h.state.currentTrack?.FileHash).toBe('h1');
     expect(h.state.currentIndex).toBe(0);
@@ -199,7 +256,10 @@ describe('PlaybackOrchestrator', () => {
     expect(calls).toEqual([
       'skip',
       'stop',
+      'diag:track_switch:start',
+      'diag:url_resolve:start',
       'resolve:bad',
+      'diag:url_resolve:ok',
       'intend:bad',
       'playUrl:http://x/song.mp3',
       'skip',

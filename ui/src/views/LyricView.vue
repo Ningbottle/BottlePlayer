@@ -2,6 +2,10 @@
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue';
 import { playerStore, playTrack } from '../api/playerStore';
 import { apiGet } from '../api/backend';
+import { useLyricFollow } from '../api/useLyricFollow';
+import { lyricFullscreen, setLyricFullscreen } from '../api/lyricFullscreen';
+import { gsap } from 'gsap';
+import { isReducedMotion } from '../api/motion';
 
 interface LyricLine {
   time: number;
@@ -16,6 +20,11 @@ const props = defineProps<{
 const loading = ref(false);
 const rawLyricText = ref('');
 const parsedLyrics = ref<LyricLine[]>([]);
+
+// Template ref on the .big-cover container so the GSAP fullscreen tween
+// targets the layout box (240×240, overflow-controlled) rather than the img,
+// which would overflow the container and get stuck at the wrong size on exit.
+const coverRef = ref<HTMLElement | null>(null);
 const currentTrack = computed(() => playerStore.currentTrack);
 const currentTime = computed(() => playerStore.currentTime);
 
@@ -126,16 +135,20 @@ const activeIndex = computed(() => {
   return Math.max(0, idx - 1);
 });
 
-// Autoscroll watcher
-watch(activeIndex, (newIdx) => {
-  if (newIdx === -1) return;
-  const el = document.getElementById(`lyric-line-${newIdx}`);
-  if (el) {
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }
+// Auto-follow state machine — scrolls to the active line while following,
+// suspends on manual wheel/touch scroll, resumes after 3s idle or via the
+// return-to-current button. See useLyricFollow.ts for the state machine.
+function scrollToLine(idx: number) {
+  const el = document.getElementById(`lyric-line-${idx}`);
+  if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+}
+const { autoFollowing, onUserScroll, resumeFollow, resetForTrack } = useLyricFollow({
+  activeIndex,
+  scrollToLine,
 });
 
-watch(currentTrack, () => {
+watch(currentTrack, (track) => {
+  resetForTrack(track?.FileHash || '');
   loadLyrics();
 }, { deep: true });
 
@@ -146,19 +159,52 @@ function onStorage(e: StorageEvent) {
   }
 }
 
+let alignInterval: ReturnType<typeof setInterval> | null = null;
+
+function onKeydown(e: KeyboardEvent) {
+  if (e.key === 'Escape' && lyricFullscreen.value) setLyricFullscreen(false);
+}
+
+function toggleFullscreen() {
+  setLyricFullscreen(!lyricFullscreen.value);
+}
+
 onMounted(() => {
   loadLyrics();
   window.addEventListener('storage', onStorage);
+  window.addEventListener('keydown', onKeydown);
   // Also poll periodically (same-tab changes don't fire storage event)
-  const interval = setInterval(() => {
+  alignInterval = setInterval(() => {
     const v = localStorage.getItem('tweak_lyric_align') || 'center';
     if (v !== lyricAlign.value) lyricAlign.value = v;
   }, 500);
-  // Cleanup on unmount
-  onUnmounted(() => {
-    window.removeEventListener('storage', onStorage);
-    clearInterval(interval);
-  });
+});
+
+onUnmounted(() => {
+  window.removeEventListener('storage', onStorage);
+  window.removeEventListener('keydown', onKeydown);
+  if (alignInterval) clearInterval(alignInterval);
+  if (lyricFullscreen.value) setLyricFullscreen(false); // reset on unmount
+});
+
+// Cover scale on fullscreen: animate the .big-cover *container* (not the img)
+// between the CSS baseline (240px) and the fullscreen size (320px). On exit we
+// clear the inline width so the CSS baseline (240px, or 180px with queue) takes
+// over again — without clearProps the img would be stuck at the tweened value.
+// Reduced-motion users still get the size change, just applied instantly.
+watch(lyricFullscreen, (fs) => {
+  const cover = coverRef.value;
+  if (!cover) return;
+  if (isReducedMotion()) {
+    if (fs) gsap.set(cover, { width: 320, height: 320 });
+    else gsap.set(cover, { clearProps: 'width,height' });
+    return;
+  }
+  if (fs) {
+    gsap.to(cover, { width: 320, height: 320, duration: 0.4, ease: 'expo.out' });
+  } else {
+    gsap.to(cover, { width: 240, height: 240, duration: 0.4, ease: 'power2.out', clearProps: 'width,height' });
+  }
 });
 </script>
 
@@ -172,6 +218,7 @@ onMounted(() => {
       <div class="date">
         同步滚动中
       </div>
+      <button data-test="lyric-fullscreen-toggle" @click="toggleFullscreen">全屏</button>
     </div>
 
     <!-- Empty/No track state -->
@@ -191,11 +238,11 @@ onMounted(() => {
     <!-- Lyric layout -->
     <div v-else class="lyric-container" :class="{ 'with-queue': isQueueOpen }">
       <!-- Left cover & name -->
-      <div class="lyric-meta">
-        <div class="big-cover">
+      <div class="lyric-meta" @dblclick="setLyricFullscreen(true)">
+        <div class="big-cover" ref="coverRef">
           <!-- Stable img with inline-SVG fallback (computed). Avoids
                flicker by keeping the element mounted; cover swaps smoothly. -->
-          <img :src="coverUrl" alt="cover" style="transition: opacity 0.2s ease;" />
+          <img :src="coverUrl" alt="cover" style="transition: opacity 0.2s var(--ease-spa);" />
         </div>
         <h2>{{ currentTrack.SongName }}</h2>
         <p>{{ currentTrack.SingerName }}</p>
@@ -203,7 +250,11 @@ onMounted(() => {
 
       <!-- Right scrolling lyrics -->
       <div class="lyric-right">
-        <div class="lyric-scroll">
+        <div
+          class="lyric-scroll"
+          @wheel.passive="onUserScroll()"
+          @touchmove.passive="onUserScroll()"
+        >
           <div 
             v-for="(line, idx) in parsedLyrics" 
             :key="idx"
@@ -214,6 +265,12 @@ onMounted(() => {
             {{ line.text }}
           </div>
         </div>
+        <button
+          v-if="!autoFollowing"
+          class="return-to-current"
+          data-test="return-to-current"
+          @click="resumeFollow()"
+        >回到当前行</button>
       </div>
 
       <!-- Compact queue (album art only) when lyrics are left-aligned -->
@@ -235,13 +292,42 @@ onMounted(() => {
         </div>
       </div>
     </div>
+
+    <button v-if="lyricFullscreen" class="exit-fullscreen" @click="setLyricFullscreen(false)">退出全屏</button>
   </div>
 </template>
 
 <style scoped>
+/* Return-to-current floating button (visible when auto-follow is suspended) */
+.lyric-right {
+  position: relative;
+}
+.return-to-current {
+  position: absolute;
+  bottom: 16px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 6px 14px;
+  border: 1px solid var(--rule-soft);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 12px;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgba(40, 28, 12, 0.12);
+  transition: transform 0.15s var(--ease-spa), box-shadow 0.15s var(--ease-spa);
+  z-index: 5;
+}
+.return-to-current:hover {
+  transform: translateX(-50%) scale(1.04);
+  box-shadow: 0 4px 14px rgba(40, 28, 12, 0.2);
+}
+
 /* Responsive layout squeeze when Queue is open */
 .lyric-container {
-  transition: padding 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: padding 0.3s var(--ease-spa);
 }
 
 .lyric-container.with-queue {
@@ -249,11 +335,12 @@ onMounted(() => {
   padding-right: 340px; 
 }
 
-/* Big cover overrides */
-.big-cover {
-  transition: all 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-}
-
+/* Big cover overrides
+   Note: no `transition` on .big-cover itself — the fullscreen size change is
+   driven by a GSAP tween (see watch(lyricFullscreen)), and a CSS `transition:
+   all` here would fight it frame-by-frame. The .with-queue squeeze below is
+   applied instantly; the surrounding .lyric-container padding transition still
+   smooths the overall layout shift. */
 .with-queue .big-cover {
   width: 180px !important;
   height: 180px !important;
@@ -261,7 +348,7 @@ onMounted(() => {
 
 /* Text overrides */
 .lyric-meta h2 {
-  transition: font-size 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: font-size 0.3s var(--ease-spa);
 }
 
 .with-queue .lyric-meta h2 {
@@ -302,7 +389,7 @@ onMounted(() => {
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(40,28,12,0.15);
   border: 1px solid var(--rule-soft);
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: transform 0.2s var(--ease-spa), box-shadow 0.2s var(--ease-spa);
 }
 
 .compact-cover:hover {

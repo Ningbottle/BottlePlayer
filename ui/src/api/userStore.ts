@@ -1,6 +1,7 @@
 import { reactive } from 'vue';
 import { apiGet } from './backend';
 import { resolveVip } from './vipResolver';
+import { recentPlayedStore } from './recentPlayedStore';
 
 interface UserState {
   isLoggedIn: boolean;
@@ -138,4 +139,5 @@ export function logoutLocal() {
   // Local clear
   resetLoginState();
   userStore.claimMessage = '';
+  recentPlayedStore.reset();
 }

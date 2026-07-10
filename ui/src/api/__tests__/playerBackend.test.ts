@@ -131,6 +131,67 @@ describe('Html5AudioBackend', () => {
     );
   });
 
+  it('records media_event diagnostics via recordDiagnostic on stall and error events', () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    Object.defineProperty(audio, 'readyState', { value: 3, configurable: true });
+    Object.defineProperty(audio, 'networkState', { value: 2, configurable: true });
+    Object.defineProperty(audio, 'error', {
+      value: { code: 3, message: 'decode failed' },
+      configurable: true,
+    });
+    audio.src = 'https://example.com/song.mp3';
+    audio.currentTime = 12;
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+    const recorded: Array<{ kind: string; phase: string; detail: string }> = [];
+    const backend = new Html5AudioBackend(audio, {
+      recordDiagnostic: (e) => recorded.push(e as any),
+    });
+    const unsub = backend.onEvent(() => {});
+    audio.dispatchEvent(new Event('stalled'));
+    audio.dispatchEvent(new Event('error'));
+    unsub();
+
+    expect(recorded).toHaveLength(2);
+    expect(recorded.every((e) => e.kind === 'media_event')).toBe(true);
+    // stalled is a transient stall — phase noop; error is a failure — phase fail.
+    expect(recorded[0]).toEqual(
+      expect.objectContaining({ phase: 'noop', detail: expect.stringContaining('stalled') }),
+    );
+    expect(recorded[1]).toEqual(
+      expect.objectContaining({ phase: 'fail', detail: expect.stringContaining('error') }),
+    );
+  });
+
+  it('records proxy_prep diagnostics around prepareSourceUrl (ok and fail)', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn(async () => {});
+    const recorded: Array<{ kind: string; phase: string; detail: string }> = [];
+    const backend = new Html5AudioBackend(audio, {
+      prepareSourceUrl: async (url: string) => {
+        if (url.includes('fail')) throw new Error('proxy down');
+        return { url: 'http://127.0.0.1:1234/proxy/song', crossOriginSafe: true };
+      },
+      recordDiagnostic: (e) => recorded.push(e as any),
+    });
+
+    // success path
+    await backend.playUrl('https://cdn.kugou.com/song.mp3');
+    expect(recorded).toContainEqual(
+      expect.objectContaining({ kind: 'proxy_prep', phase: 'ok' }),
+    );
+
+    // failure path — prepareSourceUrl throws; the diagnostic is recorded
+    // before the error propagates out of playUrl.
+    recorded.length = 0;
+    await expect(
+      backend.playUrl('https://cdn.kugou.com/fail.mp3'),
+    ).rejects.toThrow('proxy down');
+    expect(recorded).toContainEqual(
+      expect.objectContaining({ kind: 'proxy_prep', phase: 'fail' }),
+    );
+  });
+
   it('playUrl uses prepared CORS-safe sources and initializes WebAudio EQ after play()', async () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
     const callOrder: string[] = [];

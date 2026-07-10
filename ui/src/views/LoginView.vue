@@ -438,19 +438,19 @@ onUnmounted(() => {
 }
 
 /* Dark mode overrides */
-html.dark .qr-container {
+:global(:root[data-mode="dark"]) .qr-container {
   background: var(--paper-2);
 }
-html.dark .qr-overlay {
+:global(:root[data-mode="dark"]) .qr-overlay {
   background: rgba(30, 30, 30, 0.95);
 }
-html.dark .qr-overlay.success {
+:global(:root[data-mode="dark"]) .qr-overlay.success {
   background: rgba(30, 30, 30, 0.97);
 }
-html.dark .vip-status-box {
+:global(:root[data-mode="dark"]) .vip-status-box {
   background: rgba(255,255,255,0.03);
 }
-html.dark .vip-status-box.is-vip {
+:global(:root[data-mode="dark"]) .vip-status-box.is-vip {
   background: rgba(168,49,27,0.12);
 }
 </style>

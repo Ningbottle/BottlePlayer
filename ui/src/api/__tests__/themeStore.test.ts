@@ -4,42 +4,40 @@ import { useThemeStore, __resetForTest } from '../themeStore';
 describe('themeStore', () => {
   beforeEach(() => {
     localStorage.clear();
+    __resetForTest();
     document.documentElement.removeAttribute('data-skin');
     document.documentElement.removeAttribute('data-mode');
-    __resetForTest();
   });
 
-  it('setSkin sets data-skin attribute on html', () => {
+  it('setSkin writes data-skin attribute and persists to localStorage', () => {
     const store = useThemeStore();
-    store.setSkin('aurora');
-    expect(document.documentElement.dataset.skin).toBe('aurora');
+    store.setSkin('newsprint');
+    expect(document.documentElement.dataset.skin).toBe('newsprint');
+    expect(localStorage.getItem('tweak_skin')).toBe('newsprint');
+    expect(store.skinId.value).toBe('newsprint');
   });
 
-  it('setSkin persists to localStorage', () => {
-    const store = useThemeStore();
-    store.setSkin('aurora');
-    expect(localStorage.getItem('tweak_skin')).toBe('aurora');
-  });
-
-  it('setMode sets data-mode attribute', () => {
+  it('setMode writes data-mode attribute and persists to localStorage', () => {
     const store = useThemeStore();
     store.setMode('dark');
     expect(document.documentElement.dataset.mode).toBe('dark');
+    expect(localStorage.getItem('tweak_mode')).toBe('dark');
+    expect(store.mode.value).toBe('dark');
   });
 
-  it('init reads from localStorage', () => {
+  it('init reads stored skin+mode and applies to DOM', () => {
     localStorage.setItem('tweak_skin', 'newsprint');
     localStorage.setItem('tweak_mode', 'dark');
     const store = useThemeStore();
     store.init();
-    expect(store.skinId.value).toBe('newsprint');
-    expect(store.mode.value).toBe('dark');
+    expect(document.documentElement.dataset.skin).toBe('newsprint');
+    expect(document.documentElement.dataset.mode).toBe('dark');
   });
 
-  it('defaults to aurora/light when nothing stored', () => {
+  it('init defaults to aurora+light when nothing stored', () => {
     const store = useThemeStore();
     store.init();
-    expect(store.skinId.value).toBe('aurora');
-    expect(store.mode.value).toBe('light');
+    expect(document.documentElement.dataset.skin).toBe('aurora');
+    expect(document.documentElement.dataset.mode).toBe('light');
   });
 });

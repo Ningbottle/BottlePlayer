@@ -212,7 +212,7 @@ watch(() => playerStore.queue, () => {
 
 .slide-up-enter-active,
 .slide-up-leave-active {
-  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: all 0.25s var(--ease-spa);
 }
 .slide-up-enter-from,
 .slide-up-leave-to {
@@ -221,17 +221,17 @@ watch(() => playerStore.queue, () => {
 }
 
 /* Dark mode overrides */
-html.dark .queue-panel {
+:global(:root[data-mode="dark"]) .queue-panel {
   box-shadow: 0 12px 32px -8px rgba(0,0,0,0.45),
               0 4px 12px -4px rgba(0,0,0,0.3);
 }
-html.dark .panel-scroll {
+:global(:root[data-mode="dark"]) .panel-scroll {
   scrollbar-color: rgba(255,255,255,0.15) transparent;
 }
-html.dark .recent .item:hover {
+:global(:root[data-mode="dark"]) .recent .item:hover {
   background: rgba(255,255,255,0.06);
 }
-html.dark .recent .item.active {
+:global(:root[data-mode="dark"]) .recent .item.active {
   background: rgba(255,255,255,0.1);
 }
 </style>

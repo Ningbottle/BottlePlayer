@@ -1,60 +1,77 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { ref, computed, onMounted } from 'vue';
 import { apiGet } from '../api/backend';
 import { playAll, playerStore } from '../api/playerStore';
-import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
+import { normalizeTrack } from '../api/normalizer';
 import { userStore } from '../api/userStore';
+import { recentPlayedStore, type RecentPlayedEntry } from '../api/recentPlayedStore';
 
 const loading = ref(false);
-const songs = ref<SongInfo[]>([]);
-const error = ref('');
+const remoteError = ref('');
+const remoteEntries = ref<RecentPlayedEntry[]>([]);
 
-async function loadHistory() {
-  if (!userStore.isLoggedIn) {
-    error.value = '请先登录后查看播放历史';
-    return;
+// Local-first: mergeRemote with empty remote returns a sorted copy of local.
+// When remote entries arrive, the computed recomputes the merged list. Local
+// entries render immediately on mount — no network wait.
+const displaySongs = computed(() => recentPlayedStore.mergeRemote(remoteEntries.value));
+
+/** Map a KuGou /user/history item to a RecentPlayedEntry with a playedAt ts. */
+function remoteItemToEntry(item: any, idx: number): RecentPlayedEntry | null {
+  const song = item.info || item;
+  const FileHash = song.hash || song.FileHash || '';
+  if (!FileHash) return null;
+  const rawTime = item.time ?? item.addtime ?? item.play_time ?? item.playtime;
+  let playedAt: number;
+  if (typeof rawTime === 'number' && rawTime > 0) {
+    // KuGou uses unix seconds; convert to ms. If already ms, keep as-is.
+    playedAt = rawTime > 1e12 ? rawTime : rawTime * 1000;
+  } else {
+    // No timestamp — preserve remote order via descending synthetic.
+    playedAt = Date.now() - idx * 1000;
   }
-  
+  return {
+    FileHash,
+    SongName: song.name || song.songname || song.SongName || '未知歌曲',
+    SingerName: song.singername || song.SingerName || song.author_name || '未知歌手',
+    AlbumName: song.album_name || song.albumname || song.AlbumName || song.albuminfo?.name || undefined,
+    AlbumID: String(song.album_id || song.albumid || song.AlbumID || ''),
+    Image: song.cover || song.trans_param?.union_cover || song.albuminfo?.sizable_cover || undefined,
+    Duration: song.timelen ? Math.round(song.timelen / 1000) : (song.duration || 0),
+    playedAt,
+  };
+}
+
+async function loadRemoteHistory() {
+  // Local-only when logged out — remote sync is a login-gated best-effort path.
+  if (!userStore.isLoggedIn) return;
   loading.value = true;
-  error.value = '';
+  remoteError.value = '';
   try {
     const res = await apiGet<any>('/user/history', { pagesize: 100 });
     if (res?.status === 1 && res?.data) {
       const list = res.data.info || res.data.list || res.data.songs || res.data.data || [];
-      songs.value = list.map((item: any) => {
-        // 播放历史嵌套结构：item.info 包含歌曲详情
-        const song = item.info || item;
-        const normalized = {
-          ...song,
-          FileHash: song.hash || song.FileHash || '',
-          SongName: song.name || song.songname || song.SongName || '未知歌曲',
-          SingerName: song.singername || song.SingerName || song.author_name || '未知歌手',
-          AlbumName: song.album_name || song.albumname || song.AlbumName || song.albuminfo?.name || '',
-          AlbumID: String(song.album_id || song.albumid || song.AlbumID || ''),
-          AlbumAudioID: String(song.mixsongid || song.album_audio_id || item.mxid || ''),
-          Duration: song.timelen ? Math.round(song.timelen / 1000) : (song.duration || 0),
-          Image: song.cover || song.trans_param?.union_cover || song.albuminfo?.sizable_cover || undefined,
-        };
-        return normalizeTrack(normalized);
-      });
+      remoteEntries.value = list
+        .map((item: any, idx: number) => remoteItemToEntry(item, idx))
+        .filter((e: RecentPlayedEntry | null): e is RecentPlayedEntry => e !== null);
     } else {
-      error.value = res?.error || '获取播放历史失败';
+      remoteError.value = res?.error || '远端同步失败';
     }
   } catch (err: any) {
-    console.error('Load history error', err);
-    error.value = '连接后端出错';
+    console.error('Load remote history error', err);
+    remoteError.value = '远端同步失败，已显示本地记录';
   } finally {
     loading.value = false;
   }
 }
 
 onMounted(() => {
-  loadHistory();
+  loadRemoteHistory();
 });
 
-function handlePlay(song: SongInfo) {
-  const idx = songs.value.findIndex(s => s.FileHash === song.FileHash);
-  playAll(songs.value, idx >= 0 ? idx : 0);
+function handlePlay(song: RecentPlayedEntry) {
+  const tracks = displaySongs.value.map((e) => normalizeTrack(e));
+  const idx = tracks.findIndex((t) => t.FileHash === song.FileHash);
+  playAll(tracks, idx >= 0 ? idx : 0);
 }
 
 function formatDuration(sec: number) {
@@ -64,7 +81,7 @@ function formatDuration(sec: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
 }
 
-const isCurrentTrack = (song: SongInfo) => {
+const isCurrentTrack = (song: RecentPlayedEntry) => {
   return playerStore.currentTrack?.FileHash === song.FileHash;
 };
 </script>
@@ -77,35 +94,21 @@ const isCurrentTrack = (song: SongInfo) => {
         <h1>播放历史</h1>
       </div>
       <div class="date">
-        共 <b>{{ songs.length }}</b> 首
+        共 <b>{{ displaySongs.length }}</b> 首
       </div>
     </div>
 
-    <!-- Not logged in -->
-    <div v-if="!userStore.isLoggedIn" class="spinner" style="flex-direction:column; gap:12px;">
-      <div>登录后查看播放历史</div>
-    </div>
+    <!-- Non-blocking sync status (local entries remain visible below) -->
+    <div v-if="!userStore.isLoggedIn" class="sync-hint">登录后可同步远端历史 · 当前显示本地记录</div>
+    <div v-else-if="loading" class="sync-hint">同步远端历史中…</div>
+    <div v-else-if="remoteError" class="sync-hint" style="color: var(--accent);">{{ remoteError }}</div>
 
-    <!-- Spinner -->
-    <div v-else-if="loading" class="spinner">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <circle cx="12" cy="12" r="10" stroke="rgba(34,27,18,0.1)"></circle>
-        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
-      </svg>
-      加载播放历史中…
-    </div>
-
-    <!-- Error message -->
-    <div v-else-if="error" class="spinner" style="color: var(--accent);">
-      {{ error }}
-    </div>
-
-    <!-- Empty results -->
-    <div v-else-if="songs.length === 0" class="spinner">
+    <!-- Empty: both local AND remote empty -->
+    <div v-if="displaySongs.length === 0" class="spinner">
       暂无播放记录
     </div>
 
-    <!-- Song Table List -->
+    <!-- Song Table List (local-first, rendered immediately) -->
     <div v-else>
       <div class="song-row" style="font-weight: 600; border-bottom: 2px solid var(--ink); cursor: default; background: transparent;">
         <span class="index">#</span>
@@ -115,8 +118,8 @@ const isCurrentTrack = (song: SongInfo) => {
         <span class="duration">时长</span>
       </div>
 
-      <div 
-        v-for="(song, idx) in songs" 
+      <div
+        v-for="(song, idx) in displaySongs"
         :key="song.FileHash + '-' + idx"
         class="song-row"
         :class="{ active: isCurrentTrack(song) }"
@@ -133,5 +136,11 @@ const isCurrentTrack = (song: SongInfo) => {
 </template>
 
 <style scoped>
-/* Scoped overrides */
+.sync-hint {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-size: 12px;
+  color: var(--ink-mute);
+  padding: 8px 0 14px;
+}
 </style>

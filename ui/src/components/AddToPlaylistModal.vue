@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
+import { gsap } from 'gsap';
 import { getUserPlaylists, addTrackToPlaylist, UserPlaylist } from '../api/favorite';
 import { Track } from '../api/normalizer';
 import { userStore } from '../api/userStore';
+import { transitionEnter, transitionLeave } from '../api/motion';
 
 const props = defineProps<{
   show: boolean;
@@ -29,7 +31,7 @@ watch(() => props.show, async (newVal) => {
 
 async function handleSelect(playlist: UserPlaylist) {
   if (!props.track || adding.value) return;
-  
+
   adding.value = playlist.id;
   const result = await addTrackToPlaylist(playlist, props.track);
   adding.value = null;
@@ -45,46 +47,60 @@ async function handleSelect(playlist: UserPlaylist) {
 function handleClose() {
   emit('close');
 }
+
+function onEnter(el: Element, done: () => void) {
+  transitionEnter(el, done);
+  const modal = (el as HTMLElement).querySelector('.playlist-modal');
+  if (modal) {
+    gsap.fromTo(modal, { scale: 0.96, y: 8 }, { scale: 1, y: 0, duration: 0.25, ease: 'power2.out', onComplete: done });
+  }
+}
+
+function onLeave(el: Element, done: () => void) {
+  transitionLeave(el, done);
+}
 </script>
 
 <template>
   <Teleport to="body">
-    <div v-if="show" class="modal-overlay" @click.self="handleClose">
-      <div class="modal-content">
-        <div class="modal-header">
-          <h3>收藏到歌单</h3>
-          <button class="close-btn" @click="handleClose">×</button>
-        </div>
-        
-        <div class="modal-body">
-          <div v-if="!userStore.isLoggedIn" class="empty-hint">
-            请先登录后收藏歌曲
+    <Transition :css="false" appear @enter="onEnter" @leave="onLeave">
+      <div v-if="show" class="modal-overlay" @click.self="handleClose">
+        <div class="playlist-modal">
+          <div class="modal-header">
+            <h3>收藏到歌单</h3>
+            <button class="close-btn" @click="handleClose">×</button>
           </div>
-          <div v-else-if="loading" class="empty-hint">
-            加载歌单中…
-          </div>
-          <div v-else-if="playlists.length === 0" class="empty-hint">
-            暂无歌单，请先创建歌单
-          </div>
-          <div v-else class="playlist-list">
-            <div 
-              v-for="pl in playlists" 
-              :key="pl.id"
-              class="playlist-item"
-              :class="{ disabled: adding !== null }"
-              @click="handleSelect(pl)"
-            >
-              <div class="pl-icon">♫</div>
-              <div class="pl-info">
-                <div class="pl-name">{{ pl.name }}</div>
-                <div class="pl-count">{{ pl.songcount || 0 }} 首</div>
+
+          <div class="modal-body">
+            <div v-if="!userStore.isLoggedIn" class="empty-hint">
+              请先登录后收藏歌曲
+            </div>
+            <div v-else-if="loading" class="empty-hint">
+              加载歌单中…
+            </div>
+            <div v-else-if="playlists.length === 0" class="empty-hint">
+              暂无歌单，请先创建歌单
+            </div>
+            <div v-else class="playlist-list">
+              <div
+                v-for="pl in playlists"
+                :key="pl.id"
+                class="playlist-item"
+                :class="{ disabled: adding !== null }"
+                @click="handleSelect(pl)"
+              >
+                <div class="pl-icon">♫</div>
+                <div class="pl-info">
+                  <div class="pl-name">{{ pl.name }}</div>
+                  <div class="pl-count">{{ pl.songcount || 0 }} 首</div>
+                </div>
+                <div v-if="adding === pl.id" class="pl-adding">添加中…</div>
               </div>
-              <div v-if="adding === pl.id" class="pl-adding">添加中…</div>
             </div>
           </div>
-        </div>
       </div>
     </div>
+    </Transition>
   </Teleport>
 </template>
 
@@ -102,7 +118,7 @@ function handleClose() {
   z-index: 1000;
 }
 
-.modal-content {
+.playlist-modal {
   background: var(--paper, #f1ead8);
   border-radius: 12px;
   width: 360px;

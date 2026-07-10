@@ -5,7 +5,18 @@ vi.mock('../backend', () => ({
   apiGet: (...args: any[]) => mockApiGet(...args),
 }));
 
-import { checkLoginStatus, userStore } from '../userStore';
+import { checkLoginStatus, logoutLocal, userStore } from '../userStore';
+import { recentPlayedStore } from '../recentPlayedStore';
+import type { Track } from '../normalizer';
+
+function mkTrack(): Track {
+  return {
+    FileHash: 'recent-hash',
+    SongName: 'Recent Song',
+    SingerName: 'Recent Artist',
+    Duration: 180,
+  };
+}
 
 function resetUserStore() {
   userStore.isLoggedIn = false;
@@ -24,6 +35,7 @@ describe('userStore login refresh', () => {
   beforeEach(() => {
     mockApiGet.mockReset();
     resetUserStore();
+    recentPlayedStore.reset();
   });
 
   // Restore spies even if an assertion throws mid-test, so a failure here
@@ -64,5 +76,14 @@ describe('userStore login refresh', () => {
     expect(userStore.isVip).toBe(false);
     expect(userStore.vipEndDate).toBe('');
     expect(userStore.loading).toBe(false);
+  });
+
+  it('clears device-local recent history on logout so it is not shown to the next account', () => {
+    recentPlayedStore.recordRecentPlayed(mkTrack());
+    expect(recentPlayedStore.entries.value).toHaveLength(1);
+
+    logoutLocal();
+
+    expect(recentPlayedStore.entries.value).toEqual([]);
   });
 });

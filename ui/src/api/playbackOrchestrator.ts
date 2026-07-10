@@ -1,4 +1,5 @@
 import { normalizeTrack, type Track } from './normalizer';
+import type { DiagEvent } from './playbackDiagnostics';
 
 export interface QualityOption {
   quality: string;
@@ -60,6 +61,8 @@ export interface PlaybackOrchestratorDeps {
   resolveTrack: (track: Track, quality: string) => Promise<ResolveTrackResult>;
   fetchCover: (hash: string) => Promise<string | null | undefined>;
   uploadPlayHistory: (track: Track) => void;
+  recordRecentPlayed: (track: Track) => void;
+  recordDiagnostic: (e: Omit<DiagEvent, 'ts'>) => void;
   getState: () => PlaybackStateSlice;
   patchState: (patch: Partial<PlaybackStateSlice>) => void;
   saveQueue: () => void;
@@ -83,6 +86,12 @@ export class PlaybackOrchestrator {
     if (!this.isCurrent(seq)) return { status: 'stale' };
 
     const normalized = normalizeTrack(track);
+    this.deps.recordDiagnostic({
+      kind: 'track_switch',
+      phase: 'start',
+      detail: normalized.SongName || normalized.FileHash,
+      trackKey: normalized.FileHash,
+    });
     let idx = state.queue.findIndex((t) => t.FileHash === normalized.FileHash);
     if (idx === -1) {
       state.queue.push(normalized);
@@ -101,11 +110,23 @@ export class PlaybackOrchestrator {
     this.fetchMissingCover(normalized);
 
     let result: ResolveTrackResult;
+    this.deps.recordDiagnostic({
+      kind: 'url_resolve',
+      phase: 'start',
+      detail: normalized.FileHash,
+      trackKey: normalized.FileHash,
+    });
     try {
       result = await this.deps.resolveTrack(normalized, state.quality);
     } catch (err) {
       if (!this.isCurrent(seq)) return { status: 'stale' };
       const error = err instanceof Error ? err.message : '获取歌曲链接失败';
+      this.deps.recordDiagnostic({
+        kind: 'url_resolve',
+        phase: 'fail',
+        detail: error,
+        trackKey: normalized.FileHash,
+      });
       this.rollback(prevIndex, prevTrack, error);
       return { status: 'failed', error };
     }
@@ -113,12 +134,24 @@ export class PlaybackOrchestrator {
 
     if (result.status !== 1 || !result.url) {
       const error = result.error || '获取歌曲链接失败';
+      this.deps.recordDiagnostic({
+        kind: 'url_resolve',
+        phase: 'fail',
+        detail: error,
+        trackKey: normalized.FileHash,
+      });
       this.rollback(prevIndex, prevTrack, error);
       return {
         status: 'failed',
         error,
       };
     }
+    this.deps.recordDiagnostic({
+      kind: 'url_resolve',
+      phase: 'ok',
+      detail: result.url,
+      trackKey: normalized.FileHash,
+    });
 
     const availableQualities = result.data?.available_qualities || [];
     let finalUrl = result.url;
@@ -150,6 +183,7 @@ export class PlaybackOrchestrator {
     this.deps.patchState({ isLoading: false });
     this.deps.saveQueue();
     this.deps.uploadPlayHistory(normalized);
+    this.deps.recordRecentPlayed(normalized);
     return { status: 'played' };
   }
 

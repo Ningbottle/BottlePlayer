@@ -9,6 +9,8 @@ import { PlaySessionTracker, type PlayRecord } from './playSessionTracker';
 import { WebAudioEq } from './webAudioEq';
 import { normalizeEqBands } from './equalizerConfig';
 import { prepareAudioSourceUrl } from './audioProxy';
+import { recentPlayedStore } from './recentPlayedStore';
+import { playbackDiagnostics } from './playbackDiagnostics';
 import {
   PlaybackOrchestrator,
   type QualityOption,
@@ -422,6 +424,7 @@ export async function initPlayerBackend() {
     disconnectEq: disconnectWebAudioEqSource,
     isEqRerouted: () => webAudioEq.isRerouted,
     setEqVolume: setWebAudioEqVolume,
+    recordDiagnostic: (e) => playbackDiagnostics.recordEvent(e),
   });
   playerStore.backend = 'html5';
 
@@ -434,12 +437,14 @@ function handlePlaybackEvent(e: PlaybackEvent) {
       playerStore.currentTime = e.position;
       playSession.onTimeUpdate(e.position);
     }
+    playbackDiagnostics.markActivity();
     if (typeof e.duration === 'number' && Number.isFinite(e.duration) && e.duration > 0) {
       playerStore.duration = e.duration;
     }
   } else if (e.type === 'state') {
     if (e.state === 'playing') {
       playSession.onPlay();
+      playbackDiagnostics.markActivity();
       playerStore.isLoading = false;
       playerStore.isPlaying = true;
     } else if (e.state === 'paused') {
@@ -514,6 +519,8 @@ const playbackOrchestrator = new PlaybackOrchestrator({
   resolveTrack,
   fetchCover: fetchCoverImage,
   uploadPlayHistory,
+  recordRecentPlayed: (track) => recentPlayedStore.recordRecentPlayed(track),
+  recordDiagnostic: (e) => playbackDiagnostics.recordEvent(e),
   getState: () => playerStore,
   patchState: (patch) => Object.assign(playerStore, patch),
   saveQueue,
@@ -568,14 +575,38 @@ async function fetchPersonalFmRecommendations(query: Record<string, string | num
 async function appendPersonalFmRecommendations(): Promise<boolean> {
   const current = playerStore.currentTrack;
   const remain = Math.max(0, playerStore.queue.length - playerStore.currentIndex - 1);
-  const response = await fetchPersonalFmRecommendations({
-    hash: current?.FileHash || '',
-    songid: current?.AlbumAudioID || current?.MixSongID || '',
-    playtime: Math.floor(playerStore.currentTime || 0),
-    remain_songcnt: remain,
-    is_overplay: remain === 0 ? 1 : 0,
+  const trackKey = current?.FileHash || '';
+  playbackDiagnostics.recordEvent({
+    kind: 'fm_fetch',
+    phase: 'start',
+    detail: `remain=${remain}; is_overplay=${remain === 0 ? 1 : 0}`,
+    trackKey,
   });
+  let response: any;
+  try {
+    response = await fetchPersonalFmRecommendations({
+      hash: current?.FileHash || '',
+      songid: current?.AlbumAudioID || current?.MixSongID || '',
+      playtime: Math.floor(playerStore.currentTime || 0),
+      remain_songcnt: remain,
+      is_overplay: remain === 0 ? 1 : 0,
+    });
+  } catch (e) {
+    playbackDiagnostics.recordEvent({
+      kind: 'fm_fetch',
+      phase: 'fail',
+      detail: `fetch threw: ${e instanceof Error ? e.message : String(e)}`,
+      trackKey,
+    });
+    return false;
+  }
   if (isPersonalFmFailure(response)) {
+    playbackDiagnostics.recordEvent({
+      kind: 'fm_fetch',
+      phase: 'fail',
+      detail: `status=0: ${response?.error || ''}`,
+      trackKey,
+    });
     console.warn('Personal FM recommendation returned an error:', response?.error || response);
     return false;
   }
@@ -584,9 +615,23 @@ async function appendPersonalFmRecommendations(): Promise<boolean> {
     .map(normalizeTrack)
     .filter((track) => track.FileHash && !existing.has(track.FileHash));
 
-  if (fresh.length === 0) return false;
+  if (fresh.length === 0) {
+    playbackDiagnostics.recordEvent({
+      kind: 'fm_fetch',
+      phase: 'noop',
+      detail: 'no fresh songs after dedupe',
+      trackKey,
+    });
+    return false;
+  }
   playerStore.queue.push(...fresh);
   saveQueue();
+  playbackDiagnostics.recordEvent({
+    kind: 'fm_fetch',
+    phase: 'ok',
+    detail: `appended ${fresh.length} songs`,
+    trackKey,
+  });
   return true;
 }
 

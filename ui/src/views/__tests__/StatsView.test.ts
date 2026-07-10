@@ -2,12 +2,24 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 
 const playAllMock = vi.hoisted(() => vi.fn());
+const animateCountUpMock = vi.hoisted(() => vi.fn((targetRef, target) => {
+  targetRef.value = target;
+  return Promise.resolve();
+}));
+const animateBarHeightMock = vi.hoisted(() => vi.fn());
+const isReducedMotionMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock('../../api/playerStore', () => ({
   playAll: playAllMock,
   playerStore: {
     currentTrack: null,
   },
+}));
+
+vi.mock('../../api/motion', () => ({
+  animateCountUp: animateCountUpMock,
+  animateBarHeight: animateBarHeightMock,
+  isReducedMotion: isReducedMotionMock,
 }));
 
 vi.mock('@tauri-apps/api/core', () => ({
@@ -171,6 +183,7 @@ describe('StatsView component rendering', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     playAllMock.mockClear();
+    isReducedMotionMock.mockReturnValue(false);
   });
 
   it('renders overview cards after loading', async () => {
@@ -219,6 +232,30 @@ describe('StatsView component rendering', () => {
     expect(wrapper.text()).toContain('06-24');
   });
 
+  it('animates overview stats after loading', async () => {
+    mount(StatsView);
+    await flushPromises();
+
+    expect(animateCountUpMock).toHaveBeenCalledWith(expect.any(Object), 10, expect.any(Object));
+    expect(animateCountUpMock).toHaveBeenCalledWith(expect.any(Object), 3600, expect.any(Object));
+    expect(animateCountUpMock).toHaveBeenCalledWith(expect.any(Object), 5, expect.any(Object));
+    expect(animateCountUpMock).toHaveBeenCalledWith(expect.any(Object), 80, expect.any(Object));
+  });
+
+  it('animates timeline bars after loading', async () => {
+    const wrapper = mount(StatsView, { attachTo: document.body });
+    await flushPromises();
+
+    expect(wrapper.find('.bar-fill').exists()).toBe(true);
+    expect(animateBarHeightMock).toHaveBeenCalledWith(
+      wrapper.find('.bar-fill').element,
+      100,
+      expect.any(Object),
+    );
+
+    wrapper.unmount();
+  });
+
   it('plays the top song when clicked', async () => {
     const wrapper = mount(StatsView);
     await flushPromises();
@@ -242,5 +279,41 @@ describe('StatsView component rendering', () => {
     await flushPromises();
 
     expect(wrapper.find('.recent-item').exists()).toBe(false);
+  });
+
+  it('keeps the newest range when a slower earlier request resolves last', async () => {
+    const deferred: Array<() => void> = [];
+    vi.mocked(invoke).mockImplementation((cmd: string, args?: any) => {
+      const range = args?.range === 'all' ? 300 : args?.range === '7d' ? 7 : 30;
+      const payload = cmd === 'stats_get_summary'
+        ? JSON.stringify({
+          total_plays: range,
+          total_listened_seconds: range * 60,
+          unique_songs: range,
+          unique_artists: 1,
+          completion_rate: 1,
+        })
+        : cmd === 'stats_get_timeline'
+          ? JSON.stringify({ items: [{ date: '2026-06-24', count: range }] })
+          : JSON.stringify({ items: [] });
+
+      if (args?.range === '7d') {
+        return new Promise<string>((resolve) => deferred.push(() => resolve(payload)));
+      }
+      return Promise.resolve(payload);
+    });
+
+    const wrapper = mount(StatsView);
+    await flushPromises();
+
+    const tabs = wrapper.findAll('.range-tabs button');
+    await tabs[0].trigger('click');
+    await tabs[2].trigger('click');
+    await flushPromises();
+    expect(wrapper.findAll('.stat-value')[0].text()).toBe('300');
+
+    deferred.forEach((resolve) => resolve());
+    await flushPromises();
+    expect(wrapper.findAll('.stat-value')[0].text()).toBe('300');
   });
 });

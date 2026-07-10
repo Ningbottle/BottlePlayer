@@ -22,6 +22,8 @@ import { checkLoginStatus } from './api/userStore';
 import { ping } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { lyricFullscreen } from './api/lyricFullscreen';
+import { transitionEnter, transitionLeave } from './api/motion';
 
 const currentView = ref('home');
 const searchQuery = ref('');
@@ -108,6 +110,7 @@ interface HistoryEntry {
 
 const historyStack = ref<HistoryEntry[]>([{ view: 'home' }]);
 const historyIndex = ref(0);
+const viewTransitionVersion = ref(0);
 
 function pushHistory(entry: HistoryEntry) {
   historyStack.value.splice(historyIndex.value + 1);
@@ -123,6 +126,7 @@ function applyHistoryEntry(entry: HistoryEntry) {
   } else if (entry.view === 'search') {
     searchQuery.value = entry.searchQuery || '';
   }
+  viewTransitionVersion.value += 1;
 }
 
 function handleNavigate(view: string, params?: any) {
@@ -141,6 +145,10 @@ function handleSearch(query: string) {
     applyHistoryEntry(entry);
     pushHistory(entry);
   }
+}
+
+function viewTransitionKey() {
+  return `${currentView.value}:${viewTransitionVersion.value}`;
 }
 
 function goBack() {
@@ -186,7 +194,7 @@ onUnmounted(() => {
   <div class="paper-vignette"></div>
 
   <!-- Main grid app shell -->
-  <div class="app">
+  <div class="app" :class="{ 'lyric-fullscreen-active': lyricFullscreen }">
     <!-- Custom Drag-enabled Titlebar -->
     <div class="titlebar" data-tauri-drag-region @dblclick="handleTitlebarDoubleClick">
       <div class="titlebar-logo">
@@ -217,7 +225,8 @@ onUnmounted(() => {
     <div v-if="networkDegraded" class="network-banner">应用后台连接不稳定，部分功能可能暂不可用</div>
 
     <!-- Sidebar Navigation -->
-    <Sidebar 
+    <Sidebar
+      v-show="!lyricFullscreen"
       :active-view="currentView" 
       @navigate="handleNavigate" 
     />
@@ -226,6 +235,7 @@ onUnmounted(() => {
     <section class="main">
       <!-- Search & actions Topbar -->
       <Topbar 
+        v-show="!lyricFullscreen"
         v-model:searchQuery="searchQuery" 
         @search="handleSearch"
         @toggle-tweaks="tweaksCollapsed = !tweaksCollapsed"
@@ -236,40 +246,49 @@ onUnmounted(() => {
 
       <!-- View Switcher -->
       <div class="scroll">
-        <HomeView 
-          v-if="currentView === 'home'" 
-          @navigate="handleNavigate" 
-        />
-        <SearchView 
-          v-else-if="currentView === 'search'" 
-          :query="searchQuery" 
-        />
-        <PlaylistView 
-          v-else-if="currentView === 'playlist'" 
-          :playlist-id="playlistId"
-          :playlist-name="playlistName"
-        />
-        <LyricView 
-          v-else-if="currentView === 'lyric'" 
-          :is-queue-open="isQueueOpen"
-          :is-drawer-open="!tweaksCollapsed"
-        />
-        <SettingsView 
-          v-else-if="currentView === 'settings'" 
-        />
-        <LoginView 
-          v-else-if="currentView === 'login'" 
-          @navigate="handleNavigate"
-        />
-        <HistoryView 
-          v-else-if="currentView === 'history'" 
-        />
-        <StatsView
-          v-else-if="currentView === 'stats'"
-        />
-        <EqualizerView
-          v-else-if="currentView === 'equalizer'"
-        />
+        <Transition
+          mode="out-in"
+          :css="false"
+          @enter="transitionEnter"
+          @leave="transitionLeave"
+        >
+          <div :key="viewTransitionKey()" class="view-transition-frame">
+            <HomeView 
+              v-if="currentView === 'home'" 
+              @navigate="handleNavigate" 
+            />
+            <SearchView 
+              v-else-if="currentView === 'search'" 
+              :query="searchQuery" 
+            />
+            <PlaylistView 
+              v-else-if="currentView === 'playlist'" 
+              :playlist-id="playlistId"
+              :playlist-name="playlistName"
+            />
+            <LyricView 
+              v-else-if="currentView === 'lyric'" 
+              :is-queue-open="isQueueOpen"
+              :is-drawer-open="!tweaksCollapsed"
+            />
+            <SettingsView 
+              v-else-if="currentView === 'settings'" 
+            />
+            <LoginView 
+              v-else-if="currentView === 'login'" 
+              @navigate="handleNavigate"
+            />
+            <HistoryView 
+              v-else-if="currentView === 'history'" 
+            />
+            <StatsView
+              v-else-if="currentView === 'stats'"
+            />
+            <EqualizerView
+              v-else-if="currentView === 'equalizer'"
+            />
+          </div>
+        </Transition>
       </div>
 
       <!-- Collapsible Tweaks Panel Drawer -->
@@ -286,7 +305,8 @@ onUnmounted(() => {
     </section>
 
     <!-- Bottom player controller bar -->
-    <PlayerBar 
+    <PlayerBar
+      v-show="!lyricFullscreen"
       :active-view="currentView"
       @navigate="handleNavigate" 
       @toggle-queue="isQueueOpen = !isQueueOpen"
@@ -305,6 +325,10 @@ onUnmounted(() => {
   padding: 6px 12px;
   font-size: 13px;
   font-family: var(--font-sans);
+}
+
+.view-transition-frame {
+  min-height: 100%;
 }
 
 /* App root shell layout settings */
