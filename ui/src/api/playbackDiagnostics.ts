@@ -24,6 +24,23 @@ export interface PlaybackDiagnosticsOptions {
 const DEFAULT_CAPACITY = 200;
 const STALL_THRESHOLD_MS = 5000;
 
+function redactUrls(detail: string): string {
+  return detail.replace(/https?:\/\/[^\s]+/gi, (rawUrl) => {
+    try {
+      const url = new URL(rawUrl);
+      return `${url.origin}${url.pathname}${url.search ? '?[redacted]' : ''}`;
+    } catch {
+      return rawUrl;
+    }
+  });
+}
+
+function isStallSignal(event: Omit<DiagEvent, 'ts'>): boolean {
+  return event.kind === 'media_event'
+    && event.phase === 'noop'
+    && /\b(waiting|stalled)\b/i.test(event.detail);
+}
+
 export class PlaybackDiagnostics {
   private buffer: DiagEvent[] = [];
   private readonly now: () => number;
@@ -36,14 +53,14 @@ export class PlaybackDiagnostics {
   }
 
   recordEvent(e: Omit<DiagEvent, 'ts'>): void {
-    this.buffer.unshift({ ...e, ts: this.now() });
+    this.buffer.unshift({ ...e, detail: redactUrls(e.detail), ts: this.now() });
     if (this.buffer.length > this.capacity) {
       // Drop oldest (at the end, since newest is at index 0).
       this.buffer.length = this.capacity;
     }
-    // Arm the stall detector on stall-like media events (waiting/stalled/suspend/abort).
+    // Arm only on actual buffering signals. abort/suspend are expected during seeks and switches.
     // If no markActivity (play/timeupdate) arrives within 5s, flag a potential_stall.
-    if (e.kind === 'media_event' && e.phase === 'noop') {
+    if (isStallSignal(e)) {
       this.armStallDetector();
     }
   }

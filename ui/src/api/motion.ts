@@ -5,12 +5,13 @@ export interface CountUpOptions {
   duration?: number;
   ease?: string;
   delay?: number;
+  isActive?: () => boolean;
 }
 
 /** Animate a ref from its current value to target, rounding on each update. */
 export function animateCountUp(ref: Ref<number>, target: number, opts: CountUpOptions = {}): Promise<void> {
   if (isReducedMotion()) {
-    ref.value = target;
+    if (opts.isActive?.() ?? true) ref.value = target;
     return Promise.resolve();
   }
   const obj = { value: ref.value };
@@ -20,14 +21,20 @@ export function animateCountUp(ref: Ref<number>, target: number, opts: CountUpOp
       duration: opts.duration ?? 0.9,
       ease: opts.ease ?? 'expo.out',
       delay: opts.delay ?? 0,
-      onUpdate: () => { ref.value = Math.round(obj.value); },
-      onComplete: () => { ref.value = target; resolve(); },
+      onUpdate: () => {
+        if (opts.isActive?.() ?? true) ref.value = Math.round(obj.value);
+      },
+      onComplete: () => {
+        if (opts.isActive?.() ?? true) ref.value = target;
+        resolve();
+      },
     });
   });
 }
 
 /** Animate a bar element's height to targetPx. */
 export function animateBarHeight(el: HTMLElement, targetPx: number, opts: { duration?: number; ease?: string; delay?: number } = {}): void {
+  gsap.killTweensOf(el);
   if (isReducedMotion()) {
     el.style.height = `${targetPx}px`;
     return;

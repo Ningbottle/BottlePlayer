@@ -396,7 +396,7 @@ function toggleLyricView() {
   pointer-events: none; /* Let clicks pass through */
   z-index: 1000;
 }
-html.dark .mode-toast {
+:global(:root[data-mode="dark"]) .mode-toast {
   box-shadow: 0 4px 12px rgba(0,0,0,0.45);
 }
 
@@ -462,7 +462,7 @@ html.dark .mode-toast {
   z-index: 1001;
 }
 
-html.dark .quality-menu {
+:global(:root[data-mode="dark"]) .quality-menu {
   background: var(--ink, #2a2520);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
 }

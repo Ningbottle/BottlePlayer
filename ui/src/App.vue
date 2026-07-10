@@ -110,6 +110,7 @@ interface HistoryEntry {
 
 const historyStack = ref<HistoryEntry[]>([{ view: 'home' }]);
 const historyIndex = ref(0);
+const viewTransitionVersion = ref(0);
 
 function pushHistory(entry: HistoryEntry) {
   historyStack.value.splice(historyIndex.value + 1);
@@ -125,6 +126,7 @@ function applyHistoryEntry(entry: HistoryEntry) {
   } else if (entry.view === 'search') {
     searchQuery.value = entry.searchQuery || '';
   }
+  viewTransitionVersion.value += 1;
 }
 
 function handleNavigate(view: string, params?: any) {
@@ -146,9 +148,7 @@ function handleSearch(query: string) {
 }
 
 function viewTransitionKey() {
-  if (currentView.value === 'playlist') return `playlist:${playlistId.value}`;
-  if (currentView.value === 'search') return `search:${searchQuery.value}`;
-  return currentView.value;
+  return `${currentView.value}:${viewTransitionVersion.value}`;
 }
 
 function goBack() {

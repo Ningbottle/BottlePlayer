@@ -44,6 +44,7 @@ interface TimelineItem {
 const timeline = ref<TimelineItem[]>([]);
 const maxTimelineCount = ref(1);
 const timelineBarEls = ref<HTMLElement[]>([]);
+let statsRequestId = 0;
 
 const aiApiKey = ref(localStorage.getItem('deepseek_api_key') || '');
 const aiResult = ref('');
@@ -95,19 +96,21 @@ function timelineHeight(item: TimelineItem): number {
   return Math.round((item.count / maxTimelineCount.value) * 100);
 }
 
-async function animateSummaryValues(s: Summary) {
+async function animateSummaryValues(s: Summary, isActive: () => boolean) {
   await Promise.all([
-    animateCountUp(displayTotalPlays, s.total_plays, { delay: 0 }),
-    animateCountUp(displayListenedSeconds, s.total_listened_seconds, { delay: 0.04 }),
-    animateCountUp(displayUniqueSongs, s.unique_songs, { delay: 0.08 }),
-    animateCountUp(displayCompletionPercent, Math.round(s.completion_rate * 100), { delay: 0.12 }),
+    animateCountUp(displayTotalPlays, s.total_plays, { delay: 0, isActive }),
+    animateCountUp(displayListenedSeconds, s.total_listened_seconds, { delay: 0.04, isActive }),
+    animateCountUp(displayUniqueSongs, s.unique_songs, { delay: 0.08, isActive }),
+    animateCountUp(displayCompletionPercent, Math.round(s.completion_rate * 100), { delay: 0.12, isActive }),
   ]);
 }
 
-async function animateTimelineBars() {
+async function animateTimelineBars(isActive: () => boolean) {
   await nextTick();
+  if (!isActive()) return;
   timelineBarEls.value = timelineBarEls.value.slice(0, timeline.value.length);
   timeline.value.forEach((item, index) => {
+    if (!isActive()) return;
     const el = timelineBarEls.value[index];
     if (!el) return;
     const height = timelineHeight(item);
@@ -120,41 +123,39 @@ async function animateTimelineBars() {
   });
 }
 
-async function loadTimeline() {
-  try {
-    const tl = await invoke<string>('stats_get_timeline', { range: range.value });
-    timeline.value = JSON.parse(tl).items || [];
-    maxTimelineCount.value = Math.max(1, ...timeline.value.map(t => t.count));
-  } catch (e) {
-    console.error('Timeline load failed:', e);
-  }
-}
-
 async function loadStats() {
+  const requestId = ++statsRequestId;
+  const requestedRange = range.value;
+  const isActive = () => requestId === statsRequestId && requestedRange === range.value;
   loading.value = true;
   error.value = '';
   timelineBarEls.value = [];
   try {
-    const [s, songs, artists, albums] = await Promise.all([
-      invoke<string>('stats_get_summary', { range: range.value }),
-      invoke<string>('stats_get_top', { kind: 'song', range: range.value, limit: 10 }),
-      invoke<string>('stats_get_top', { kind: 'artist', range: range.value, limit: 10 }),
-      invoke<string>('stats_get_top', { kind: 'album', range: range.value, limit: 10 }),
+    const [s, songs, artists, albums, tl] = await Promise.all([
+      invoke<string>('stats_get_summary', { range: requestedRange }),
+      invoke<string>('stats_get_top', { kind: 'song', range: requestedRange, limit: 10 }),
+      invoke<string>('stats_get_top', { kind: 'artist', range: requestedRange, limit: 10 }),
+      invoke<string>('stats_get_top', { kind: 'album', range: requestedRange, limit: 10 }),
+      invoke<string>('stats_get_timeline', { range: requestedRange }),
     ]);
+    if (!isActive()) return;
     summary.value = JSON.parse(s);
     topSongs.value = JSON.parse(songs).items || [];
     topArtists.value = JSON.parse(artists).items || [];
     topAlbums.value = JSON.parse(albums).items || [];
-    await loadTimeline();
+    timeline.value = JSON.parse(tl).items || [];
+    maxTimelineCount.value = Math.max(1, ...timeline.value.map(t => t.count));
     loading.value = false;
     await nextTick();
-    if (summary.value) await animateSummaryValues(summary.value);
-    await animateTimelineBars();
+    if (!isActive()) return;
+    if (summary.value) await animateSummaryValues(summary.value, isActive);
+    await animateTimelineBars(isActive);
   } catch (e) {
+    if (!isActive()) return;
     console.error('Stats load failed:', e);
     error.value = '统计数据加载失败';
   } finally {
-    loading.value = false;
+    if (isActive()) loading.value = false;
   }
 }
 

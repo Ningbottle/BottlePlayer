@@ -17,7 +17,7 @@ const accent = ref(localStorage.getItem('tweak_accent') || '#a8311b');
 
 const isCompact = ref(localStorage.getItem('tweak_compact') === 'true');
 const lyricAlign = ref(localStorage.getItem('tweak_lyric_align') || 'center');
-const fontFamily = ref(localStorage.getItem('tweak_font') || 'serif');
+const fontFamily = ref(localStorage.getItem('tweak_font') || 'auto');
 const bgImageUrl = ref(localStorage.getItem('tweak_bg_img') || '');
 const bgDim = ref(parseInt(localStorage.getItem('tweak_bg_dim') || '50', 10));
 
@@ -83,9 +83,11 @@ function applyTweaks() {
 
   if (fontFamily.value === 'cute') {
     root.style.setProperty('--font-serif', 'var(--font-cute)');
-  } else {
+  } else if (fontFamily.value === 'serif') {
     root.style.setProperty('--font-serif',
       '"Noto Serif SC", "EB Garamond", "Songti SC", "STSong", "Times New Roman", Georgia, "Microsoft YaHei", serif');
+  } else {
+    root.style.removeProperty('--font-serif');
   }
 }
 
@@ -145,6 +147,7 @@ onMounted(() => {
         <div class="tweak-row">
           <label>字体 Font</label>
           <select v-model="fontFamily" class="tweak-select">
+            <option value="auto">跟随皮肤 Auto</option>
             <option value="serif">衬线 Serif</option>
             <option value="cute">可爱 Cute</option>
           </select>

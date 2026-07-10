@@ -35,4 +35,10 @@ describe('Drawer theming demotion', () => {
     expect(style.getPropertyValue('--grain')).not.toBe('');
     expect(style.getPropertyValue('--accent')).not.toBe('');
   });
+
+  it('leaves the default font token to the active skin', () => {
+    mount(Drawer, { props: { collapsed: false } });
+
+    expect(document.documentElement.style.getPropertyValue('--font-serif')).toBe('');
+  });
 });

@@ -84,6 +84,31 @@ describe('RecentPlayedStore', () => {
     expect(storage.getItem('recent_played')).toContain('h-fix');
   });
 
+  it('falls back to empty when storage contains valid JSON with the wrong shape', () => {
+    const storage = memStorage();
+    storage.setItem('recent_played', JSON.stringify({ unexpected: true }));
+    const store = mkStore({ now: () => 1, storage });
+
+    expect(store.entries.value).toEqual([]);
+    expect(() => store.recordRecentPlayed(mkTrack({ FileHash: 'h-shape' }))).not.toThrow();
+    expect(store.entries.value).toHaveLength(1);
+  });
+
+  it('caps local history so repeated unique plays do not grow storage without bound', () => {
+    const storage = memStorage();
+    let now = 0;
+    const store = mkStore({ now: () => now, storage });
+
+    for (let index = 0; index < 101; index++) {
+      now++;
+      store.recordRecentPlayed(mkTrack({ FileHash: `h-${index}` }));
+    }
+
+    expect(store.entries.value).toHaveLength(100);
+    expect(store.entries.value[0].FileHash).toBe('h-100');
+    expect(store.entries.value[store.entries.value.length - 1]?.FileHash).toBe('h-1');
+  });
+
   it('mergeRemote merges local+remote, dedupes by FileHash (latest playedAt wins), sorted desc, without mutating local', () => {
     let now = 0;
     const store = mkStore({ now: () => now });

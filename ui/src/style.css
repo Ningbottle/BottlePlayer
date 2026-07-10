@@ -193,14 +193,14 @@ button {
   opacity: var(--custom-bg-dim, 0);
 }
 
-html:not(.dark) .paper-base {
+:root:not([data-mode="dark"]) .paper-base {
   background-image: 
     radial-gradient(ellipse 90% 60% at 20% 0%, rgba(255,250,236,0.9), transparent 60%),
     radial-gradient(ellipse 80% 70% at 100% 100%, rgba(214,200,168,0.45), transparent 55%),
     linear-gradient(180deg, #f3ecdb 0%, #ede4cc 100%);
 }
 
-html:not(.dark).has-custom-bg .paper-base {
+:root:not([data-mode="dark"]).has-custom-bg .paper-base {
   background-image: var(--custom-bg);
 }
 
@@ -1558,6 +1558,11 @@ html.lyric-left .lyric-line {
 .app.lyric-fullscreen-active {
   grid-template-columns: 1fr !important;
   grid-template-rows: 0 0 1fr 0 !important;
+}
+.app.lyric-fullscreen-active .main,
+.app.lyric-fullscreen-active .titlebar,
+.app.lyric-fullscreen-active .player {
+  grid-column: 1 / 2;
 }
 .exit-fullscreen {
   position: fixed; top: 16px; right: 16px; z-index: 100;

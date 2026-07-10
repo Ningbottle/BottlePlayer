@@ -19,14 +19,26 @@ export interface RecentPlayedStoreOptions {
 }
 
 const DEFAULT_STORAGE_KEY = 'recent_played';
+const MAX_RECENT_ENTRIES = 100;
 
-function loadJSON<T>(storage: Storage, key: string, fallback: T): T {
+function isRecentPlayedEntry(value: unknown): value is RecentPlayedEntry {
+  if (!value || typeof value !== 'object') return false;
+  const entry = value as Partial<RecentPlayedEntry>;
+  return typeof entry.FileHash === 'string'
+    && typeof entry.SongName === 'string'
+    && typeof entry.SingerName === 'string'
+    && typeof entry.Duration === 'number'
+    && typeof entry.playedAt === 'number';
+}
+
+function loadEntries(storage: Storage, key: string): RecentPlayedEntry[] {
   try {
     const raw = storage.getItem(key);
-    if (raw == null) return fallback;
-    return JSON.parse(raw) as T;
+    if (raw == null) return [];
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter(isRecentPlayedEntry).slice(0, MAX_RECENT_ENTRIES) : [];
   } catch {
-    return fallback;
+    return [];
   }
 }
 
@@ -41,11 +53,7 @@ export class RecentPlayedStore {
     this.storage = opts.storage;
     this.storageKey = opts.storageKey ?? DEFAULT_STORAGE_KEY;
     if (this.storage) {
-      this.entries.value = loadJSON<RecentPlayedEntry[]>(
-        this.storage,
-        this.storageKey,
-        [],
-      );
+      this.entries.value = loadEntries(this.storage, this.storageKey);
     }
   }
 
@@ -61,7 +69,7 @@ export class RecentPlayedStore {
       playedAt: this.now(),
     };
     const rest = this.entries.value.filter((e) => e.FileHash !== track.FileHash);
-    this.entries.value = [entry, ...rest];
+    this.entries.value = [entry, ...rest].slice(0, MAX_RECENT_ENTRIES);
     this.persist();
   }
 

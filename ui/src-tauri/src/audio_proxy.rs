@@ -126,7 +126,11 @@ pub async fn serve(listener: StdTcpListener, state: AudioProxyState) {
                 let state = state.clone();
                 tauri::async_runtime::spawn(async move {
                     if let Err(e) = handle_client(stream, state).await {
-                        eprintln!("[AudioProxy WARN] request failed: {}", e);
+                        if is_client_disconnect(&e) {
+                            eprintln!("[AudioProxy DEBUG] client disconnected: {}", e);
+                        } else {
+                            eprintln!("[AudioProxy WARN] request failed: {}", e);
+                        }
                     }
                 });
             }
@@ -136,6 +140,10 @@ pub async fn serve(listener: StdTcpListener, state: AudioProxyState) {
             }
         }
     }
+}
+
+fn is_client_disconnect(error: &str) -> bool {
+    error.contains("client write failed")
 }
 
 #[tauri::command]
@@ -663,6 +671,14 @@ mod tests {
         assert!(state
             .register("https://cdn.example/song.mp3".to_string())
             .is_err());
+    }
+
+    #[test]
+    fn client_write_errors_are_classified_as_expected_disconnects() {
+        assert!(is_client_disconnect(
+            "route=abc stage=client_body bytes=0 client write failed (body chunk): An established connection was aborted"
+        ));
+        assert!(!is_client_disconnect("route=abc stage=upstream_body upstream body read failed"));
     }
 
     #[tokio::test]

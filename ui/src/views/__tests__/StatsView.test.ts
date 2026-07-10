@@ -280,4 +280,40 @@ describe('StatsView component rendering', () => {
 
     expect(wrapper.find('.recent-item').exists()).toBe(false);
   });
+
+  it('keeps the newest range when a slower earlier request resolves last', async () => {
+    const deferred: Array<() => void> = [];
+    vi.mocked(invoke).mockImplementation((cmd: string, args?: any) => {
+      const range = args?.range === 'all' ? 300 : args?.range === '7d' ? 7 : 30;
+      const payload = cmd === 'stats_get_summary'
+        ? JSON.stringify({
+          total_plays: range,
+          total_listened_seconds: range * 60,
+          unique_songs: range,
+          unique_artists: 1,
+          completion_rate: 1,
+        })
+        : cmd === 'stats_get_timeline'
+          ? JSON.stringify({ items: [{ date: '2026-06-24', count: range }] })
+          : JSON.stringify({ items: [] });
+
+      if (args?.range === '7d') {
+        return new Promise<string>((resolve) => deferred.push(() => resolve(payload)));
+      }
+      return Promise.resolve(payload);
+    });
+
+    const wrapper = mount(StatsView);
+    await flushPromises();
+
+    const tabs = wrapper.findAll('.range-tabs button');
+    await tabs[0].trigger('click');
+    await tabs[2].trigger('click');
+    await flushPromises();
+    expect(wrapper.findAll('.stat-value')[0].text()).toBe('300');
+
+    deferred.forEach((resolve) => resolve());
+    await flushPromises();
+    expect(wrapper.findAll('.stat-value')[0].text()).toBe('300');
+  });
 });

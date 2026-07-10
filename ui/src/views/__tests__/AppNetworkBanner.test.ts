@@ -1,10 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 
 const backendHealthMock = vi.hoisted(() => vi.fn());
 const pingMock = vi.hoisted(() => vi.fn());
-const transitionEnterMock = vi.hoisted(() => vi.fn());
-const transitionLeaveMock = vi.hoisted(() => vi.fn());
+const transitionEnterMock = vi.hoisted(() => vi.fn((_el, done?: () => void) => done?.()));
+const transitionLeaveMock = vi.hoisted(() => vi.fn((_el, done?: () => void) => done?.()));
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(0),
@@ -57,13 +58,24 @@ vi.mock('../../api/userStore', () => ({
   },
 }));
 
-vi.mock('../../components/Sidebar.vue', () => ({ default: { template: '<aside />' } }));
-vi.mock('../../components/Topbar.vue', () => ({ default: { template: '<header />' } }));
+vi.mock('../../components/Sidebar.vue', () => ({
+  default: {
+    emits: ['navigate'],
+    template: '<aside><button data-test="go-search" @click="$emit(\'navigate\', \'search\')" /></aside>',
+  },
+}));
+vi.mock('../../components/Topbar.vue', () => ({
+  default: {
+    props: ['searchQuery'],
+    emits: ['update:searchQuery'],
+    template: '<header><button data-test="edit-search" @click="$emit(\'update:searchQuery\', \'typed\')" /></header>',
+  },
+}));
 vi.mock('../../components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
 vi.mock('../../components/Drawer.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../HomeView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../SearchView.vue', () => ({ default: { template: '<main />' } }));
+vi.mock('../SearchView.vue', () => ({ default: { props: ['query'], template: '<main data-test="search-view" />' } }));
 vi.mock('../PlaylistView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../LyricView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../SettingsView.vue', () => ({ default: { template: '<main />' } }));
@@ -137,5 +149,18 @@ describe('App network banner', () => {
     expect(transition.props('mode')).toBe('out-in');
     expect(transition.props('onEnter')).toBe(transitionEnterMock);
     expect(transition.props('onLeave')).toBe(transitionLeaveMock);
+  });
+
+  it('does not remount SearchView while the query input changes', async () => {
+    const wrapper = mount(App);
+
+    await wrapper.find('[data-test="go-search"]').trigger('click');
+    await nextTick();
+    const firstSearchElement = wrapper.find('[data-test="search-view"]').element;
+
+    await wrapper.find('[data-test="edit-search"]').trigger('click');
+    await nextTick();
+
+    expect(wrapper.find('[data-test="search-view"]').element).toBe(firstSearchElement);
   });
 });

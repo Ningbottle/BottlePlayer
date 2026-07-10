@@ -22,7 +22,8 @@ vi.mock('gsap', () => {
     return tl;
   });
   const matchMedia = vi.fn(() => ({ add: vi.fn((_, cb) => cb()), revert: vi.fn() }));
-  return { gsap: { to, fromTo, timeline, matchMedia } };
+  const killTweensOf = vi.fn();
+  return { gsap: { to, fromTo, timeline, matchMedia, killTweensOf } };
 });
 
 import { animateBarHeight, animateCountUp, crossfadeTheme, isReducedMotion, transitionEnter, transitionLeave } from '../motion';
@@ -60,6 +61,7 @@ describe('motion.ts', () => {
       el,
       expect.objectContaining({ height: 76, ease: 'expo.out' }),
     );
+    expect(gsap.killTweensOf).toHaveBeenCalledWith(el);
   });
 
   it('transitionEnter uses stronger distance and expo.out', async () => {

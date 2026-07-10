@@ -71,6 +71,20 @@ describe('PlaybackDiagnostics', () => {
     expect(store.copyAsText()).toBe('');
   });
 
+  it('redacts URL query strings before events enter the copyable buffer', () => {
+    const store = mkStore();
+    store.recordEvent({
+      kind: 'url_resolve',
+      phase: 'ok',
+      detail: 'https://cdn.example/song.mp3?token=secret&expires=123',
+    });
+
+    const detail = store.getEvents()[0].detail;
+    expect(detail).toContain('https://cdn.example/song.mp3?[redacted]');
+    expect(detail).not.toContain('token=secret');
+    expect(store.copyAsText()).not.toContain('expires=123');
+  });
+
   it('getEvents returns a defensive copy; mutating the result does not affect the store', () => {
     const store = mkStore({ now: () => 1000 });
     store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'x' });
@@ -168,6 +182,15 @@ describe('PlaybackDiagnostics stall auto-flag', () => {
     const store = mkStore({ capacity: 10 });
     store.recordEvent({ kind: 'media_event', phase: 'fail', detail: 'error' });
     store.recordEvent({ kind: 'media_event', phase: 'ok', detail: 'ended' });
+    vi.advanceTimersByTime(10000);
+
+    expect(store.getEvents().filter((e) => e.kind === 'potential_stall')).toHaveLength(0);
+  });
+
+  it('does not arm the stall detector for abort or suspend events', () => {
+    const store = mkStore({ capacity: 10 });
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'HTML5 media abort' });
+    store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'HTML5 media suspend' });
     vi.advanceTimersByTime(10000);
 
     expect(store.getEvents().filter((e) => e.kind === 'potential_stall')).toHaveLength(0);
