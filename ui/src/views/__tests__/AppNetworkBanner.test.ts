@@ -35,6 +35,10 @@ vi.mock('../../api/backend', () => ({
 vi.mock('../../api/motion', () => ({
   transitionEnter: transitionEnterMock,
   transitionLeave: transitionLeaveMock,
+  animateElement: vi.fn(() => ({ kill: () => {} })),
+  animateStagger: vi.fn(() => ({ kill: () => {} })),
+  startAmbientMotion: vi.fn(() => ({ kill: () => {} })),
+  isReducedMotion: vi.fn(() => true),
 }));
 
 vi.mock('../../api/homeFeedStore', () => ({
