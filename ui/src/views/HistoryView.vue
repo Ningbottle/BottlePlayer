@@ -5,6 +5,8 @@ import { playAll, playerStore } from '../api/playerStore';
 import { normalizeTrack } from '../api/normalizer';
 import { userStore } from '../api/userStore';
 import { recentPlayedStore, type RecentPlayedEntry } from '../api/recentPlayedStore';
+import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
+import SkinEmptyState from '../components/primitives/SkinEmptyState.vue';
 
 const loading = ref(false);
 const remoteError = ref('');
@@ -88,15 +90,11 @@ const isCurrentTrack = (song: RecentPlayedEntry) => {
 
 <template>
   <div class="list-view">
-    <div class="page-head">
-      <div>
-        <div class="kicker">RECENTLY PLAYED · 最近播放</div>
-        <h1>播放历史</h1>
-      </div>
-      <div class="date">
-        共 <b>{{ displaySongs.length }}</b> 首
-      </div>
-    </div>
+    <SkinPageHeader title="播放历史" kicker="RECENTLY PLAYED · 最近播放">
+      <template #actions>
+        <span class="history-count">共 <b>{{ displaySongs.length }}</b> 首</span>
+      </template>
+    </SkinPageHeader>
 
     <!-- Non-blocking sync status (local entries remain visible below) -->
     <div v-if="!userStore.isLoggedIn" class="sync-hint">登录后可同步远端历史 · 当前显示本地记录</div>
@@ -104,9 +102,7 @@ const isCurrentTrack = (song: RecentPlayedEntry) => {
     <div v-else-if="remoteError" class="sync-hint" style="color: var(--accent);">{{ remoteError }}</div>
 
     <!-- Empty: both local AND remote empty -->
-    <div v-if="displaySongs.length === 0" class="spinner">
-      暂无播放记录
-    </div>
+    <SkinEmptyState v-if="displaySongs.length === 0" message="暂无播放记录" />
 
     <!-- Song Table List (local-first, rendered immediately) -->
     <div v-else>
@@ -142,5 +138,13 @@ const isCurrentTrack = (song: RecentPlayedEntry) => {
   font-size: 12px;
   color: var(--ink-mute);
   padding: 8px 0 14px;
+}
+.history-count {
+  font-size: 13px;
+  color: var(--text-muted);
+}
+.history-count b {
+  font-weight: 600;
+  color: var(--text-secondary);
 }
 </style>

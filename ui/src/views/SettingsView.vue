@@ -8,6 +8,9 @@ import { useThemeStore, type SkinId, type Mode } from '../api/themeStore';
 import { setSkippedVersion } from '../api/skippedVersion';
 import { playbackDiagnostics, type DiagEvent } from '../api/playbackDiagnostics';
 import { crossfadeTheme, transitionEnter, transitionLeave } from '../api/motion';
+import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
+import SkinButton from '../components/primitives/SkinButton.vue';
+import SkinEmptyState from '../components/primitives/SkinEmptyState.vue';
 
 const themeStore = useThemeStore();
 
@@ -307,15 +310,11 @@ async function copyDiag() {
 
 <template>
   <div class="list-view">
-    <div class="page-head">
-      <div>
-        <div class="kicker">CLIENT OPTIONS · 印务配置</div>
-        <h1>偏好设置<i>Settings</i></h1>
-      </div>
-      <div class="date">
-        C++20 内核调测器
-      </div>
-    </div>
+    <SkinPageHeader title="偏好设置" kicker="CLIENT OPTIONS · 印务配置">
+      <template #actions>
+        <span class="settings-header-meta">C++20 内核调测器</span>
+      </template>
+    </SkinPageHeader>
 
     <div class="settings-shell">
       <nav class="settings-nav">
@@ -334,28 +333,32 @@ async function copyDiag() {
             <h3 class="settings-section-title">外观 · Skin &amp; Mode</h3>
             <p class="settings-hint">选择皮肤和明暗模式。Newsprint 是 v1 报纸风；Aurora 是 v2 全新苹果风。</p>
             <div class="settings-row">
-              <button
+              <SkinButton
                 data-test="select-skin-aurora"
-                :class="themeStore.skinId.value === 'aurora' ? 'btn-primary' : 'btn-secondary'"
+                :variant="themeStore.skinId.value === 'aurora' ? 'primary' : 'secondary'"
+                size="md"
                 @click="selectSkin('aurora')"
-              >Aurora (v2)</button>
-              <button
+              >Aurora (v2)</SkinButton>
+              <SkinButton
                 data-test="select-skin-newsprint"
-                :class="themeStore.skinId.value === 'newsprint' ? 'btn-primary' : 'btn-secondary'"
+                :variant="themeStore.skinId.value === 'newsprint' ? 'primary' : 'secondary'"
+                size="md"
                 @click="selectSkin('newsprint')"
-              >Newsprint (v1)</button>
+              >Newsprint (v1)</SkinButton>
             </div>
             <div class="settings-row">
-              <button
+              <SkinButton
                 data-test="select-mode-light"
-                :class="themeStore.mode.value === 'light' ? 'btn-primary' : 'btn-secondary'"
+                :variant="themeStore.mode.value === 'light' ? 'primary' : 'secondary'"
+                size="md"
                 @click="selectMode('light')"
-              >☀️ 浅色</button>
-              <button
+              >☀️ 浅色</SkinButton>
+              <SkinButton
                 data-test="select-mode-dark"
-                :class="themeStore.mode.value === 'dark' ? 'btn-primary' : 'btn-secondary'"
+                :variant="themeStore.mode.value === 'dark' ? 'primary' : 'secondary'"
+                size="md"
                 @click="selectMode('dark')"
-              >🌙 深色</button>
+              >🌙 深色</SkinButton>
             </div>
           </section>
 
@@ -401,9 +404,9 @@ async function copyDiag() {
             </div>
 
             <div class="settings-row">
-              <button class="btn-primary" @click="saveDevice">保存指纹</button>
-              <button class="btn-secondary" @click="testDevice">测试连接</button>
-              <button class="btn-ghost" @click="resetDevice">清除设备指纹</button>
+              <SkinButton variant="primary" size="md" @click="saveDevice">保存指纹</SkinButton>
+              <SkinButton variant="secondary" size="md" @click="testDevice">测试连接</SkinButton>
+              <SkinButton variant="ghost" size="md" @click="resetDevice">清除设备指纹</SkinButton>
               <span v-if="deviceStatus" class="settings-status">{{ deviceStatus }}</span>
             </div>
           </section>
@@ -415,15 +418,15 @@ async function copyDiag() {
               通过酷狗概念版「听歌领 VIP / 看广告领 VIP」端点领取每日免费 VIP。每日限领一次，已领取会返回 130012（正常业务限制，非错误）。领取成功后会员到期时间会从 /user/vip/detail 刷新。
             </p>
             <div class="settings-row">
-              <button class="btn-primary" @click="claimListenVip" :disabled="listenVipLoading || adVipLoading">
+              <SkinButton variant="primary" size="md" :disabled="listenVipLoading || adVipLoading" @click="claimListenVip">
                 {{ listenVipLoading ? '领取中…' : '听歌领 VIP' }}
-              </button>
+              </SkinButton>
               <span v-if="listenVipMsg" class="settings-status">{{ listenVipMsg }}</span>
             </div>
             <div class="settings-row">
-              <button class="btn-primary" @click="claimAdVip" :disabled="adVipLoading || listenVipLoading">
+              <SkinButton variant="primary" size="md" :disabled="adVipLoading || listenVipLoading" @click="claimAdVip">
                 {{ adVipLoading ? '领取中…' : '看广告领 VIP' }}
-              </button>
+              </SkinButton>
               <span v-if="adVipMsg" class="settings-status">{{ adVipMsg }}</span>
             </div>
           </section>
@@ -435,24 +438,26 @@ async function copyDiag() {
               从 GitHub Releases 拉取最新版本。发现新版本后可一键下载安装，重启应用即可生效。
             </p>
             <div class="settings-row">
-              <button class="btn-primary" @click="checkForUpdate" :disabled="updateLoading || updateDownloading">
+              <SkinButton variant="primary" size="md" :disabled="updateLoading || updateDownloading" @click="checkForUpdate">
                 {{ updateLoading ? '检查中…' : '检查更新' }}
-              </button>
-              <button
+              </SkinButton>
+              <SkinButton
                 v-if="updateVersion"
-                class="btn-primary"
-                @click="downloadAndInstall"
+                variant="primary"
+                size="md"
                 :disabled="updateDownloading"
+                @click="downloadAndInstall"
               >
                 {{ updateDownloading ? `下载中 ${updateProgress}%` : `下载并安装 v${updateVersion}` }}
-              </button>
-              <button
+              </SkinButton>
+              <SkinButton
                 v-if="updateVersion && !updateDownloading"
-                class="btn-ghost"
+                variant="ghost"
+                size="md"
                 @click="skipVersion"
               >
                 跳过此版本
-              </button>
+              </SkinButton>
               <span v-if="updateStatus" class="settings-status">{{ updateStatus }}</span>
               <div v-if="updateBody" class="settings-changelog">{{ updateBody }}</div>
             </div>
@@ -465,14 +470,14 @@ async function copyDiag() {
               项目当前把缓存记录在 SQLite3 中。图片解码走 WIC 缓存通道，内存 LRU 自动在 16MB 满额时启动淘汰。
             </p>
             <div class="settings-row">
-              <button class="btn-secondary" @click="showClearConfirm = true">清理本地数据缓存</button>
+              <SkinButton variant="secondary" size="md" @click="showClearConfirm = true">清理本地数据缓存</SkinButton>
               <span v-if="cacheStatus" class="settings-status">{{ cacheStatus }}</span>
             </div>
             <div v-if="showClearConfirm" class="settings-confirm">
               <p>确认清理本地数据缓存？</p>
               <div class="settings-row">
-                <button class="btn-primary" @click="clearCache">确认清理</button>
-                <button class="btn-ghost" @click="showClearConfirm = false">取消</button>
+                <SkinButton variant="primary" size="md" @click="clearCache">确认清理</SkinButton>
+                <SkinButton variant="ghost" size="md" @click="showClearConfirm = false">取消</SkinButton>
               </div>
             </div>
           </section>
@@ -485,7 +490,7 @@ async function copyDiag() {
             <div class="settings-subpanel">
               <div class="settings-subpanel-head">
                 <h4 class="settings-subpanel-title">后端内核自检 (EchoCAPI.dll · FFI)</h4>
-                <button class="btn-ghost" @click="loadDiagnostics">手动刷新 ↻</button>
+                <SkinButton variant="ghost" size="sm" @click="loadDiagnostics">手动刷新 ↻</SkinButton>
               </div>
               <div v-if="loading && !memoryInfo" class="spinner">
                 正在拉取内存快照…
@@ -515,9 +520,7 @@ async function copyDiag() {
                 </ul>
                 <div class="settings-preformatted">{{ memoryInfo.text }}</div>
               </div>
-              <div v-else class="settings-empty">
-                无法连通 C++ Diagnostics 诊断端子
-              </div>
+              <SkinEmptyState v-else message="无法连通 C++ Diagnostics 诊断端子" />
             </div>
 
             <!-- Sub-panel 2: frontend playback diagnostics -->
@@ -525,13 +528,11 @@ async function copyDiag() {
               <div class="settings-subpanel-head">
                 <h4 class="settings-subpanel-title">播放边界事件 ({{ diagEvents.length }})</h4>
                 <div class="settings-row">
-                  <button class="btn-ghost" @click="refreshDiag">刷新 ↻</button>
-                  <button class="btn-ghost" data-test="copy-diagnostics" @click="copyDiag">复制</button>
+                  <SkinButton variant="ghost" size="sm" @click="refreshDiag">刷新 ↻</SkinButton>
+                  <SkinButton variant="ghost" size="sm" data-test="copy-diagnostics" @click="copyDiag">复制</SkinButton>
                 </div>
               </div>
-              <div v-if="diagEvents.length === 0" class="settings-empty">
-                暂无诊断事件
-              </div>
+              <SkinEmptyState v-if="diagEvents.length === 0" message="暂无诊断事件" />
               <div v-else class="settings-diag-list">
                 <div
                   v-for="(e, idx) in diagEvents"
@@ -555,7 +556,10 @@ async function copyDiag() {
 </template>
 
 <style scoped>
-/* Settings view specific styles */
+.settings-header-meta {
+  font-size: 13px;
+  color: var(--text-muted);
+}
 .diag-stall {
   background: rgba(220, 50, 47, 0.08) !important;
   border-left: 3px solid #dc322f !important;

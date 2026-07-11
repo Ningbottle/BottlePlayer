@@ -141,3 +141,72 @@
 .app[data-shell="aurora"].lyric-fullscreen-active .aurora-pb {
   display: none;
 }
+
+/* ── Aurora Skin Primitives ── */
+/* Aurora: rounded, surface-elevated, accent for primary */
+
+/* SkinPageHeader: clean surface, spacing-based separation (no lines) */
+[data-skin='aurora'] .skin-page-header {
+  border-bottom: none;
+  padding-bottom: 16px;
+  margin-bottom: 20px;
+}
+[data-skin='aurora'] .skin-page-header-kicker {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-style: normal;
+  font-weight: 500;
+}
+[data-skin='aurora'] .skin-page-header-title {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+/* SkinButton: rounded pill, elevated surface */
+[data-skin='aurora'] .skin-button {
+  border-radius: 999px;
+}
+[data-skin='aurora'] .skin-button[data-variant='primary'] {
+  background: var(--accent);
+  color: #fff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+[data-skin='aurora'] .skin-button[data-variant='primary']:hover:not(:disabled) {
+  filter: brightness(1.08);
+}
+[data-skin='aurora'] .skin-button[data-variant='secondary'] {
+  background: var(--surface-elevated);
+  border: 1px solid var(--border-subtle);
+  color: var(--text-primary);
+}
+[data-skin='aurora'] .skin-button[data-variant='secondary']:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+[data-skin='aurora'] .skin-button[data-variant='ghost'] {
+  color: var(--text-secondary);
+}
+[data-skin='aurora'] .skin-button[data-variant='ghost']:hover:not(:disabled) {
+  background: var(--surface-2);
+  color: var(--text-primary);
+}
+
+/* SkinListRow: card-like with subtle shadow */
+[data-skin='aurora'] .skin-list-row {
+  border-radius: 10px;
+  padding: 8px 12px;
+  margin-bottom: 4px;
+}
+[data-skin='aurora'] .skin-list-row:hover {
+  background: var(--surface-1);
+}
+[data-skin='aurora'] .skin-list-row-index {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+
+/* SkinEmptyState: centered, muted, no icon */
+[data-skin='aurora'] .skin-empty-state-message {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-style: normal;
+}

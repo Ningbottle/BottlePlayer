@@ -8,6 +8,8 @@ import {
   EQ_PRESETS,
   normalizeEqBands,
 } from '../api/equalizerConfig';
+import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
+import SkinButton from '../components/primitives/SkinButton.vue';
 
 const eqExpanded = ref(true);
 
@@ -26,15 +28,13 @@ function applyEffect(name: string) {
 
 <template>
   <div class="eq-view">
-    <header class="eq-header">
-      <div>
-        <div class="kicker">SOUND ROOM · 调音室</div>
-        <h1>均衡器 <span>Equalizer</span></h1>
-      </div>
-      <div class="eq-health" :class="{ unavailable: !eqState.available }">
-        {{ eqState.available ? '本地音频处理已接入' : eqState.reason }}
-      </div>
-    </header>
+    <SkinPageHeader title="均衡器" kicker="SOUND ROOM · 调音室">
+      <template #actions>
+        <div class="eq-health" :class="{ unavailable: !eqState.available }">
+          {{ eqState.available ? '本地音频处理已接入' : eqState.reason }}
+        </div>
+      </template>
+    </SkinPageHeader>
 
     <section class="eq-console" aria-label="Equalizer controls">
       <div class="band-guide">
@@ -55,16 +55,16 @@ function applyEffect(name: string) {
         <p>选择一个整体曲线，再用上方频段做细调。</p>
       </div>
       <div class="effect-grid">
-        <button
+        <SkinButton
           v-for="(_, name) in EQ_PRESETS"
           :key="name"
-          type="button"
-          class="effect-button"
-          :class="{ active: playerStore.activePreset === name }"
+          variant="secondary"
+          size="md"
+          :class="{ 'effect-active': playerStore.activePreset === name }"
           @click="applyEffect(name)"
         >
           {{ EQ_PRESET_LABELS[name] ?? name }}
-        </button>
+        </SkinButton>
       </div>
     </section>
   </div>
@@ -79,59 +79,26 @@ function applyEffect(name: string) {
   min-height: 100%;
 }
 
-.eq-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: end;
-  gap: 32px;
-  padding-bottom: 10px;
-}
-
-.kicker {
-  color: var(--ink-mute);
-  font-family: var(--font-serif);
-  font-style: italic;
-  font-size: 14px;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-}
-
-.eq-header h1 {
-  margin: 8px 0 0;
-  color: var(--ink);
-  font-family: var(--font-serif);
-  font-size: clamp(38px, 5vw, 68px);
-  font-weight: 700;
-  letter-spacing: 0;
-  line-height: 0.95;
-}
-
-.eq-header h1 span {
-  color: var(--ink-soft);
-  font-style: italic;
-  font-weight: 400;
-}
-
 .eq-health {
   max-width: 360px;
   padding: 10px 12px;
-  border: 1px solid var(--rule);
+  border: 1px solid var(--border-subtle);
   color: var(--accent);
-  background: rgba(255, 252, 243, 0.38);
-  font-family: var(--font-serif);
+  background: var(--surface-1);
   font-size: 13px;
   line-height: 1.5;
   text-align: right;
 }
 
 .eq-health.unavailable {
-  color: var(--ink-soft);
+  color: var(--text-secondary);
 }
 
 .eq-console {
   padding: 18px 22px 14px;
-  border: 1px solid var(--rule);
-  background: rgba(255, 252, 243, 0.26);
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-1);
+  border-radius: 10px;
 }
 
 .band-guide {
@@ -140,12 +107,11 @@ function applyEffect(name: string) {
   gap: 8px;
   margin-bottom: 12px;
   padding-bottom: 12px;
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .band-guide span {
-  color: var(--ink-soft);
-  font-family: var(--font-serif);
+  color: var(--text-secondary);
   font-size: 12px;
   line-height: 1.25;
   text-align: center;
@@ -157,27 +123,25 @@ function applyEffect(name: string) {
   gap: 24px;
   align-items: start;
   padding-top: 14px;
-  border-top: 1px solid var(--rule);
+  border-top: 1px solid var(--border-subtle);
 }
 
 .effects-head h2 {
   margin: 0;
-  color: var(--ink);
-  font-family: var(--font-serif);
+  color: var(--text-primary);
   font-size: 28px;
   letter-spacing: 0;
 }
 
 .effects-head h2 span {
-  color: var(--ink-mute);
+  color: var(--text-muted);
   font-style: italic;
   font-weight: 400;
 }
 
 .effects-head p {
   margin: 8px 0 0;
-  color: var(--ink-soft);
-  font-family: var(--font-serif);
+  color: var(--text-secondary);
   font-size: 14px;
 }
 
@@ -187,25 +151,10 @@ function applyEffect(name: string) {
   gap: 10px;
 }
 
-.effect-button {
-  min-height: 42px;
-  padding: 8px 12px;
-  border: 1px solid var(--rule);
-  border-radius: 6px;
-  background: rgba(255, 252, 243, 0.42);
-  color: var(--ink-soft);
-  font-family: var(--font-serif);
-  font-size: 14px;
-  text-align: left;
-  cursor: pointer;
-  transition: background 0.15s, border-color 0.15s, color 0.15s;
-}
-
-.effect-button:hover,
-.effect-button.active {
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--paper);
+.effect-active {
+  background: var(--accent) !important;
+  color: var(--app-bg) !important;
+  border-color: var(--accent) !important;
 }
 
 @media (max-width: 1040px) {

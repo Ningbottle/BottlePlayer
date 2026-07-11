@@ -132,3 +132,88 @@
 .app[data-shell="newsprint"].lyric-fullscreen-active .np-pb {
   display: none;
 }
+
+/* ── Newsprint Skin Primitives ── */
+/* Newsprint: block-style, serif typography, no rounded corners, editorial feel */
+
+/* SkinPageHeader: editorial typography, no lines */
+[data-skin='newsprint'] .skin-page-header {
+  border-bottom: 2px solid var(--text-primary);
+  padding-bottom: 12px;
+  margin-bottom: 20px;
+}
+[data-skin='newsprint'] .skin-page-header-kicker {
+  font-family: var(--font-serif, Georgia, serif);
+  font-style: italic;
+  font-weight: 400;
+  letter-spacing: 0.16em;
+}
+[data-skin='newsprint'] .skin-page-header-title {
+  font-family: var(--font-serif, Georgia, serif);
+  font-weight: 700;
+  letter-spacing: 0;
+}
+
+/* SkinButton: block-style, serif numbering, no rounded corners */
+[data-skin='newsprint'] .skin-button {
+  border-radius: 0;
+  font-family: var(--font-serif, Georgia, serif);
+}
+[data-skin='newsprint'] .skin-button[data-variant='primary'] {
+  background: var(--text-primary);
+  color: var(--app-bg);
+  border: 2px solid var(--text-primary);
+}
+[data-skin='newsprint'] .skin-button[data-variant='primary']:hover:not(:disabled) {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+[data-skin='newsprint'] .skin-button[data-variant='secondary'] {
+  background: var(--surface-elevated);
+  border: 1px solid var(--text-primary);
+  color: var(--text-primary);
+}
+[data-skin='newsprint'] .skin-button[data-variant='secondary']:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+[data-skin='newsprint'] .skin-button[data-variant='ghost'] {
+  color: var(--text-secondary);
+  border: none;
+  border-bottom: 1px dashed var(--border-subtle);
+}
+[data-skin='newsprint'] .skin-button[data-variant='ghost']:hover:not(:disabled) {
+  color: var(--text-primary);
+  border-bottom-color: var(--text-primary);
+}
+
+/* SkinListRow: editorial row with numbering, dotted separator */
+[data-skin='newsprint'] .skin-list-row {
+  border-radius: 0;
+  border-bottom: 1px dotted var(--border-subtle);
+  padding: 8px 4px;
+}
+[data-skin='newsprint'] .skin-list-row:hover {
+  background: var(--surface-1);
+}
+[data-skin='newsprint'] .skin-list-row-index {
+  font-family: var(--font-serif, Georgia, serif);
+  font-style: italic;
+}
+[data-skin='newsprint'] .skin-list-row-title {
+  font-family: var(--font-serif, Georgia, serif);
+  font-weight: 500;
+}
+[data-skin='newsprint'] .skin-list-row-subtitle {
+  font-family: var(--font-serif, Georgia, serif);
+  font-style: italic;
+}
+[data-skin='newsprint'] .skin-list-row-meta {
+  font-family: var(--font-serif, Georgia, serif);
+  font-style: italic;
+}
+
+/* SkinEmptyState: editorial italic, centered, no icon */
+[data-skin='newsprint'] .skin-empty-state-message {
+  font-family: var(--font-serif, Georgia, serif);
+  font-style: italic;
+}

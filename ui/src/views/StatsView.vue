@@ -4,6 +4,9 @@ import { invoke } from '@tauri-apps/api/core';
 import { normalizeTrack, type Track } from '../api/normalizer';
 import { playAll, playerStore } from '../api/playerStore';
 import { animateBarHeight, animateCountUp, isReducedMotion } from '../api/motion';
+import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
+import SkinButton from '../components/primitives/SkinButton.vue';
+import SkinEmptyState from '../components/primitives/SkinEmptyState.vue';
 
 type Range = '7d' | '30d' | 'all';
 const range = ref<Range>('30d');
@@ -198,12 +201,8 @@ watch(range, loadStats);
 
 <template>
   <div class="list-view">
-    <div class="page-head">
-      <div>
-        <div class="kicker">LISTENING STATS · 听歌统计</div>
-        <h1>我的统计<i>Statistics</i></h1>
-      </div>
-      <div class="date">
+    <SkinPageHeader title="我的统计" kicker="LISTENING STATS · 听歌统计">
+      <template #actions>
         <div class="range-tabs">
           <button
             v-for="r in (['7d', '30d', 'all'] as Range[])"
@@ -212,8 +211,8 @@ watch(range, loadStats);
             @click="range = r"
           >{{ rangeLabels[r] }}</button>
         </div>
-      </div>
-    </div>
+      </template>
+    </SkinPageHeader>
 
     <div v-if="loading" class="spinner">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
@@ -265,7 +264,7 @@ watch(range, loadStats);
             </div>
             <span class="top-count">{{ item.play_count }}次</span>
           </div>
-          <p v-if="topSongs.length === 0" class="empty">暂无数据</p>
+          <p v-if="topSongs.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></p>
         </div>
 
         <div class="top-section">
@@ -278,7 +277,7 @@ watch(range, loadStats);
             </div>
             <span class="top-count">{{ item.play_count }}次</span>
           </div>
-          <p v-if="topArtists.length === 0" class="empty">暂无数据</p>
+          <p v-if="topArtists.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></p>
         </div>
 
         <div class="top-section">
@@ -292,7 +291,7 @@ watch(range, loadStats);
             </div>
             <span class="top-count">{{ item.play_count }}次</span>
           </div>
-          <p v-if="topAlbums.length === 0" class="empty">暂无数据</p>
+          <p v-if="topAlbums.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></p>
         </div>
       </div>
 
@@ -317,9 +316,9 @@ watch(range, loadStats);
         <h3>AI 听歌分析</h3>
         <div class="ai-input-row">
           <input type="password" v-model="aiApiKey" placeholder="DeepSeek API Key" class="ai-key-input">
-          <button @click="runAIAnalysis" :disabled="aiLoading" class="ai-btn">
+          <SkinButton variant="primary" size="md" :disabled="aiLoading" @click="runAIAnalysis">
             {{ aiLoading ? '分析中...' : 'AI 分析' }}
-          </button>
+          </SkinButton>
         </div>
         <p v-if="aiError" class="ai-error">{{ aiError }}</p>
         <div v-if="aiResult" class="ai-result">{{ aiResult }}</div>
@@ -456,12 +455,9 @@ watch(range, loadStats);
   white-space: nowrap;
   font-family: var(--font-sans);
 }
-.empty {
-  color: var(--ink-mute);
-  font-size: 13px;
-  padding: 16px 0;
-  font-style: italic;
-  text-align: center;
+.empty-placeholder {
+  padding: 0;
+  margin: 0;
 }
 
 /* Timeline chart */
@@ -533,20 +529,6 @@ watch(range, loadStats);
   color: var(--ink);
   font-size: 13px;
   font-family: var(--font-sans);
-}
-.ai-btn {
-  padding: 6px 16px;
-  border: none;
-  border-radius: 4px;
-  background: var(--accent);
-  color: var(--paper);
-  cursor: pointer;
-  font-size: 13px;
-  font-family: var(--font-sans);
-}
-.ai-btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
 }
 .ai-error {
   color: #e53935;
