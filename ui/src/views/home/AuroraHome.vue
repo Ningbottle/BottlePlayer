@@ -20,7 +20,7 @@ const motionHandles: Array<{ kill(): void }> = [];
 
 watch(() => props.model.heroTrack, () => { coverError.value = false; });
 
-function setRecommendationRef(el: Element | null): void {
+function setRecommendationRef(el: unknown): void {
   if (el instanceof HTMLElement) recommendationEls.value.push(el);
 }
 
@@ -270,18 +270,19 @@ export default { name: 'AuroraHome' };
 
 .aurora-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(280px, 0.42fr);
-  gap: clamp(24px, 2.5vw, 40px);
+  grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
+  gap: clamp(20px, 2vw, 32px);
   align-items: stretch;
   margin-bottom: 30px;
   min-height: 430px;
+  min-width: 0;
 }
 
 .aurora-stage-main {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(240px, 0.78fr) minmax(300px, 1fr);
-  gap: clamp(24px, 3vw, 46px);
+  grid-template-columns: minmax(250px, 0.86fr) minmax(320px, 1.12fr);
+  gap: clamp(20px, 2vw, 32px);
   align-items: center;
   padding: clamp(12px, 2vw, 26px);
   border-radius: 22px;
@@ -711,7 +712,25 @@ export default { name: 'AuroraHome' };
   color: var(--text-secondary);
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1099px) {
+  .aurora-stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .aurora-queue-rail {
+    display: none;
+  }
+
+  .aurora-recommendation-grid {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(132px, 1fr);
+    grid-template-columns: none;
+    overflow-x: auto;
+    padding-bottom: 6px;
+  }
+}
+
+@media (max-width: 899px) {
   .aurora-stage {
     grid-template-columns: 1fr;
   }
@@ -722,22 +741,13 @@ export default { name: 'AuroraHome' };
   }
 
   .aurora-cover {
-    max-width: 240px;
-    margin: 0 auto;
+    width: min(72vw, 320px);
+    max-width: 320px;
+    margin-inline: auto;
   }
 
   .aurora-meta-row {
     justify-content: center;
-  }
-
-  .aurora-queue-rail { max-height: 320px; }
-
-  .aurora-recommendation-grid {
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(140px, 1fr);
-    grid-template-columns: none;
-    overflow-x: auto;
-    padding-bottom: 6px;
   }
 }
 </style>

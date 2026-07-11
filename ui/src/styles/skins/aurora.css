@@ -222,6 +222,85 @@
   display: none;
 }
 
+/* ── Aurora home stage responsive geometry ── */
+[data-shell="aurora"] .aurora-stage {
+  display: grid;
+  grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
+  gap: clamp(20px, 2vw, 32px);
+  min-width: 0;
+}
+
+[data-shell="aurora"] .aurora-stage-main {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.86fr) minmax(320px, 1.12fr);
+  gap: clamp(20px, 2vw, 32px);
+  min-width: 0;
+}
+
+[data-shell="aurora"] .aurora-info,
+[data-shell="aurora"] .aurora-queue-rail,
+[data-shell="aurora"] .aurora-pb-info,
+[data-shell="aurora"] .aurora-pb-left,
+[data-shell="aurora"] .aurora-pb-center,
+[data-shell="aurora"] .aurora-pb-right {
+  min-width: 0;
+}
+
+[data-shell="aurora"] .aurora-song-name,
+[data-shell="aurora"] .aurora-queue-copy b,
+[data-shell="aurora"] .aurora-queue-copy small,
+[data-shell="aurora"] .aurora-pb-info b,
+[data-shell="aurora"] .aurora-pb-info span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+@media (max-width: 1099px) {
+  [data-shell="aurora"] .aurora-stage {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  [data-shell="aurora"] .aurora-queue-rail {
+    display: none;
+  }
+
+  [data-shell="aurora"] .aurora-recommendation-grid {
+    grid-auto-flow: column;
+    grid-auto-columns: minmax(132px, 1fr);
+    grid-template-columns: none;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 899px) {
+  [data-shell="aurora"] .aurora-stage {
+    grid-template-columns: 1fr;
+  }
+
+  [data-shell="aurora"] .aurora-stage-main {
+    grid-template-columns: 1fr;
+  }
+
+  [data-shell="aurora"] .aurora-cover {
+    width: min(72vw, 320px);
+    margin-inline: auto;
+  }
+
+  [data-shell="aurora"] .aurora-pb {
+    grid-template-columns: 1fr;
+    min-height: 0;
+  }
+
+  [data-shell="aurora"] .aurora-pb-right {
+    justify-content: space-between;
+  }
+
+  [data-shell="aurora"] .aurora-pb-center {
+    margin: 0;
+    border-radius: 24px;
+  }
+}
+
 /* ── Aurora Skin Primitives ── */
 /* Aurora: rounded, surface-elevated, accent for primary */
 

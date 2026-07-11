@@ -230,14 +230,21 @@ describe('AuroraPlayerBar', () => {
 
     const console = wrapper.get('[data-test="aurora-player-console"]');
     expect(console.find('.aurora-pb-transport').exists()).toBe(true);
-    expect(console.get('[data-test="aurora-player-progress"]').find('.progress-root').exists()).toBe(true);
-    expect(console.get('[aria-label="play"]').exists()).toBe(true);
+    expect(console.find('[data-test="aurora-player-progress"] .progress-root').exists()).toBe(true);
+    expect(console.find('[aria-label="play"]').exists()).toBe(true);
   });
 
   it('keeps labelled queue, lyric, and volume controls outside the main play button', () => {
     const wrapper = mount(AuroraPlayerBar, { props: { controller: createStubController({ currentTrack: mkTrack() }) } });
-    expect(wrapper.get('[aria-label="queue"]').exists()).toBe(true);
-    expect(wrapper.get('[aria-label="lyric"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="queue"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="lyric"]').exists()).toBe(true);
     expect(wrapper.find('.aurora-pb-volume').exists()).toBe(true);
+  });
+
+  it('keeps the primary player commands named for assistive technology', () => {
+    const wrapper = mount(AuroraPlayerBar, { props: { controller: createStubController({ currentTrack: mkTrack() }) } });
+    for (const label of ['shuffle', 'prev', 'play', 'next', 'repeat', 'queue', 'lyric']) {
+      expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
+    }
   });
 });

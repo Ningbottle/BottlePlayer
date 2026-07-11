@@ -242,11 +242,21 @@ describe('AuroraHome', () => {
       },
     });
 
-    expect(wrapper.get('[data-test="aurora-stage"]').exists()).toBe(true);
-    expect(wrapper.get('[data-test="queue-rail"]').exists()).toBe(true);
-    expect(wrapper.get('[data-test="hero-play"]').exists()).toBe(true);
-    expect(wrapper.get('[data-test="queue-track-queue-rm"]').exists()).toBe(true);
-    expect(wrapper.get('[data-test="daily-track-daily-rm"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="aurora-stage"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="queue-rail"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="hero-play"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="queue-track-queue-rm"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="daily-track-daily-rm"]').exists()).toBe(true);
+  });
+
+  it('uses buttons for every interactive daily and queue item', () => {
+    const track = createTrack({ FileHash: 'interactive-track' });
+    const wrapper = mount(AuroraHome, {
+      props: { model: createViewModel({ dailyTracks: [track], queuePreview: [track] }) },
+    });
+
+    expect(wrapper.get('[data-test="daily-track-interactive-track"]').element.tagName).toBe('BUTTON');
+    expect(wrapper.get('[data-test="queue-track-interactive-track"]').element.tagName).toBe('BUTTON');
   });
 
   it('keeps old content visible during refresh', () => {
