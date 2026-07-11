@@ -185,6 +185,11 @@
   color: var(--text-primary);
   border-bottom-color: var(--text-primary);
 }
+[data-skin='newsprint'] .skin-button[data-active='true'] {
+  background: var(--accent);
+  color: var(--app-bg);
+  border-color: var(--accent);
+}
 
 /* SkinListRow: editorial row with numbering, dotted separator */
 [data-skin='newsprint'] .skin-list-row {

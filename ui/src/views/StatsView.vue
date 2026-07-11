@@ -201,7 +201,7 @@ watch(range, loadStats);
 
 <template>
   <div class="list-view">
-    <SkinPageHeader title="我的统计" kicker="LISTENING STATS · 听歌统计">
+    <SkinPageHeader title="我的统计" kicker="LISTENING STATS · 听歌统计" subtitle="Statistics">
       <template #actions>
         <div class="range-tabs">
           <button
@@ -264,7 +264,7 @@ watch(range, loadStats);
             </div>
             <span class="top-count">{{ item.play_count }}次</span>
           </div>
-          <p v-if="topSongs.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></p>
+          <div v-if="topSongs.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></div>
         </div>
 
         <div class="top-section">
@@ -277,7 +277,7 @@ watch(range, loadStats);
             </div>
             <span class="top-count">{{ item.play_count }}次</span>
           </div>
-          <p v-if="topArtists.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></p>
+          <div v-if="topArtists.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></div>
         </div>
 
         <div class="top-section">
@@ -291,7 +291,7 @@ watch(range, loadStats);
             </div>
             <span class="top-count">{{ item.play_count }}次</span>
           </div>
-          <p v-if="topAlbums.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></p>
+          <div v-if="topAlbums.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></div>
         </div>
       </div>
 

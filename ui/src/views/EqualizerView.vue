@@ -28,7 +28,7 @@ function applyEffect(name: string) {
 
 <template>
   <div class="eq-view">
-    <SkinPageHeader title="均衡器" kicker="SOUND ROOM · 调音室">
+    <SkinPageHeader title="均衡器" kicker="SOUND ROOM · 调音室" subtitle="Equalizer">
       <template #actions>
         <div class="eq-health" :class="{ unavailable: !eqState.available }">
           {{ eqState.available ? '本地音频处理已接入' : eqState.reason }}
@@ -60,7 +60,7 @@ function applyEffect(name: string) {
           :key="name"
           variant="secondary"
           size="md"
-          :class="{ 'effect-active': playerStore.activePreset === name }"
+          :active="playerStore.activePreset === name"
           @click="applyEffect(name)"
         >
           {{ EQ_PRESET_LABELS[name] ?? name }}
@@ -149,12 +149,6 @@ function applyEffect(name: string) {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
-}
-
-.effect-active {
-  background: var(--accent) !important;
-  color: var(--app-bg) !important;
-  border-color: var(--accent) !important;
 }
 
 @media (max-width: 1040px) {

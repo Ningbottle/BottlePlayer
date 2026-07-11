@@ -310,7 +310,7 @@ async function copyDiag() {
 
 <template>
   <div class="list-view">
-    <SkinPageHeader title="偏好设置" kicker="CLIENT OPTIONS · 印务配置">
+    <SkinPageHeader title="偏好设置" kicker="CLIENT OPTIONS · 印务配置" subtitle="Settings">
       <template #actions>
         <span class="settings-header-meta">C++20 内核调测器</span>
       </template>

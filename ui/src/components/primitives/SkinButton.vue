@@ -3,10 +3,12 @@ const props = withDefaults(defineProps<{
   variant?: 'primary' | 'secondary' | 'ghost';
   size?: 'sm' | 'md';
   disabled?: boolean;
+  active?: boolean;
 }>(), {
   variant: 'secondary',
   size: 'md',
   disabled: false,
+  active: false,
 });
 
 const emit = defineEmits<{
@@ -24,6 +26,7 @@ function onClick(event: MouseEvent) {
     class="skin-button"
     :data-variant="variant"
     :data-size="size"
+    :data-active="active"
     :disabled="disabled"
     @click="onClick"
   >
@@ -82,5 +85,12 @@ function onClick(event: MouseEvent) {
   color: var(--text-muted);
   border: none;
   padding: 6px 10px;
+}
+
+/* Active state: overrides variant with accent styling */
+.skin-button[data-active='true'] {
+  background: var(--accent);
+  color: var(--app-bg);
+  border-color: var(--accent);
 }
 </style>

@@ -168,7 +168,7 @@
 }
 [data-skin='aurora'] .skin-button[data-variant='primary'] {
   background: var(--accent);
-  color: #fff;
+  color: var(--app-bg);
   box-shadow: 0 1px 3px rgba(0, 0, 0, 0.12);
 }
 [data-skin='aurora'] .skin-button[data-variant='primary']:hover:not(:disabled) {
@@ -188,6 +188,11 @@
 [data-skin='aurora'] .skin-button[data-variant='ghost']:hover:not(:disabled) {
   background: var(--surface-2);
   color: var(--text-primary);
+}
+[data-skin='aurora'] .skin-button[data-active='true'] {
+  background: var(--accent);
+  color: var(--app-bg);
+  border-color: var(--accent);
 }
 
 /* SkinListRow: card-like with subtle shadow */
