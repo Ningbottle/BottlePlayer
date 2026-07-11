@@ -104,6 +104,7 @@ temp_full_doc.txt
 .cache/
 .ace-tool/
 .worktrees/
+.superpowers/
 
 # Project docs and agent configs (keep local only)
 docs/
