@@ -108,6 +108,34 @@ describe('AuroraHome', () => {
     expect(wrapper.text()).toContain('Queue 3');
   });
 
+  it('renders a labelled queue rail and marks the active queued track', () => {
+    const queue = Array.from({ length: 12 }, (_, index) => createTrack({
+      FileHash: `queue-${index + 1}`,
+      SongName: `Queue ${index + 1}`,
+    }));
+    const wrapper = mount(AuroraHome, {
+      props: { model: createViewModel({ queuePreview: queue, queueTotal: 15, activeQueueHash: 'queue-3' }) },
+    });
+
+    expect(wrapper.get('[data-test="queue-rail"]').attributes('aria-label')).toBe('播放队列');
+    expect(wrapper.findAll('[data-test^="queue-track-"]')).toHaveLength(12);
+    expect(wrapper.get('[data-test="queue-track-queue-3"]').attributes('aria-current')).toBe('true');
+    expect(wrapper.text()).toContain('15');
+  });
+
+  it('emits play-track when a queue row or daily card is selected', async () => {
+    const queued = createTrack({ FileHash: 'queue-play', SongName: 'Queue Play' });
+    const daily = createTrack({ FileHash: 'daily-play', SongName: 'Daily Play' });
+    const wrapper = mount(AuroraHome, {
+      props: { model: createViewModel({ queuePreview: [queued], dailyTracks: [daily] }) },
+    });
+
+    await wrapper.get('[data-test="queue-track-queue-play"]').trigger('click');
+    await wrapper.get('[data-test="daily-track-daily-play"]').trigger('click');
+
+    expect(wrapper.emitted('play-track')).toEqual([[queued], [daily]]);
+  });
+
   it('handles long song name without squeezing play button', () => {
     const longName = '这是一首非常非常非常长的歌曲名称'.repeat(5);
     const vm = createViewModel({
