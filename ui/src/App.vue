@@ -68,7 +68,7 @@ const viewProps = computed<Record<string, unknown>>(() => {
     case 'playlist':
       return { playlistId: playlistId.value, playlistName: playlistName.value };
     case 'lyric':
-      return { isQueueOpen: isQueueOpen.value, isDrawerOpen: !tweaksCollapsed.value };
+      return { isQueueOpen: isQueueOpen.value };
     default:
       return {};
   }

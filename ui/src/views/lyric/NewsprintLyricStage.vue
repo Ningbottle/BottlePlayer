@@ -39,11 +39,50 @@ watch(() => props.model.fullscreen, (fs) => {
   } else {
     gsap.to(cover, { width: 240, height: 240, duration: 0.35, ease: 'power3.out', clearProps: 'width,height' });
   }
-});
+}, { flush: 'post' });
 </script>
 
 <template>
-  <div class="np-lyric-stage" ref="rootRef">
+  <!-- Fullscreen mode: independent stage template (cover left, lyrics right) -->
+  <div v-if="model.fullscreen" class="np-lyric-stage np-lyric-fullscreen" ref="rootRef">
+    <div class="lyric-meta" data-test="lyric-meta" @dblclick="$emit('enter-fullscreen')">
+      <div
+        class="big-cover np-cover"
+        ref="coverRef"
+        data-test="lyric-cover"
+        :style="{ aspectRatio: '1' }"
+      >
+        <img :src="model.coverUrl" alt="cover" />
+      </div>
+      <div class="np-meta-block">
+        <div class="np-meta-kicker">NOW PLAYING</div>
+        <h2 class="np-song-title">{{ model.currentTrack?.SongName }}</h2>
+        <p class="np-artist">{{ model.currentTrack?.SingerName }}</p>
+      </div>
+    </div>
+    <div
+      class="lyric-scroll"
+      :class="{ paused: !model.autoFollowing }"
+      data-test="lyric-scroll"
+      :style="{ paddingBottom: '60px' }"
+      @wheel.passive="$emit('user-scroll')"
+      @touchmove.passive="$emit('user-scroll')"
+    >
+      <div
+        v-for="(line, idx) in model.parsedLyrics"
+        :key="idx"
+        :id="`lyric-line-${idx}`"
+        :data-test="`lyric-line-${idx}`"
+        class="np-lyric-line"
+        :class="{ active: idx === model.activeIndex }"
+      >
+        <span class="np-line-num">{{ String(idx + 1).padStart(2, '0') }}</span>
+        <span class="np-line-text">{{ line.text }}</span>
+      </div>
+    </div>
+  </div>
+  <!-- Normal mode: single-column, meta row / scroll row -->
+  <div v-else class="np-lyric-stage" ref="rootRef">
     <div class="lyric-meta" data-test="lyric-meta" @dblclick="$emit('enter-fullscreen')">
       <div
         class="big-cover np-cover"
@@ -90,10 +129,18 @@ export default { name: 'NewsprintLyricStage' };
 .np-lyric-stage {
   display: grid;
   grid-template-rows: auto 1fr;
-  grid-template-columns: 280px 1fr;
-  gap: 28px;
+  grid-template-columns: 1fr;
+  gap: 20px;
   height: 100%;
+  min-height: 0;
   padding: 20px 16px;
+}
+
+.np-lyric-fullscreen {
+  grid-template-rows: 1fr;
+  grid-template-columns: 380px 1fr;
+  gap: 40px;
+  padding: 32px 48px;
 }
 
 .lyric-meta {
@@ -110,6 +157,11 @@ export default { name: 'NewsprintLyricStage' };
   border: 2px solid var(--ink);
   box-shadow: 4px 4px 0 var(--ink-soft);
   background: var(--paper-2);
+}
+
+.np-lyric-fullscreen .np-cover {
+  width: 320px;
+  height: 320px;
 }
 
 .np-cover img {
@@ -158,6 +210,10 @@ export default { name: 'NewsprintLyricStage' };
   scrollbar-width: thin;
 }
 
+.np-lyric-fullscreen .lyric-scroll {
+  padding: 15% 0 60px;
+}
+
 .np-lyric-line {
   display: grid;
   grid-template-columns: 36px 1fr;
@@ -170,11 +226,19 @@ export default { name: 'NewsprintLyricStage' };
   transition: background 0.2s ease, color 0.2s ease;
 }
 
+.np-lyric-fullscreen .np-lyric-line {
+  font-size: 17px;
+}
+
 .np-lyric-line.active {
   background: var(--surface-1, var(--paper-2));
   color: var(--ink);
   font-weight: 700;
   border-bottom: 1px solid var(--ink);
+}
+
+.np-lyric-fullscreen .np-lyric-line.active {
+  font-size: 20px;
 }
 
 .np-line-num {

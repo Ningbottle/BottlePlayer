@@ -6,9 +6,8 @@ import AuroraLyricStage from './lyric/AuroraLyricStage.vue';
 import NewsprintLyricStage from './lyric/NewsprintLyricStage.vue';
 import LyricFollowFooter from './lyric/LyricFollowFooter.vue';
 
-defineProps<{
+const props = defineProps<{
   isQueueOpen?: boolean;
-  isDrawerOpen?: boolean;
 }>();
 
 const themeStore = useThemeStore();
@@ -35,15 +34,22 @@ const stageComponent = computed(() =>
       译稿编撰中…
     </div>
 
-    <!-- Lyric layout: three-row grid -->
-    <div v-else class="lyric-view-grid" data-test="lyric-grid">
+    <!-- Lyric layout: three-row grid (meta / scroll / footer) -->
+    <div
+      v-else
+      class="lyric-view-grid"
+      :class="{ 'queue-open': props.isQueueOpen && !model.fullscreen, fullscreen: model.fullscreen }"
+      data-test="lyric-grid"
+    >
       <component
         :is="stageComponent"
         :model="model"
+        class="lyric-stage-slot"
         @enter-fullscreen="commands.enterFullscreen"
         @user-scroll="commands.onUserScroll"
       />
       <LyricFollowFooter
+        v-if="!model.fullscreen"
         :auto-following="model.autoFollowing"
         @resume="commands.resumeFollow"
       />
@@ -54,7 +60,25 @@ const stageComponent = computed(() =>
 <style scoped>
 .lyric-view-grid {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: auto 1fr auto;
   height: calc(100vh - 140px);
+  transition: padding-right 0.2s ease;
+}
+
+.lyric-view-grid.queue-open {
+  padding-right: 340px;
+}
+
+.lyric-view-grid.fullscreen {
+  grid-template-rows: 1fr;
+}
+
+.lyric-stage-slot {
+  grid-row: 1 / 3;
+  min-height: 0;
+}
+
+.lyric-view-grid.fullscreen .lyric-stage-slot {
+  grid-row: 1 / -1;
 }
 </style>

@@ -48,11 +48,46 @@ watch(() => props.model.fullscreen, (fs) => {
   } else {
     gsap.to(cover, { width: 240, height: 240, duration: 0.4, ease: 'power2.out', clearProps: 'width,height' });
   }
-});
+}, { flush: 'post' });
 </script>
 
 <template>
-  <div class="aurora-lyric-stage" ref="rootRef">
+  <!-- Fullscreen mode: independent stage template (cover left, lyrics right) -->
+  <div v-if="model.fullscreen" class="aurora-lyric-stage aurora-lyric-fullscreen" ref="rootRef">
+    <div class="lyric-meta" data-test="lyric-meta" @dblclick="$emit('enter-fullscreen')">
+      <div
+        class="big-cover aurora-cover"
+        ref="coverRef"
+        data-test="lyric-cover"
+        :style="{ aspectRatio: '1' }"
+      >
+        <img :src="model.coverUrl" alt="cover" />
+      </div>
+      <h2 class="aurora-song-title">{{ model.currentTrack?.SongName }}</h2>
+      <p class="aurora-artist">{{ model.currentTrack?.SingerName }}</p>
+    </div>
+    <div
+      class="lyric-scroll"
+      :class="{ paused: !model.autoFollowing }"
+      data-test="lyric-scroll"
+      :style="{ paddingBottom: '60px' }"
+      @wheel.passive="$emit('user-scroll')"
+      @touchmove.passive="$emit('user-scroll')"
+    >
+      <div
+        v-for="(line, idx) in model.parsedLyrics"
+        :key="idx"
+        :id="`lyric-line-${idx}`"
+        :data-test="`lyric-line-${idx}`"
+        class="lyric-line"
+        :class="lineClass(idx)"
+      >
+        {{ line.text }}
+      </div>
+    </div>
+  </div>
+  <!-- Normal mode: single-column, meta row / scroll row -->
+  <div v-else class="aurora-lyric-stage" ref="rootRef">
     <div class="lyric-meta" data-test="lyric-meta" @dblclick="$emit('enter-fullscreen')">
       <div
         class="big-cover aurora-cover"
@@ -95,16 +130,28 @@ export default { name: 'AuroraLyricStage' };
 .aurora-lyric-stage {
   display: grid;
   grid-template-rows: auto 1fr;
-  grid-template-columns: 260px 1fr;
-  gap: 32px;
+  grid-template-columns: 1fr;
+  gap: 24px;
   height: 100%;
+  min-height: 0;
   padding: 20px 16px;
+}
+
+.aurora-lyric-fullscreen {
+  grid-template-rows: 1fr;
+  grid-template-columns: 360px 1fr;
+  gap: 48px;
+  padding: 32px 48px;
 }
 
 .lyric-meta {
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
+}
+
+.aurora-lyric-fullscreen .lyric-meta {
   justify-content: center;
 }
 
@@ -116,6 +163,11 @@ export default { name: 'AuroraLyricStage' };
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.18);
   margin-bottom: 20px;
   background: var(--surface-1, var(--paper-2));
+}
+
+.aurora-lyric-fullscreen .aurora-cover {
+  width: 320px;
+  height: 320px;
 }
 
 .aurora-cover img {
@@ -150,6 +202,10 @@ export default { name: 'AuroraLyricStage' };
   scrollbar-width: thin;
 }
 
+.aurora-lyric-fullscreen .lyric-scroll {
+  padding: 20% 0 60px;
+}
+
 .lyric-line {
   width: 100%;
   font-size: 16px;
@@ -165,6 +221,14 @@ export default { name: 'AuroraLyricStage' };
   font-size: 22px;
   font-weight: 700;
   transform: scale(1.06);
+}
+
+.aurora-lyric-fullscreen .lyric-line.active {
+  font-size: 28px;
+}
+
+.aurora-lyric-fullscreen .lyric-line {
+  font-size: 18px;
 }
 
 .lyric-line.near {
