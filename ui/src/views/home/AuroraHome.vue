@@ -114,19 +114,28 @@ function formatDuration(sec: number): string {
         </div>
 
         <div class="aurora-info">
-          <div class="aurora-label">{{ model.isPlaying ? '正在播放' : '每日推荐' }}</div>
+          <div class="aurora-label">
+            <span class="aurora-label-dot" aria-hidden="true" />
+            {{ model.isPlaying ? '正在播放' : '每日推荐' }}
+          </div>
           <h1 class="aurora-song-name">{{ model.heroTrack?.SongName || '未在播放' }}</h1>
-          <p class="aurora-artist">{{ model.heroTrack?.SingerName || '—' }}</p>
-          <p class="aurora-source">{{ heroSource }}</p>
+          <p class="aurora-artist">
+            {{ model.heroTrack?.SingerName || '—' }}
+            <span v-if="model.heroTrack" class="aurora-artist-chevron" aria-hidden="true">›</span>
+          </p>
           <div class="aurora-quality-row" aria-label="音频信息">
             <span>无损</span>
             <span>96kHz / 24bit</span>
             <span>VIP</span>
           </div>
-          <div class="aurora-now-playing-copy">
-            <p>当前播放</p>
-            <strong>{{ model.heroTrack?.AlbumName || '每日推荐歌单' }}</strong>
-            <span>{{ model.heroTrack?.SingerName || '用音乐填满此刻' }}</span>
+          <!-- Design: lyric-style quote block (local summary only, no lyric fetch) -->
+          <blockquote class="aurora-quote" v-if="model.heroTrack">
+            <p>{{ model.heroTrack.AlbumName || heroSource || '用音乐填满此刻' }}</p>
+            <p class="aurora-quote-accent">{{ model.heroTrack.SingerName }}</p>
+            <p>{{ model.heroTrack.SongName }}</p>
+          </blockquote>
+          <div v-else class="aurora-quote aurora-quote-empty">
+            <p>选择一首歌，开始沉浸聆听</p>
           </div>
           <div class="aurora-meta-row">
             <button class="aurora-play play-cta" data-test="hero-play" @click="onHeroPlay">
@@ -144,6 +153,12 @@ function formatDuration(sec: number): string {
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Design: “每日推荐” promo under cover area -->
+      <div class="aurora-daily-banner" v-if="model.dailyTracks.length || model.heroTrack">
+        <span class="aurora-daily-pill">每日推荐</span>
+        <p>根据你与「{{ model.heroTrack?.SingerName || '收藏' }}」的收听偏好，为你精选 · 每日合集</p>
       </div>
 
       <aside class="aurora-queue-rail" data-test="queue-rail" aria-label="播放队列">
@@ -264,39 +279,50 @@ export default { name: 'AuroraHome' };
 
 <style scoped>
 .aurora-home {
-  padding: 24px 28px 36px;
+  padding: 18px 22px 28px;
   min-height: 100%;
+  box-sizing: border-box;
+  /* Hero + rail dominate the viewport (design: large now-playing stage) */
+  display: flex;
+  flex-direction: column;
 }
 
 .aurora-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
-  gap: clamp(20px, 2vw, 32px);
+  /* Cover+info | tall queue rail (vertical rectangle, not square) */
+  grid-template-columns: minmax(0, 1fr) minmax(248px, 280px);
+  grid-template-rows: auto auto;
+  gap: 18px 28px;
   align-items: stretch;
-  margin-bottom: 30px;
-  min-height: 430px;
+  margin-bottom: 22px;
+  /* Large stage — ~fills remaining viewport above player */
+  min-height: min(620px, calc(100vh - 220px));
+  flex: 1 1 auto;
   min-width: 0;
 }
 
 .aurora-stage-main {
+  grid-column: 1;
+  grid-row: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(250px, 0.86fr) minmax(320px, 1.12fr);
-  gap: clamp(20px, 2vw, 32px);
+  grid-template-columns: minmax(280px, 0.92fr) minmax(300px, 1.15fr);
+  gap: clamp(28px, 3.2vw, 52px);
   align-items: center;
-  padding: clamp(12px, 2vw, 26px);
-  border-radius: 22px;
-  background: radial-gradient(circle at 94% 56%, color-mix(in srgb, var(--accent) 18%, transparent), transparent 39%), var(--surface-1);
+  padding: clamp(8px, 1.5vw, 18px) 4px;
+  border-radius: 0;
+  background:
+    radial-gradient(ellipse 70% 80% at 72% 42%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 58%);
 }
 
 .aurora-cover {
   aspect-ratio: 1;
   width: 100%;
-  max-width: 340px;
-  border-radius: 18px;
+  max-width: min(420px, 36vw);
+  border-radius: 16px;
   overflow: hidden;
   background: var(--surface-2);
-  box-shadow: 0 18px 38px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.36);
 }
 
 .aurora-cover img {
@@ -318,37 +344,106 @@ export default { name: 'AuroraHome' };
 .aurora-info {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
   min-width: 0;
+  padding-top: 4px;
 }
 
 .aurora-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
   font-size: 13px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.04em;
   color: var(--accent);
+  font-weight: 500;
+}
+
+.aurora-label-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 10px color-mix(in srgb, var(--accent) 60%, transparent);
 }
 
 .aurora-song-name {
-  font-family: Georgia, 'Noto Serif SC', serif;
-  font-size: clamp(38px, 4vw, 58px);
+  font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
+  font-size: clamp(44px, 4.6vw, 64px);
   font-weight: 700;
-  line-height: 1.06;
+  line-height: 1.05;
   word-break: break-word;
   overflow-wrap: break-word;
   margin: 0;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
 }
 
 .aurora-artist {
   font-size: 22px;
   color: var(--text-secondary);
   margin: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 
-.aurora-source {
-  font-size: 13px;
-  color: var(--text-tertiary, var(--text-secondary));
+.aurora-artist-chevron {
+  opacity: 0.55;
+  font-size: 20px;
+  line-height: 1;
+}
+
+.aurora-quote {
+  margin: 10px 0 4px;
+  padding: 0 0 0 2px;
+  border: 0;
+  color: var(--text-secondary);
+  font-size: 15px;
+  line-height: 1.65;
+  max-width: 34em;
+}
+
+.aurora-quote p {
+  margin: 0 0 2px;
+}
+
+.aurora-quote-accent {
+  color: var(--accent) !important;
+  font-weight: 500;
+}
+
+.aurora-quote-empty {
+  color: var(--text-muted);
+}
+
+.aurora-daily-banner {
+  grid-column: 1;
+  grid-row: 2;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 4px 2px 8px;
+  min-width: 0;
+}
+
+.aurora-daily-pill {
+  flex: none;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
+  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
+  color: var(--accent);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.aurora-daily-banner p {
   margin: 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+  line-height: 1.45;
+  min-width: 0;
 }
 
 .aurora-quality-row {
@@ -370,62 +465,33 @@ export default { name: 'AuroraHome' };
   color: var(--accent);
 }
 
-.aurora-now-playing-copy {
-  display: grid;
-  gap: 4px;
-  margin-top: 8px;
-  color: var(--text-secondary);
-}
-
-.aurora-now-playing-copy p,
-.aurora-now-playing-copy strong,
-.aurora-now-playing-copy span {
-  margin: 0;
-}
-
-.aurora-now-playing-copy p {
-  color: var(--text-muted);
-  font-size: 12px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-.aurora-now-playing-copy strong {
-  color: var(--text-primary);
-  font-size: 17px;
-}
-
 .aurora-meta-row {
   display: flex;
   align-items: center;
-  gap: 12px;
-  margin-top: 8px;
+  gap: 14px;
+  margin-top: 6px;
   flex-wrap: wrap;
-}
-
-.aurora-queue-count {
-  font-size: 13px;
-  color: var(--text-secondary);
 }
 
 .aurora-play {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 20px;
-  border-radius: 24px;
+  padding: 11px 22px;
+  border-radius: 999px;
   border: none;
   background: var(--accent);
-  color: var(--on-accent, #fff);
+  color: #07120e;
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   cursor: pointer;
-  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  transition: filter 0.2s ease, box-shadow 0.2s ease;
   flex-shrink: 0;
+  box-shadow: 0 6px 18px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
-.aurora-play:hover { transform: translateY(-2px); }
-.aurora-play:active { transform: scale(0.95); }
+.aurora-play:hover { filter: brightness(1.06); }
+.aurora-play:active { filter: brightness(0.96); }
 
 .aurora-lyrics-link {
   border: 0;
@@ -460,31 +526,47 @@ export default { name: 'AuroraHome' };
   cursor: not-allowed;
 }
 
+/* Tall vertical queue rail — design: full-height list column, not a square card */
 .aurora-queue-rail {
+  grid-column: 2;
+  grid-row: 1 / span 2;
+  align-self: stretch;
+  width: 100%;
   min-width: 0;
   min-height: 0;
+  max-width: 280px;
+  display: flex;
+  flex-direction: column;
   overflow: hidden;
-  border: 1px solid var(--border-subtle);
-  border-radius: 16px;
-  background: var(--surface-1);
-  padding: 16px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 7%, transparent);
+  border-radius: 14px;
+  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
+  padding: 14px 12px 10px;
 }
 
 .aurora-queue-rail-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--border-subtle);
+  gap: 10px;
+  padding: 0 4px 12px;
+  border-bottom: 1px solid color-mix(in srgb, var(--text-primary) 7%, transparent);
+  flex: none;
 }
 
 .aurora-queue-rail-head h2 {
   margin: 0;
-  font-size: 16px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
 }
 
-.aurora-queue-rail-head h2 span { color: var(--text-muted); font-size: 13px; }
+.aurora-queue-rail-head h2 span {
+  color: var(--text-muted);
+  font-size: 12px;
+  font-weight: 500;
+  margin-left: 4px;
+}
 
 .aurora-queue-clear {
   border: 0;
@@ -492,30 +574,35 @@ export default { name: 'AuroraHome' };
   color: var(--text-muted);
   font: inherit;
   font-size: 12px;
+  cursor: default;
 }
 
 .aurora-queue-list {
   list-style: none;
-  margin: 8px 0 0;
-  padding: 0;
+  margin: 0;
+  padding: 4px 0 0;
   display: flex;
   flex-direction: column;
-  max-height: 390px;
+  flex: 1 1 auto;
+  min-height: 0;
   overflow: auto;
+  gap: 0;
 }
 
 .aurora-queue-row {
-  border-bottom: 1px solid var(--border-subtle);
+  border-bottom: 0;
+  flex: none;
 }
 
 .aurora-queue-row button {
   width: 100%;
   display: grid;
-  grid-template-columns: 28px minmax(0, 1fr) auto;
-  gap: 9px;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 8px;
   align-items: center;
-  padding: 10px 0;
+  padding: 9px 6px;
   border: 0;
+  border-radius: 8px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -523,34 +610,69 @@ export default { name: 'AuroraHome' };
 }
 
 .aurora-queue-row button:hover,
-.aurora-queue-row button:focus-visible { color: var(--accent); outline: none; }
+.aurora-queue-row button:focus-visible {
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+  color: var(--text-primary);
+  outline: none;
+}
 
-.aurora-queue-row button.is-active { color: var(--accent); }
+.aurora-queue-row button.is-active {
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+}
 
 .aurora-queue-index,
-.aurora-queue-duration { color: var(--text-muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.aurora-queue-duration {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
 
-.aurora-queue-copy { display: grid; min-width: 0; gap: 2px; }
+.aurora-queue-copy {
+  display: grid;
+  min-width: 0;
+  gap: 1px;
+}
+
 .aurora-queue-copy b,
-.aurora-queue-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.aurora-queue-copy b { font-size: 13px; font-weight: 600; }
-.aurora-queue-copy small { color: var(--text-muted); font-size: 12px; }
+.aurora-queue-copy small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
-.aurora-queue-row button.is-active .aurora-queue-copy small { color: var(--accent); }
+.aurora-queue-copy b {
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.aurora-queue-copy small {
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.aurora-queue-row button.is-active .aurora-queue-copy small {
+  color: color-mix(in srgb, var(--accent) 80%, var(--text-muted));
+}
 
 .aurora-queue-empty {
   display: grid;
   place-items: center;
-  min-height: 180px;
+  flex: 1;
+  min-height: 200px;
   color: var(--text-muted);
+  font-size: 13px;
 }
 
-.aurora-recommendations { margin-bottom: 34px; }
+.aurora-recommendations {
+  margin-bottom: 28px;
+  flex: none;
+}
 
 .aurora-recommendation-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 14px;
+  gap: 16px;
 }
 
 .aurora-track-card,
@@ -715,6 +837,18 @@ export default { name: 'AuroraHome' };
 @media (max-width: 1099px) {
   .aurora-stage {
     grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto;
+    min-height: 0;
+  }
+
+  .aurora-stage-main {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .aurora-daily-banner {
+    grid-column: 1;
+    grid-row: auto;
   }
 
   .aurora-queue-rail {
@@ -733,6 +867,7 @@ export default { name: 'AuroraHome' };
 @media (max-width: 899px) {
   .aurora-stage {
     grid-template-columns: 1fr;
+    min-height: 0;
   }
 
   .aurora-stage-main {
@@ -746,8 +881,14 @@ export default { name: 'AuroraHome' };
     margin-inline: auto;
   }
 
-  .aurora-meta-row {
+  .aurora-meta-row,
+  .aurora-daily-banner {
     justify-content: center;
+    text-align: center;
+  }
+
+  .aurora-quote {
+    margin-inline: auto;
   }
 }
 </style>

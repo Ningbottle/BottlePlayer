@@ -32,14 +32,17 @@ function handleVolumeClick(e: MouseEvent) {
   c.value.setVolume(pct);
 }
 
+/** Jelly press only on the solid play control — flat prev/next stay still. */
 function onPress(e: MouseEvent) {
   const el = e.currentTarget as HTMLElement;
-  animateElement(el, { scale: 1 }, { scale: 0.92 }, 'controlPress');
+  if (!el.classList.contains('aurora-pb-play')) return;
+  animateElement(el, { scale: 1 }, { scale: 0.94 }, 'controlPress');
 }
 
 function onRelease(e: MouseEvent) {
   const el = e.currentTarget as HTMLElement;
-  animateElement(el, { scale: 0.92 }, { scale: 1 }, 'controlRelease');
+  if (!el.classList.contains('aurora-pb-play')) return;
+  animateElement(el, { scale: 0.94 }, { scale: 1 }, 'controlRelease');
 }
 </script>
 
@@ -408,83 +411,85 @@ function onRelease(e: MouseEvent) {
   cursor: default;
 }
 
-/* ── Center console ── */
+/* ── Center console ──
+   Design: ONE soft elongated platform; only play is filled/raised.
+   Prev/next/shuffle/repeat stay flat monoline icons (no per-button bump). */
 .aurora-pb-center {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: flex-end;
-  gap: 2px;
+  gap: 0;
   min-width: 0;
-  min-height: 76px;
-  padding-top: 28px;
+  min-height: 70px;
+  padding-top: 18px;
 }
 
-/* Raised transport dome — design “liquid hump” over the dock */
+/* Single liquid tray — continuous surface, not individual raised keys */
 .aurora-pb-bubble {
   position: absolute;
-  top: -30px;
+  top: -18px;
   left: 50%;
   transform: translateX(-50%);
   z-index: 3;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 300px;
-  height: 64px;
-  padding: 0 40px;
-  /* Elliptical top dome sitting on the bar */
-  border-radius: 50% 50% 28px 28px / 92% 92% 28px 28px;
-  border: 1px solid color-mix(in srgb, #fff 9%, transparent);
-  background: var(--surface-2);
-  background:
-    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, #fff 10%, transparent), transparent 55%),
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--surface-2) 90%, #fff 8%) 0%,
-      color-mix(in srgb, var(--surface-2) 68%, #000 22%) 100%
-    );
+  min-width: 292px;
+  height: 58px;
+  padding: 0 28px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, #fff 6%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 82%, #000 18%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-2) 86%, #fff 4%) 0%,
+    color-mix(in srgb, var(--surface-2) 74%, #000 14%) 100%
+  );
   box-shadow:
-    0 14px 32px rgba(0, 0, 0, 0.42),
-    0 1px 0 color-mix(in srgb, #fff 12%, transparent) inset,
-    0 -8px 18px rgba(0, 0, 0, 0.22) inset;
+    0 8px 22px rgba(0, 0, 0, 0.28),
+    0 1px 0 color-mix(in srgb, #fff 8%, transparent) inset;
 }
 
 :global(:root[data-mode='light']) .aurora-pb-bubble {
-  border-color: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 6%, transparent);
   background: linear-gradient(
     180deg,
-    #fff 0%,
-    color-mix(in srgb, var(--surface-2) 80%, #fff) 100%
+    color-mix(in srgb, #fff 96%, var(--surface-2)) 0%,
+    color-mix(in srgb, var(--surface-2) 88%, #fff) 100%
   );
   box-shadow:
-    0 10px 24px rgba(22, 32, 29, 0.12),
-    0 1px 0 rgba(255, 255, 255, 0.95) inset;
+    0 8px 18px rgba(22, 32, 29, 0.1),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset;
 }
 
 .aurora-pb-transport {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 22px;
+  gap: 20px;
 }
 
+/* Flat secondary transport — no fill, no outer glow, no 3D */
 .aurora-pb-btn {
-  width: 34px;
-  height: 34px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text-secondary) 88%, #fff 12%);
-  background: transparent;
-  border: none;
-  border-radius: 50%;
-  transition: color 0.15s, transform 0.12s;
+  color: color-mix(in srgb, var(--text-secondary) 92%, transparent);
+  background: transparent !important;
+  border: none !important;
+  border-radius: 0;
+  box-shadow: none !important;
+  filter: none !important;
+  transition: color 0.15s, opacity 0.15s;
 }
 
 .aurora-pb-btn:hover {
   color: var(--text-primary);
+  transform: none;
 }
 
 .aurora-pb-btn.is-active {
@@ -492,31 +497,32 @@ function onRelease(e: MouseEvent) {
 }
 
 .aurora-pb-btn svg {
-  width: 19px;
-  height: 19px;
+  width: 18px;
+  height: 18px;
+  display: block;
 }
 
-/* Large mint play — design hero control */
+/* Only play is the raised solid control */
 .aurora-pb-play {
-  width: 52px;
-  height: 52px;
-  background: var(--accent);
-  color: #07120e;
-  border-radius: 50%;
+  width: 46px;
+  height: 46px;
+  border-radius: 50% !important;
+  background: var(--accent) !important;
+  color: #07120e !important;
   box-shadow:
-    0 8px 22px color-mix(in srgb, var(--accent) 48%, transparent),
-    0 1px 0 color-mix(in srgb, #fff 40%, transparent) inset,
-    0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
+    0 6px 16px color-mix(in srgb, var(--accent) 40%, transparent),
+    0 1px 0 color-mix(in srgb, #fff 30%, transparent) inset !important;
 }
 
 .aurora-pb-play:hover {
-  filter: brightness(1.08);
-  color: #040c09;
+  filter: brightness(1.07) !important;
+  color: #040c09 !important;
+  transform: none;
 }
 
 .aurora-pb-play svg {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
 }
 
 .aurora-pb-progress-wrap {
@@ -797,14 +803,15 @@ function onRelease(e: MouseEvent) {
 
   .aurora-pb-center {
     order: 2;
-    padding-top: 28px;
-    min-height: 88px;
+    padding-top: 22px;
+    min-height: 78px;
   }
 
   .aurora-pb-bubble {
-    top: -8px;
-    min-width: 220px;
-    padding: 10px 24px 12px;
+    top: -6px;
+    min-width: 240px;
+    height: 52px;
+    padding: 0 18px;
   }
 
   .aurora-pb-right {

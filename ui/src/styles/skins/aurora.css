@@ -192,16 +192,22 @@
 /* ── Aurora home stage responsive geometry ── */
 [data-shell="aurora"] .aurora-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1.18fr) minmax(280px, 0.82fr);
-  gap: clamp(20px, 2vw, 32px);
+  grid-template-columns: minmax(0, 1fr) minmax(248px, 280px);
+  gap: 18px 28px;
   min-width: 0;
+  min-height: min(620px, calc(100vh - 220px));
 }
 
 [data-shell="aurora"] .aurora-stage-main {
   display: grid;
-  grid-template-columns: minmax(250px, 0.86fr) minmax(320px, 1.12fr);
-  gap: clamp(20px, 2vw, 32px);
+  grid-template-columns: minmax(280px, 0.92fr) minmax(300px, 1.15fr);
+  gap: clamp(28px, 3.2vw, 52px);
   min-width: 0;
+}
+
+[data-shell="aurora"] .aurora-queue-rail {
+  max-width: 280px;
+  align-self: stretch;
 }
 
 [data-shell="aurora"] .aurora-info,
