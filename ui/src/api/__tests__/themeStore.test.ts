@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { useThemeStore, __resetForTest } from '../themeStore';
+import { useThemeStore, __resetForTest, type SkinId, type Mode } from '../themeStore';
 
 describe('themeStore', () => {
   beforeEach(() => {
@@ -39,5 +39,21 @@ describe('themeStore', () => {
     store.init();
     expect(document.documentElement.dataset.skin).toBe('aurora');
     expect(document.documentElement.dataset.mode).toBe('light');
+  });
+
+  it('all four skin+mode combinations apply both data attributes', () => {
+    const store = useThemeStore();
+    const combos: [SkinId, Mode][] = [
+      ['aurora', 'light'],
+      ['aurora', 'dark'],
+      ['newsprint', 'light'],
+      ['newsprint', 'dark'],
+    ];
+    for (const [skin, mode] of combos) {
+      store.setSkin(skin);
+      store.setMode(mode);
+      expect(document.documentElement.dataset.skin).toBe(skin);
+      expect(document.documentElement.dataset.mode).toBe(mode);
+    }
   });
 });

@@ -483,11 +483,7 @@ button {
   display:flex; align-items:flex-end; justify-content:space-between;
   padding-bottom: 14px;
   margin-bottom: 22px;
-  border-bottom: 2px solid var(--ink);
   position: relative;
-}
-.page-head::after {
-  content:""; position:absolute; left:0; right:0; bottom:-5px; height:1px; background: var(--ink);
 }
 .page-head .kicker {
   font-family: "EB Garamond", serif; font-style: italic;
@@ -1240,20 +1236,10 @@ svg { display:block; }
   align-items: center;
   justify-content: space-between;
   padding: 0 16px;
-  border-bottom: 1.5px solid var(--ink);
   background: transparent;
   z-index: 10;
   user-select: none;
   position: relative;
-}
-.titlebar::after {
-  content: "";
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: -4px;
-  height: 1px;
-  background: var(--ink);
 }
 .titlebar-logo {
   display: flex;

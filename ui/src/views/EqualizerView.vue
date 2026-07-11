@@ -85,7 +85,6 @@ function applyEffect(name: string) {
   align-items: end;
   gap: 32px;
   padding-bottom: 10px;
-  border-bottom: 4px double var(--ink);
 }
 
 .kicker {

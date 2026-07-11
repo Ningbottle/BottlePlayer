@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue';
 import { playerStore, togglePlay, next, prev, seek, setVolume, setQuality } from '../api/playerStore';
 import AddToPlaylistModal from './AddToPlaylistModal.vue';
+import PlayerProgress from './player/PlayerProgress.vue';
 
 const props = defineProps<{
   activeView: string;
@@ -87,30 +88,9 @@ const FALLBACK_COVER =
 
 const coverUrl = computed(() => currentTrack.value?.Image || FALLBACK_COVER);
 
-function formatTime(sec: number) {
-  if (isNaN(sec) || sec === null || sec === undefined) return '00:00';
-  const m = Math.floor(sec / 60);
-  const s = Math.floor(sec % 60);
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-}
-
-const progressPercent = computed(() => {
-  if (!duration.value) return 0;
-  return (currentTime.value / duration.value) * 100;
-});
-
 const volumePercent = computed(() => {
   return volume.value * 100;
 });
-
-function handleSeek(e: MouseEvent) {
-  if (!duration.value) return;
-  const trackEl = e.currentTarget as HTMLElement;
-  const rect = trackEl.getBoundingClientRect();
-  const clickX = e.clientX - rect.left;
-  const pct = Math.max(0, Math.min(1, clickX / rect.width));
-  seek(pct * duration.value);
-}
 
 function handleVolumeClick(e: MouseEvent) {
   const barEl = e.currentTarget as HTMLElement;
@@ -276,15 +256,11 @@ function toggleLyricView() {
       </div>
 
       <!-- Seek Bar -->
-      <div class="seek">
-        <span class="time">{{ formatTime(currentTime) }}</span>
-        <div class="track" @click="handleSeek">
-          <div class="rule"></div>
-          <div class="fill" :style="{ width: progressPercent + '%' }"></div>
-          <div class="nib" :style="{ left: progressPercent + '%' }"></div>
-        </div>
-        <span class="time">{{ formatTime(duration) }}</span>
-      </div>
+      <PlayerProgress
+        :current-time="currentTime"
+        :duration="duration"
+        @seek="seek"
+      />
     </div>
 
     <!-- Right: Volume & extra utilities -->

@@ -1,0 +1,105 @@
+/* ────────────────────────────────────────────────────────────
+   tokens.css – Four light-mode semantic token combinations
+   2 skins × 2 modes = 4 explicit selector blocks.
+   Dark values are independently chosen (NOT opacity-derived).
+   ──────────────────────────────────────────────────────────── */
+
+/* Fallback: Aurora light (default skin + mode) */
+:root {
+  --app-bg: #ffffff;
+  --surface-1: #f5f5f7;
+  --surface-2: #e8e8ed;
+  --surface-elevated: #ffffff;
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-muted: #86868b;
+  --accent: #fa233b;
+  --focus-ring: rgba(250, 35, 59, 0.4);
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --progress-track: #8e8e93;
+  --progress-buffered: #aeaeb2;
+  --progress-fill: #fa233b;
+  --progress-thumb-fill: #ffffff;
+  --progress-thumb-ring: #fa233b;
+  --progress-time: #86868b;
+}
+
+/* ─── Aurora Light ─── */
+:root[data-skin='aurora'][data-mode='light'] {
+  --app-bg: #ffffff;
+  --surface-1: #f5f5f7;
+  --surface-2: #e8e8ed;
+  --surface-elevated: #ffffff;
+  --text-primary: #1d1d1f;
+  --text-secondary: #6e6e73;
+  --text-muted: #86868b;
+  --accent: #fa233b;
+  --focus-ring: rgba(250, 35, 59, 0.4);
+  --border-subtle: rgba(0, 0, 0, 0.08);
+  --progress-track: #8e8e93;
+  --progress-buffered: #aeaeb2;
+  --progress-fill: #fa233b;
+  --progress-thumb-fill: #ffffff;
+  --progress-thumb-ring: #fa233b;
+  --progress-time: #86868b;
+}
+
+/* ─── Aurora Dark (graphite black, solid-color text) ─── */
+:root[data-skin='aurora'][data-mode='dark'] {
+  --app-bg: #1c1c1e;
+  --surface-1: #2c2c2e;
+  --surface-2: #3a3a3c;
+  --surface-elevated: #48484a;
+  --text-primary: #ffffff;
+  --text-secondary: #c7c7cc;
+  --text-muted: #8e8e93;
+  --accent: #fa233b;
+  --focus-ring: rgba(250, 35, 59, 0.5);
+  --border-subtle: rgba(255, 255, 255, 0.1);
+  --progress-track: #6e6e73;
+  --progress-buffered: #48484a;
+  --progress-fill: #fa233b;
+  --progress-thumb-fill: #ffffff;
+  --progress-thumb-ring: #fa233b;
+  --progress-time: #8e8e93;
+}
+
+/* ─── Newsprint Light (warm paper white) ─── */
+:root[data-skin='newsprint'][data-mode='light'] {
+  --app-bg: #f1ead8;
+  --surface-1: #ebe2cb;
+  --surface-2: #e0d5b8;
+  --surface-elevated: #f8f3e6;
+  --text-primary: #221b12;
+  --text-secondary: #4a3f2f;
+  --text-muted: #847460;
+  --accent: #a8311b;
+  --focus-ring: rgba(168, 49, 27, 0.4);
+  --border-subtle: rgba(34, 27, 18, 0.14);
+  --progress-track: #847460;
+  --progress-buffered: #b5a98e;
+  --progress-fill: #221b12;
+  --progress-thumb-fill: #f1ead8;
+  --progress-thumb-ring: #221b12;
+  --progress-time: #847460;
+}
+
+/* ─── Newsprint Dark (ink black, high-contrast warm text) ─── */
+:root[data-skin='newsprint'][data-mode='dark'] {
+  --app-bg: #1a1714;
+  --surface-1: #2a2520;
+  --surface-2: #3a342e;
+  --surface-elevated: #463e36;
+  --text-primary: #f5f0e4;
+  --text-secondary: #c4b9a0;
+  --text-muted: #8a7e6a;
+  --accent: #c4391e;
+  --focus-ring: rgba(196, 57, 30, 0.5);
+  --border-subtle: rgba(255, 240, 220, 0.1);
+  --progress-track: #7a6f5e;
+  --progress-buffered: #5a4f42;
+  --progress-fill: #c4391e;
+  --progress-thumb-fill: #f5f0e4;
+  --progress-thumb-ring: #c4391e;
+  --progress-time: #8a7e6a;
+}
