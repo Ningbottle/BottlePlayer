@@ -54,31 +54,32 @@
   --dur-slow: 0.4s;
 }
 
-/* ─── Aurora skin (v2 — Apple Music light style) ─── */
+/* ─── Aurora skin (immersive cold white / emerald — aligns with tokens.css) ─── */
 :root[data-skin="aurora"] {
-  --paper:       #ffffff;
-  --paper-2:     #f5f5f7;
-  --paper-edge:  #e8e8ed;
-  --paper-alt:   #f5f5f7;
+  --paper:       #eef3f0;
+  --paper-2:     #e7eeea;
+  --paper-edge:  #d5ded9;
+  --paper-alt:   #f7faf8;
 
-  --ink:        #1d1d1f;
-  --ink-soft:   #6e6e73;
-  --ink-mute:   #86868b;
-  --ink-faint:  #aeaeb2;
-  --ink-light:  #aeaeb2;
-  --ink-soft-10: rgba(0, 0, 0, 0.06);
+  --ink:        #16201d;
+  --ink-soft:   #5f6d68;
+  --ink-mute:   #8b9792;
+  --ink-faint:  #a9b6af;
+  --ink-light:  #a9b6af;
+  --ink-soft-10: rgba(22, 32, 29, 0.08);
 
-  --rule:       rgba(0, 0, 0, 0.06);
-  --rule-soft:  rgba(0, 0, 0, 0.03);
+  --rule:       rgba(22, 32, 29, 0.08);
+  --rule-soft:  rgba(22, 32, 29, 0.04);
 
-  --accent:      #fa233b;
-  --accent-deep: #d70015;
+  /* Must not reintroduce Apple-red; tokens emerald is source of truth */
+  --accent:      #18875b;
+  --accent-deep: #0f5c3e;
 
-  --glass-tint:   rgba(255, 255, 255, 0.72);
-  --glass-tint-2: rgba(255, 255, 255, 0.85);
-  --glass-edge:   rgba(0, 0, 0, 0.04);
+  --glass-tint:   rgba(247, 250, 248, 0.72);
+  --glass-tint-2: rgba(255, 255, 255, 0.86);
+  --glass-edge:   rgba(22, 32, 29, 0.06);
   --glass-shadow: 0 1px 3px rgba(0,0,0,0.04),
-                  0 4px 12px rgba(0,0,0,0.04),
+                  0 4px 12px rgba(0,0,0,0.06),
                   inset 0 1px 0 rgba(255,255,255,0.8);
 
   --glass-blur: 20px;
@@ -90,6 +91,31 @@
     "SF Pro Text", -apple-system, "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
   --font-cute:
     "SF Pro Text", -apple-system, "PingFang SC", "Microsoft YaHei UI", system-ui, sans-serif;
+}
+
+/* Aurora dark: graphite + emerald (do not inherit Newsprint/iOS dark paper reds) */
+:root[data-skin="aurora"][data-mode="dark"] {
+  --paper:       #070b0c;
+  --paper-2:     #0d1213;
+  --paper-edge:  #141a1b;
+  --paper-alt:   #141a1b;
+
+  --ink:        #f2f5f2;
+  --ink-soft:   #929c98;
+  --ink-mute:   #626d69;
+  --ink-faint:  #394541;
+  --ink-light:  #626d69;
+  --ink-soft-10: rgba(242, 245, 242, 0.08);
+
+  --rule:       rgba(242, 245, 242, 0.1);
+  --rule-soft:  rgba(242, 245, 242, 0.05);
+
+  --accent:      #62d6a2;
+  --accent-deep: #3aa87a;
+
+  --glass-tint:   rgba(13, 18, 19, 0.72);
+  --glass-tint-2: rgba(26, 34, 34, 0.86);
+  --glass-edge:   rgba(255, 255, 255, 0.06);
 }
 
 /* ─── Dark mode (orthogonal to skin) ─── */
