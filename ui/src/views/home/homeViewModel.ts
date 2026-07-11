@@ -14,12 +14,15 @@ export interface HomeViewModel {
   playlists: readonly PlaylistInfo[];
   albums: readonly PlaylistInfo[];
   queuePreview: readonly Track[];
+  queueTotal: number;
+  activeQueueHash: string | null;
+  isPlaying: boolean;
   isInitialLoading: boolean;
   isRefreshing: boolean;
   errors: readonly HomeSectionError[];
 }
 
-const QUEUE_PREVIEW_COUNT = 5;
+const QUEUE_PREVIEW_COUNT = 12;
 
 function collectErrors(homeFeed: ReturnType<typeof useHomeFeedStore>): HomeSectionError[] {
   const errors: HomeSectionError[] = [];
@@ -38,6 +41,9 @@ export function useHomeViewModel(): ComputedRef<HomeViewModel> {
     playlists: homeFeed.playlists.items,
     albums: homeFeed.albums.items,
     queuePreview: playerStore.queue.slice(0, QUEUE_PREVIEW_COUNT),
+    queueTotal: playerStore.queue.length,
+    activeQueueHash: playerStore.currentTrack?.FileHash ?? null,
+    isPlaying: playerStore.isPlaying,
     isInitialLoading:
       (!homeFeed.daily.loaded && homeFeed.daily.loading) ||
       (!homeFeed.playlists.loaded && homeFeed.playlists.loading) ||
