@@ -6,7 +6,7 @@ import type { Track } from '../../../api/normalizer';
 import type { PlaylistInfo } from '../../../api/homeFeedStore';
 
 vi.mock('../../../api/motion', () => ({
-  animateElement: vi.fn(),
+  animateElement: vi.fn(() => ({ kill: () => {} })),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
   startAmbientMotion: vi.fn(() => ({ kill: () => {} })),
   isReducedMotion: vi.fn(() => true),
@@ -227,6 +227,26 @@ describe('AuroraHome', () => {
     await wrapper.get('.aurora-lyrics-link').trigger('click');
 
     expect(wrapper.emitted('navigate')).toEqual([['lyric']]);
+  });
+
+  it('still renders stage, queue rail, and controls under reduced motion', () => {
+    const queue = [createTrack({ FileHash: 'queue-rm', SongName: 'RM Song' })];
+    const daily = [createTrack({ FileHash: 'daily-rm', SongName: 'Daily RM' })];
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          queuePreview: queue,
+          queueTotal: 1,
+          dailyTracks: daily,
+        }),
+      },
+    });
+
+    expect(wrapper.get('[data-test="aurora-stage"]').exists()).toBe(true);
+    expect(wrapper.get('[data-test="queue-rail"]').exists()).toBe(true);
+    expect(wrapper.get('[data-test="hero-play"]').exists()).toBe(true);
+    expect(wrapper.get('[data-test="queue-track-queue-rm"]').exists()).toBe(true);
+    expect(wrapper.get('[data-test="daily-track-daily-rm"]').exists()).toBe(true);
   });
 
   it('keeps old content visible during refresh', () => {

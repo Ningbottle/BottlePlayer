@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUpdate, onUnmounted } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../api/normalizer';
 import type { PlaylistInfo } from '../../api/homeFeedStore';
+import { animateElement, animateStagger, startAmbientMotion } from '../../api/motion';
 
 const props = defineProps<{ model: HomeViewModel }>();
 
@@ -13,8 +14,35 @@ const emit = defineEmits<{
 }>();
 
 const coverError = ref(false);
+const stageEl = ref<HTMLElement | null>(null);
+const recommendationEls = ref<HTMLElement[]>([]);
+const motionHandles: Array<{ kill(): void }> = [];
 
 watch(() => props.model.heroTrack, () => { coverError.value = false; });
+
+function setRecommendationRef(el: Element | null): void {
+  if (el instanceof HTMLElement) recommendationEls.value.push(el);
+}
+
+onBeforeUpdate(() => {
+  recommendationEls.value = [];
+});
+
+onMounted(() => {
+  if (stageEl.value) {
+    motionHandles.push(
+      animateElement(stageEl.value, { opacity: 0, y: 20 }, { opacity: 1, y: 0 }, 'pageEnter'),
+    );
+  }
+  motionHandles.push(animateStagger(recommendationEls.value, 'cardEnter'));
+  if (stageEl.value) {
+    motionHandles.push(startAmbientMotion(stageEl.value, () => props.model.isPlaying));
+  }
+});
+
+onUnmounted(() => {
+  motionHandles.splice(0).forEach((handle) => handle.kill());
+});
 
 const heroCover = computed(() => {
   if (coverError.value) return '';
@@ -68,7 +96,12 @@ function formatDuration(sec: number): string {
 
 <template>
   <div class="aurora-home">
-    <section class="aurora-stage" data-test="aurora-stage" :data-playing="model.isPlaying">
+    <section
+      ref="stageEl"
+      class="aurora-stage"
+      data-test="aurora-stage"
+      :data-playing="model.isPlaying"
+    >
       <div class="aurora-stage-main">
         <div class="aurora-cover">
           <img
@@ -155,6 +188,7 @@ function formatDuration(sec: number): string {
         <button
           v-for="track in model.dailyTracks.slice(0, 6)"
           :key="track.FileHash"
+          :ref="setRecommendationRef"
           type="button"
           class="aurora-track-card"
           :data-test="`daily-track-${track.FileHash}`"

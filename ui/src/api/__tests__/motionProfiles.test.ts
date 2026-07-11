@@ -14,12 +14,25 @@ describe('motionProfiles', () => {
     expect(getMotionProfile('newsprint').ambient.enabled).toBe(false);
   });
 
-  it('aurora ambient duration >= 5 seconds', () => {
-    expect(getMotionProfile('aurora').ambient.duration).toBeGreaterThanOrEqual(5);
+  it('aurora ambient duration is bounded for jelly stage drift', () => {
+    expect(getMotionProfile('aurora').ambient.duration).toBe(3);
   });
 
   it('aurora ambient scale <= 1.015', () => {
     expect(getMotionProfile('aurora').ambient.scale).toBeLessThanOrEqual(1.015);
+  });
+
+  it('uses a longer expo entrance and a bounded jelly card entrance for Aurora', () => {
+    const profile = getMotionProfile('aurora');
+    expect(profile.pageEnter).toMatchObject({ duration: 0.42, ease: 'expo.out' });
+    expect(profile.cardEnter).toMatchObject({ duration: 0.36, stagger: 0.04, maxItems: 12 });
+    expect(profile.cardEnter.ease).toContain('back.out');
+  });
+
+  it('keeps Aurora control release elastic without changing Newsprint', () => {
+    expect(getMotionProfile('aurora').controlRelease).toMatchObject({ duration: 0.42 });
+    expect(getMotionProfile('aurora').controlRelease.ease).toContain('elastic.out');
+    expect(getMotionProfile('newsprint').controlRelease.ease).toBe('power2.out');
   });
 
   it('newsprint has no elastic in any ease', () => {

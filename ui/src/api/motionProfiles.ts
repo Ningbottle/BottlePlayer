@@ -18,12 +18,12 @@ export interface MotionProfile {
 export type ProfileKey = 'pageEnter' | 'pageLeave' | 'controlPress' | 'controlRelease';
 
 const auroraProfile: MotionProfile = {
-  pageEnter: { duration: 0.34, ease: 'expo.out' },
-  pageLeave: { duration: 0.18, ease: 'power2.in' },
+  pageEnter: { duration: 0.42, ease: 'expo.out' },
+  pageLeave: { duration: 0.24, ease: 'power2.in' },
   controlPress: { duration: 0.1, ease: 'power2.out' },
-  controlRelease: { duration: 0.4, ease: 'elastic.out(1, 0.5)' },
-  cardEnter: { duration: 0.3, ease: 'back.out(1.35)', stagger: 0.04, maxItems: 20 },
-  ambient: { enabled: true, duration: 6, scale: 1.015 },
+  controlRelease: { duration: 0.42, ease: 'elastic.out(1, 0.55)' },
+  cardEnter: { duration: 0.36, ease: 'back.out(1.25)', stagger: 0.04, maxItems: 12 },
+  ambient: { enabled: true, duration: 3, scale: 1.01 },
 };
 
 const newsprintProfile: MotionProfile = {

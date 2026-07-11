@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
+import { animateElement } from '../../api/motion';
 
 const props = defineProps<{
   controller: PlayerController;
@@ -23,12 +24,12 @@ function handleVolumeClick(e: MouseEvent) {
 
 function onPress(e: MouseEvent) {
   const el = e.currentTarget as HTMLElement;
-  el.style.transform = 'scale(0.92)';
+  animateElement(el, { scale: 1 }, { scale: 0.92 }, 'controlPress');
 }
 
 function onRelease(e: MouseEvent) {
   const el = e.currentTarget as HTMLElement;
-  el.style.transform = '';
+  animateElement(el, { scale: 0.92 }, { scale: 1 }, 'controlRelease');
 }
 </script>
 
