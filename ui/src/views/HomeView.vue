@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue';
-import { apiGet } from '../api/backend';
+import { onMounted, computed } from 'vue';
 import { playTrack, playPersonalFm } from '../api/playerStore';
-import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
+import { type Track as SongInfo } from '../api/normalizer';
+import { useHomeFeedStore, type PlaylistInfo } from '../api/homeFeedStore';
 
 // Subtitle below the date — varies by hour so the "晚刊" feel is honest.
 const timeOfDayPhrase = computed(() => {
@@ -16,41 +16,11 @@ const timeOfDayPhrase = computed(() => {
   return '深夜的安眠曲';
 });
 
-interface PlaylistInfo {
-  specialid: number;
-  specialname: string;
-  imgurl: string;
-  nickname: string;
-  playcount: number;
-  [key: string]: any;
-}
-
-
 const emit = defineEmits<{
   (e: 'navigate', view: string, params?: any): void;
 }>();
 
-interface SectionState<T> {
-  loading: boolean;
-  error: string;
-  data: T;
-}
-
-const dailyRecommendations = ref<SectionState<SongInfo[]>>({
-  loading: true,
-  error: '',
-  data: [],
-});
-const recommendedPlaylists = ref<SectionState<PlaylistInfo[]>>({
-  loading: true,
-  error: '',
-  data: [],
-});
-const newAlbums = ref<SectionState<PlaylistInfo[]>>({
-  loading: true,
-  error: '',
-  data: [],
-});
+const homeFeed = useHomeFeedStore();
 
 // A solid default track to play only when daily recommendations are unavailable.
 const headlineTrack = {
@@ -60,86 +30,13 @@ const headlineTrack = {
   Duration: 249,
 };
 
-async function loadDailyRecommendations() {
-  dailyRecommendations.value.loading = true;
-  dailyRecommendations.value.error = '';
-  try {
-    const songRes = await apiGet<any>('/everyday/recommend', { pagesize: 6 });
-    const songData = songRes.data?.data || songRes.data || {};
-    const songList = songData.song_list || songData.info || songData.list;
-    if (songRes.status === 1 && songList && songList.length > 0) {
-      dailyRecommendations.value.data = songList.slice(0, 6).map(normalizeTrack);
-    } else {
-      const fallbackRes = await apiGet<any>('/top/song', { pagesize: 6 });
-      const fData = fallbackRes.data?.data || fallbackRes.data || {};
-      const fList = fData.info || fData.list;
-      if (fallbackRes.status === 1 && fList) {
-        dailyRecommendations.value.data = fList.slice(0, 6).map(normalizeTrack);
-      }
-    }
-  } catch (e) {
-    dailyRecommendations.value.error = '加载失败';
-    console.error('Failed to load daily recommendations', e);
-  } finally {
-    dailyRecommendations.value.loading = false;
-  }
-}
-
-async function loadRecommended() {
-  recommendedPlaylists.value.loading = true;
-  recommendedPlaylists.value.error = '';
-  try {
-    const plRes = await apiGet<any>('/top/playlist', { pagesize: 5, sort: 2 });
-    const plData = plRes.data?.data || plRes.data || {};
-    const plList = plData.info || plData.list;
-    if (plRes.status === 1 && plList) {
-      recommendedPlaylists.value.data = plList.slice(0, 5).map((pl: any) => ({
-        ...pl,
-        imgurl: pl.imgurl ? pl.imgurl.replace('{size}', '400') : pl.pic_url ? pl.pic_url.replace('{size}', '400') : ''
-      }));
-    }
-  } catch (e) {
-    recommendedPlaylists.value.error = '加载失败';
-    console.error('Failed to load recommended playlists', e);
-  } finally {
-    recommendedPlaylists.value.loading = false;
-  }
-}
-
-async function loadNewAlbums() {
-  newAlbums.value.loading = true;
-  newAlbums.value.error = '';
-  try {
-    const newRes = await apiGet<any>('/top/playlist', { pagesize: 5, sort: 5 });
-    const newPlData = newRes.data?.data || newRes.data || {};
-    const newPlList = newPlData.info || newPlData.list;
-    if (newRes.status === 1 && newPlList) {
-      newAlbums.value.data = newPlList.slice(0, 5).map((pl: any) => ({
-        ...pl,
-        imgurl: pl.imgurl ? pl.imgurl.replace('{size}', '400') : pl.pic_url ? pl.pic_url.replace('{size}', '400') : ''
-      }));
-    }
-  } catch (e) {
-    newAlbums.value.error = '加载失败';
-    console.error('Failed to load new albums', e);
-  } finally {
-    newAlbums.value.loading = false;
-  }
-}
-
-function loadHomeData() {
-  loadDailyRecommendations();
-  loadRecommended();
-  loadNewAlbums();
-}
-
 onMounted(() => {
-  loadHomeData();
+  homeFeed.ensureLoaded();
 });
 
 function handlePlaySong(song: SongInfo) {
-  const idx = dailyRecommendations.value.data.findIndex(s => s.FileHash === song.FileHash);
-  playPersonalFm(dailyRecommendations.value.data, idx >= 0 ? idx : 0);
+  const idx = homeFeed.daily.items.findIndex(s => s.FileHash === song.FileHash);
+  playPersonalFm(homeFeed.daily.items, idx >= 0 ? idx : 0);
 }
 
 function handlePlaylistClick(playlist: PlaylistInfo) {
@@ -147,8 +44,8 @@ function handlePlaylistClick(playlist: PlaylistInfo) {
 }
 
 function playHeadline() {
-  if (dailyRecommendations.value.data.length > 0) {
-    handlePlaySong(dailyRecommendations.value.data[0]);
+  if (homeFeed.daily.items.length > 0) {
+    handlePlaySong(homeFeed.daily.items[0]);
   } else {
     playTrack(headlineTrack);
   }
@@ -205,10 +102,11 @@ function playHeadline() {
       <div class="side-list">
         <div class="sl-head">
           <h3>每日推荐 <i style="font-style:italic;font-family:'EB Garamond',serif;font-weight:400;color:var(--ink-mute);font-size:.7em">Daily Picks</i></h3>
-          <span class="more" @click="loadHomeData">刷新推荐 ↻</span>
+          <span v-if="homeFeed.daily.refreshing" class="more">刷新中…</span>
+          <span v-else class="more" @click="homeFeed.refresh()">刷新推荐 ↻</span>
         </div>
         
-        <div v-if="dailyRecommendations.loading && dailyRecommendations.data.length === 0" class="spinner">
+        <div v-if="homeFeed.daily.loading && homeFeed.daily.items.length === 0" class="spinner">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
             <circle cx="12" cy="12" r="10" stroke="rgba(34,27,18,0.1)"></circle>
             <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
@@ -218,7 +116,7 @@ function playHeadline() {
         
         <ol v-else>
           <li
-            v-for="(song, idx) in dailyRecommendations.data"
+            v-for="(song, idx) in homeFeed.daily.items"
             :key="song.FileHash"
             @click="handlePlaySong(song)"
           >
@@ -229,10 +127,10 @@ function playHeadline() {
             </span>
             <span class="dur">{{ Math.floor(song.Duration / 60) }}:{{ String(song.Duration % 60).padStart(2, '0') }}</span>
           </li>
-          <li v-if="dailyRecommendations.error" style="padding: 10px; font-style: italic; color: var(--accent);">
-            {{ dailyRecommendations.error }} · <span class="more" @click="loadDailyRecommendations">重试</span>
+          <li v-if="homeFeed.daily.error" style="padding: 10px; font-style: italic; color: var(--accent);">
+            {{ homeFeed.daily.error }} · <span class="more" @click="homeFeed.refresh()">重试</span>
           </li>
-          <li v-else-if="dailyRecommendations.data.length === 0" style="padding: 10px; font-style: italic; color: var(--ink-mute);">
+          <li v-else-if="homeFeed.daily.items.length === 0" style="padding: 10px; font-style: italic; color: var(--ink-mute);">
             暂时没有推荐歌曲
           </li>
         </ol>
@@ -242,20 +140,20 @@ function playHeadline() {
     <!-- Grid 1: Editor's picks -->
     <div class="section-bar">
       <h2>编辑推荐<i>Editor's Picks</i></h2>
-      <span class="more">本周精选 →</span>
+      <span class="more">{{ homeFeed.playlists.refreshing ? '刷新中…' : '本周精选 →' }}</span>
     </div>
 
-    <div v-if="recommendedPlaylists.loading && recommendedPlaylists.data.length === 0" class="spinner">
+    <div v-if="homeFeed.playlists.loading && homeFeed.playlists.items.length === 0" class="spinner">
       加载推荐歌单中…
     </div>
 
-    <div v-else-if="recommendedPlaylists.error" style="text-align: center; color: var(--accent); padding: 20px;">
-      {{ recommendedPlaylists.error }} · <span class="more" @click="loadRecommended">重试</span>
+    <div v-else-if="homeFeed.playlists.error && homeFeed.playlists.items.length === 0" style="text-align: center; color: var(--accent); padding: 20px;">
+      {{ homeFeed.playlists.error }} · <span class="more" @click="homeFeed.refresh()">重试</span>
     </div>
 
     <div v-else class="grid">
       <article
-        v-for="pl in recommendedPlaylists.data"
+        v-for="pl in homeFeed.playlists.items"
         :key="pl.specialid"
         class="card"
         @click="handlePlaylistClick(pl)"
@@ -283,7 +181,7 @@ function playHeadline() {
       </article>
       
       <!-- Mock cards if list empty -->
-      <template v-if="recommendedPlaylists.data.length === 0">
+      <template v-if="homeFeed.playlists.items.length === 0">
         <div style="grid-column: span 5; text-align: center; color: var(--ink-mute); font-style: italic; padding: 20px;">
           暂无歌单推荐
         </div>
@@ -293,20 +191,20 @@ function playHeadline() {
     <!-- Grid 2: Newly pressed -->
     <div class="section-bar" style="margin-top: 34px;">
       <h2>最新歌单<i>Newly Pressed</i></h2>
-      <span class="more">全部歌单 →</span>
+      <span class="more">{{ homeFeed.albums.refreshing ? '刷新中…' : '全部歌单 →' }}</span>
     </div>
 
-    <div v-if="newAlbums.loading && newAlbums.data.length === 0" class="spinner">
+    <div v-if="homeFeed.albums.loading && homeFeed.albums.items.length === 0" class="spinner">
       新近发布更新中…
     </div>
 
-    <div v-else-if="newAlbums.error" style="text-align: center; color: var(--accent); padding: 20px;">
-      {{ newAlbums.error }} · <span class="more" @click="loadNewAlbums">重试</span>
+    <div v-else-if="homeFeed.albums.error && homeFeed.albums.items.length === 0" style="text-align: center; color: var(--accent); padding: 20px;">
+      {{ homeFeed.albums.error }} · <span class="more" @click="homeFeed.refresh()">重试</span>
     </div>
 
     <div v-else class="grid">
       <article
-        v-for="pl in newAlbums.data"
+        v-for="pl in homeFeed.albums.items"
         :key="pl.specialid"
         class="card"
         @click="handlePlaylistClick(pl)"
@@ -333,7 +231,7 @@ function playHeadline() {
         </div>
       </article>
       
-      <template v-if="newAlbums.data.length === 0">
+      <template v-if="homeFeed.albums.items.length === 0">
         <div style="grid-column: span 5; text-align: center; color: var(--ink-mute); font-style: italic; padding: 20px;">
           暂无最新发布
         </div>

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import HomeView from '../HomeView.vue';
 import { playPersonalFm } from '../../api/playerStore';
+import { __resetHomeFeedForTest } from '../../api/homeFeedStore';
 
 const mockApiGet = vi.fn();
 vi.mock('../../api/backend', () => ({
@@ -16,6 +17,7 @@ vi.mock('../../api/playerStore', () => ({
 
 describe('HomeView sections', () => {
   beforeEach(() => {
+    __resetHomeFeedForTest();
     mockApiGet.mockReset();
   });
 
@@ -86,5 +88,30 @@ describe('HomeView sections', () => {
       ]),
       0,
     );
+  });
+
+  it('does not request the home feed again after remounting', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/everyday/recommend') {
+        return Promise.resolve({
+          status: 1,
+          data: { data: { song_list: [{ FileHash: 'daily-1', SongName: 'Daily', SingerName: 'Artist', Duration: 180 }] } },
+        });
+      }
+
+      return Promise.resolve({
+        status: 1,
+        data: { data: { info: [{ specialid: 1, specialname: 'Test PL', nickname: 'Tester', imgurl: '', playcount: 0 }] } },
+      });
+    });
+
+    const first = mount(HomeView);
+    await flushPromises();
+    first.unmount();
+
+    mount(HomeView);
+    await flushPromises();
+
+    expect(mockApiGet).toHaveBeenCalledTimes(3);
   });
 });
