@@ -18,7 +18,7 @@
 - 所有播放、seek、音量、音质、歌词、收藏和切歌继续调用既有 `PlayerController` 命令。
 - 默认动效使用 `expo.out`；果冻反馈只用于控制器和卡片，必须尊重 `prefers-reduced-motion`。
 - 视觉主代理在实现和截图对照时使用 `product-design:image-to-code` 处理目标图，并使用前端浏览器调试流程验证真实渲染。
-- 所有视觉文件由主代理串行修改。非视觉子智能体仅新增契约测试，使用 `gpt-5.6-terra` 与 `high` 推理。
+- 所有视觉文件由主代理串行修改。非视觉子智能体仅负责 `homeViewModel.ts` 的数据契约及其测试，使用 `gpt-5.6-terra` 与 `high` 推理。
 - 每个任务先运行目标测试确认失败，再写最小实现；现状刻画测试若直接通过，记录为回归保护，不得称为 RED。
 
 ---
@@ -725,6 +725,6 @@ git commit -m "docs: record Aurora design QA"
 ## Execution Order and Ownership
 
 1. Main visual agent: Tasks 2–7, plus review of Task 1 integration.
-2. Nonvisual subagent (`gpt-5.6-terra`, `high`): Task 1 test file only. Required skills: `superpowers:using-superpowers`, `vue-application-structure`, `superpowers:test-driven-development`.
+2. Nonvisual subagent (`gpt-5.6-terra`, `high`): Task 1 data contract and its tests only. Required skills: `superpowers:using-superpowers`, `vue-application-structure`, `superpowers:test-driven-development`.
 3. Another bug-fix agent: retains exclusive ownership of `ui/src/api/playerStore.ts`, playback orchestrator files, audio backends, lyric race fixes, and related tests.
 4. Run Task 1 before Task 2. Run Tasks 3 and 4 after Task 1; Task 5 after Tasks 2 and 4; Task 6 after Tasks 2–5; Task 7 last.

@@ -289,7 +289,7 @@ Aurora 的动效关键词是“柔韧、吸附、回弹”，不是所有元素�
 - `vue-application-structure`
 - `superpowers:test-driven-development`
 
-只允许新增以下契约测试，不修改视觉文件和播放器状态层：
+只允许修改 `homeViewModel.ts` 及以下契约测试，不修改视觉文件和播放器状态层：
 
 - `ui/src/views/home/__tests__/homeViewModel.contract.test.ts`
 - `ui/src/components/__tests__/PlayerBar.queue.contract.test.ts`
