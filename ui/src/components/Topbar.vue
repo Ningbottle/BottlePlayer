@@ -111,7 +111,3 @@ function shareAlert() {
     </div>
   </header>
 </template>
-
-<style scoped>
-/* Scoped styles */
-</style>

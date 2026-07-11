@@ -180,6 +180,3 @@ function handlePlaylist(playlist: { id: string; name: string }) {
     </div>
   </aside>
 </template>
-
-<style scoped>
-</style>

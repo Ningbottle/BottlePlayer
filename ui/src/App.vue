@@ -6,15 +6,20 @@ import Topbar from './components/Topbar.vue';
 import PlayerBar from './components/PlayerBar.vue';
 import Drawer from './components/Drawer.vue';
 import QueuePanel from './components/QueuePanel.vue';
+import AuroraShell from './components/shell/AuroraShell.vue';
+import NewsprintShell from './components/shell/NewsprintShell.vue';
 
 import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
 import { ping } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
-import { getCurrentWindow } from '@tauri-apps/api/window';
 import { lyricFullscreen } from './api/lyricFullscreen';
 import { transitionEnter, transitionLeave } from './api/motion';
 import { resolveViewDescriptor, type HistoryEntry, type ViewDescriptor } from './api/viewRegistry';
+import { useThemeStore } from './api/themeStore';
+
+const themeStore = useThemeStore();
+const currentShell = computed(() => themeStore.skinId.value === 'aurora' ? AuroraShell : NewsprintShell);
 
 const currentView = ref('home');
 const searchQuery = ref('');
@@ -46,49 +51,6 @@ async function fetchMemoryUsage() {
   } catch (e) {
     // Graceful fallback
   }
-}
-
-// Tauri App Window Controls
-type AppWindow = ReturnType<typeof getCurrentWindow>;
-let appWindow: AppWindow | null = null;
-try {
-  appWindow = getCurrentWindow();
-} catch (e) {
-  console.warn('Tauri app window not available', e);
-}
-
-function isTitlebarControl(target: EventTarget | null) {
-  return target instanceof HTMLElement && !!target.closest('.titlebar-controls');
-}
-
-async function runWindowAction(action: () => Promise<void>, label: string) {
-  try {
-    await action();
-  } catch (e) {
-    console.warn(`Tauri window ${label} failed`, e);
-  }
-}
-
-
-
-function handleTitlebarDoubleClick(event: MouseEvent) {
-  if (isTitlebarControl(event.target)) return;
-  toggleMaximize();
-}
-
-function minimize() {
-  if (!appWindow) return;
-  void runWindowAction(() => appWindow!.minimize(), 'minimize');
-}
-
-function toggleMaximize() {
-  if (!appWindow) return;
-  void runWindowAction(() => appWindow!.toggleMaximize(), 'toggle maximize');
-}
-
-function close() {
-  if (!appWindow) return;
-  void runWindowAction(() => appWindow!.close(), 'close');
 }
 
 // Navigation History Stack
@@ -181,109 +143,75 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <!-- Newsprint procedural background layers -->
-  <div class="paper-base"></div>
-  <div class="paper-fibers"></div>
-  <div class="paper-grain"></div>
-  <div class="paper-vignette"></div>
+  <component
+    :is="currentShell"
+    :lyric-fullscreen="lyricFullscreen"
+  >
+    <template #titlebar-center>{{ memoryUsage }}</template>
 
-  <!-- Main grid app shell -->
-  <div class="app" :class="{ 'lyric-fullscreen-active': lyricFullscreen }">
-    <!-- Custom Drag-enabled Titlebar -->
-    <div class="titlebar" data-tauri-drag-region @dblclick="handleTitlebarDoubleClick">
-      <div class="titlebar-logo">
-        <span class="logo"><i>The</i> Player</span>
-      </div>
-      <div class="titlebar-center">
-        {{ memoryUsage }}
-      </div>
-      <div class="titlebar-controls" @mousedown.stop @dblclick.stop>
-        <button class="control-btn min" @mousedown.stop @click.stop="minimize" title="最小化">
-          <svg viewBox="0 0 10 10">
-            <line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="1.2"/>
-          </svg>
-        </button>
-        <button class="control-btn max" @mousedown.stop @click.stop="toggleMaximize" title="最大化">
-          <svg viewBox="0 0 10 10">
-            <rect x="1.5" y="1.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.2"/>
-          </svg>
-        </button>
-        <button class="control-btn close" @mousedown.stop @click.stop="close" title="关闭">
-          <svg viewBox="0 0 10 10">
-            <path d="M 2 2 L 8 8 M 8 2 L 2 8" fill="none" stroke="currentColor" stroke-width="1.2"/>
-          </svg>
-        </button>
-      </div>
-    </div>
+    <template #banner>
+      <div v-if="networkDegraded" class="network-banner">应用后台连接不稳定，部分功能可能暂不可用</div>
+    </template>
 
-    <div v-if="networkDegraded" class="network-banner">应用后台连接不稳定，部分功能可能暂不可用</div>
+    <template #sidebar>
+      <Sidebar
+        :active-view="currentView"
+        @navigate="handleNavigate"
+      />
+    </template>
 
-    <!-- Sidebar Navigation -->
-    <Sidebar
-      v-show="!lyricFullscreen"
-      :active-view="currentView" 
-      @navigate="handleNavigate" 
-    />
-
-    <!-- Main Content Area -->
-    <section class="main">
-      <!-- Search & actions Topbar -->
-      <Topbar 
-        v-show="!lyricFullscreen"
-        v-model:searchQuery="searchQuery" 
+    <template #topbar>
+      <Topbar
+        v-model:searchQuery="searchQuery"
         @search="handleSearch"
         @toggle-tweaks="tweaksCollapsed = !tweaksCollapsed"
         @navigate="handleNavigate"
         @back="goBack"
         @forward="goForward"
       />
+    </template>
 
-      <!-- View Switcher -->
-      <div class="scroll">
-        <Transition
-          mode="out-in"
-          :css="false"
-          @enter="transitionEnter"
-          @leave="transitionLeave"
-        >
-          <KeepAlive include="HomeView">
-            <component
-              :is="currentDescriptor.component"
-              :key="currentDescriptor.cacheKey"
-              v-bind="viewProps"
-              @navigate="handleNavigate"
-            />
-          </KeepAlive>
-        </Transition>
-      </div>
+    <div class="scroll">
+      <Transition
+        mode="out-in"
+        :css="false"
+        @enter="transitionEnter"
+        @leave="transitionLeave"
+      >
+        <KeepAlive include="HomeView">
+          <component
+            :is="currentDescriptor.component"
+            :key="currentDescriptor.cacheKey"
+            v-bind="viewProps"
+            @navigate="handleNavigate"
+          />
+        </KeepAlive>
+      </Transition>
+    </div>
 
-      <!-- Collapsible Tweaks Panel Drawer -->
-      <Drawer 
-        :collapsed="tweaksCollapsed" 
-        @close="tweaksCollapsed = true" 
+    <template #extras>
+      <Drawer
+        :collapsed="tweaksCollapsed"
+        @close="tweaksCollapsed = true"
       />
-
-      <!-- Pop-up Queue Panel (Positioned Absolute, Pointer-events Auto) -->
       <QueuePanel
         :show="isQueueOpen"
         @close="isQueueOpen = false"
       />
-    </section>
+    </template>
 
-    <!-- Bottom player controller bar -->
-    <PlayerBar
-      v-show="!lyricFullscreen"
-      :active-view="currentView"
-      @navigate="handleNavigate" 
-      @toggle-queue="isQueueOpen = !isQueueOpen"
-    />
-  </div>
+    <template #playerbar>
+      <PlayerBar
+        :active-view="currentView"
+        @navigate="handleNavigate"
+        @toggle-queue="isQueueOpen = !isQueueOpen"
+      />
+    </template>
+  </component>
 </template>
 
 <style scoped>
 .network-banner {
-  grid-row: 2 / 3;
-  grid-column: 1 / 3;
   z-index: 7;
   background: var(--accent);
   color: var(--paper);
@@ -296,6 +224,4 @@ onUnmounted(() => {
 .scroll > :deep(*) {
   min-height: 100%;
 }
-
-/* App root shell layout settings */
 </style>
