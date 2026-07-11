@@ -2,8 +2,6 @@
 import { computed } from 'vue';
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
-import { animateElement } from '../../api/motion';
-
 const props = defineProps<{
   controller: PlayerController;
 }>();
@@ -32,17 +30,13 @@ function handleVolumeClick(e: MouseEvent) {
   c.value.setVolume(pct);
 }
 
-/** Jelly press only on the solid play control — flat prev/next stay still. */
-function onPress(e: MouseEvent) {
-  const el = e.currentTarget as HTMLElement;
-  if (!el.classList.contains('aurora-pb-play')) return;
-  animateElement(el, { scale: 1 }, { scale: 0.94 }, 'controlPress');
+/** No bounce on transport — candy jelly was the ugly “QQ sticker” look. */
+function onPress(_e: MouseEvent) {
+  /* intentionally flat */
 }
 
-function onRelease(e: MouseEvent) {
-  const el = e.currentTarget as HTMLElement;
-  if (!el.classList.contains('aurora-pb-play')) return;
-  animateElement(el, { scale: 0.94 }, { scale: 1 }, 'controlRelease');
+function onRelease(_e: MouseEvent) {
+  /* intentionally flat */
 }
 </script>
 
@@ -284,10 +278,10 @@ function onRelease(e: MouseEvent) {
   grid-template-columns: minmax(200px, 0.78fr) minmax(360px, 1.5fr) minmax(220px, 0.78fr);
   gap: 8px 16px;
   align-items: center;
-  min-height: 88px;
-  padding: 12px 24px 14px;
+  min-height: 78px;
+  padding: 10px 22px 12px;
   box-sizing: border-box;
-  border-radius: 48px;
+  border-radius: 40px;
   border: 1px solid color-mix(in srgb, #fff 8%, transparent);
   background: var(--surface-elevated);
   background: linear-gradient(
@@ -412,84 +406,76 @@ function onRelease(e: MouseEvent) {
 }
 
 /* ── Center console ──
-   Design: ONE soft elongated platform; only play is filled/raised.
-   Prev/next/shuffle/repeat stay flat monoline icons (no per-button bump). */
+   Design: sculpted into the dock (not a candy sticker).
+   Soft matte tray sits almost flush; only play is a filled disc. */
 .aurora-pb-center {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0;
+  justify-content: center;
+  gap: 6px;
   min-width: 0;
-  min-height: 70px;
-  padding-top: 18px;
+  min-height: 64px;
+  padding: 2px 0 0;
 }
 
-/* Single liquid tray — continuous surface, not individual raised keys */
+/* Low, matte control tray — same family as dock, minimal lift */
 .aurora-pb-bubble {
-  position: absolute;
-  top: -18px;
-  left: 50%;
-  transform: translateX(-50%);
-  z-index: 3;
+  position: relative;
+  z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 292px;
-  height: 58px;
-  padding: 0 28px;
+  min-width: 268px;
+  height: 48px;
+  padding: 0 22px;
+  margin-top: -6px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, #fff 6%, transparent);
-  background: color-mix(in srgb, var(--surface-2) 82%, #000 18%);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--surface-2) 86%, #fff 4%) 0%,
-    color-mix(in srgb, var(--surface-2) 74%, #000 14%) 100%
-  );
-  box-shadow:
-    0 8px 22px rgba(0, 0, 0, 0.28),
-    0 1px 0 color-mix(in srgb, #fff 8%, transparent) inset;
+  border: 1px solid color-mix(in srgb, #fff 5%, transparent);
+  /* Matte slate — no candy gradient / no heavy drop shadow */
+  background: color-mix(in srgb, var(--surface-2) 70%, #0a0f0e 30%);
+  box-shadow: none;
 }
 
 :global(:root[data-mode='light']) .aurora-pb-bubble {
   border-color: color-mix(in srgb, var(--text-primary) 6%, transparent);
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, #fff 96%, var(--surface-2)) 0%,
-    color-mix(in srgb, var(--surface-2) 88%, #fff) 100%
-  );
-  box-shadow:
-    0 8px 18px rgba(22, 32, 29, 0.1),
-    0 1px 0 rgba(255, 255, 255, 0.9) inset;
+  background: color-mix(in srgb, var(--surface-2) 55%, #fff 45%);
+  box-shadow: none;
 }
 
 .aurora-pb-transport {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 16px;
 }
 
-/* Flat secondary transport — no fill, no outer glow, no 3D */
+/* Flat monoline icons — zero chrome */
 .aurora-pb-btn {
-  width: 28px;
-  height: 28px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text-secondary) 92%, transparent);
+  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
   background: transparent !important;
   border: none !important;
-  border-radius: 0;
+  border-radius: 0 !important;
   box-shadow: none !important;
   filter: none !important;
-  transition: color 0.15s, opacity 0.15s;
+  outline: none;
+  transition: color 0.12s ease, opacity 0.12s ease;
 }
 
 .aurora-pb-btn:hover {
   color: var(--text-primary);
-  transform: none;
+  transform: none !important;
+}
+
+.aurora-pb-btn:active {
+  opacity: 0.75;
+  transform: none !important;
 }
 
 .aurora-pb-btn.is-active {
@@ -497,39 +483,43 @@ function onRelease(e: MouseEvent) {
 }
 
 .aurora-pb-btn svg {
-  width: 18px;
-  height: 18px;
+  width: 17px;
+  height: 17px;
   display: block;
 }
 
-/* Only play is the raised solid control */
+/* Play disc: matte mint, no glow candy */
 .aurora-pb-play {
-  width: 46px;
-  height: 46px;
+  width: 40px;
+  height: 40px;
+  margin: 0 2px;
   border-radius: 50% !important;
   background: var(--accent) !important;
-  color: #07120e !important;
-  box-shadow:
-    0 6px 16px color-mix(in srgb, var(--accent) 40%, transparent),
-    0 1px 0 color-mix(in srgb, #fff 30%, transparent) inset !important;
+  color: #0a1410 !important;
+  box-shadow: none !important;
+  filter: none !important;
 }
 
 .aurora-pb-play:hover {
-  filter: brightness(1.07) !important;
-  color: #040c09 !important;
-  transform: none;
+  filter: brightness(1.05) !important;
+  color: #07100c !important;
+  transform: none !important;
+}
+
+.aurora-pb-play:active {
+  filter: brightness(0.96) !important;
 }
 
 .aurora-pb-play svg {
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
 }
 
 .aurora-pb-progress-wrap {
   width: 100%;
-  max-width: 640px;
+  max-width: 580px;
   min-width: 0;
-  padding: 0 12px;
+  padding: 0 8px;
   z-index: 1;
 }
 
@@ -795,23 +785,22 @@ function onRelease(e: MouseEvent) {
 @media (max-width: 899px) {
   .aurora-pb {
     grid-template-columns: 1fr;
-    gap: 10px;
+    gap: 8px;
     min-height: 0;
     border-radius: 28px;
-    padding: 12px 14px 14px;
+    padding: 10px 12px 12px;
   }
 
   .aurora-pb-center {
     order: 2;
-    padding-top: 22px;
-    min-height: 78px;
+    min-height: 58px;
   }
 
   .aurora-pb-bubble {
-    top: -6px;
-    min-width: 240px;
-    height: 52px;
-    padding: 0 18px;
+    margin-top: 0;
+    min-width: 220px;
+    height: 44px;
+    padding: 0 14px;
   }
 
   .aurora-pb-right {

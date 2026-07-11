@@ -155,11 +155,48 @@ function formatDuration(sec: number): string {
         </div>
       </div>
 
-      <!-- Design: “每日推荐” promo under cover area -->
+      <!-- Design: compact daily promo under hero (not a huge block) -->
       <div class="aurora-daily-banner" v-if="model.dailyTracks.length || model.heroTrack">
         <span class="aurora-daily-pill">每日推荐</span>
         <p>根据你与「{{ model.heroTrack?.SingerName || '收藏' }}」的收听偏好，为你精选 · 每日合集</p>
       </div>
+
+      <!-- Design: small album strip tight together under hero (left of queue) -->
+      <section
+        v-if="model.dailyTracks.length > 0"
+        class="aurora-recommendations"
+        data-test="daily-picks"
+      >
+        <div class="aurora-section-head">
+          <h2>DAILY PICKS · 今日推荐</h2>
+          <button
+            type="button"
+            class="aurora-picks-refresh"
+            :disabled="model.isRefreshing"
+            @click="emit('refresh')"
+          >
+            {{ model.isRefreshing ? '刷新中…' : '刷新' }}
+          </button>
+        </div>
+        <div class="aurora-recommendation-grid">
+          <button
+            v-for="track in model.dailyTracks.slice(0, 6)"
+            :key="track.FileHash"
+            :ref="setRecommendationRef"
+            type="button"
+            class="aurora-track-card"
+            :data-test="`daily-track-${track.FileHash}`"
+            @click="onTrackPlay(track)"
+          >
+            <span class="aurora-track-cover">
+              <img v-if="track.Image" :src="track.Image" :alt="`${track.SongName}封面`" />
+              <span v-else>推荐</span>
+            </span>
+            <strong>{{ track.SongName }}</strong>
+            <small>{{ track.SingerName }}</small>
+          </button>
+        </div>
+      </section>
 
       <aside class="aurora-queue-rail" data-test="queue-rail" aria-label="播放队列">
         <header class="aurora-queue-rail-head">
@@ -193,31 +230,6 @@ function formatDuration(sec: number): string {
       {{ err.message }}
       <button class="aurora-retry" @click="emit('refresh')">重试</button>
     </div>
-
-    <section v-if="model.dailyTracks.length > 0" class="aurora-recommendations">
-      <div class="aurora-section-head">
-        <h2>DAILY PICKS · 今日推荐</h2>
-        <span>{{ model.isRefreshing ? '刷新中…' : '刷新推荐' }}</span>
-      </div>
-      <div class="aurora-recommendation-grid">
-        <button
-          v-for="track in model.dailyTracks.slice(0, 6)"
-          :key="track.FileHash"
-          :ref="setRecommendationRef"
-          type="button"
-          class="aurora-track-card"
-          :data-test="`daily-track-${track.FileHash}`"
-          @click="onTrackPlay(track)"
-        >
-          <span class="aurora-track-cover">
-            <img v-if="track.Image" :src="track.Image" :alt="`${track.SongName}封面`" />
-            <span v-else>推荐</span>
-          </span>
-          <strong>{{ track.SongName }}</strong>
-          <small>{{ track.SingerName }}</small>
-        </button>
-      </div>
-    </section>
 
     <section v-if="model.playlists.length > 0" class="aurora-section">
       <div class="aurora-section-head">
@@ -279,25 +291,21 @@ export default { name: 'AuroraHome' };
 
 <style scoped>
 .aurora-home {
-  padding: 18px 22px 28px;
+  padding: 16px 20px 20px;
   min-height: 100%;
   box-sizing: border-box;
-  /* Hero + rail dominate the viewport (design: large now-playing stage) */
-  display: flex;
-  flex-direction: column;
 }
 
 .aurora-stage {
   display: grid;
-  /* Cover+info | tall queue rail (vertical rectangle, not square) */
-  grid-template-columns: minmax(0, 1fr) minmax(248px, 280px);
-  grid-template-rows: auto auto;
-  gap: 18px 28px;
-  align-items: stretch;
-  margin-bottom: 22px;
-  /* Large stage — ~fills remaining viewport above player */
-  min-height: min(620px, calc(100vh - 220px));
-  flex: 1 1 auto;
+  /* Hero column | fatter vertical queue */
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-rows: auto auto auto;
+  gap: 14px 24px;
+  align-items: start;
+  margin-bottom: 18px;
+  /* Compact — design fits cover + picks + queue without empty chasm */
+  min-height: 0;
   min-width: 0;
 }
 
@@ -306,23 +314,22 @@ export default { name: 'AuroraHome' };
   grid-row: 1;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(280px, 0.92fr) minmax(300px, 1.15fr);
-  gap: clamp(28px, 3.2vw, 52px);
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: clamp(20px, 2.4vw, 36px);
   align-items: center;
-  padding: clamp(8px, 1.5vw, 18px) 4px;
-  border-radius: 0;
+  padding: 4px 0 0;
   background:
-    radial-gradient(ellipse 70% 80% at 72% 42%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 58%);
+    radial-gradient(ellipse 60% 70% at 78% 40%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%);
 }
 
 .aurora-cover {
   aspect-ratio: 1;
   width: 100%;
-  max-width: min(420px, 36vw);
-  border-radius: 16px;
+  max-width: 300px;
+  border-radius: 14px;
   overflow: hidden;
   background: var(--surface-2);
-  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.36);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.3);
 }
 
 .aurora-cover img {
@@ -344,9 +351,9 @@ export default { name: 'AuroraHome' };
 .aurora-info {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 8px;
   min-width: 0;
-  padding-top: 4px;
+  padding-top: 0;
 }
 
 .aurora-label {
@@ -369,9 +376,9 @@ export default { name: 'AuroraHome' };
 
 .aurora-song-name {
   font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
-  font-size: clamp(44px, 4.6vw, 64px);
+  font-size: clamp(34px, 3.4vw, 48px);
   font-weight: 700;
-  line-height: 1.05;
+  line-height: 1.08;
   word-break: break-word;
   overflow-wrap: break-word;
   margin: 0;
@@ -380,7 +387,7 @@ export default { name: 'AuroraHome' };
 }
 
 .aurora-artist {
-  font-size: 22px;
+  font-size: 18px;
   color: var(--text-secondary);
   margin: 0;
   display: inline-flex;
@@ -395,13 +402,13 @@ export default { name: 'AuroraHome' };
 }
 
 .aurora-quote {
-  margin: 10px 0 4px;
+  margin: 6px 0 2px;
   padding: 0 0 0 2px;
   border: 0;
   color: var(--text-secondary);
-  font-size: 15px;
-  line-height: 1.65;
-  max-width: 34em;
+  font-size: 14px;
+  line-height: 1.55;
+  max-width: 28em;
 }
 
 .aurora-quote p {
@@ -422,8 +429,8 @@ export default { name: 'AuroraHome' };
   grid-row: 2;
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 4px 2px 8px;
+  gap: 12px;
+  padding: 2px 0 0;
   min-width: 0;
 }
 
@@ -526,22 +533,22 @@ export default { name: 'AuroraHome' };
   cursor: not-allowed;
 }
 
-/* Tall vertical queue rail — design: full-height list column, not a square card */
+/* Fatter tall queue — design ~300–340px vertical list */
 .aurora-queue-rail {
   grid-column: 2;
-  grid-row: 1 / span 2;
+  grid-row: 1 / span 3;
   align-self: stretch;
   width: 100%;
   min-width: 0;
-  min-height: 0;
-  max-width: 280px;
+  min-height: 420px;
+  max-width: 340px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--text-primary) 7%, transparent);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-1) 88%, transparent);
-  padding: 14px 12px 10px;
+  background: color-mix(in srgb, var(--surface-1) 90%, transparent);
+  padding: 14px 14px 10px;
 }
 
 .aurora-queue-rail-head {
@@ -664,15 +671,45 @@ export default { name: 'AuroraHome' };
   font-size: 13px;
 }
 
+/* Compact DAILY PICKS strip — small covers tight together under hero */
 .aurora-recommendations {
-  margin-bottom: 28px;
-  flex: none;
+  grid-column: 1;
+  grid-row: 3;
+  margin: 0;
+  min-width: 0;
+  padding-top: 2px;
+}
+
+.aurora-recommendations .aurora-section-head {
+  margin-bottom: 10px;
+}
+
+.aurora-recommendations .aurora-section-head h2 {
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+}
+
+.aurora-picks-refresh {
+  border: 0;
+  background: transparent;
+  color: var(--text-muted);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 0;
+}
+
+.aurora-picks-refresh:hover {
+  color: var(--accent);
 }
 
 .aurora-recommendation-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 16px;
+  gap: 10px;
+  max-width: 720px;
 }
 
 .aurora-track-card,
@@ -688,7 +725,7 @@ export default { name: 'AuroraHome' };
 
 .aurora-track-card {
   display: grid;
-  gap: 7px;
+  gap: 5px;
 }
 
 .aurora-track-card strong,
@@ -698,24 +735,27 @@ export default { name: 'AuroraHome' };
   white-space: nowrap;
 }
 
-.aurora-track-card strong { font-size: 13px; }
-.aurora-track-card small { color: var(--text-secondary); font-size: 12px; }
+.aurora-track-card strong { font-size: 11.5px; font-weight: 600; }
+.aurora-track-card small { color: var(--text-muted); font-size: 10.5px; }
 
 .aurora-track-cover {
   display: grid;
   aspect-ratio: 1;
+  width: 100%;
+  max-width: 108px;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: 10px;
   background: var(--surface-2);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
 }
 
 .aurora-track-cover img { width: 100%; height: 100%; object-fit: cover; }
-.aurora-track-cover > span { display: grid; place-items: center; color: var(--text-muted); font-size: 12px; }
+.aurora-track-cover > span { display: grid; place-items: center; color: var(--text-muted); font-size: 11px; }
 
 .aurora-track-card:hover .aurora-track-cover,
-.aurora-track-card:focus-visible .aurora-track-cover { transform: translateY(-3px); }
+.aurora-track-card:focus-visible .aurora-track-cover { transform: translateY(-2px); }
 
-.aurora-track-cover { transition: transform 0.24s ease; }
+.aurora-track-cover { transition: transform 0.2s ease; }
 
 .sr-only {
   position: absolute;
@@ -751,7 +791,8 @@ export default { name: 'AuroraHome' };
 }
 
 .aurora-section {
-  margin-bottom: 28px;
+  margin-top: 8px;
+  margin-bottom: 22px;
 }
 
 .aurora-section-head {
@@ -838,15 +879,11 @@ export default { name: 'AuroraHome' };
   .aurora-stage {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: auto;
-    min-height: 0;
   }
 
-  .aurora-stage-main {
-    grid-column: 1;
-    grid-row: auto;
-  }
-
-  .aurora-daily-banner {
+  .aurora-stage-main,
+  .aurora-daily-banner,
+  .aurora-recommendations {
     grid-column: 1;
     grid-row: auto;
   }
@@ -857,27 +894,23 @@ export default { name: 'AuroraHome' };
 
   .aurora-recommendation-grid {
     grid-auto-flow: column;
-    grid-auto-columns: minmax(132px, 1fr);
+    grid-auto-columns: minmax(96px, 108px);
     grid-template-columns: none;
     overflow-x: auto;
-    padding-bottom: 6px;
+    max-width: none;
+    padding-bottom: 4px;
   }
 }
 
 @media (max-width: 899px) {
-  .aurora-stage {
-    grid-template-columns: 1fr;
-    min-height: 0;
-  }
-
   .aurora-stage-main {
     grid-template-columns: 1fr;
     text-align: center;
   }
 
   .aurora-cover {
-    width: min(72vw, 320px);
-    max-width: 320px;
+    width: min(64vw, 280px);
+    max-width: 280px;
     margin-inline: auto;
   }
 

@@ -9,8 +9,7 @@
   z-index: 2;
   display: grid;
   grid-template-columns: clamp(232px, 16vw, 252px) minmax(0, 1fr);
-  /* Taller player row for raised liquid console hump */
-  grid-template-rows: 32px auto minmax(0, 1fr) 128px;
+  grid-template-rows: 32px auto minmax(0, 1fr) 100px;
   height: 100vh;
   min-height: 720px;
   background: var(--app-bg);
@@ -192,21 +191,22 @@
 /* ── Aurora home stage responsive geometry ── */
 [data-shell="aurora"] .aurora-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(248px, 280px);
-  gap: 18px 28px;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+  gap: 14px 24px;
   min-width: 0;
-  min-height: min(620px, calc(100vh - 220px));
+  min-height: 0;
 }
 
 [data-shell="aurora"] .aurora-stage-main {
   display: grid;
-  grid-template-columns: minmax(280px, 0.92fr) minmax(300px, 1.15fr);
-  gap: clamp(28px, 3.2vw, 52px);
+  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  gap: clamp(20px, 2.4vw, 36px);
   min-width: 0;
 }
 
 [data-shell="aurora"] .aurora-queue-rail {
-  max-width: 280px;
+  max-width: 340px;
+  min-height: 420px;
   align-self: stretch;
 }
 
