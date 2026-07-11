@@ -79,3 +79,56 @@
 [data-shell="newsprint"] {
   --on-accent: var(--paper, #fff);
 }
+
+/* ── Newsprint Player Bar ── */
+[data-shell="newsprint"] .np-pb {
+  background: var(--surface-1, #f1ead8);
+  border-top: 1px solid var(--border-subtle, #ccc);
+  box-shadow: 0 -4px 12px -4px rgba(40,28,12,0.1);
+}
+
+:root[data-mode="dark"] [data-shell="newsprint"] .np-pb {
+  background: var(--surface-1, #1a1815);
+  border-top: 1px solid rgba(255,255,255,0.06);
+}
+
+:root[data-mode="dark"] [data-shell="newsprint"] .np-pb-btn {
+  border-color: rgba(255,255,255,0.1);
+}
+
+:root[data-mode="dark"] [data-shell="newsprint"] .np-pb-play {
+  background: var(--paper, #f1ead8);
+  color: var(--ink, #2a2520);
+  border-color: var(--paper, #f1ead8);
+}
+
+:root[data-mode="dark"] [data-shell="newsprint"] .np-pb-cover {
+  border-color: rgba(255,255,255,0.1);
+}
+
+:root[data-mode="dark"] [data-shell="newsprint"] .np-pb-icon {
+  border-color: rgba(255,255,255,0.1);
+}
+
+:root[data-mode="dark"] [data-shell="newsprint"] .np-pb-vol-bar::before {
+  background: rgba(255,255,255,0.15);
+}
+
+:root[data-mode="dark"] [data-shell="newsprint"] .np-pb-vol-fill {
+  background: var(--paper, #f1ead8);
+}
+
+:root[data-mode="dark"] [data-shell="newsprint"] .np-pb-q-menu {
+  background: var(--ink, #2a2520);
+  border-color: rgba(255,255,255,0.1);
+  box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+}
+
+:root[data-mode="dark"] [data-shell="newsprint"] .np-pb-q-btn {
+  border-color: rgba(255,255,255,0.1);
+}
+
+/* Lyric fullscreen: hide player bar */
+.app[data-shell="newsprint"].lyric-fullscreen-active .np-pb {
+  display: none;
+}
