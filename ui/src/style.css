@@ -1543,20 +1543,20 @@ html.lyric-left .lyric-line {
 
 .app.lyric-fullscreen-active {
   grid-template-columns: 1fr !important;
-  grid-template-rows: 0 0 1fr 0 !important;
+  grid-template-rows: 32px 0 1fr 0 !important;
 }
 .app.lyric-fullscreen-active .main,
 .app.lyric-fullscreen-active .titlebar,
 .app.lyric-fullscreen-active .player {
   grid-column: 1 / 2;
 }
-.exit-fullscreen {
-  position: fixed; top: 16px; right: 16px; z-index: 100;
-  background: var(--paper); border: 1px solid var(--rule); border-radius: 999px;
-  padding: 6px 14px; font-size: 12px; cursor: pointer;
-  color: var(--ink); transition: all var(--dur-fast) var(--ease-spa);
+.app.lyric-fullscreen-active .titlebar-logo,
+.app.lyric-fullscreen-active .titlebar-center {
+  display: none !important;
 }
-.exit-fullscreen:hover { background: var(--accent); color: var(--paper); }
+.app.lyric-fullscreen-active .titlebar-controls:not(.fs-controls) {
+  visibility: hidden;
+}
 
 /* ────────────────────────────────────────────────────────────
    Unified button system (spec §2) — replaces undefined .cta

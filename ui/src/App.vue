@@ -8,6 +8,7 @@ import Drawer from './components/Drawer.vue';
 import QueuePanel from './components/QueuePanel.vue';
 import AuroraShell from './components/shell/AuroraShell.vue';
 import NewsprintShell from './components/shell/NewsprintShell.vue';
+import FullscreenWindowControls from './components/shell/FullscreenWindowControls.vue';
 
 import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
@@ -147,7 +148,9 @@ onUnmounted(() => {
     :is="currentShell"
     :lyric-fullscreen="lyricFullscreen"
   >
-    <template #titlebar-center>{{ memoryUsage }}</template>
+    <template #titlebar-center>
+      <span v-if="!lyricFullscreen">{{ memoryUsage }}</span>
+    </template>
 
     <template #banner>
       <div v-if="networkDegraded" class="network-banner">应用后台连接不稳定，部分功能可能暂不可用</div>
@@ -208,6 +211,8 @@ onUnmounted(() => {
       />
     </template>
   </component>
+
+  <FullscreenWindowControls v-if="lyricFullscreen" class="fs-controls-overlay" />
 </template>
 
 <style scoped>
@@ -223,5 +228,17 @@ onUnmounted(() => {
 
 .scroll > :deep(*) {
   min-height: 100%;
+}
+
+.fs-controls-overlay {
+  position: fixed;
+  top: 0;
+  right: 0;
+  z-index: 1000;
+  display: flex;
+  gap: 6px;
+  padding: 6px 16px;
+  height: 32px;
+  align-items: center;
 }
 </style>

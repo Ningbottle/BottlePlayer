@@ -12,14 +12,20 @@ vi.mock('../../api/playerStore', async () => {
 });
 
 const gsapSetMock = vi.hoisted(() => vi.fn());
-const gsapToMock = vi.hoisted(() => vi.fn((_, opts) => {
+const gsapToMock = vi.hoisted(() => vi.fn((_: any, opts: any) => {
   if (opts?.onComplete) opts.onComplete();
 }));
+const gsapFromToMock = vi.hoisted(() => vi.fn((_el: any, _from: any, to: any) => {
+  if (to?.onComplete) to.onComplete();
+}));
+const gsapKillTweensOfMock = vi.hoisted(() => vi.fn());
 
 vi.mock('gsap', () => ({
   gsap: {
     set: gsapSetMock,
     to: gsapToMock,
+    fromTo: gsapFromToMock,
+    killTweensOf: gsapKillTweensOfMock,
   },
 }));
 
@@ -59,6 +65,12 @@ function mountLyric(): VueWrapper<any> {
   return wrapper;
 }
 
+function isFollowing(w: VueWrapper<any>): boolean {
+  const footer = w.find('[data-test="lyric-footer"]');
+  if (!footer.exists()) return true;
+  return footer.classes().includes('following');
+}
+
 describe('LyricView auto-follow integration', () => {
   let scrollSpy: ReturnType<typeof vi.fn>;
 
@@ -79,41 +91,38 @@ describe('LyricView auto-follow integration', () => {
     document.body.innerHTML = '';
   });
 
-  it('shows a return-to-current button when auto-follow is suspended by wheel scroll', async () => {
-    const wrapper = mountLyric();
-    await flushPromises(); // lyrics load
+  it('hides return-to-current when auto-following, shows when suspended by wheel scroll', async () => {
+    const w = mountLyric();
+    await flushPromises();
 
-    // Initially auto-following 鈥?no return-to-current button.
-    expect(wrapper.find('[data-test="return-to-current"]').exists()).toBe(false);
+    expect(isFollowing(w)).toBe(true);
 
-    // User scrolls up via wheel 鈫?suspends auto-follow.
-    await wrapper.find('.lyric-scroll').trigger('wheel');
+    await w.find('.lyric-scroll').trigger('wheel');
     await nextTick();
 
-    expect(wrapper.find('[data-test="return-to-current"]').exists()).toBe(true);
+    expect(isFollowing(w)).toBe(false);
   });
 
   it('resumes auto-follow and scrolls to the active line when the return-to-current button is clicked', async () => {
-    const wrapper = mountLyric();
+    const w = mountLyric();
     await flushPromises();
-    await wrapper.find('.lyric-scroll').trigger('wheel'); // suspend
-    expect(wrapper.find('[data-test="return-to-current"]').exists()).toBe(true);
+    await w.find('.lyric-scroll').trigger('wheel');
+    expect(isFollowing(w)).toBe(false);
 
     scrollSpy.mockClear();
-    await wrapper.find('[data-test="return-to-current"]').trigger('click');
+    await w.find('[data-test="return-to-current"]').trigger('click');
 
-    expect(wrapper.find('[data-test="return-to-current"]').exists()).toBe(false);
+    expect(isFollowing(w)).toBe(true);
     expect(scrollSpy).toHaveBeenCalled();
   });
 
   it('does not auto-scroll on activeIndex change while auto-follow is suspended', async () => {
-    const wrapper = mountLyric();
-    await flushPromises(); // lyrics load, initial auto-follow scroll
+    const w = mountLyric();
+    await flushPromises();
     scrollSpy.mockClear();
 
-    await wrapper.find('.lyric-scroll').trigger('wheel'); // suspend
+    await w.find('.lyric-scroll').trigger('wheel');
 
-    // playback advances 鈫?activeIndex changes; suspended 鈫?no scroll
     playerStore.currentTime = 6;
     await nextTick();
 
@@ -121,15 +130,107 @@ describe('LyricView auto-follow integration', () => {
   });
 
   it('resets auto-follow on track change so the new track follows from the start', async () => {
-    const wrapper = mountLyric();
+    const w = mountLyric();
     await flushPromises();
-    await wrapper.find('.lyric-scroll').trigger('wheel'); // suspend
-    expect(wrapper.find('[data-test="return-to-current"]').exists()).toBe(true);
+    await w.find('.lyric-scroll').trigger('wheel');
+    expect(isFollowing(w)).toBe(false);
 
     playerStore.currentTrack = mkTrack('h2');
-    await flushPromises(); // loadLyrics for new track + resetForTrack
+    await flushPromises();
 
-    expect(wrapper.find('[data-test="return-to-current"]').exists()).toBe(false);
+    expect(isFollowing(w)).toBe(true);
+  });
+});
+
+describe('LyricView layout', () => {
+  beforeEach(() => {
+    mockLyricApi();
+    (Element.prototype as any).scrollIntoView = vi.fn();
+    playerStore.currentTrack = mkTrack('h1');
+    playerStore.currentTime = 0;
+    playerStore.queue = [mkTrack('h1')];
+    playerStore.currentIndex = 0;
+    setLyricFullscreen(false);
+  });
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    delete (Element.prototype as any).scrollIntoView;
+    mockApiGet.mockReset();
+    document.body.innerHTML = '';
+    setLyricFullscreen(false);
+  });
+
+  it('has a three-row grid: meta, scroll viewport, follow footer', async () => {
+    const w = mountLyric();
+    await flushPromises();
+
+    const grid = w.find('[data-test="lyric-grid"]');
+    expect(grid.exists()).toBe(true);
+
+    expect(w.find('[data-test="lyric-meta"]').exists()).toBe(true);
+    expect(w.find('[data-test="lyric-scroll"]').exists()).toBe(true);
+    expect(w.find('[data-test="lyric-footer"]').exists()).toBe(true);
+  });
+
+  it('footer retains height when following (visibility hidden, not display none)', async () => {
+    const w = mountLyric();
+    await flushPromises();
+
+    const footer = w.find('[data-test="lyric-footer"]');
+    expect(footer.exists()).toBe(true);
+    expect(footer.classes()).toContain('following');
+    expect((footer.element as HTMLElement).style.display).not.toBe('none');
+  });
+
+  it('return-to-current button is in the footer, not absolutely positioned', async () => {
+    const w = mountLyric();
+    await flushPromises();
+    await w.find('.lyric-scroll').trigger('wheel');
+    await nextTick();
+
+    const footer = w.find('[data-test="lyric-footer"]');
+    const btn = footer.find('[data-test="return-to-current"]');
+    expect(btn.exists()).toBe(true);
+
+    const style = btn.attributes('style') || '';
+    expect(style).not.toMatch(/position:\s*absolute/);
+    expect(style).not.toMatch(/position:\s*fixed/);
+  });
+
+  it('last lyric line has enough bottom padding to not be covered by footer', async () => {
+    const w = mountLyric();
+    await flushPromises();
+
+    const scroll = w.find('.lyric-scroll');
+    expect(scroll.exists()).toBe(true);
+
+    const paddingBottom = parseInt((scroll.element as HTMLElement).style.paddingBottom || '0', 10);
+    expect(paddingBottom).toBeGreaterThanOrEqual(40);
+  });
+
+  it('does not have a fullscreen toggle button in the header', async () => {
+    const w = mountLyric();
+    await flushPromises();
+
+    expect(w.find('[data-test="lyric-fullscreen-toggle"]').exists()).toBe(false);
+  });
+
+  it('does not have a fixed exit-fullscreen button', async () => {
+    const w = mountLyric();
+    await flushPromises();
+
+    expect(w.find('.exit-fullscreen').exists()).toBe(false);
+  });
+
+  it('cover container is square (aspect-ratio: 1)', async () => {
+    const w = mountLyric();
+    await flushPromises();
+
+    const cover = w.find('[data-test="lyric-cover"]');
+    expect(cover.exists()).toBe(true);
+    const ar = (cover.element as HTMLElement).style.aspectRatio;
+    expect(ar === '1' || ar === '1 / 1').toBe(true);
   });
 });
 
@@ -153,18 +254,10 @@ describe('LyricView fullscreen', () => {
     setLyricFullscreen(false);
   });
 
-  it('has a fullscreen toggle button that sets lyricFullscreen to true', async () => {
-    const w = mountLyric();
-    await flushPromises();
-    const btn = w.find('[data-test="lyric-fullscreen-toggle"]');
-    await btn.trigger('click');
-    expect(lyricFullscreen.value).toBe(true);
-  });
-
   it('double-clicking the cover area enters fullscreen', async () => {
     const w = mountLyric();
     await flushPromises();
-    await w.find('.lyric-meta').trigger('dblclick');
+    await w.find('[data-test="lyric-meta"]').trigger('dblclick');
     expect(lyricFullscreen.value).toBe(true);
   });
 
@@ -173,16 +266,6 @@ describe('LyricView fullscreen', () => {
     mountLyric();
     await flushPromises();
     window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
-    expect(lyricFullscreen.value).toBe(false);
-  });
-
-  it('the exit-fullscreen button exits fullscreen', async () => {
-    setLyricFullscreen(true);
-    const w = mountLyric();
-    await flushPromises();
-    const btn = w.find('.exit-fullscreen');
-    expect(btn.exists()).toBe(true);
-    await btn.trigger('click');
     expect(lyricFullscreen.value).toBe(false);
   });
 
@@ -203,7 +286,7 @@ describe('LyricView fullscreen', () => {
     await nextTick();
 
     expect(gsapToMock).toHaveBeenCalledWith(
-      w.find('.big-cover').element,
+      w.find('[data-test="lyric-cover"]').element,
       expect.objectContaining({ width: 320, height: 320 }),
     );
 
@@ -211,7 +294,7 @@ describe('LyricView fullscreen', () => {
     await nextTick();
 
     expect(gsapToMock).toHaveBeenCalledWith(
-      w.find('.big-cover').element,
+      w.find('[data-test="lyric-cover"]').element,
       expect.objectContaining({ width: 240, height: 240, clearProps: 'width,height' }),
     );
   });
