@@ -29,8 +29,10 @@ const heroSource = computed(() => {
 });
 
 const queueCount = computed(() => {
-  return props.model.queueTotal || props.model.queuePreview.length;
+  return props.model.queueTotal ?? props.model.queuePreview.length;
 });
+
+const displayedQueuePreview = computed(() => props.model.queuePreview.slice(0, 12));
 
 function onHeroPlay() {
   const t = props.model.heroTrack;
@@ -116,8 +118,8 @@ function formatDuration(sec: number): string {
           <h2>播放队列 <span>{{ queueCount }}</span></h2>
           <button type="button" class="aurora-queue-clear" disabled aria-label="清空播放队列">清空</button>
         </header>
-        <ol v-if="model.queuePreview.length" class="aurora-queue-list">
-          <li v-for="(track, index) in model.queuePreview" :key="track.FileHash" class="aurora-queue-row">
+        <ol v-if="displayedQueuePreview.length" class="aurora-queue-list">
+          <li v-for="(track, index) in displayedQueuePreview" :key="track.FileHash" class="aurora-queue-row">
             <button
               type="button"
               :data-test="`queue-track-${track.FileHash}`"

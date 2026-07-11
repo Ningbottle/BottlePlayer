@@ -123,6 +123,32 @@ describe('AuroraHome', () => {
     expect(wrapper.text()).toContain('15');
   });
 
+  it('limits the queue rail to twelve tracks when the model preview is longer', () => {
+    const queue = Array.from({ length: 13 }, (_, index) => createTrack({
+      FileHash: `queue-${index + 1}`,
+      SongName: `Queue ${index + 1}`,
+    }));
+    const wrapper = mount(AuroraHome, {
+      props: { model: createViewModel({ queuePreview: queue, queueTotal: 13 }) },
+    });
+
+    expect(wrapper.findAll('[data-test^="queue-track-"]')).toHaveLength(12);
+    expect(wrapper.find('[data-test="queue-track-queue-13"]').exists()).toBe(false);
+  });
+
+  it('displays zero when queue total is zero', () => {
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          queuePreview: [createTrack({ FileHash: 'queued-track' })],
+          queueTotal: 0,
+        }),
+      },
+    });
+
+    expect(wrapper.get('.aurora-queue-rail-head h2 span').text()).toBe('0');
+  });
+
   it('emits play-track when a queue row or daily card is selected', async () => {
     const queued = createTrack({ FileHash: 'queue-play', SongName: 'Queue Play' });
     const daily = createTrack({ FileHash: 'daily-play', SongName: 'Daily Play' });
@@ -191,6 +217,16 @@ describe('AuroraHome', () => {
 
     expect(wrapper.emitted('navigate')).toBeTruthy();
     expect(wrapper.emitted('navigate')![0]).toEqual(['playlist', { id: 42, name: 'Cool Playlist' }]);
+  });
+
+  it('emits navigate to lyric when the lyrics button is clicked', async () => {
+    const wrapper = mount(AuroraHome, {
+      props: { model: createViewModel() },
+    });
+
+    await wrapper.get('.aurora-lyrics-link').trigger('click');
+
+    expect(wrapper.emitted('navigate')).toEqual([['lyric']]);
   });
 
   it('keeps old content visible during refresh', () => {
