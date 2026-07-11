@@ -306,12 +306,15 @@ export default { name: 'AuroraHome' };
 .aurora-stage {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(320px, 352px);
+  /* Three rows sized by left column content only */
   grid-template-rows: auto auto auto;
   column-gap: 24px;
   row-gap: 14px;
   align-items: start;
   margin: 0;
   min-width: 0;
+  /* Establish a definite height for the spanning queue cell */
+  grid-auto-rows: auto;
 }
 
 .aurora-stage-main {
@@ -547,10 +550,10 @@ export default { name: 'AuroraHome' };
 }
 
 /*
-  Right queue rail (spec §6.6):
-  - Tall vertical panel, 320–352px wide
-  - Same visual height as main stage (cover + banner + daily picks)
-  - Internal scroll for 12 rows — not a short floating card
+  Right queue rail (spec §6.6 + design):
+  - Tall vertical panel 320–352px
+  - Height matches LEFT stage column only (cover + banner + daily picks)
+  - List scrolls inside — must NOT expand the grid with 12-row min-content
 */
 .aurora-queue-rail {
   grid-column: 2;
@@ -558,7 +561,10 @@ export default { name: 'AuroraHome' };
   align-self: stretch;
   width: 100%;
   min-width: 0;
-  min-height: 100%;
+  /* Critical: zero min-size so rail can't inflate stage height */
+  min-height: 0;
+  max-height: 100%;
+  height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -610,8 +616,11 @@ export default { name: 'AuroraHome' };
   flex-direction: column;
   flex: 1 1 auto;
   min-height: 0;
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
   gap: 0;
+  /* Prevent flex min-content from blowing open the rail */
+  overscroll-behavior: contain;
 }
 
 .aurora-queue-row {
