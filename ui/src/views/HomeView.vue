@@ -77,15 +77,26 @@ function onNavigate(view: string, params?: any) {
 
 <template>
   <div ref="rootEl" class="list-view">
-    <component
-      :is="homeComponent"
-      :model="viewModel"
-      @play-track="onPlayTrack"
-      @refresh="onRefresh"
-      @navigate="onNavigate"
-    />
+    <Transition name="skin-crossfade" mode="out-in">
+      <component
+        :is="homeComponent"
+        :model="viewModel"
+        @play-track="onPlayTrack"
+        @refresh="onRefresh"
+        @navigate="onNavigate"
+      />
+    </Transition>
   </div>
 </template>
 
 <style scoped>
+.skin-crossfade-enter-active,
+.skin-crossfade-leave-active {
+  transition: opacity 0.15s ease;
+}
+
+.skin-crossfade-enter-from,
+.skin-crossfade-leave-to {
+  opacity: 0;
+}
 </style>

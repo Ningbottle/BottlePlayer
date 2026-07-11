@@ -88,3 +88,8 @@
 [data-shell="aurora"] .shell-topbar {
   background: var(--surface-elevated);
 }
+
+/* Aurora: home-specific CSS variables */
+[data-shell="aurora"] {
+  --on-accent: var(--paper, #fff);
+}

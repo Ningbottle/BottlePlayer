@@ -74,3 +74,8 @@
 [data-shell="newsprint"] .shell-sidebar {
   border-right: 1px solid var(--border-subtle);
 }
+
+/* Newsprint: home-specific CSS variables */
+[data-shell="newsprint"] {
+  --on-accent: var(--paper, #fff);
+}

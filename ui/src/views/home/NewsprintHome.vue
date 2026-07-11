@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue';
+import { ref, computed, watch } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../api/normalizer';
 import type { PlaylistInfo } from '../../api/homeFeedStore';
@@ -13,6 +13,8 @@ const emit = defineEmits<{
 }>();
 
 const coverError = ref(false);
+
+watch(() => props.model.heroTrack, () => { coverError.value = false; });
 
 const heroCover = computed(() => {
   if (coverError.value) return '';
