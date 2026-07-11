@@ -76,7 +76,11 @@ function onNavigate(view: string, params?: any) {
 </script>
 
 <template>
-  <div ref="rootEl" class="list-view">
+  <div
+    ref="rootEl"
+    class="list-view"
+    :class="{ 'list-view--aurora': themeStore.skinId.value === 'aurora' }"
+  >
     <Transition name="skin-crossfade" mode="out-in">
       <component
         :is="homeComponent"
@@ -90,6 +94,20 @@ function onNavigate(view: string, params?: any) {
 </template>
 
 <style scoped>
+.list-view--aurora {
+  height: 100%;
+  min-height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Transition wrapper + home must fill so queue rail can stretch to bottom */
+.list-view--aurora :deep(.aurora-home) {
+  flex: 1 1 auto;
+  min-height: 0;
+  height: 100%;
+}
+
 .skin-crossfade-enter-active,
 .skin-crossfade-leave-active {
   transition: opacity 0.15s ease;

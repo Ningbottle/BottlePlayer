@@ -291,27 +291,35 @@ export default { name: 'AuroraHome' };
 
 <style scoped>
 .aurora-home {
-  padding: 16px 20px 20px;
+  /* Fill shell-content so queue can stretch top → bottom (above player) */
+  height: 100%;
   min-height: 100%;
+  max-height: 100%;
+  padding: 14px 18px 10px;
   box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 
 .aurora-stage {
+  /* Design: queue is a tall vertical rect that touches the bottom of this stage */
+  flex: 1 1 auto;
   display: grid;
-  /* Hero column | fatter vertical queue */
   grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
   grid-template-rows: auto auto auto;
-  gap: 14px 24px;
-  align-items: start;
-  margin-bottom: 18px;
-  /* Compact — design fits cover + picks + queue without empty chasm */
+  gap: 12px 22px;
+  align-items: stretch;
+  margin-bottom: 0;
   min-height: 0;
   min-width: 0;
+  height: 100%;
 }
 
 .aurora-stage-main {
   grid-column: 1;
   grid-row: 1;
+  align-self: start;
   min-width: 0;
   display: grid;
   grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
@@ -427,6 +435,7 @@ export default { name: 'AuroraHome' };
 .aurora-daily-banner {
   grid-column: 1;
   grid-row: 2;
+  align-self: start;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -533,22 +542,25 @@ export default { name: 'AuroraHome' };
   cursor: not-allowed;
 }
 
-/* Fatter tall queue — design ~300–340px vertical list */
+/* Tall vertical rect that spans full stage height and touches the bottom edge */
 .aurora-queue-rail {
   grid-column: 2;
-  grid-row: 1 / span 3;
+  grid-row: 1 / -1;
   align-self: stretch;
+  justify-self: stretch;
   width: 100%;
+  height: 100%;
   min-width: 0;
-  min-height: 420px;
+  min-height: 0;
   max-width: 340px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--text-primary) 7%, transparent);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-1) 90%, transparent);
+  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
   padding: 14px 14px 10px;
+  box-sizing: border-box;
 }
 
 .aurora-queue-rail-head {
@@ -675,6 +687,7 @@ export default { name: 'AuroraHome' };
 .aurora-recommendations {
   grid-column: 1;
   grid-row: 3;
+  align-self: start;
   margin: 0;
   min-width: 0;
   padding-top: 2px;
@@ -791,8 +804,11 @@ export default { name: 'AuroraHome' };
 }
 
 .aurora-section {
-  margin-top: 8px;
-  margin-bottom: 22px;
+  flex: none;
+  margin-top: 10px;
+  margin-bottom: 0;
+  overflow: auto;
+  min-height: 0;
 }
 
 .aurora-section-head {
