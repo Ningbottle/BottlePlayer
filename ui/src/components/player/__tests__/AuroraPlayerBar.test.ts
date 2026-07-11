@@ -222,4 +222,22 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.find('.aurora-pb-transport').exists()).toBe(true);
     expect(wrapper.find('.np-pb-transport').exists()).toBe(false);
   });
+
+  it('keeps transport and progress inside the liquid player console', () => {
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack(), duration: 180 }) },
+    });
+
+    const console = wrapper.get('[data-test="aurora-player-console"]');
+    expect(console.find('.aurora-pb-transport').exists()).toBe(true);
+    expect(console.get('[data-test="aurora-player-progress"]').find('.progress-root').exists()).toBe(true);
+    expect(console.get('[aria-label="play"]').exists()).toBe(true);
+  });
+
+  it('keeps labelled queue, lyric, and volume controls outside the main play button', () => {
+    const wrapper = mount(AuroraPlayerBar, { props: { controller: createStubController({ currentTrack: mkTrack() }) } });
+    expect(wrapper.get('[aria-label="queue"]').exists()).toBe(true);
+    expect(wrapper.get('[aria-label="lyric"]').exists()).toBe(true);
+    expect(wrapper.find('.aurora-pb-volume').exists()).toBe(true);
+  });
 });

@@ -88,9 +88,9 @@ function onRelease(e: MouseEvent) {
       </button>
     </div>
 
-    <!-- Center: transport + progress -->
-    <div class="aurora-pb-center">
-      <div class="aurora-pb-transport">
+    <!-- Center: liquid console with transport + progress -->
+    <div class="aurora-pb-center" data-test="aurora-player-console">
+      <div class="aurora-pb-transport" role="group" aria-label="播放控制">
         <button
           class="aurora-pb-btn"
           :style="{ color: c.loopMode === 'random' ? 'var(--accent)' : 'inherit' }"
@@ -170,11 +170,13 @@ function onRelease(e: MouseEvent) {
         </button>
       </div>
 
-      <PlayerProgress
-        :current-time="c.currentTime"
-        :duration="c.duration"
-        @seek="c.seek"
-      />
+      <div class="aurora-pb-progress-wrap" data-test="aurora-player-progress">
+        <PlayerProgress
+          :current-time="c.currentTime"
+          :duration="c.duration"
+          @seek="c.seek"
+        />
+      </div>
     </div>
 
     <!-- Right: quality / queue / lyric / volume -->
@@ -216,6 +218,7 @@ function onRelease(e: MouseEvent) {
         class="aurora-pb-icon aurora-pb-lyric"
         :class="{ active: c.isLyricView }"
         aria-label="lyric"
+        title="歌词"
         @click="c.toggleLyricView"
       >
         词
@@ -237,12 +240,18 @@ function onRelease(e: MouseEvent) {
 .aurora-pb {
   position: relative;
   display: grid;
-  grid-template-columns: 320px 1fr 360px;
+  grid-template-columns: minmax(230px, 0.8fr) minmax(420px, 1.45fr) minmax(250px, 0.8fr);
   gap: 18px;
   align-items: center;
+  min-height: 114px;
   padding: 12px 22px;
-  height: 88px;
   box-sizing: border-box;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
+  border-radius: 34px 34px 28px 28px;
+  /* WebView fallback before color-mix */
+  background: var(--surface-elevated);
+  background: color-mix(in srgb, var(--surface-elevated) 86%, transparent);
+  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.26), inset 0 1px rgba(255, 255, 255, 0.08);
 }
 
 .aurora-pb-left {
@@ -320,6 +329,18 @@ function onRelease(e: MouseEvent) {
   display: flex;
   flex-direction: column;
   gap: 6px;
+  align-self: stretch;
+  margin: -20px 0 0;
+  padding: 14px 28px 10px;
+  border-radius: 46% 46% 30px 30px;
+  /* WebView fallback before color-mix */
+  background: var(--surface-2);
+  background: color-mix(in srgb, var(--surface-2) 74%, transparent);
+}
+
+.aurora-pb-progress-wrap {
+  width: 100%;
+  min-width: 0;
 }
 
 .aurora-pb-transport {
