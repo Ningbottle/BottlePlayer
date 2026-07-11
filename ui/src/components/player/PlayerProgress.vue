@@ -75,7 +75,7 @@ function handleKeydown(e: KeyboardEvent) {
       :aria-valuemax="isEnabled ? duration : undefined"
       :aria-valuenow="isEnabled ? currentTime : undefined"
       :aria-disabled="isEnabled ? undefined : 'true'"
-      :style="{ '--progress-pct': progressPct + '%', '--progress-buffered': bufferedPct + '%' }"
+      :style="{ '--progress-pct': progressPct + '%', '--progress-buffered-pct': bufferedPct + '%' }"
       @click="handleClick"
       @keydown="handleKeydown"
     >

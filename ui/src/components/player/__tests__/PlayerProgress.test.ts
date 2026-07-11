@@ -156,4 +156,28 @@ describe('PlayerProgress', () => {
     expect(pct).toBe('0%');
     expect(pct).not.toContain('NaN');
   });
+
+  // ── Buffered prop ──
+  it('renders .progress-buffered when buffered prop is passed', () => {
+    const wrapper = mount(PlayerProgress, {
+      props: { currentTime: 30, duration: 120, buffered: 60 },
+    });
+    expect(wrapper.find('.progress-buffered').exists()).toBe(true);
+  });
+
+  it('does not render .progress-buffered when buffered prop is omitted', () => {
+    const wrapper = mount(PlayerProgress, {
+      props: { currentTime: 30, duration: 120 },
+    });
+    expect(wrapper.find('.progress-buffered').exists()).toBe(false);
+  });
+
+  it('sets --progress-buffered-pct to correct percentage', () => {
+    const wrapper = mount(PlayerProgress, {
+      props: { currentTime: 30, duration: 120, buffered: 60 },
+    });
+    const track = wrapper.find('.progress-track');
+    const pct = (track.element as HTMLElement).style.getPropertyValue('--progress-buffered-pct');
+    expect(pct).toBe('50%');
+  });
 });

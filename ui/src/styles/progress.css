@@ -32,7 +32,7 @@
   cursor: pointer;
   outline: none;
   --progress-pct: 0%;
-  --progress-buffered: 0%;
+  --progress-buffered-pct: 0%;
 }
 
 .progress-track::before {
@@ -53,7 +53,7 @@
   left: 0;
   top: 50%;
   height: 3px;
-  width: var(--progress-buffered);
+  width: var(--progress-buffered-pct);
   background: var(--progress-buffered);
   border-radius: 1.5px;
   transform: translateY(-50%);
