@@ -103,6 +103,7 @@ temp_full_doc.txt
 *.bak
 .cache/
 .ace-tool/
+.worktrees/
 
 # Project docs and agent configs (keep local only)
 docs/
