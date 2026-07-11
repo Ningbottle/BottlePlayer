@@ -1,21 +1,11 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 
 import Sidebar from './components/Sidebar.vue';
 import Topbar from './components/Topbar.vue';
 import PlayerBar from './components/PlayerBar.vue';
 import Drawer from './components/Drawer.vue';
 import QueuePanel from './components/QueuePanel.vue';
-
-import HomeView from './views/HomeView.vue';
-import SearchView from './views/SearchView.vue';
-import PlaylistView from './views/PlaylistView.vue';
-import LyricView from './views/LyricView.vue';
-import SettingsView from './views/SettingsView.vue';
-import LoginView from './views/LoginView.vue';
-import HistoryView from './views/HistoryView.vue';
-import StatsView from './views/StatsView.vue';
-import EqualizerView from './views/EqualizerView.vue';
 
 import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
@@ -24,6 +14,7 @@ import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { lyricFullscreen } from './api/lyricFullscreen';
 import { transitionEnter, transitionLeave } from './api/motion';
+import { resolveViewDescriptor, type HistoryEntry, type ViewDescriptor } from './api/viewRegistry';
 
 const currentView = ref('home');
 const searchQuery = ref('');
@@ -101,16 +92,24 @@ function close() {
 }
 
 // Navigation History Stack
-interface HistoryEntry {
-  view: string;
-  playlistId?: string;
-  playlistName?: string;
-  searchQuery?: string;
-}
-
 const historyStack = ref<HistoryEntry[]>([{ view: 'home' }]);
 const historyIndex = ref(0);
-const viewTransitionVersion = ref(0);
+
+const currentEntry = computed<HistoryEntry>(() => historyStack.value[historyIndex.value]);
+const currentDescriptor = computed<ViewDescriptor>(() => resolveViewDescriptor(currentEntry.value));
+
+const viewProps = computed<Record<string, unknown>>(() => {
+  switch (currentEntry.value.view) {
+    case 'search':
+      return { query: searchQuery.value };
+    case 'playlist':
+      return { playlistId: playlistId.value, playlistName: playlistName.value };
+    case 'lyric':
+      return { isQueueOpen: isQueueOpen.value, isDrawerOpen: !tweaksCollapsed.value };
+    default:
+      return {};
+  }
+});
 
 function pushHistory(entry: HistoryEntry) {
   historyStack.value.splice(historyIndex.value + 1);
@@ -126,11 +125,10 @@ function applyHistoryEntry(entry: HistoryEntry) {
   } else if (entry.view === 'search') {
     searchQuery.value = entry.searchQuery || '';
   }
-  viewTransitionVersion.value += 1;
 }
 
 function handleNavigate(view: string, params?: any) {
-  const entry: HistoryEntry = { view };
+  const entry: HistoryEntry = { view: view as HistoryEntry['view'] };
   if (view === 'playlist' && params) {
     entry.playlistId = params.id;
     entry.playlistName = params.name;
@@ -145,10 +143,6 @@ function handleSearch(query: string) {
     applyHistoryEntry(entry);
     pushHistory(entry);
   }
-}
-
-function viewTransitionKey() {
-  return `${currentView.value}:${viewTransitionVersion.value}`;
 }
 
 function goBack() {
@@ -252,42 +246,14 @@ onUnmounted(() => {
           @enter="transitionEnter"
           @leave="transitionLeave"
         >
-          <div :key="viewTransitionKey()" class="view-transition-frame">
-            <HomeView 
-              v-if="currentView === 'home'" 
-              @navigate="handleNavigate" 
-            />
-            <SearchView 
-              v-else-if="currentView === 'search'" 
-              :query="searchQuery" 
-            />
-            <PlaylistView 
-              v-else-if="currentView === 'playlist'" 
-              :playlist-id="playlistId"
-              :playlist-name="playlistName"
-            />
-            <LyricView 
-              v-else-if="currentView === 'lyric'" 
-              :is-queue-open="isQueueOpen"
-              :is-drawer-open="!tweaksCollapsed"
-            />
-            <SettingsView 
-              v-else-if="currentView === 'settings'" 
-            />
-            <LoginView 
-              v-else-if="currentView === 'login'" 
+          <KeepAlive include="HomeView">
+            <component
+              :is="currentDescriptor.component"
+              :key="currentDescriptor.cacheKey"
+              v-bind="viewProps"
               @navigate="handleNavigate"
             />
-            <HistoryView 
-              v-else-if="currentView === 'history'" 
-            />
-            <StatsView
-              v-else-if="currentView === 'stats'"
-            />
-            <EqualizerView
-              v-else-if="currentView === 'equalizer'"
-            />
-          </div>
+          </KeepAlive>
         </Transition>
       </div>
 
@@ -327,7 +293,7 @@ onUnmounted(() => {
   font-family: var(--font-sans);
 }
 
-.view-transition-frame {
+.scroll > :deep(*) {
   min-height: 100%;
 }
 

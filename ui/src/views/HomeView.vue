@@ -1,8 +1,15 @@
 <script setup lang="ts">
-import { onMounted, computed } from 'vue';
+import { onMounted, onActivated, onDeactivated, computed, nextTick, ref } from 'vue';
 import { playTrack, playPersonalFm } from '../api/playerStore';
 import { type Track as SongInfo } from '../api/normalizer';
 import { useHomeFeedStore, type PlaylistInfo } from '../api/homeFeedStore';
+import { useThemeStore } from '../api/themeStore';
+
+defineOptions({ name: 'HomeView' });
+
+const scrollPositions: Record<string, number> = {};
+const themeStore = useThemeStore();
+const rootEl = ref<HTMLElement | null>(null);
 
 // Subtitle below the date — varies by hour so the "晚刊" feel is honest.
 const timeOfDayPhrase = computed(() => {
@@ -34,6 +41,34 @@ onMounted(() => {
   homeFeed.ensureLoaded();
 });
 
+function findScrollContainer(): HTMLElement | null {
+  let el: HTMLElement | null = rootEl.value;
+  while (el) {
+    if (el.classList.contains('scroll')) return el;
+    el = el.parentElement;
+  }
+  return null;
+}
+
+let scrollContainer: HTMLElement | null = null;
+
+onActivated(() => {
+  scrollContainer = findScrollContainer();
+  const skinKey = `home:${themeStore.skinId.value}`;
+  const saved = scrollPositions[skinKey];
+  if (saved != null && scrollContainer) {
+    nextTick(() => {
+      if (scrollContainer) scrollContainer.scrollTop = saved;
+    });
+  }
+});
+
+onDeactivated(() => {
+  if (scrollContainer) {
+    scrollPositions[`home:${themeStore.skinId.value}`] = scrollContainer.scrollTop;
+  }
+});
+
 function handlePlaySong(song: SongInfo) {
   const idx = homeFeed.daily.items.findIndex(s => s.FileHash === song.FileHash);
   playPersonalFm(homeFeed.daily.items, idx >= 0 ? idx : 0);
@@ -53,7 +88,7 @@ function playHeadline() {
 </script>
 
 <template>
-  <div class="list-view">
+  <div ref="rootEl" class="list-view">
     <div class="page-head">
       <div>
         <div class="kicker">Late Edition · 晚刊</div>

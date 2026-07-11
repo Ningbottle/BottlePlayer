@@ -6,6 +6,13 @@ const backendHealthMock = vi.hoisted(() => vi.fn());
 const pingMock = vi.hoisted(() => vi.fn());
 const transitionEnterMock = vi.hoisted(() => vi.fn((_el, done?: () => void) => done?.()));
 const transitionLeaveMock = vi.hoisted(() => vi.fn((_el, done?: () => void) => done?.()));
+const homeFeedStoreMock = vi.hoisted(() => ({
+  ensureLoaded: vi.fn(),
+  refresh: vi.fn(),
+  daily: { loading: false, refreshing: false, error: null, items: [] },
+  playlists: { loading: false, refreshing: false, error: null, items: [] },
+  albums: { loading: false, refreshing: false, error: null, items: [] },
+}));
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(0),
@@ -30,6 +37,10 @@ vi.mock('../../api/motion', () => ({
   transitionLeave: transitionLeaveMock,
 }));
 
+vi.mock('../../api/homeFeedStore', () => ({
+  useHomeFeedStore: () => homeFeedStoreMock,
+}));
+
 vi.mock('../../api/playerStore', () => ({
   initPlayer: vi.fn(),
   initPlayerBackend: vi.fn(),
@@ -47,6 +58,7 @@ vi.mock('../../api/playerStore', () => ({
   prev: vi.fn(),
   seek: vi.fn(),
   setVolume: vi.fn(),
+  playPersonalFm: vi.fn(),
 }));
 
 vi.mock('../../api/userStore', () => ({
@@ -61,20 +73,19 @@ vi.mock('../../api/userStore', () => ({
 vi.mock('../../components/Sidebar.vue', () => ({
   default: {
     emits: ['navigate'],
-    template: '<aside><button data-test="go-search" @click="$emit(\'navigate\', \'search\')" /></aside>',
+    template: '<aside><button data-test="go-search" @click="$emit(\'navigate\', \'search\')" /><button data-test="go-stats" @click="$emit(\'navigate\', \'stats\')" /></aside>',
   },
 }));
 vi.mock('../../components/Topbar.vue', () => ({
   default: {
     props: ['searchQuery'],
-    emits: ['update:searchQuery'],
-    template: '<header><button data-test="edit-search" @click="$emit(\'update:searchQuery\', \'typed\')" /></header>',
+    emits: ['update:searchQuery', 'back'],
+    template: '<header><button data-test="edit-search" @click="$emit(\'update:searchQuery\', \'typed\')" /><button data-test="go-back" @click="$emit(\'back\')" /></header>',
   },
 }));
 vi.mock('../../components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
 vi.mock('../../components/Drawer.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
-vi.mock('../HomeView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../SearchView.vue', () => ({ default: { props: ['query'], template: '<main data-test="search-view" />' } }));
 vi.mock('../PlaylistView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../LyricView.vue', () => ({ default: { template: '<main />' } }));
@@ -89,6 +100,7 @@ import App from '../../App.vue';
 describe('App network banner', () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    homeFeedStoreMock.ensureLoaded.mockReset();
     backendHealthMock.mockResolvedValue({ ok: true, status: 200, text: '{"status":1}' });
     pingMock.mockResolvedValue('pong');
   });
@@ -162,5 +174,26 @@ describe('App network banner', () => {
     await nextTick();
 
     expect(wrapper.find('[data-test="search-view"]').element).toBe(firstSearchElement);
+  });
+
+  it('keeps the same HomeView instance when navigating away and back', async () => {
+    const wrapper = mount(App);
+    await flushPromises();
+
+    expect(homeFeedStoreMock.ensureLoaded).toHaveBeenCalledTimes(1);
+
+    const scroll = wrapper.get('.scroll').element as HTMLElement;
+    scroll.scrollTop = 146;
+
+    await wrapper.get('[data-test="go-stats"]').trigger('click');
+    await nextTick();
+    scroll.scrollTop = 0;
+
+    await wrapper.get('[data-test="go-back"]').trigger('click');
+    await nextTick();
+    await nextTick();
+
+    expect(homeFeedStoreMock.ensureLoaded).toHaveBeenCalledTimes(1);
+    expect(scroll.scrollTop).toBe(146);
   });
 });
