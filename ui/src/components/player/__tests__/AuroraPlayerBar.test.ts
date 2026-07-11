@@ -152,7 +152,7 @@ describe('AuroraPlayerBar', () => {
 
     expect(wrapper.text()).toContain('未播放歌曲');
     expect(wrapper.find('.aurora-pb-cover img').exists()).toBe(true);
-    expect(wrapper.find('.aurora-pb-info').exists()).toBe(true);
+    expect(wrapper.find('.aurora-pb-info-btn').exists()).toBe(true);
   });
 
   it('loading state shows pause icon (showPauseIcon=true)', () => {
@@ -177,7 +177,7 @@ describe('AuroraPlayerBar', () => {
     });
 
     expect(wrapper.text()).toContain(longName);
-    expect(wrapper.find('.aurora-pb-info').exists()).toBe(true);
+    expect(wrapper.find('.aurora-pb-info-btn').exists()).toBe(true);
   });
 
   it('no cover uses fallback coverUrl', () => {

@@ -14,6 +14,16 @@ const emit = defineEmits<{
 
 const c = computed(() => props.controller);
 
+/** Design-target style quality chip (e.g. 无损 · 96kHz when available). */
+const qualityChip = computed(() => {
+  const label = c.value.getQualityLabel(c.value.quality);
+  const q = String(c.value.quality || '').toLowerCase();
+  if (q.includes('flac') || q.includes('hires') || q.includes('master') || label.includes('无损') || label.includes('Hi')) {
+    return `${label}`;
+  }
+  return label;
+});
+
 function handleVolumeClick(e: MouseEvent) {
   const barEl = e.currentTarget as HTMLElement;
   const rect = barEl.getBoundingClientRect();
@@ -35,27 +45,37 @@ function onRelease(e: MouseEvent) {
 
 <template>
   <footer class="aurora-pb" @click="c.closeQualityMenu">
-    <!-- Mode Toast -->
     <transition name="toast-fade">
       <div v-if="c.toastMsg" class="mode-toast aurora-pb-toast">
         {{ c.toastMsg }}
       </div>
     </transition>
 
-    <!-- Favorite toast -->
     <transition name="toast-fade">
-      <div v-if="c.favoriteMsg" class="mode-toast aurora-pb-toast" style="top: -48px;">
+      <div v-if="c.favoriteMsg" class="mode-toast aurora-pb-toast aurora-pb-toast-fav">
         {{ c.favoriteMsg }}
       </div>
     </transition>
 
-    <!-- Left: cover + metadata -->
-    <div class="aurora-pb-left" @click="c.toggleLyricView" style="cursor: pointer;" title="点击查看歌词">
-      <div class="aurora-pb-cover">
-        <img :src="c.coverUrl" alt="cover" />
-      </div>
+    <!-- Left: cover + title/artist + star -->
+    <div class="aurora-pb-left">
+      <button
+        type="button"
+        class="aurora-pb-cover-btn"
+        title="点击查看歌词"
+        @click="c.toggleLyricView"
+      >
+        <div class="aurora-pb-cover">
+          <img :src="c.coverUrl" alt="cover" />
+        </div>
+      </button>
 
-      <div class="aurora-pb-info">
+      <button
+        type="button"
+        class="aurora-pb-info-btn"
+        title="点击查看歌词"
+        @click="c.toggleLyricView"
+      >
         <template v-if="c.currentTrack">
           <b>{{ c.currentTrack.SongName }}</b>
           <span>{{ c.currentTrack.SingerName }}</span>
@@ -64,111 +84,115 @@ function onRelease(e: MouseEvent) {
           <b>未播放歌曲</b>
           <span>- -</span>
         </template>
-      </div>
+      </button>
 
-      <span v-if="c.errorMsg" class="aurora-pb-status" style="color: var(--accent);">
-        {{ c.errorMsg }}
-      </span>
-      <span v-else-if="c.vipRequired" class="aurora-pb-status" style="color: var(--accent);">
-        ⚠️ VIP 歌曲 · 仅 60s 试听
-      </span>
-      <span v-else-if="c.isPreview" class="aurora-pb-status">
-        ⚠️ 试听版本
-      </span>
+      <span v-if="c.errorMsg" class="aurora-pb-status">{{ c.errorMsg }}</span>
+      <span v-else-if="c.vipRequired" class="aurora-pb-status">VIP 试听</span>
+      <span v-else-if="c.isPreview" class="aurora-pb-status">试听</span>
 
       <button
-        v-if="c.currentTrack"
+        type="button"
         class="aurora-pb-fav"
+        :class="{ 'is-disabled': !c.currentTrack }"
         aria-label="favorite"
         title="收藏"
+        :disabled="!c.currentTrack"
         @click.stop="c.handleFavorite"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" width="16" height="16">
-          <path d="M12 2l2.39 6.96H22l-6 4.62L18.18 21 12 16.77 5.82 21 8 13.58 2 8.96h7.61z"/>
+        <!-- outline star matching design -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18">
+          <path d="M12 3.2l2.35 4.76 5.25.76-3.8 3.7.9 5.24L12 15.9l-4.7 2.46.9-5.24-3.8-3.7 5.25-.76L12 3.2z"/>
         </svg>
       </button>
     </div>
 
-    <!-- Center: liquid console with transport + progress -->
+    <!-- Center: raised transport bubble + progress under it -->
     <div class="aurora-pb-center" data-test="aurora-player-console">
-      <div class="aurora-pb-transport" role="group" aria-label="播放控制">
-        <button
-          class="aurora-pb-btn"
-          :style="{ color: c.loopMode === 'random' ? 'var(--accent)' : 'inherit' }"
-          aria-label="shuffle"
-          title="随机播放"
-          @click="c.toggleShuffle"
-          @mousedown="onPress"
-          @mouseup="onRelease"
-          @mouseleave="onRelease"
-        >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M16 3h5v5M4 20l17-17M21 16v5h-5M15 15l6 6M4 4l5 5"/>
-          </svg>
-        </button>
+      <div class="aurora-pb-bubble">
+        <div class="aurora-pb-transport" role="group" aria-label="播放控制">
+          <button
+            type="button"
+            class="aurora-pb-btn"
+            :class="{ 'is-active': c.loopMode === 'random' }"
+            aria-label="shuffle"
+            title="随机播放"
+            @click="c.toggleShuffle"
+            @mousedown="onPress"
+            @mouseup="onRelease"
+            @mouseleave="onRelease"
+          >
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+              <path d="M16 3h5v5M4 20l17-17M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+            </svg>
+          </button>
 
-        <button
-          class="aurora-pb-btn"
-          aria-label="prev"
-          @click="c.prev"
-          @mousedown="onPress"
-          @mouseup="onRelease"
-          @mouseleave="onRelease"
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="6,5 6,19 8,19 8,13 19,19 19,5 8,11 8,5"/>
-          </svg>
-        </button>
+          <button
+            type="button"
+            class="aurora-pb-btn"
+            aria-label="prev"
+            @click="c.prev"
+            @mousedown="onPress"
+            @mouseup="onRelease"
+            @mouseleave="onRelease"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M6 5v14h2V13.5L18 19V5L8 10.5V5H6z"/>
+            </svg>
+          </button>
 
-        <button
-          class="aurora-pb-btn aurora-pb-play"
-          :aria-label="c.showPauseIcon ? 'pause' : 'play'"
-          :title="c.isLoading ? '取消加载' : (c.isPlaying ? '暂停' : '播放')"
-          @click="c.togglePlay"
-          @mousedown="onPress"
-          @mouseup="onRelease"
-          @mouseleave="onRelease"
-        >
-          <svg v-if="c.showPauseIcon" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="4" width="4" height="16" />
-            <rect x="14" y="4" width="4" height="16" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="6,4 20,12 6,20"/>
-          </svg>
-        </button>
+          <button
+            type="button"
+            class="aurora-pb-btn aurora-pb-play"
+            :aria-label="c.showPauseIcon ? 'pause' : 'play'"
+            :title="c.isLoading ? '取消加载' : (c.isPlaying ? '暂停' : '播放')"
+            @click="c.togglePlay"
+            @mousedown="onPress"
+            @mouseup="onRelease"
+            @mouseleave="onRelease"
+          >
+            <svg v-if="c.showPauseIcon" viewBox="0 0 24 24" fill="currentColor">
+              <rect x="6" y="4" width="4" height="16" rx="1" />
+              <rect x="14" y="4" width="4" height="16" rx="1" />
+            </svg>
+            <svg v-else viewBox="0 0 24 24" fill="currentColor">
+              <path d="M8 5.5v13l11-6.5L8 5.5z"/>
+            </svg>
+          </button>
 
-        <button
-          class="aurora-pb-btn"
-          aria-label="next"
-          @click="c.next"
-          @mousedown="onPress"
-          @mouseup="onRelease"
-          @mouseleave="onRelease"
-        >
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <polygon points="5,5 16,11 16,5 18,5 18,19 16,19 16,13 5,19"/>
-          </svg>
-        </button>
+          <button
+            type="button"
+            class="aurora-pb-btn"
+            aria-label="next"
+            @click="c.next"
+            @mousedown="onPress"
+            @mouseup="onRelease"
+            @mouseleave="onRelease"
+          >
+            <svg viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18 5v14h-2V13.5L6 19V5l10 5.5V5h2z"/>
+            </svg>
+          </button>
 
-        <button
-          class="aurora-pb-btn"
-          :style="{ color: c.loopMode === 'single' ? 'var(--accent)' : 'inherit' }"
-          aria-label="repeat"
-          title="单曲循环"
-          @click="c.toggleRepeat"
-          @mousedown="onPress"
-          @mouseup="onRelease"
-          @mouseleave="onRelease"
-        >
-          <svg v-if="c.loopMode === 'single'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M17 1l4 4-4 4 M3 11V9a4 4 0 0 1 4-4h14 M7 23l-4-4 4-4 M21 13v2a4 4 0 0 1-4 4H3"/>
-            <text x="12" y="15" font-size="8" font-weight="900" fill="currentColor" stroke="none" text-anchor="middle">1</text>
-          </svg>
-          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-            <path d="M17 1l4 4-4 4 M3 11V9a4 4 0 0 1 4-4h14 M7 23l-4-4 4-4 M21 13v2a4 4 0 0 1-4 4H3"/>
-          </svg>
-        </button>
+          <button
+            type="button"
+            class="aurora-pb-btn"
+            :class="{ 'is-active': c.loopMode === 'single' }"
+            aria-label="repeat"
+            title="单曲循环"
+            @click="c.toggleRepeat"
+            @mousedown="onPress"
+            @mouseup="onRelease"
+            @mouseleave="onRelease"
+          >
+            <svg v-if="c.loopMode === 'single'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+              <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/>
+              <text x="12" y="15.5" font-size="7.5" font-weight="800" fill="currentColor" stroke="none" text-anchor="middle">1</text>
+            </svg>
+            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+              <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/>
+            </svg>
+          </button>
+        </div>
       </div>
 
       <div class="aurora-pb-progress-wrap" data-test="aurora-player-progress">
@@ -180,17 +204,18 @@ function onRelease(e: MouseEvent) {
       </div>
     </div>
 
-    <!-- Right: quality / queue / lyric / volume -->
+    <!-- Right: quality · lyric · volume (queue kept for a11y, de-emphasized when rail visible) -->
     <div class="aurora-pb-right">
       <div class="aurora-pb-quality" @click.stop>
         <button
+          type="button"
           class="aurora-pb-q-btn"
           :class="{ active: c.showQualityMenu }"
           @click="c.showQualityMenu = !c.showQualityMenu"
           title="音质选择"
         >
-          {{ c.getQualityLabel(c.quality) }}
-          <span class="aurora-pb-q-tag">切换</span>
+          <span class="aurora-pb-q-main">{{ qualityChip }}</span>
+          <span class="aurora-pb-q-sub">切换</span>
         </button>
 
         <transition name="menu-fade">
@@ -209,14 +234,21 @@ function onRelease(e: MouseEvent) {
         </transition>
       </div>
 
-      <button class="aurora-pb-icon" aria-label="queue" @click="emit('toggle-queue')" title="播放队列">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" width="14" height="14">
-          <path d="M8 6h13 M8 12h13 M8 18h13 M3 6h.01 M3 12h.01 M3 18h.01"/>
+      <button
+        type="button"
+        class="aurora-pb-icon aurora-pb-queue"
+        aria-label="queue"
+        title="播放队列"
+        @click="emit('toggle-queue')"
+      >
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" width="16" height="16">
+          <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
         </svg>
       </button>
 
       <button
-        class="aurora-pb-icon aurora-pb-lyric"
+        type="button"
+        class="aurora-pb-lyric"
         :class="{ active: c.isLyricView }"
         aria-label="lyric"
         title="歌词"
@@ -225,12 +257,14 @@ function onRelease(e: MouseEvent) {
         词
       </button>
 
-      <div class="aurora-pb-volume">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-          <path d="M11 5L6 9H2v6h4l5 4z M15 9a4 4 0 0 1 0 6 M18 6a8 8 0 0 1 0 12"/>
+      <div class="aurora-pb-volume" title="音量">
+        <svg class="aurora-pb-vol-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
+          <path d="M11 5L6 9H2v6h4l5 4zM15.5 9.5a4 4 0 0 1 0 5M18.5 7a7.5 7.5 0 0 1 0 10"/>
         </svg>
         <div class="aurora-pb-vol-bar" @click="handleVolumeClick">
-          <div class="aurora-pb-vol-fill" :style="{ width: c.volumePercent + '%' }"></div>
+          <div class="aurora-pb-vol-fill" :style="{ width: c.volumePercent + '%' }">
+            <i class="aurora-pb-vol-thumb" />
+          </div>
         </div>
       </div>
     </div>
@@ -238,110 +272,195 @@ function onRelease(e: MouseEvent) {
 </template>
 
 <style scoped>
+/* ── Dock: full-width liquid capsule (design target) ── */
 .aurora-pb {
+  --pb-glass: color-mix(in srgb, var(--surface-elevated) 78%, #000 22%);
+  --pb-bubble: color-mix(in srgb, var(--surface-2) 70%, #000 30%);
   position: relative;
   display: grid;
-  grid-template-columns: minmax(230px, 0.8fr) minmax(420px, 1.45fr) minmax(250px, 0.8fr);
-  gap: 18px;
+  grid-template-columns: minmax(200px, 0.78fr) minmax(360px, 1.5fr) minmax(220px, 0.78fr);
+  gap: 8px 16px;
   align-items: center;
-  min-height: 114px;
-  padding: 12px 22px;
+  min-height: 88px;
+  padding: 12px 24px 14px;
   box-sizing: border-box;
-  border: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
-  border-radius: 34px 34px 28px 28px;
-  /* WebView fallback before color-mix */
+  border-radius: 48px;
+  border: 1px solid color-mix(in srgb, #fff 8%, transparent);
   background: var(--surface-elevated);
-  background: color-mix(in srgb, var(--surface-elevated) 86%, transparent);
-  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.26), inset 0 1px rgba(255, 255, 255, 0.08);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--surface-elevated) 92%, #fff 4%) 0%,
+    color-mix(in srgb, var(--surface-elevated) 78%, #000 12%) 100%
+  );
+  backdrop-filter: blur(28px) saturate(160%);
+  -webkit-backdrop-filter: blur(28px) saturate(160%);
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.38),
+    0 2px 0 color-mix(in srgb, #fff 6%, transparent) inset,
+    0 -1px 0 rgba(0, 0, 0, 0.25) inset;
 }
 
+:global(:root[data-mode='light']) .aurora-pb {
+  border-color: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, #fff 94%, var(--surface-2)) 0%,
+    color-mix(in srgb, var(--surface-elevated) 88%, var(--surface-2)) 100%
+  );
+  box-shadow:
+    0 16px 36px rgba(22, 32, 29, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.9) inset;
+}
+
+/* ── Left ── */
 .aurora-pb-left {
   display: flex;
   align-items: center;
   gap: 12px;
   min-width: 0;
-  position: relative;
+  z-index: 1;
+}
+
+.aurora-pb-cover-btn,
+.aurora-pb-info-btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  cursor: pointer;
+  text-align: left;
+  min-width: 0;
 }
 
 .aurora-pb-cover {
-  width: 56px;
-  height: 56px;
-  border-radius: 10px;
-  border: 1px solid var(--border-subtle, rgba(34,27,18,0.12));
+  width: 52px;
+  height: 52px;
+  border-radius: 12px;
   overflow: hidden;
   flex: none;
-  box-shadow: 0 2px 6px rgba(40,28,12,0.2);
-  background: var(--surface-1, #f1ead8);
+  background: var(--surface-2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
 }
 
 .aurora-pb-cover img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  transition: opacity 0.15s var(--ease-spa, ease);
+  display: block;
 }
 
-.aurora-pb-info {
+.aurora-pb-info-btn {
   display: flex;
   flex-direction: column;
+  gap: 2px;
   min-width: 0;
 }
 
-.aurora-pb-info b {
+.aurora-pb-info-btn b {
   font-size: 14px;
   font-weight: 600;
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 160px;
 }
 
-.aurora-pb-info span {
+.aurora-pb-info-btn span {
   font-size: 12px;
-  color: var(--ink-soft, #8a7e6a);
+  color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  max-width: 160px;
 }
 
 .aurora-pb-status {
   font-size: 11px;
-  margin-left: 10px;
-  color: var(--ink-soft, #8a7e6a);
+  color: var(--accent);
   white-space: nowrap;
 }
 
 .aurora-pb-fav {
-  background: none;
-  border: none;
-  padding: 4px;
-  margin-left: 10px;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-muted);
   cursor: pointer;
-  color: var(--ink-mute, #8a7e6a);
-  transition: color 0.2s;
-  display: inline-flex;
-  align-items: center;
+  transition: color 0.2s, transform 0.15s;
 }
 
-.aurora-pb-fav:hover {
-  color: var(--accent, #a8311b);
+.aurora-pb-fav:hover:not(:disabled) {
+  color: var(--accent);
+  transform: scale(1.06);
 }
 
+.aurora-pb-fav.is-disabled,
+.aurora-pb-fav:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* ── Center console ── */
 .aurora-pb-center {
+  position: relative;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  align-self: stretch;
-  margin: -20px 0 0;
-  padding: 14px 28px 10px;
-  border-radius: 46% 46% 30px 30px;
-  /* WebView fallback before color-mix */
-  background: var(--surface-2);
-  background: color-mix(in srgb, var(--surface-2) 74%, transparent);
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  min-width: 0;
+  min-height: 76px;
+  padding-top: 28px;
 }
 
-.aurora-pb-progress-wrap {
-  width: 100%;
-  min-width: 0;
+/* Raised transport dome — design “liquid hump” over the dock */
+.aurora-pb-bubble {
+  position: absolute;
+  top: -30px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 300px;
+  height: 64px;
+  padding: 0 40px;
+  /* Elliptical top dome sitting on the bar */
+  border-radius: 50% 50% 28px 28px / 92% 92% 28px 28px;
+  border: 1px solid color-mix(in srgb, #fff 9%, transparent);
+  background: var(--surface-2);
+  background:
+    radial-gradient(120% 90% at 50% 0%, color-mix(in srgb, #fff 10%, transparent), transparent 55%),
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-2) 90%, #fff 8%) 0%,
+      color-mix(in srgb, var(--surface-2) 68%, #000 22%) 100%
+    );
+  box-shadow:
+    0 14px 32px rgba(0, 0, 0, 0.42),
+    0 1px 0 color-mix(in srgb, #fff 12%, transparent) inset,
+    0 -8px 18px rgba(0, 0, 0, 0.22) inset;
+}
+
+:global(:root[data-mode='light']) .aurora-pb-bubble {
+  border-color: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  background: linear-gradient(
+    180deg,
+    #fff 0%,
+    color-mix(in srgb, var(--surface-2) 80%, #fff) 100%
+  );
+  box-shadow:
+    0 10px 24px rgba(22, 32, 29, 0.12),
+    0 1px 0 rgba(255, 255, 255, 0.95) inset;
 }
 
 .aurora-pb-transport {
@@ -352,52 +471,109 @@ function onRelease(e: MouseEvent) {
 }
 
 .aurora-pb-btn {
-  width: 30px;
-  height: 30px;
+  width: 34px;
+  height: 34px;
   display: grid;
   place-items: center;
   cursor: pointer;
-  color: var(--ink-soft, #666);
+  color: color-mix(in srgb, var(--text-secondary) 88%, #fff 12%);
   background: transparent;
   border: none;
   border-radius: 50%;
-  transition: transform 0.1s ease-out, color 0.2s;
+  transition: color 0.15s, transform 0.12s;
 }
 
 .aurora-pb-btn:hover {
-  color: var(--ink, #2a2520);
+  color: var(--text-primary);
+}
+
+.aurora-pb-btn.is-active {
+  color: var(--accent);
 }
 
 .aurora-pb-btn svg {
-  width: 18px;
-  height: 18px;
+  width: 19px;
+  height: 19px;
 }
 
+/* Large mint play — design hero control */
 .aurora-pb-play {
-  width: 38px;
-  height: 38px;
-  background: var(--ink, #2a2520);
-  color: var(--paper, #f1ead8);
+  width: 52px;
+  height: 52px;
+  background: var(--accent);
+  color: #07120e;
   border-radius: 50%;
-  box-shadow: 0 2px 6px rgba(40,28,12,0.3), inset 0 1px 0 rgba(255,252,243,0.18);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s;
+  box-shadow:
+    0 8px 22px color-mix(in srgb, var(--accent) 48%, transparent),
+    0 1px 0 color-mix(in srgb, #fff 40%, transparent) inset,
+    0 0 0 1px color-mix(in srgb, var(--accent) 35%, transparent);
 }
 
 .aurora-pb-play:hover {
-  background: #000;
+  filter: brightness(1.08);
+  color: #040c09;
 }
 
 .aurora-pb-play svg {
-  width: 16px;
-  height: 16px;
+  width: 20px;
+  height: 20px;
 }
 
+.aurora-pb-progress-wrap {
+  width: 100%;
+  max-width: 640px;
+  min-width: 0;
+  padding: 0 12px;
+  z-index: 1;
+}
+
+/* Slim emerald progress under the bubble */
+.aurora-pb-progress-wrap :deep(.progress-root) {
+  gap: 10px;
+}
+
+.aurora-pb-progress-wrap :deep(.progress-time) {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-style: normal;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-muted);
+  min-width: 34px;
+}
+
+.aurora-pb-progress-wrap :deep(.progress-track) {
+  height: 14px;
+}
+
+.aurora-pb-progress-wrap :deep(.progress-track::before) {
+  height: 3px;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--progress-track) 85%, transparent);
+}
+
+.aurora-pb-progress-wrap :deep(.progress-fill) {
+  height: 3px;
+  border-radius: 999px;
+  background: var(--progress-fill);
+}
+
+.aurora-pb-progress-wrap :deep(.progress-thumb) {
+  width: 11px;
+  height: 11px;
+  border: 2px solid var(--progress-thumb-ring, var(--accent));
+  background: var(--progress-thumb-fill, #fff);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+}
+
+/* ── Right ── */
 .aurora-pb-right {
   display: flex;
   align-items: center;
   justify-content: flex-end;
   gap: 10px;
-  color: var(--ink-soft, #666);
+  min-width: 0;
+  z-index: 1;
+  color: var(--text-secondary);
 }
 
 .aurora-pb-quality {
@@ -405,45 +581,45 @@ function onRelease(e: MouseEvent) {
 }
 
 .aurora-pb-q-btn {
-  font-size: 12px;
-  padding: 4px 10px;
-  border: 1px solid var(--ink-soft, #666);
-  border-radius: 4px;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 2px;
+  border: 0;
   background: transparent;
-  color: var(--ink, #2a2520);
+  color: var(--text-secondary);
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  transition: all 0.2s;
+  font: inherit;
+  white-space: nowrap;
 }
 
-.aurora-pb-q-btn:hover,
-.aurora-pb-q-btn.active {
-  border-color: var(--accent, #a8311b);
-  color: var(--accent, #a8311b);
+.aurora-pb-q-main {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
 }
 
-.aurora-pb-q-tag {
+.aurora-pb-q-sub {
   font-size: 10px;
-  padding: 1px 4px;
-  border-radius: 2px;
-  background: var(--accent, #a8311b);
-  color: var(--paper, #f1ead8);
-  line-height: 1;
+  color: var(--text-muted);
+  opacity: 0.85;
+}
+
+.aurora-pb-q-btn:hover .aurora-pb-q-main,
+.aurora-pb-q-btn.active .aurora-pb-q-main {
+  color: var(--accent);
 }
 
 .aurora-pb-q-menu {
   position: absolute;
-  bottom: 100%;
+  bottom: calc(100% + 10px);
   right: 0;
-  margin-bottom: 8px;
-  background: var(--paper, #f1ead8);
-  border: 1px solid var(--ink-soft, #666);
-  border-radius: 8px;
+  min-width: 148px;
   padding: 6px 0;
-  min-width: 140px;
-  box-shadow: 0 8px 24px rgba(40,28,12,0.2);
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  background: var(--surface-elevated);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.35);
   z-index: 1001;
 }
 
@@ -453,129 +629,191 @@ function onRelease(e: MouseEvent) {
   justify-content: space-between;
   padding: 8px 14px;
   cursor: pointer;
-  transition: background 0.15s;
   font-size: 13px;
+  color: var(--text-primary);
 }
 
 .aurora-pb-q-option:hover {
-  background: rgba(102,102,102,0.1);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
 
 .aurora-pb-q-option.active {
-  color: var(--accent, #a8311b);
+  color: var(--accent);
   font-weight: 600;
 }
 
 .aurora-pb-q-current {
   font-size: 11px;
-  color: var(--ink-soft, #666);
-  margin-left: 8px;
+  color: var(--text-muted);
 }
 
 .aurora-pb-icon {
-  width: 26px;
-  height: 26px;
-  border-radius: 50%;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
-  cursor: pointer;
-  color: var(--ink-soft, #666);
-  position: relative;
+  border: 0;
+  border-radius: 50%;
   background: transparent;
-  border: none;
-  transition: color 0.2s;
+  color: var(--text-secondary);
+  cursor: pointer;
 }
 
 .aurora-pb-icon:hover {
-  color: var(--ink, #2a2520);
+  color: var(--text-primary);
 }
 
-.aurora-pb-icon svg {
-  width: 16px;
-  height: 16px;
+/* Design de-emphasizes queue when desktop rail is present */
+.aurora-pb-queue {
+  opacity: 0.55;
 }
 
 .aurora-pb-lyric {
-  width: 30px;
-  height: 24px;
-  border: 1px solid var(--border-subtle, #ccc);
-  border-radius: 4px;
-  background: transparent;
-  font-weight: 600;
+  min-width: 30px;
+  height: 26px;
+  padding: 0 8px;
+  border-radius: 8px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 55%, transparent);
+  color: var(--text-primary);
   font-size: 13px;
-  color: var(--ink, #2a2520);
+  font-weight: 600;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.aurora-pb-lyric.active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
 }
 
 .aurora-pb-volume {
   display: flex;
   align-items: center;
-  gap: 6px;
-  width: 90px;
+  gap: 8px;
+  width: 108px;
+  flex: none;
+}
+
+.aurora-pb-vol-icon {
+  flex: none;
+  color: var(--text-secondary);
 }
 
 .aurora-pb-vol-bar {
   position: relative;
   flex: 1;
-  height: 12px;
+  height: 16px;
   display: flex;
   align-items: center;
   cursor: pointer;
 }
 
 .aurora-pb-vol-bar::before {
-  content: "";
+  content: '';
   position: absolute;
   left: 0;
   right: 0;
   top: 50%;
-  height: 1px;
-  background: var(--border-subtle, rgba(34,27,18,0.18));
+  height: 3px;
+  border-radius: 999px;
+  background: var(--progress-track);
+  transform: translateY(-50%);
 }
 
 .aurora-pb-vol-fill {
   position: absolute;
   left: 0;
   top: 50%;
-  height: 2px;
-  background: var(--ink, #2a2520);
-  transform: translateY(-1px);
+  height: 3px;
+  border-radius: 999px;
+  background: var(--progress-fill);
+  transform: translateY(-50%);
+}
+
+.aurora-pb-vol-thumb {
+  position: absolute;
+  right: -5px;
+  top: 50%;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 1px 3px rgba(0, 0, 0, 0.35);
+  transform: translateY(-50%);
 }
 
 .mode-toast {
   position: absolute;
-  top: -48px;
+  top: -44px;
   left: 50%;
   transform: translateX(-50%);
-  background: var(--ink, #2a2520);
-  color: var(--paper, #f1ead8);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+  border: 1px solid var(--border-subtle);
   padding: 8px 16px;
   border-radius: 20px;
   font-size: 13px;
   font-weight: 500;
-  box-shadow: 0 4px 12px rgba(40,28,12,0.25);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
   pointer-events: none;
   z-index: 1000;
 }
 
+.aurora-pb-toast-fav {
+  top: -52px;
+}
+
 .toast-fade-enter-active,
 .toast-fade-leave-active {
-  transition: all 0.3s var(--ease-spa, ease);
+  transition: all 0.25s ease;
 }
 
 .toast-fade-enter-from,
 .toast-fade-leave-to {
   opacity: 0;
-  transform: translate(-50%, 10px);
+  transform: translate(-50%, 8px);
 }
 
 .menu-fade-enter-active,
 .menu-fade-leave-active {
-  transition: all 0.2s var(--ease-spa, ease);
+  transition: all 0.18s ease;
 }
 
 .menu-fade-enter-from,
 .menu-fade-leave-to {
   opacity: 0;
   transform: translateY(4px);
+}
+
+@media (max-width: 899px) {
+  .aurora-pb {
+    grid-template-columns: 1fr;
+    gap: 10px;
+    min-height: 0;
+    border-radius: 28px;
+    padding: 12px 14px 14px;
+  }
+
+  .aurora-pb-center {
+    order: 2;
+    padding-top: 28px;
+    min-height: 88px;
+  }
+
+  .aurora-pb-bubble {
+    top: -8px;
+    min-width: 220px;
+    padding: 10px 24px 12px;
+  }
+
+  .aurora-pb-right {
+    order: 3;
+    justify-content: space-between;
+  }
+
+  .aurora-pb-queue {
+    opacity: 1;
+  }
 }
 </style>

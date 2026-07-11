@@ -9,6 +9,7 @@
   z-index: 2;
   display: grid;
   grid-template-columns: clamp(232px, 16vw, 252px) minmax(0, 1fr);
+  /* Taller player row for raised liquid console hump */
   grid-template-rows: 32px auto minmax(0, 1fr) 128px;
   height: 100vh;
   min-height: 720px;
@@ -112,10 +113,18 @@
   background: var(--surface-1);
 }
 
-/* Aurora: player bar sits on liquid surface, no hard strip */
+/* Aurora: floating liquid dock — design target margin from edges */
 [data-shell="aurora"] .shell-playerbar {
-  padding: 0 18px 14px;
+  padding: 0 14px 12px;
   background: transparent;
+  display: flex;
+  align-items: flex-end;
+  justify-content: stretch;
+}
+
+[data-shell="aurora"] .shell-playerbar > * {
+  width: 100%;
+  min-width: 0;
 }
 
 /* Aurora: home-specific CSS variables */
@@ -150,71 +159,29 @@
   }
 }
 
-/* ── Aurora Player Bar (liquid console surfaces) ── */
+/* ── Aurora Player Bar — shell-level chrome only (layout lives in component) ── */
 [data-shell="aurora"] .aurora-pb {
-  min-height: 114px;
-  grid-template-columns: minmax(230px, 0.8fr) minmax(420px, 1.45fr) minmax(250px, 0.8fr);
-  border: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
-  border-radius: 34px 34px 28px 28px;
-  /* WebView fallback before color-mix */
-  background: var(--surface-elevated);
-  background: color-mix(in srgb, var(--surface-elevated) 86%, transparent);
-  backdrop-filter: blur(calc(var(--glass-blur, 20px) + 4px)) saturate(170%);
-  -webkit-backdrop-filter: blur(calc(var(--glass-blur, 20px) + 4px)) saturate(170%);
-  box-shadow: 0 20px 46px rgba(0, 0, 0, 0.26), inset 0 1px rgba(255, 255, 255, 0.08);
+  /* Ensure dock paints above content gradients */
+  position: relative;
+  z-index: 8;
 }
 
-[data-shell="aurora"] .aurora-pb-center {
-  align-self: stretch;
-  margin: -20px 0 0;
-  padding: 14px 28px 10px;
-  border-radius: 46% 46% 30px 30px;
-  /* WebView fallback before color-mix */
-  background: var(--surface-2);
-  background: color-mix(in srgb, var(--surface-2) 74%, transparent);
+/* Desktop: queue drawer control is secondary when right rail is visible */
+@media (min-width: 1100px) {
+  [data-shell="aurora"] .aurora-pb-queue {
+    opacity: 0.4;
+  }
+
+  [data-shell="aurora"] .aurora-pb-queue:hover,
+  [data-shell="aurora"] .aurora-pb-queue:focus-visible {
+    opacity: 1;
+  }
 }
 
-[data-shell="aurora"] .aurora-pb-play {
-  background: var(--accent);
-  color: var(--on-accent, #fff);
-  box-shadow: 0 4px 14px color-mix(in srgb, var(--accent) 40%, transparent);
-}
-
-[data-shell="aurora"] .aurora-pb-play:hover {
-  filter: brightness(1.08);
-}
-
-[data-shell="aurora"] .aurora-pb-cover {
-  border-color: var(--border-subtle);
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
-  background: var(--surface-1);
-}
-
-[data-shell="aurora"] .aurora-pb-vol-bar::before {
-  background: var(--progress-track);
-}
-
-[data-shell="aurora"] .aurora-pb-vol-fill {
-  background: var(--progress-fill);
-}
-
-[data-shell="aurora"] .aurora-pb-q-menu {
-  background: var(--surface-elevated);
-  border-color: var(--border-subtle);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
-}
-
-[data-shell="aurora"] .aurora-pb-info span,
-[data-shell="aurora"] .aurora-pb-status,
-[data-shell="aurora"] .aurora-pb-btn,
-[data-shell="aurora"] .aurora-pb-icon {
-  color: var(--text-secondary);
-}
-
-[data-shell="aurora"] .aurora-pb-info b,
-[data-shell="aurora"] .aurora-pb-q-btn,
-[data-shell="aurora"] .aurora-pb-lyric {
-  color: var(--text-primary);
+@media (max-width: 1099px) {
+  [data-shell="aurora"] .aurora-pb-queue {
+    opacity: 1;
+  }
 }
 
 /* Lyric fullscreen: hide player bar */
@@ -286,18 +253,8 @@
     margin-inline: auto;
   }
 
-  [data-shell="aurora"] .aurora-pb {
-    grid-template-columns: 1fr;
-    min-height: 0;
-  }
-
-  [data-shell="aurora"] .aurora-pb-right {
-    justify-content: space-between;
-  }
-
-  [data-shell="aurora"] .aurora-pb-center {
-    margin: 0;
-    border-radius: 24px;
+  [data-shell="aurora"] .shell-playerbar {
+    padding: 0 10px 10px;
   }
 }
 
