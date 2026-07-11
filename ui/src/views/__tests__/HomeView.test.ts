@@ -13,6 +13,15 @@ vi.mock('../../api/playerStore', () => ({
   playTrack: vi.fn(),
   playAll: vi.fn(),
   playPersonalFm: vi.fn(),
+  playerStore: {
+    currentTrack: null,
+    isPlaying: false,
+    currentTime: 0,
+    duration: 0,
+    volume: 0.7,
+    queue: [],
+    currentIndex: -1,
+  },
 }));
 
 describe('HomeView sections', () => {
