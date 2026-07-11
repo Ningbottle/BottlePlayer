@@ -27,6 +27,7 @@ export interface PlayerController {
   readonly coverUrl: string;
   readonly progressPercent: number;
   readonly volumePercent: number;
+  readonly isLyricView: boolean;
 
   showQualityMenu: boolean;
   showAddModal: boolean;
@@ -99,6 +100,8 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   });
 
   const volumePercent = computed(() => volume.value * 100);
+
+  const isLyricView = computed(() => options.activeView() === 'lyric');
 
   const showQualityMenu = ref(false);
   const showAddModal = ref(false);
@@ -214,6 +217,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     coverUrl,
     progressPercent,
     volumePercent,
+    isLyricView,
     showQualityMenu,
     showAddModal,
     toastMsg,

@@ -206,6 +206,7 @@ function onRelease(e: MouseEvent) {
 
       <button
         class="np-pb-icon np-pb-lyric"
+        :class="{ active: c.isLyricView }"
         aria-label="lyric"
         @click="c.toggleLyricView"
       >
@@ -336,7 +337,7 @@ function onRelease(e: MouseEvent) {
   background: transparent;
   border: 1px solid var(--border-subtle, #ccc);
   border-radius: 2px;
-  transition: transform 0.1s power2.out, box-shadow 0.1s power2.out, color 0.2s;
+  transition: transform 0.1s ease-out, box-shadow 0.1s ease-out, color 0.2s;
   font-family: 'Noto Serif SC', serif;
 }
 
@@ -454,7 +455,7 @@ function onRelease(e: MouseEvent) {
   background: transparent;
   border: 1px solid var(--border-subtle, #ccc);
   border-radius: 2px;
-  transition: transform 0.1s power2.out, box-shadow 0.1s power2.out, color 0.2s;
+  transition: transform 0.1s ease-out, box-shadow 0.1s ease-out, color 0.2s;
   font-family: 'Noto Serif SC', serif;
 }
 

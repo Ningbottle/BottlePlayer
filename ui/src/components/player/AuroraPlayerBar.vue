@@ -214,7 +214,7 @@ function onRelease(e: MouseEvent) {
 
       <button
         class="aurora-pb-icon aurora-pb-lyric"
-        :class="{ active: false }"
+        :class="{ active: c.isLyricView }"
         aria-label="lyric"
         @click="c.toggleLyricView"
       >
@@ -339,7 +339,7 @@ function onRelease(e: MouseEvent) {
   background: transparent;
   border: none;
   border-radius: 50%;
-  transition: transform 0.1s power2.out, color 0.2s;
+  transition: transform 0.1s ease-out, color 0.2s;
 }
 
 .aurora-pb-btn:hover {
@@ -358,7 +358,7 @@ function onRelease(e: MouseEvent) {
   color: var(--paper, #f1ead8);
   border-radius: 50%;
   box-shadow: 0 2px 6px rgba(40,28,12,0.3), inset 0 1px 0 rgba(255,252,243,0.18);
-  transition: transform 0.4s elastic.out(1, 0.5), background 0.2s;
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), background 0.2s;
 }
 
 .aurora-pb-play:hover {

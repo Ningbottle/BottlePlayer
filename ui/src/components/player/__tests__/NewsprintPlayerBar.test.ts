@@ -38,6 +38,7 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     coverUrl: '',
     progressPercent: 0,
     volumePercent: 70,
+    isLyricView: false,
     showQualityMenu: false,
     showAddModal: false,
     toastMsg: '',
