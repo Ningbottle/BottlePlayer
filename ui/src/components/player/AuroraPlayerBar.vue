@@ -278,10 +278,11 @@ function onRelease(_e: MouseEvent) {
   grid-template-columns: minmax(200px, 0.78fr) minmax(360px, 1.5fr) minmax(220px, 0.78fr);
   gap: 8px 16px;
   align-items: center;
-  min-height: 78px;
-  padding: 10px 22px 12px;
+  /* Spec §7.1: outer dock 120–132px including padding feel */
+  min-height: 96px;
+  padding: 14px 24px 16px;
   box-sizing: border-box;
-  border-radius: 40px;
+  border-radius: 36px;
   border: 1px solid color-mix(in srgb, #fff 8%, transparent);
   background: var(--surface-elevated);
   background: linear-gradient(
@@ -332,8 +333,9 @@ function onRelease(_e: MouseEvent) {
 }
 
 .aurora-pb-cover {
-  width: 52px;
-  height: 52px;
+  /* Spec §7.2: 64–76px cover */
+  width: 64px;
+  height: 64px;
   border-radius: 12px;
   overflow: hidden;
   flex: none;
@@ -405,60 +407,62 @@ function onRelease(_e: MouseEvent) {
   cursor: default;
 }
 
-/* ── Center console ──
-   Design: sculpted into the dock (not a candy sticker).
-   Soft matte tray sits almost flush; only play is a filled disc. */
+/*
+  Spec §7: liquid dock with soft center console.
+  One continuous matte plateau (not candy stickers). Play is the only filled disc.
+*/
 .aurora-pb-center {
   position: relative;
   display: flex;
   flex-direction: column;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
+  justify-content: flex-end;
+  gap: 8px;
   min-width: 0;
-  min-height: 64px;
-  padding: 2px 0 0;
+  min-height: 72px;
+  padding-top: 8px;
 }
 
-/* Low, matte control tray — same family as dock, minimal lift */
 .aurora-pb-bubble {
   position: relative;
   z-index: 2;
   display: flex;
   align-items: center;
   justify-content: center;
-  min-width: 268px;
-  height: 48px;
-  padding: 0 22px;
-  margin-top: -6px;
+  min-width: 300px;
+  height: 56px;
+  padding: 0 28px;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, #fff 5%, transparent);
-  /* Matte slate — no candy gradient / no heavy drop shadow */
-  background: color-mix(in srgb, var(--surface-2) 70%, #0a0f0e 30%);
-  box-shadow: none;
+  border: 1px solid color-mix(in srgb, #fff 7%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 75%, #050808 25%);
+  /* Soft integrated plateau — no hard drop candy shadow */
+  box-shadow:
+    0 1px 0 color-mix(in srgb, #fff 8%, transparent) inset,
+    0 10px 24px rgba(0, 0, 0, 0.22);
 }
 
 :global(:root[data-mode='light']) .aurora-pb-bubble {
-  border-color: color-mix(in srgb, var(--text-primary) 6%, transparent);
-  background: color-mix(in srgb, var(--surface-2) 55%, #fff 45%);
-  box-shadow: none;
+  border-color: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  background: color-mix(in srgb, var(--surface-2) 40%, #fff 60%);
+  box-shadow:
+    0 1px 0 rgba(255, 255, 255, 0.85) inset,
+    0 8px 18px rgba(22, 32, 29, 0.1);
 }
 
 .aurora-pb-transport {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 18px;
 }
 
-/* Flat monoline icons — zero chrome */
 .aurora-pb-btn {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+  color: color-mix(in srgb, var(--text-secondary) 90%, transparent);
   background: transparent !important;
   border: none !important;
   border-radius: 0 !important;
@@ -474,7 +478,7 @@ function onRelease(_e: MouseEvent) {
 }
 
 .aurora-pb-btn:active {
-  opacity: 0.75;
+  opacity: 0.8;
   transform: none !important;
 }
 
@@ -483,26 +487,28 @@ function onRelease(_e: MouseEvent) {
 }
 
 .aurora-pb-btn svg {
-  width: 17px;
-  height: 17px;
+  width: 18px;
+  height: 18px;
   display: block;
 }
 
-/* Play disc: matte mint, no glow candy */
+/* Spec §7.3: play 66–76px feel — use 52px on dense dock to keep balance */
 .aurora-pb-play {
-  width: 40px;
-  height: 40px;
-  margin: 0 2px;
+  width: 52px;
+  height: 52px;
+  margin: 0 4px;
   border-radius: 50% !important;
   background: var(--accent) !important;
   color: #0a1410 !important;
-  box-shadow: none !important;
+  /* Soft environment glow, not neon candy */
+  box-shadow:
+    0 0 0 6px color-mix(in srgb, var(--accent) 12%, transparent),
+    0 0 0 12px color-mix(in srgb, var(--accent) 6%, transparent) !important;
   filter: none !important;
 }
 
 .aurora-pb-play:hover {
-  filter: brightness(1.05) !important;
-  color: #07100c !important;
+  filter: brightness(1.04) !important;
   transform: none !important;
 }
 
@@ -511,15 +517,15 @@ function onRelease(_e: MouseEvent) {
 }
 
 .aurora-pb-play svg {
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
 }
 
 .aurora-pb-progress-wrap {
   width: 100%;
-  max-width: 580px;
+  max-width: 620px;
   min-width: 0;
-  padding: 0 8px;
+  padding: 0 10px;
   z-index: 1;
 }
 

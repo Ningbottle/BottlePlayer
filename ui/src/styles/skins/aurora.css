@@ -9,7 +9,8 @@
   z-index: 2;
   display: grid;
   grid-template-columns: clamp(232px, 16vw, 252px) minmax(0, 1fr);
-  grid-template-rows: 32px auto minmax(0, 1fr) 100px;
+  /* Spec §6.1: player ~120–132px including dock margin */
+  grid-template-rows: 32px auto minmax(0, 1fr) 124px;
   height: 100vh;
   min-height: 720px;
   background: var(--app-bg);
@@ -48,17 +49,10 @@
   overflow: hidden;
 }
 
-/* Content pane: full height, no extra scroll padding so queue can 触底 above player */
+/* Aurora home owns its padding; keep scroll soft */
 [data-shell="aurora"] .scroll {
   padding: 0;
-  overflow: hidden;
-  height: 100%;
-}
-
-[data-shell="aurora"] .scroll > * {
-  height: 100%;
-  min-height: 100%;
-  box-sizing: border-box;
+  overflow: auto;
 }
 
 [data-shell="aurora"] .shell-playerbar {
@@ -204,27 +198,25 @@
 /* ── Aurora home stage responsive geometry ── */
 [data-shell="aurora"] .aurora-stage {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
-  gap: 12px 22px;
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 352px);
+  column-gap: 24px;
+  row-gap: 14px;
   min-width: 0;
-  min-height: 0;
-  height: 100%;
-  align-items: stretch;
+  align-items: start;
 }
 
 [data-shell="aurora"] .aurora-stage-main {
   display: grid;
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-  gap: clamp(20px, 2.4vw, 36px);
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 28px;
   min-width: 0;
   align-self: start;
 }
 
 [data-shell="aurora"] .aurora-queue-rail {
-  max-width: 340px;
-  height: 100%;
-  min-height: 0;
+  /* Stretch to same height as left stage column (spec §6.6 与主舞台同高) */
   align-self: stretch;
+  min-height: 100%;
 }
 
 [data-shell="aurora"] .aurora-info,

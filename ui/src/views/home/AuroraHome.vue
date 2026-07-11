@@ -290,30 +290,28 @@ export default { name: 'AuroraHome' };
 </script>
 
 <style scoped>
+/*
+  Design baseline 1586×1024 (spec §6):
+  [ sidebar ] [ cover 340 + song narrative | queue 320–352 ]
+              [ 每日推荐 under cover                         ]
+              [ DAILY PICKS 6 small albums                   ]
+  Queue height = same as left stage column (not a short card, not a empty viewport pillar).
+*/
 .aurora-home {
-  /* Fill shell-content so queue can stretch top → bottom (above player) */
-  height: 100%;
-  min-height: 100%;
-  max-height: 100%;
-  padding: 14px 18px 10px;
+  padding: 12px 22px 8px;
   box-sizing: border-box;
-  display: flex;
-  flex-direction: column;
-  overflow: hidden;
+  min-height: 100%;
 }
 
 .aurora-stage {
-  /* Design: queue is a tall vertical rect that touches the bottom of this stage */
-  flex: 1 1 auto;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(300px, 340px);
+  grid-template-columns: minmax(0, 1fr) minmax(320px, 352px);
   grid-template-rows: auto auto auto;
-  gap: 12px 22px;
-  align-items: stretch;
-  margin-bottom: 0;
-  min-height: 0;
+  column-gap: 24px;
+  row-gap: 14px;
+  align-items: start;
+  margin: 0;
   min-width: 0;
-  height: 100%;
 }
 
 .aurora-stage-main {
@@ -322,22 +320,27 @@ export default { name: 'AuroraHome' };
   align-self: start;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
-  gap: clamp(20px, 2.4vw, 36px);
-  align-items: center;
+  /* Spec: cover ~340 + narrative */
+  grid-template-columns: 340px minmax(0, 1fr);
+  gap: 28px;
+  align-items: start;
   padding: 4px 0 0;
   background:
-    radial-gradient(ellipse 60% 70% at 78% 40%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%);
+    radial-gradient(ellipse 55% 65% at 70% 35%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 62%);
 }
 
 .aurora-cover {
   aspect-ratio: 1;
-  width: 100%;
-  max-width: 300px;
-  border-radius: 14px;
+  width: 340px;
+  max-width: 100%;
+  height: auto;
+  border-radius: 16px;
   overflow: hidden;
   background: var(--surface-2);
-  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.3);
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.32),
+    0 0 0 1px color-mix(in srgb, #fff 6%, transparent);
+  flex: none;
 }
 
 .aurora-cover img {
@@ -384,7 +387,8 @@ export default { name: 'AuroraHome' };
 
 .aurora-song-name {
   font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
-  font-size: clamp(34px, 3.4vw, 48px);
+  /* Spec §6.4: 48–56px desktop */
+  font-size: clamp(40px, 3.6vw, 54px);
   font-weight: 700;
   line-height: 1.08;
   word-break: break-word;
@@ -395,7 +399,7 @@ export default { name: 'AuroraHome' };
 }
 
 .aurora-artist {
-  font-size: 18px;
+  font-size: 20px;
   color: var(--text-secondary);
   margin: 0;
   display: inline-flex;
@@ -542,24 +546,26 @@ export default { name: 'AuroraHome' };
   cursor: not-allowed;
 }
 
-/* Tall vertical rect that spans full stage height and touches the bottom edge */
+/*
+  Right queue rail (spec §6.6):
+  - Tall vertical panel, 320–352px wide
+  - Same visual height as main stage (cover + banner + daily picks)
+  - Internal scroll for 12 rows — not a short floating card
+*/
 .aurora-queue-rail {
   grid-column: 2;
   grid-row: 1 / -1;
   align-self: stretch;
-  justify-self: stretch;
   width: 100%;
-  height: 100%;
   min-width: 0;
-  min-height: 0;
-  max-width: 340px;
+  min-height: 100%;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--text-primary) 7%, transparent);
+  border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-1) 92%, transparent);
-  padding: 14px 14px 10px;
+  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  padding: 14px 12px 12px;
   box-sizing: border-box;
 }
 
@@ -683,25 +689,29 @@ export default { name: 'AuroraHome' };
   font-size: 13px;
 }
 
-/* Compact DAILY PICKS strip — small covers tight together under hero */
+/* Spec §6.5: DAILY PICKS under stage — 6 compact albums, not a giant hero block */
 .aurora-recommendations {
   grid-column: 1;
   grid-row: 3;
   align-self: start;
   margin: 0;
   min-width: 0;
-  padding-top: 2px;
+  padding: 4px 0 0;
 }
 
 .aurora-recommendations .aurora-section-head {
-  margin-bottom: 10px;
+  margin-bottom: 12px;
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
 }
 
 .aurora-recommendations .aurora-section-head h2 {
   font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
   color: var(--text-secondary);
+  margin: 0;
 }
 
 .aurora-picks-refresh {
@@ -721,8 +731,8 @@ export default { name: 'AuroraHome' };
 .aurora-recommendation-grid {
   display: grid;
   grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-  max-width: 720px;
+  gap: 14px;
+  max-width: 780px;
 }
 
 .aurora-track-card,
@@ -738,7 +748,7 @@ export default { name: 'AuroraHome' };
 
 .aurora-track-card {
   display: grid;
-  gap: 5px;
+  gap: 6px;
 }
 
 .aurora-track-card strong,
@@ -748,21 +758,20 @@ export default { name: 'AuroraHome' };
   white-space: nowrap;
 }
 
-.aurora-track-card strong { font-size: 11.5px; font-weight: 600; }
-.aurora-track-card small { color: var(--text-muted); font-size: 10.5px; }
+.aurora-track-card strong { font-size: 12px; font-weight: 600; }
+.aurora-track-card small { color: var(--text-muted); font-size: 11px; }
 
 .aurora-track-cover {
   display: grid;
   aspect-ratio: 1;
   width: 100%;
-  max-width: 108px;
   overflow: hidden;
   border-radius: 10px;
   background: var(--surface-2);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.22);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
 }
 
-.aurora-track-cover img { width: 100%; height: 100%; object-fit: cover; }
+.aurora-track-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .aurora-track-cover > span { display: grid; place-items: center; color: var(--text-muted); font-size: 11px; }
 
 .aurora-track-card:hover .aurora-track-cover,
@@ -891,10 +900,20 @@ export default { name: 'AuroraHome' };
   color: var(--text-secondary);
 }
 
+@media (max-width: 1359px) {
+  .aurora-stage-main {
+    grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+  }
+
+  .aurora-cover {
+    width: 100%;
+    max-width: 300px;
+  }
+}
+
 @media (max-width: 1099px) {
   .aurora-stage {
     grid-template-columns: minmax(0, 1fr);
-    grid-template-rows: auto;
   }
 
   .aurora-stage-main,
@@ -910,7 +929,7 @@ export default { name: 'AuroraHome' };
 
   .aurora-recommendation-grid {
     grid-auto-flow: column;
-    grid-auto-columns: minmax(96px, 108px);
+    grid-auto-columns: minmax(100px, 120px);
     grid-template-columns: none;
     overflow-x: auto;
     max-width: none;
@@ -925,8 +944,8 @@ export default { name: 'AuroraHome' };
   }
 
   .aurora-cover {
-    width: min(64vw, 280px);
-    max-width: 280px;
+    width: min(70vw, 300px);
+    max-width: 300px;
     margin-inline: auto;
   }
 
