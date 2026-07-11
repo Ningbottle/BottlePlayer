@@ -79,6 +79,18 @@ describe('AuroraShell', () => {
     expect(wrapper.find('.t-ex').exists()).toBe(true);
     expect(wrapper.find('.t-pb').exists()).toBe(true);
   });
+
+  it('identifies the modern immersive Aurora layout without changing landmarks', () => {
+    const wrapper = mount(AuroraShell);
+    const root = wrapper.get('[data-shell="aurora"]');
+
+    expect(root.attributes('data-layout')).toBe('immersive');
+    expect(wrapper.get('.titlebar-logo').text()).toContain('BottleMusic');
+    expect(wrapper.get('.titlebar-logo').text()).toContain('Aurora');
+    expect(wrapper.find('nav.shell-sidebar').exists()).toBe(true);
+    expect(wrapper.find('main.shell-main').exists()).toBe(true);
+    expect(wrapper.find('footer.shell-playerbar').exists()).toBe(true);
+  });
 });
 
 describe('NewsprintShell', () => {

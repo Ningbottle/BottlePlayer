@@ -6,62 +6,62 @@
 
 /* Fallback: Aurora light (default skin + mode) */
 :root {
-  --app-bg: #ffffff;
-  --surface-1: #f5f5f7;
-  --surface-2: #e8e8ed;
+  --app-bg: #eef3f0;
+  --surface-1: #f7faf8;
+  --surface-2: #e7eeea;
   --surface-elevated: #ffffff;
-  --text-primary: #1d1d1f;
-  --text-secondary: #6e6e73;
-  --text-muted: #86868b;
-  --accent: #fa233b;
-  --focus-ring: rgba(250, 35, 59, 0.4);
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --progress-track: #8e8e93;
-  --progress-buffered: #aeaeb2;
-  --progress-fill: #fa233b;
+  --text-primary: #16201d;
+  --text-secondary: #5f6d68;
+  --text-muted: #8b9792;
+  --accent: #18875b;
+  --focus-ring: rgba(24, 135, 91, 0.36);
+  --border-subtle: rgba(22, 32, 29, 0.08);
+  --progress-track: #a9b6af;
+  --progress-buffered: #c5cfc9;
+  --progress-fill: #18875b;
   --progress-thumb-fill: #ffffff;
-  --progress-thumb-ring: #fa233b;
-  --progress-time: #86868b;
+  --progress-thumb-ring: #18875b;
+  --progress-time: #8b9792;
 }
 
-/* ─── Aurora Light ─── */
+/* ─── Aurora Light (cold white / ash / emerald) ─── */
 :root[data-skin='aurora'][data-mode='light'] {
-  --app-bg: #ffffff;
-  --surface-1: #f5f5f7;
-  --surface-2: #e8e8ed;
+  --app-bg: #eef3f0;
+  --surface-1: #f7faf8;
+  --surface-2: #e7eeea;
   --surface-elevated: #ffffff;
-  --text-primary: #1d1d1f;
-  --text-secondary: #6e6e73;
-  --text-muted: #86868b;
-  --accent: #fa233b;
-  --focus-ring: rgba(250, 35, 59, 0.4);
-  --border-subtle: rgba(0, 0, 0, 0.08);
-  --progress-track: #8e8e93;
-  --progress-buffered: #aeaeb2;
-  --progress-fill: #fa233b;
+  --text-primary: #16201d;
+  --text-secondary: #5f6d68;
+  --text-muted: #8b9792;
+  --accent: #18875b;
+  --focus-ring: rgba(24, 135, 91, 0.36);
+  --border-subtle: rgba(22, 32, 29, 0.08);
+  --progress-track: #a9b6af;
+  --progress-buffered: #c5cfc9;
+  --progress-fill: #18875b;
   --progress-thumb-fill: #ffffff;
-  --progress-thumb-ring: #fa233b;
-  --progress-time: #86868b;
+  --progress-thumb-ring: #18875b;
+  --progress-time: #8b9792;
 }
 
-/* ─── Aurora Dark (graphite black, solid-color text) ─── */
+/* ─── Aurora Dark (graphite black / emerald) ─── */
 :root[data-skin='aurora'][data-mode='dark'] {
-  --app-bg: #1c1c1e;
-  --surface-1: #2c2c2e;
-  --surface-2: #3a3a3c;
-  --surface-elevated: #48484a;
-  --text-primary: #ffffff;
-  --text-secondary: #c7c7cc;
-  --text-muted: #8e8e93;
-  --accent: #fa233b;
-  --focus-ring: rgba(250, 35, 59, 0.5);
-  --border-subtle: rgba(255, 255, 255, 0.1);
-  --progress-track: #6e6e73;
-  --progress-buffered: #48484a;
-  --progress-fill: #fa233b;
+  --app-bg: #070b0c;
+  --surface-1: #0d1213;
+  --surface-2: #141a1b;
+  --surface-elevated: #1a2222;
+  --text-primary: #f2f5f2;
+  --text-secondary: #929c98;
+  --text-muted: #626d69;
+  --accent: #62d6a2;
+  --focus-ring: rgba(98, 214, 162, 0.42);
+  --border-subtle: rgba(242, 245, 242, 0.1);
+  --progress-track: #394541;
+  --progress-buffered: #2a3230;
+  --progress-fill: #62d6a2;
   --progress-thumb-fill: #ffffff;
-  --progress-thumb-ring: #fa233b;
-  --progress-time: #8e8e93;
+  --progress-thumb-ring: #62d6a2;
+  --progress-time: #626d69;
 }
 
 /* ─── Newsprint Light (warm paper white) ─── */

@@ -16,10 +16,16 @@ function handleTitlebarDoubleClick(event: MouseEvent): void {
 </script>
 
 <template>
-  <div class="app" data-shell="aurora" :class="{ 'lyric-fullscreen-active': lyricFullscreen }">
+  <div
+    class="app aurora-app"
+    data-shell="aurora"
+    data-layout="immersive"
+    :class="{ 'lyric-fullscreen-active': lyricFullscreen }"
+  >
     <div class="titlebar" data-tauri-drag-region @dblclick="handleTitlebarDoubleClick">
-      <div class="titlebar-logo">
-        <span class="logo"><i>The</i> Player</span>
+      <div class="titlebar-logo" aria-label="BottleMusic Aurora">
+        <span class="aurora-wordmark">BottleMusic</span>
+        <span class="aurora-wordmark-subtitle">Aurora</span>
       </div>
       <div class="titlebar-center">
         <slot name="titlebar-center" />

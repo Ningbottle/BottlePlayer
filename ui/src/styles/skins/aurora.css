@@ -3,15 +3,16 @@
    Uses semantic tokens from tokens.css. No token redefinitions.
    ──────────────────────────────────────────────────────────── */
 
-/* Grid layout */
+/* Grid layout — immersive three-zone desktop shell */
 .app[data-shell="aurora"] {
   position: relative;
   z-index: 2;
   display: grid;
-  grid-template-columns: 232px 1fr;
-  grid-template-rows: 32px auto 1fr 88px;
+  grid-template-columns: clamp(232px, 16vw, 252px) minmax(0, 1fr);
+  grid-template-rows: 32px auto minmax(0, 1fr) 128px;
   height: 100vh;
   min-height: 720px;
+  background: var(--app-bg);
 }
 
 [data-shell="aurora"] .titlebar {
@@ -66,8 +67,35 @@
 }
 
 /* Aurora: fused titlebar + topbar (no horizontal divider line) */
+[data-shell="aurora"] .titlebar,
 [data-shell="aurora"] .shell-topbar {
-  border-bottom: none;
+  border: 0;
+  background: transparent;
+}
+
+[data-shell="aurora"] .titlebar-logo {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  line-height: 1.15;
+  padding-left: 4px;
+}
+
+[data-shell="aurora"] .aurora-wordmark {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+[data-shell="aurora"] .aurora-wordmark-subtitle {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
 }
 
 /* Aurora: clean app background (no paper textures) */
@@ -84,14 +112,42 @@
   background: var(--surface-1);
 }
 
-/* Aurora: topbar clean surface */
-[data-shell="aurora"] .shell-topbar {
-  background: var(--surface-elevated);
+/* Aurora: player bar sits on liquid surface, no hard strip */
+[data-shell="aurora"] .shell-playerbar {
+  padding: 0 18px 14px;
+  background: transparent;
 }
 
 /* Aurora: home-specific CSS variables */
 [data-shell="aurora"] {
-  --on-accent: var(--paper, #fff);
+  --on-accent: #ffffff;
+}
+
+/* Desktop / tablet breakpoints for shell geometry */
+@media (max-width: 1099px) {
+  .app[data-shell="aurora"] {
+    grid-template-columns: minmax(208px, 22vw) minmax(0, 1fr);
+  }
+}
+
+/* Narrow: collapse sidebar and hide desktop home rail */
+@media (max-width: 899px) {
+  .app[data-shell="aurora"] {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 32px auto minmax(0, 1fr) auto;
+  }
+
+  [data-shell="aurora"] .shell-sidebar {
+    display: none;
+  }
+
+  [data-shell="aurora"] .shell-main {
+    grid-column: 1 / 2;
+  }
+
+  [data-shell="aurora"] .aurora-queue-rail {
+    display: none;
+  }
 }
 
 /* ── Aurora Player Bar ── */
