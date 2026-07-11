@@ -96,107 +96,111 @@ function formatDuration(sec: number): string {
 
 <template>
   <div class="aurora-home">
+    <!--
+      Design composition (Codex 1586×1024):
+      LEFT column defines height: cover+info → daily banner → DAILY PICKS
+      RIGHT queue is a tall vertical panel matching LEFT height exactly (top→bottom of stage)
+    -->
     <section
       ref="stageEl"
       class="aurora-stage"
       data-test="aurora-stage"
       :data-playing="model.isPlaying"
     >
-      <div class="aurora-stage-main">
-        <div class="aurora-cover">
-          <img
-            v-if="heroCover"
-            :src="heroCover"
-            :alt="`${model.heroTrack?.SongName || '当前歌曲'}封面`"
-            @error="onCoverError"
-          />
-          <div v-else class="aurora-cover-placeholder">封面暂缺</div>
+      <div class="aurora-stage-left">
+        <div class="aurora-stage-main">
+          <div class="aurora-cover">
+            <img
+              v-if="heroCover"
+              :src="heroCover"
+              :alt="`${model.heroTrack?.SongName || '当前歌曲'}封面`"
+              @error="onCoverError"
+            />
+            <div v-else class="aurora-cover-placeholder">封面暂缺</div>
+          </div>
+
+          <div class="aurora-info">
+            <div class="aurora-label">
+              <span class="aurora-label-dot" aria-hidden="true" />
+              {{ model.isPlaying ? '正在播放' : '每日推荐' }}
+            </div>
+            <h1 class="aurora-song-name">{{ model.heroTrack?.SongName || '未在播放' }}</h1>
+            <p class="aurora-artist">
+              {{ model.heroTrack?.SingerName || '—' }}
+              <span v-if="model.heroTrack" class="aurora-artist-chevron" aria-hidden="true">›</span>
+            </p>
+            <div class="aurora-quality-row" aria-label="音频信息">
+              <span>无损</span>
+              <span>96kHz / 24bit</span>
+              <span>VIP</span>
+            </div>
+            <blockquote class="aurora-quote" v-if="model.heroTrack">
+              <p>{{ model.heroTrack.AlbumName || heroSource || '用音乐填满此刻' }}</p>
+              <p class="aurora-quote-accent">{{ model.heroTrack.SingerName }}</p>
+              <p>{{ model.heroTrack.SongName }}</p>
+            </blockquote>
+            <div v-else class="aurora-quote aurora-quote-empty">
+              <p>选择一首歌，开始沉浸聆听</p>
+            </div>
+            <div class="aurora-meta-row">
+              <button class="aurora-play play-cta" data-test="hero-play" @click="onHeroPlay">
+                <span aria-hidden="true">播放</span>
+                <span class="sr-only">播放当前歌曲</span>
+              </button>
+              <button class="aurora-lyrics-link" type="button" @click="onOpenLyrics">查看歌词</button>
+              <button
+                class="aurora-refresh"
+                data-test="refresh"
+                :disabled="model.isRefreshing"
+                @click="emit('refresh')"
+              >
+                {{ model.isRefreshing ? '刷新中…' : '刷新' }}
+              </button>
+            </div>
+          </div>
         </div>
 
-        <div class="aurora-info">
-          <div class="aurora-label">
-            <span class="aurora-label-dot" aria-hidden="true" />
-            {{ model.isPlaying ? '正在播放' : '每日推荐' }}
-          </div>
-          <h1 class="aurora-song-name">{{ model.heroTrack?.SongName || '未在播放' }}</h1>
-          <p class="aurora-artist">
-            {{ model.heroTrack?.SingerName || '—' }}
-            <span v-if="model.heroTrack" class="aurora-artist-chevron" aria-hidden="true">›</span>
-          </p>
-          <div class="aurora-quality-row" aria-label="音频信息">
-            <span>无损</span>
-            <span>96kHz / 24bit</span>
-            <span>VIP</span>
-          </div>
-          <!-- Design: lyric-style quote block (local summary only, no lyric fetch) -->
-          <blockquote class="aurora-quote" v-if="model.heroTrack">
-            <p>{{ model.heroTrack.AlbumName || heroSource || '用音乐填满此刻' }}</p>
-            <p class="aurora-quote-accent">{{ model.heroTrack.SingerName }}</p>
-            <p>{{ model.heroTrack.SongName }}</p>
-          </blockquote>
-          <div v-else class="aurora-quote aurora-quote-empty">
-            <p>选择一首歌，开始沉浸聆听</p>
-          </div>
-          <div class="aurora-meta-row">
-            <button class="aurora-play play-cta" data-test="hero-play" @click="onHeroPlay">
-              <span aria-hidden="true">播放</span>
-              <span class="sr-only">播放当前歌曲</span>
-            </button>
-            <button class="aurora-lyrics-link" type="button" @click="onOpenLyrics">查看歌词</button>
+        <div class="aurora-daily-banner" v-if="model.dailyTracks.length || model.heroTrack">
+          <span class="aurora-daily-pill">每日推荐</span>
+          <p>根据你与「{{ model.heroTrack?.SingerName || '收藏' }}」的收听偏好，为你精选 · 每日合集</p>
+        </div>
+
+        <section
+          v-if="model.dailyTracks.length > 0"
+          class="aurora-recommendations"
+          data-test="daily-picks"
+        >
+          <div class="aurora-section-head">
+            <h2>DAILY PICKS · 今日推荐</h2>
             <button
-              class="aurora-refresh"
-              data-test="refresh"
+              type="button"
+              class="aurora-picks-refresh"
               :disabled="model.isRefreshing"
               @click="emit('refresh')"
             >
               {{ model.isRefreshing ? '刷新中…' : '刷新' }}
             </button>
           </div>
-        </div>
+          <div class="aurora-recommendation-grid">
+            <button
+              v-for="track in model.dailyTracks.slice(0, 6)"
+              :key="track.FileHash"
+              :ref="setRecommendationRef"
+              type="button"
+              class="aurora-track-card"
+              :data-test="`daily-track-${track.FileHash}`"
+              @click="onTrackPlay(track)"
+            >
+              <span class="aurora-track-cover">
+                <img v-if="track.Image" :src="track.Image" :alt="`${track.SongName}封面`" />
+                <span v-else>推荐</span>
+              </span>
+              <strong>{{ track.SongName }}</strong>
+              <small>{{ track.SingerName }}</small>
+            </button>
+          </div>
+        </section>
       </div>
-
-      <!-- Design: compact daily promo under hero (not a huge block) -->
-      <div class="aurora-daily-banner" v-if="model.dailyTracks.length || model.heroTrack">
-        <span class="aurora-daily-pill">每日推荐</span>
-        <p>根据你与「{{ model.heroTrack?.SingerName || '收藏' }}」的收听偏好，为你精选 · 每日合集</p>
-      </div>
-
-      <!-- Design: small album strip tight together under hero (left of queue) -->
-      <section
-        v-if="model.dailyTracks.length > 0"
-        class="aurora-recommendations"
-        data-test="daily-picks"
-      >
-        <div class="aurora-section-head">
-          <h2>DAILY PICKS · 今日推荐</h2>
-          <button
-            type="button"
-            class="aurora-picks-refresh"
-            :disabled="model.isRefreshing"
-            @click="emit('refresh')"
-          >
-            {{ model.isRefreshing ? '刷新中…' : '刷新' }}
-          </button>
-        </div>
-        <div class="aurora-recommendation-grid">
-          <button
-            v-for="track in model.dailyTracks.slice(0, 6)"
-            :key="track.FileHash"
-            :ref="setRecommendationRef"
-            type="button"
-            class="aurora-track-card"
-            :data-test="`daily-track-${track.FileHash}`"
-            @click="onTrackPlay(track)"
-          >
-            <span class="aurora-track-cover">
-              <img v-if="track.Image" :src="track.Image" :alt="`${track.SongName}封面`" />
-              <span v-else>推荐</span>
-            </span>
-            <strong>{{ track.SongName }}</strong>
-            <small>{{ track.SingerName }}</small>
-          </button>
-        </div>
-      </section>
 
       <aside class="aurora-queue-rail" data-test="queue-rail" aria-label="播放队列">
         <header class="aurora-queue-rail-head">
@@ -291,11 +295,9 @@ export default { name: 'AuroraHome' };
 
 <style scoped>
 /*
-  Design baseline 1586×1024 (spec §6):
-  [ sidebar ] [ cover 340 + song narrative | queue 320–352 ]
-              [ 每日推荐 under cover                         ]
-              [ DAILY PICKS 6 small albums                   ]
-  Queue height = same as left stage column (not a short card, not a empty viewport pillar).
+  Codex design (1586×1024):
+  LEFT (defines height): cover+info → 每日推荐条 → DAILY PICKS 小专辑一排
+  RIGHT: 竖长队列，高度严格 = 左侧整列（触底到舞台底，不是撑满整窗空白）
 */
 .aurora-home {
   padding: 12px 22px 8px;
@@ -304,26 +306,24 @@ export default { name: 'AuroraHome' };
 }
 
 .aurora-stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 352px);
-  /* Three rows sized by left column content only */
-  grid-template-rows: auto auto auto;
-  column-gap: 24px;
-  row-gap: 14px;
-  align-items: start;
+  position: relative;
+  /* Leave room for absolute queue on the right */
+  padding-right: calc(332px + 24px);
   margin: 0;
   min-width: 0;
-  /* Establish a definite height for the spanning queue cell */
-  grid-auto-rows: auto;
+  box-sizing: border-box;
+}
+
+.aurora-stage-left {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  min-width: 0;
 }
 
 .aurora-stage-main {
-  grid-column: 1;
-  grid-row: 1;
-  align-self: start;
   min-width: 0;
   display: grid;
-  /* Spec: cover ~340 + narrative */
   grid-template-columns: 340px minmax(0, 1fr);
   gap: 28px;
   align-items: start;
@@ -440,9 +440,6 @@ export default { name: 'AuroraHome' };
 }
 
 .aurora-daily-banner {
-  grid-column: 1;
-  grid-row: 2;
-  align-self: start;
   display: flex;
   align-items: center;
   gap: 12px;
@@ -550,21 +547,15 @@ export default { name: 'AuroraHome' };
 }
 
 /*
-  Right queue rail (spec §6.6 + design):
-  - Tall vertical panel 320–352px
-  - Height matches LEFT stage column only (cover + banner + daily picks)
-  - List scrolls inside — must NOT expand the grid with 12-row min-content
+  Queue = absolute tall vertical rect pinned to stage left column height.
+  top/bottom:0 → 与左侧同高并触到舞台底（设计图竖长列表）。
 */
 .aurora-queue-rail {
-  grid-column: 2;
-  grid-row: 1 / -1;
-  align-self: stretch;
-  width: 100%;
-  min-width: 0;
-  /* Critical: zero min-size so rail can't inflate stage height */
-  min-height: 0;
-  max-height: 100%;
-  height: 100%;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 332px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -698,11 +689,8 @@ export default { name: 'AuroraHome' };
   font-size: 13px;
 }
 
-/* Spec §6.5: DAILY PICKS under stage — 6 compact albums, not a giant hero block */
+/* Spec §6.5: DAILY PICKS — 6 small albums in a tight row under hero */
 .aurora-recommendations {
-  grid-column: 1;
-  grid-row: 3;
-  align-self: start;
   margin: 0;
   min-width: 0;
   padding: 4px 0 0;
@@ -910,6 +898,14 @@ export default { name: 'AuroraHome' };
 }
 
 @media (max-width: 1359px) {
+  .aurora-stage {
+    padding-right: calc(300px + 20px);
+  }
+
+  .aurora-queue-rail {
+    width: 300px;
+  }
+
   .aurora-stage-main {
     grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
   }
@@ -922,14 +918,7 @@ export default { name: 'AuroraHome' };
 
 @media (max-width: 1099px) {
   .aurora-stage {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .aurora-stage-main,
-  .aurora-daily-banner,
-  .aurora-recommendations {
-    grid-column: 1;
-    grid-row: auto;
+    padding-right: 0;
   }
 
   .aurora-queue-rail {

@@ -197,12 +197,9 @@
 
 /* ── Aurora home stage responsive geometry ── */
 [data-shell="aurora"] .aurora-stage {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(320px, 352px);
-  column-gap: 24px;
-  row-gap: 14px;
+  position: relative;
+  padding-right: calc(332px + 24px);
   min-width: 0;
-  align-items: start;
 }
 
 [data-shell="aurora"] .aurora-stage-main {
@@ -210,13 +207,14 @@
   grid-template-columns: 340px minmax(0, 1fr);
   gap: 28px;
   min-width: 0;
-  align-self: start;
 }
 
 [data-shell="aurora"] .aurora-queue-rail {
-  /* Stretch to same height as left stage column (spec §6.6 与主舞台同高) */
-  align-self: stretch;
-  min-height: 100%;
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 332px;
 }
 
 [data-shell="aurora"] .aurora-info,
