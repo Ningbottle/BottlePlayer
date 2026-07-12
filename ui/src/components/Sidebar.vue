@@ -5,6 +5,7 @@ import { apiGet } from '../api/backend';
 import { userStore } from '../api/userStore';
 import { normalizePlaylists, UserPlaylist } from '../api/favorite';
 import { useSkippedVersion, getSkippedVersion } from '../api/skippedVersion';
+import { useThemeStore } from '../api/themeStore';
 
 defineProps<{
   activeView: string;
@@ -13,6 +14,9 @@ defineProps<{
 const emit = defineEmits<{
   (e: 'navigate', view: string, params?: any): void;
 }>();
+
+const themeStore = useThemeStore();
+const skinId = themeStore.skinId;
 
 const sidebarNav = [
   { id: 'home', name: '首页', icon: 'M3 11l9-8 9 8v10a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2V11z' },
@@ -102,10 +106,19 @@ function handlePlaylist(playlist: { id: string; name: string }) {
 </script>
 
 <template>
-  <aside class="sidebar">
+  <aside
+    class="sidebar"
+    data-test="sidebar-chrome"
+    :data-skin-chrome="skinId"
+  >
     <!-- Logo Section -->
     <div class="masthead">
-      <span class="logo"><i>The</i> Player</span>
+      <span v-if="skinId === 'newsprint'" class="logo"><i>The</i> Player</span>
+      <span
+        v-else
+        class="aurora-nav-label"
+        data-test="aurora-nav-label"
+      >导航</span>
     </div>
 
     <!-- 检查更新（常驻入口；启动静默 check() 检测到新版本时自动高亮，点击去设置页检查/安装） -->
@@ -139,12 +152,24 @@ function handlePlaylist(playlist: { id: string; name: string }) {
 
     <!-- Navigation Menu -->
     <nav class="nav">
-      <a 
-        v-for="item in sidebarNav" 
+      <a
+        v-for="(item, index) in sidebarNav"
         :key="item.id"
+        data-test="sidebar-nav-item"
         :class="{ active: activeView === item.id }"
         @click="handleNav(item.id)"
       >
+        <span
+          v-if="skinId === 'newsprint'"
+          class="nav-index"
+          data-test="sidebar-nav-index"
+        >{{ String(index + 1).padStart(2, '0') }}</span>
+        <span
+          v-if="skinId === 'aurora' && activeView === item.id"
+          class="nav-active-pill"
+          data-test="sidebar-nav-active-pill"
+          aria-hidden="true"
+        />
         <svg class="ico" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
           <path :d="item.icon" />
         </svg>
@@ -157,8 +182,8 @@ function handlePlaylist(playlist: { id: string; name: string }) {
     <nav class="playlists">
       <template v-if="userStore.isLoggedIn">
         <template v-if="playlists.length > 0">
-          <a 
-            v-for="pl in playlists" 
+          <a
+            v-for="pl in playlists"
             :key="pl.id"
             @click="handlePlaylist(pl)"
           >
@@ -173,8 +198,12 @@ function handlePlaylist(playlist: { id: string; name: string }) {
       </div>
     </nav>
 
-    <!-- Footer Stamp -->
-    <div class="sidebar-footer">
+    <!-- Footer Stamp (newsprint editorial chrome only) -->
+    <div
+      v-if="skinId === 'newsprint'"
+      class="sidebar-footer"
+      data-test="newsprint-stamp"
+    >
       <div class="stamp">印</div>
       <div>Printed daily<br/>since 2026</div>
     </div>

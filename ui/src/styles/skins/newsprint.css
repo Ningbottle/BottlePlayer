@@ -75,6 +75,23 @@
   border-right: 1px solid var(--border-subtle);
 }
 
+/* Newsprint: sidebar chrome — numbered index + left rule (not aurora pill) */
+[data-skin-chrome='newsprint'].sidebar .nav > a.active {
+  border-radius: 0;
+  border-left: 3px solid var(--ink, var(--accent));
+  background: transparent;
+  font-family: var(--font-serif, serif);
+}
+[data-skin-chrome='newsprint'].sidebar .nav > a.active::before {
+  display: none; /* use border-left instead of shared ::before accent */
+}
+[data-skin-chrome='newsprint'].sidebar .nav-index {
+  font-variant-numeric: tabular-nums;
+  opacity: 0.55;
+  margin-right: 8px;
+  font-size: 11px;
+}
+
 /* Newsprint: home-specific CSS variables */
 [data-shell="newsprint"] {
   --on-accent: var(--paper, #fff);

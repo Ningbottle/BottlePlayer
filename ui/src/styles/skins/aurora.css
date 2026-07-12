@@ -119,6 +119,41 @@
   background: var(--surface-1);
 }
 
+/* Aurora: sidebar chrome — pill active nav (not newsprint left-rule) */
+[data-skin-chrome='aurora'].sidebar .nav > a.active {
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 18%, transparent);
+  font-weight: 600;
+}
+[data-skin-chrome='aurora'].sidebar .nav > a.active::before {
+  display: none; /* cancel shared newsprint-style left accent bar */
+}
+[data-skin-chrome='aurora'].sidebar .nav-active-pill {
+  /* Structural marker for tests; a.active background provides the pill chrome */
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  pointer-events: none;
+  z-index: 0;
+}
+[data-skin-chrome='aurora'].sidebar .masthead .logo {
+  display: none; /* shell titlebar owns brand */
+}
+[data-skin-chrome='aurora'].sidebar .aurora-nav-label {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--text-muted, var(--ink-mute));
+}
+[data-skin-chrome='aurora'].sidebar .masthead {
+  border-bottom-color: var(--border-subtle, var(--rule));
+}
+[data-skin-chrome='aurora'].sidebar .masthead::after {
+  display: none;
+}
+
 /* Aurora: floating liquid dock — design target margin from edges */
 [data-shell="aurora"] .shell-playerbar {
   padding: 0 14px 12px;

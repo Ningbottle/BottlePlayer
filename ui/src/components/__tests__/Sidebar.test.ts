@@ -1,6 +1,8 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import Sidebar from '../Sidebar.vue';
+import { useThemeStore, __resetForTest } from '../../api/themeStore';
 
 vi.mock('@tauri-apps/plugin-updater', () => ({
   check: vi.fn().mockResolvedValue(null),
@@ -50,5 +52,42 @@ describe('Sidebar', () => {
 
     await navEntries[3].trigger('click');
     expect(wrapper.emitted('navigate')?.[0]).toEqual(['equalizer']);
+  });
+});
+
+describe('Sidebar skin chrome', () => {
+  beforeEach(() => {
+    __resetForTest();
+    localStorage.clear();
+    useThemeStore().init();
+  });
+
+  it('marks chrome for aurora and uses pill active nav without newsprint stamp footer', async () => {
+    useThemeStore().setSkin('aurora');
+    const wrapper = mount(Sidebar, { props: { activeView: 'home' } });
+    await nextTick();
+    const root = wrapper.get('[data-test="sidebar-chrome"]');
+    expect(root.attributes('data-skin-chrome')).toBe('aurora');
+    expect(wrapper.find('[data-test="sidebar-nav-active-pill"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="newsprint-stamp"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="aurora-nav-label"]').exists()).toBe(true);
+  });
+
+  it('marks chrome for newsprint with numbered nav and stamp footer, no aurora pill', async () => {
+    useThemeStore().setSkin('newsprint');
+    const wrapper = mount(Sidebar, { props: { activeView: 'home' } });
+    await nextTick();
+    const root = wrapper.get('[data-test="sidebar-chrome"]');
+    expect(root.attributes('data-skin-chrome')).toBe('newsprint');
+    expect(wrapper.find('[data-test="sidebar-nav-index"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="newsprint-stamp"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="sidebar-nav-active-pill"]').exists()).toBe(false);
+  });
+
+  it('still emits navigate without duplicating API surface', async () => {
+    useThemeStore().setSkin('aurora');
+    const wrapper = mount(Sidebar, { props: { activeView: 'home' } });
+    await wrapper.findAll('.nav a, [data-test="sidebar-nav-item"]')[0].trigger('click');
+    expect(wrapper.emitted('navigate')?.[0]).toEqual(['home']);
   });
 });
