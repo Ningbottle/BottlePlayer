@@ -122,7 +122,7 @@ function makeParticle(): Particle {
     vx: (Math.random() - 0.5) * (playing ? 0.32 : 0.14),
     vy: (Math.random() - 0.5) * (playing ? 0.26 : 0.1) - (playing ? 0.07 : 0.025),
     r: 0.7 + Math.random() * (playing ? 3.2 : 2.0),
-    baseAlpha: playing ? 0.28 + Math.random() * 0.42 : 0.12 + Math.random() * 0.26,
+    baseAlpha: playing ? 0.18 + Math.random() * 0.28 : 0.08 + Math.random() * 0.16,
     phase: Math.random() * Math.PI * 2,
     speed: 0.5 + Math.random() * (playing ? 1.15 : 0.85),
   };
@@ -138,7 +138,7 @@ function ensureParticleBudget(): void {
 }
 
 function paintWash(ctx: CanvasRenderingContext2D): void {
-  const a = props.isPlaying ? 0.24 : 0.1;
+  const a = props.isPlaying ? 0.16 : 0.06;
   const g = ctx.createRadialGradient(
     cssW * 0.72,
     cssH * 0.22,
@@ -161,17 +161,17 @@ function paintWash(ctx: CanvasRenderingContext2D): void {
     cssH * 0.75,
     Math.max(cssW, cssH) * 0.48,
   );
-  const a2 = props.isPlaying ? 0.12 : 0.05;
-  g2.addColorStop(0, `rgba(120, 160, 255, ${a2})`);
-  g2.addColorStop(1, 'rgba(120, 160, 255, 0)');
+  const a2 = props.isPlaying ? 0.08 : 0.03;
+  g2.addColorStop(0, accentRGBA(a2));
+  g2.addColorStop(1, accentRGBA(0));
   ctx.fillStyle = g2;
   ctx.fillRect(0, 0, cssW, cssH);
 }
 
 function paintParticles(ctx: CanvasRenderingContext2D, dt: number): void {
   ensureParticleBudget();
-  const alphaBoost = props.isPlaying ? 1.55 : 1;
-  const sizeBoost = props.isPlaying ? 1.2 : 1;
+  const alphaBoost = props.isPlaying ? 1.2 : 1;
+  const sizeBoost = props.isPlaying ? 1.1 : 1;
   for (const p of particles) {
     p.phase += dt * 0.0014 * p.speed;
     p.x += p.vx * p.speed * (dt * 0.07);
