@@ -218,6 +218,7 @@ watch(() => props.model.fullscreen, (fs) => {
     :data-lyric-focus="focus.mode.value"
     data-test="aurora-lyric-stage"
   >
+    <!-- Cover only — no title/artist/hints/buttons. Dblclick → fullscreen; fs click → shelf. -->
     <div
       class="lyric-meta"
       data-test="lyric-meta"
@@ -229,52 +230,14 @@ watch(() => props.model.fullscreen, (fs) => {
         data-test="lyric-cover"
         :class="{ 'is-shelf-hot': model.fullscreen }"
         :style="{ aspectRatio: '1' }"
-        :title="model.fullscreen ? '点击打开 3D 歌单架' : undefined"
+        :aria-label="model.fullscreen ? '打开歌单架' : '封面'"
         @click="onCoverClick"
       >
-        <img :src="model.coverUrl" alt="cover" />
+        <img :src="model.coverUrl" alt="" />
         <CoverWebGLParticles
           :active="model.fullscreen"
           :is-playing="model.isPlaying"
         />
-      </div>
-      <div class="lyric-meta-text">
-        <h2 class="aurora-song-title">{{ model.currentTrack?.SongName }}</h2>
-        <p class="aurora-artist">{{ model.currentTrack?.SingerName }}</p>
-      </div>
-      <!-- Bottom chrome under cover: square action chips, one neat row -->
-      <div class="lyric-meta-actions" data-test="lyric-meta-actions">
-        <button
-          v-if="!model.fullscreen"
-          type="button"
-          class="lyric-action-btn"
-          data-test="lyric-focus-toggle"
-          :aria-pressed="focus.mode.value === 'stage'"
-          :aria-label="focus.mode.value === 'readable' ? '切换为舞台渐隐' : '切换为清晰可读'"
-          @click="focus.toggle()"
-        >
-          {{ focus.mode.value === 'readable' ? '清晰' : '舞台' }}
-        </button>
-        <button
-          v-if="!model.fullscreen"
-          type="button"
-          class="lyric-action-btn lyric-action-primary"
-          data-test="lyric-enter-fs"
-          @click="emit('enter-fullscreen')"
-        >
-          全屏歌词
-        </button>
-        <button
-          v-if="model.fullscreen"
-          type="button"
-          class="lyric-action-btn lyric-action-primary"
-          data-test="lyric-shelf-open"
-          @click.stop="openShelf"
-        >
-          歌单架
-        </button>
-        <p v-if="!model.fullscreen" class="aurora-fs-hint">也可双击封面进入全屏</p>
-        <p v-else class="aurora-fs-hint">点击封面也可打开歌单架</p>
       </div>
     </div>
 
@@ -313,10 +276,10 @@ export default { name: 'AuroraLyricStage' };
 <style scoped>
 .aurora-lyric-stage {
   display: grid;
-  /* Non-fs: wider left rail so the large cover owns most of the left space */
-  grid-template-columns: minmax(300px, 42%) minmax(0, 1fr);
+  /* Non-fs: left rail mostly for a large cover */
+  grid-template-columns: minmax(320px, 46%) minmax(0, 1fr);
   grid-template-rows: 1fr;
-  gap: clamp(16px, 2.5vw, 36px);
+  gap: clamp(12px, 2vw, 28px);
   height: 100%;
   min-height: min(640px, calc(100vh - 220px));
   padding: 12px 8px 8px;
@@ -326,8 +289,8 @@ export default { name: 'AuroraLyricStage' };
 
 /* Fullscreen: fill the entire window — no floating island of content */
 .aurora-lyric-fullscreen {
-  grid-template-columns: minmax(280px, 0.36fr) minmax(0, 1fr);
-  gap: clamp(20px, 2.5vw, 40px);
+  grid-template-columns: minmax(300px, 0.4fr) minmax(0, 1fr);
+  gap: clamp(16px, 2vw, 32px);
   padding: clamp(20px, 2.5vh, 36px) clamp(24px, 3vw, 48px);
   min-height: 100vh;
   height: 100vh;
@@ -344,23 +307,29 @@ export default { name: 'AuroraLyricStage' };
   justify-content: center;
   min-width: 0;
   height: 100%;
-  gap: 0;
-  padding: 8px 4px;
+  padding: 4px;
   box-sizing: border-box;
+}
+
+/* Fullscreen cover sits a touch toward the lyrics (right of the left rail) */
+.aurora-lyric-fullscreen .lyric-meta {
+  align-items: flex-end;
+  padding-right: clamp(8px, 1.5vw, 20px);
+  padding-left: clamp(12px, 2vw, 28px);
 }
 
 .aurora-cover {
   position: relative;
-  /* Non-fs: fill most of the left column — large square art */
-  width: min(100%, 420px, 52vh);
+  /* Non-fs: dominate the left column */
+  width: min(100%, 520px, 62vh);
   height: auto;
   aspect-ratio: 1;
   border-radius: 18px;
   overflow: hidden;
   box-shadow:
-    0 22px 56px rgba(0, 0, 0, 0.38),
+    0 24px 60px rgba(0, 0, 0, 0.4),
     0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
-  margin-bottom: 16px;
+  margin: 0;
   background: var(--surface-1, var(--paper-2));
   flex: none;
 }
@@ -370,15 +339,14 @@ export default { name: 'AuroraLyricStage' };
 }
 .aurora-cover.is-shelf-hot:hover {
   box-shadow:
-    0 20px 52px rgba(0, 0, 0, 0.4),
+    0 22px 56px rgba(0, 0, 0, 0.42),
     0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
     0 0 28px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .aurora-lyric-fullscreen .aurora-cover {
-  width: min(46vh, 440px);
+  width: min(54vh, 500px);
   max-width: 100%;
-  margin-bottom: 14px;
 }
 
 .aurora-cover img {
@@ -386,96 +354,6 @@ export default { name: 'AuroraLyricStage' };
   height: 100%;
   object-fit: cover;
   display: block;
-}
-
-.lyric-meta-text {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-  width: 100%;
-  max-width: min(100%, 420px);
-  margin-bottom: 12px;
-}
-
-.aurora-song-title {
-  font-size: clamp(18px, 1.7vw, 26px);
-  font-weight: 700;
-  margin: 0;
-  text-align: center;
-  color: var(--text-primary);
-  max-width: 20ch;
-  line-height: 1.25;
-}
-
-.aurora-artist {
-  font-size: 14px;
-  color: var(--text-secondary, var(--ink-soft));
-  margin: 0;
-  text-align: center;
-}
-
-/* Square action chips under the art — aligned row */
-.lyric-meta-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  width: 100%;
-  max-width: min(100%, 420px);
-  margin-top: 2px;
-}
-
-.lyric-action-btn {
-  min-width: 72px;
-  height: 34px;
-  padding: 0 14px;
-  border-radius: 8px;
-  border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent);
-  background: color-mix(in srgb, var(--surface-1, var(--paper-2)) 90%, transparent);
-  color: var(--text-secondary, var(--ink-soft));
-  font: inherit;
-  font-size: 12px;
-  font-weight: 600;
-  letter-spacing: 0.03em;
-  cursor: pointer;
-  box-sizing: border-box;
-  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
-}
-
-.lyric-action-btn:hover {
-  color: var(--text-primary, var(--ink));
-  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
-}
-
-.lyric-action-btn[aria-pressed='true'] {
-  color: var(--accent);
-  border-color: color-mix(in srgb, var(--accent) 55%, transparent);
-  background: color-mix(in srgb, var(--accent) 12%, transparent);
-}
-
-.lyric-action-primary {
-  color: var(--text-primary);
-  border-color: color-mix(in srgb, var(--accent) 48%, transparent);
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-}
-
-.lyric-action-primary:hover {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
-  border-color: var(--accent);
-}
-
-.aurora-fs-hint {
-  margin: 0;
-  flex: 1 0 100%;
-  text-align: center;
-  font-size: 11px;
-  letter-spacing: 0.06em;
-  color: var(--text-muted);
-  opacity: 0.72;
-  padding-top: 4px;
 }
 
 .lyric-scroll {
@@ -600,7 +478,13 @@ export default { name: 'AuroraLyricStage' };
   }
 
   .aurora-cover {
-    width: min(220px, 56vw);
+    width: min(280px, 72vw);
+  }
+
+  .aurora-lyric-fullscreen .lyric-meta {
+    align-items: center;
+    padding-right: 0;
+    padding-left: 0;
   }
 }
 </style>

@@ -189,13 +189,16 @@ describe('Lyric stage shared data', () => {
     expect(newsprint.text()).toContain('Third line');
   });
 
-  it('both show the same song info', () => {
+  it('Newsprint shows song meta; Aurora cover rail is text-free', () => {
     const model = createModel();
     const aurora = mount(AuroraLyricStage, { props: { model } });
     const newsprint = mount(NewsprintLyricStage, { props: { model } });
 
-    expect(aurora.text()).toContain('Test Song');
-    expect(aurora.text()).toContain('Test Artist');
+    // Aurora left rail is cover-only (no title/artist chrome)
+    expect(aurora.find('[data-test="lyric-cover"]').exists()).toBe(true);
+    expect(aurora.text()).not.toContain('Test Song');
+    expect(aurora.text()).not.toContain('Test Artist');
+    // Newsprint still surfaces song info in its chrome
     expect(newsprint.text()).toContain('Test Song');
     expect(newsprint.text()).toContain('Test Artist');
   });
@@ -361,38 +364,24 @@ describe('Aurora lyric focus modes', () => {
     });
   });
 
-  it('page toggle flips mode when not fullscreen', async () => {
+  it('cover chrome has no text labels or action buttons', () => {
     const focus = useLyricFocusStore();
     focus.init();
-    focus.setMode('readable');
 
     const wrapper = mount(AuroraLyricStage, {
       props: { model: createModel({ fullscreen: false }) },
     });
-    const toggle = wrapper.get('[data-test="lyric-focus-toggle"]');
-    expect(toggle.attributes('aria-pressed')).toBe('false');
-    expect(toggle.attributes('aria-label')).toBe('切换为舞台渐隐');
 
-    await toggle.trigger('click');
-    expect(focus.mode.value).toBe('stage');
-    expect(toggle.attributes('aria-pressed')).toBe('true');
-    expect(toggle.attributes('aria-label')).toBe('切换为清晰可读');
-    expect(wrapper.get('[data-test="aurora-lyric-stage"]').attributes('data-lyric-focus')).toBe(
-      'stage',
-    );
-  });
-
-  it('fullscreen has no lyric-focus-toggle in the DOM', () => {
-    const focus = useLyricFocusStore();
-    focus.init();
-
-    const wrapper = mount(AuroraLyricStage, {
-      props: { model: createModel({ fullscreen: true }) },
-    });
+    expect(wrapper.find('[data-test="lyric-cover"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="lyric-meta-actions"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="lyric-focus-toggle"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="lyric-enter-fs"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="lyric-shelf-open"]').exists()).toBe(false);
+    expect(wrapper.find('.aurora-song-title').exists()).toBe(false);
+    expect(wrapper.find('.aurora-artist').exists()).toBe(false);
   });
 
-  it('fullscreen opens 3D playlist shelf from cover click or shelf button', async () => {
+  it('fullscreen opens minimal playlist shelf only from cover click', async () => {
     const wrapper = mount(AuroraLyricStage, {
       props: {
         model: createModel({
@@ -411,38 +400,23 @@ describe('Aurora lyric focus modes', () => {
 
     expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeNull();
     expect(wrapper.find('[data-test="cover-webgl-particles"]').exists()).toBe(true);
-
-    await wrapper.get('[data-test="lyric-shelf-open"]').trigger('click');
-    await nextTick();
-    expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeTruthy();
-    // Coverflow cards + chrome buttons must be present and interactive
-    expect(document.querySelector('[data-test="shelf-card-0"]')).toBeTruthy();
-    expect(document.querySelector('[data-test="shelf-close"]')).toBeTruthy();
-    expect(document.querySelector('[data-test="shelf-play"]')).toBeTruthy();
-
-    (document.querySelector('[data-test="shelf-close"]') as HTMLElement).click();
-    await nextTick();
-    expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeNull();
+    expect(wrapper.find('[data-test="lyric-shelf-open"]').exists()).toBe(false);
 
     await wrapper.get('[data-test="lyric-cover"]').trigger('click');
     await nextTick();
     expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeTruthy();
+    expect(document.querySelector('[data-test="shelf-card-0"]')).toBeTruthy();
+    // Minimal: no prev/next/close/play chrome text buttons
+    expect(document.querySelector('[data-test="shelf-prev"]')).toBeNull();
+    expect(document.querySelector('[data-test="shelf-next"]')).toBeNull();
+    expect(document.querySelector('[data-test="shelf-close"]')).toBeNull();
+    expect(document.querySelector('[data-test="shelf-play"]')).toBeNull();
+
+    (document.querySelector('[data-test="shelf-backdrop"]') as HTMLElement).click();
+    await nextTick();
+    expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeNull();
 
     wrapper.unmount();
-  });
-
-  it('non-fullscreen shows large cover actions row with square-style toggles', () => {
-    const focus = useLyricFocusStore();
-    focus.init();
-
-    const wrapper = mount(AuroraLyricStage, {
-      props: { model: createModel({ fullscreen: false }) },
-    });
-
-    expect(wrapper.find('[data-test="lyric-meta-actions"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="lyric-focus-toggle"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="lyric-enter-fs"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="lyric-shelf-open"]').exists()).toBe(false);
   });
 
   it('Newsprint stage does not expose dual-mode lyric focus toggle', () => {
