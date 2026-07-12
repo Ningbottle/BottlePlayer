@@ -277,7 +277,7 @@ export default { name: 'AuroraLyricStage' };
 .aurora-lyric-stage {
   display: grid;
   /* Non-fs: left rail mostly for a large cover */
-  grid-template-columns: minmax(320px, 46%) minmax(0, 1fr);
+  grid-template-columns: minmax(360px, 50%) minmax(0, 1fr);
   grid-template-rows: 1fr;
   gap: clamp(12px, 2vw, 28px);
   height: 100%;
@@ -289,7 +289,7 @@ export default { name: 'AuroraLyricStage' };
 
 /* Fullscreen: fill the entire window — no floating island of content */
 .aurora-lyric-fullscreen {
-  grid-template-columns: minmax(300px, 0.4fr) minmax(0, 1fr);
+  grid-template-columns: minmax(340px, 0.44fr) minmax(0, 1fr);
   gap: clamp(16px, 2vw, 32px);
   padding: clamp(20px, 2.5vh, 36px) clamp(24px, 3vw, 48px);
   min-height: 100vh;
@@ -321,10 +321,10 @@ export default { name: 'AuroraLyricStage' };
 .aurora-cover {
   position: relative;
   /* Non-fs: dominate the left column */
-  width: min(100%, 520px, 62vh);
+  width: min(100%, 600px, 72vh);
   height: auto;
   aspect-ratio: 1;
-  border-radius: 18px;
+  border-radius: 20px;
   overflow: hidden;
   box-shadow:
     0 24px 60px rgba(0, 0, 0, 0.4),
@@ -345,7 +345,7 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .aurora-lyric-fullscreen .aurora-cover {
-  width: min(54vh, 500px);
+  width: min(62vh, 580px);
   max-width: 100%;
 }
 
@@ -361,7 +361,7 @@ export default { name: 'AuroraLyricStage' };
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
   align-items: center;
   /* Always flex-start — center + overflow clips the first half of long lyrics */
   justify-content: flex-start;
@@ -411,18 +411,18 @@ export default { name: 'AuroraLyricStage' };
 
 .lyric-line {
   width: 100%;
-  max-width: min(42ch, 92%);
-  font-size: 17px;
+  max-width: min(44ch, 94%);
+  font-size: 20px;
   color: var(--text-muted, var(--ink-mute));
   text-align: center;
   font-family: var(--font-serif, serif);
-  line-height: 1.65;
+  line-height: 1.7;
   transition: color 0.35s ease, opacity 0.35s ease, transform 0.35s ease, font-size 0.35s ease;
 }
 
 .lyric-line.active {
   color: var(--accent);
-  font-size: 24px;
+  font-size: 28px;
   font-weight: 700;
   transform: scale(1.05);
   text-shadow: 0 0 28px color-mix(in srgb, var(--accent) 35%, transparent);
@@ -430,44 +430,44 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .aurora-lyric-fullscreen .lyric-line.active {
-  font-size: clamp(26px, 3.2vw, 36px);
+  font-size: clamp(32px, 3.8vw, 44px);
 }
 
 .aurora-lyric-fullscreen .lyric-line {
-  font-size: clamp(17px, 1.6vw, 22px);
-  max-width: min(48ch, 94%);
+  font-size: clamp(20px, 2vw, 26px);
+  max-width: min(50ch, 96%);
 }
 
 /* Readable: all lines scannable — far floor ≥ 0.72 */
 .aurora-lyric-stage[data-lyric-focus='readable'] .lyric-line.near {
   opacity: 0.92;
-  font-size: 16px;
+  font-size: 19px;
 }
 
 .aurora-lyric-stage[data-lyric-focus='readable'] .lyric-line.mid {
   opacity: 0.84;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .aurora-lyric-stage[data-lyric-focus='readable'] .lyric-line.far {
   opacity: 0.78;
-  font-size: 14px;
+  font-size: 17px;
 }
 
 /* Stage: near/far hierarchy with far floor ≥ 0.45 */
 .aurora-lyric-stage[data-lyric-focus='stage'] .lyric-line.near {
   opacity: 0.7;
-  font-size: 16px;
+  font-size: 19px;
 }
 
 .aurora-lyric-stage[data-lyric-focus='stage'] .lyric-line.mid {
   opacity: 0.55;
-  font-size: 15px;
+  font-size: 18px;
 }
 
 .aurora-lyric-stage[data-lyric-focus='stage'] .lyric-line.far {
   opacity: 0.48;
-  font-size: 14px;
+  font-size: 17px;
 }
 
 @media (max-width: 900px) {
@@ -478,7 +478,7 @@ export default { name: 'AuroraLyricStage' };
   }
 
   .aurora-cover {
-    width: min(280px, 72vw);
+    width: min(320px, 78vw);
   }
 
   .aurora-lyric-fullscreen .lyric-meta {
