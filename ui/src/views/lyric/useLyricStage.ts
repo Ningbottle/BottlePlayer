@@ -1,4 +1,4 @@
-import { ref, computed, watch, onMounted, onUnmounted, type ComputedRef } from 'vue';
+import { ref, computed, watch, onMounted, onUnmounted, nextTick, type ComputedRef } from 'vue';
 import { playerStore } from '../../api/playerStore';
 import { apiGet } from '../../api/backend';
 import { useLyricFollow } from '../../api/useLyricFollow';
@@ -116,19 +116,32 @@ export function useLyricStage(): UseLyricStageReturn {
   });
 
   let scrollToken = 0;
-  function scrollToLine(idx: number): void {
+  function scrollToLine(idx: number, behavior: ScrollBehavior = 'smooth'): void {
     scrollToken++;
     const myToken = scrollToken;
-    const el = document.getElementById(`lyric-line-${idx}`);
-    if (el && myToken === scrollToken) {
-      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    }
+    // nextTick: wait for lyric list paint (test-friendly; no rAF dependency)
+    void nextTick(() => {
+      const el = document.getElementById(`lyric-line-${idx}`);
+      if (el && myToken === scrollToken) {
+        el.scrollIntoView({ behavior, block: 'center' });
+      }
+    });
   }
 
-  const { autoFollowing, onUserScroll, resumeFollow, resetForTrack } = useLyricFollow({
+  const { autoFollowing, onUserScroll, resumeFollow, snapToActive, resetForTrack } = useLyricFollow({
     activeIndex,
     scrollToLine,
   });
+
+  /** After lyrics land, snap to playhead quickly (<1s total, including layout). */
+  function scheduleEnterFollow(): void {
+    // Instant first snap so user sees the current line immediately
+    snapToActive('auto');
+    // Second snap after enter animation settles (~0.5s)
+    window.setTimeout(() => {
+      if (autoFollowing.value) snapToActive('smooth');
+    }, 480);
+  }
 
   async function loadLyrics(): Promise<void> {
     if (!currentTrack.value) {
@@ -160,6 +173,10 @@ export function useLyricStage(): UseLyricStageReturn {
       parsedLyrics.value = [{ time: 0, text: '歌词加载出错' }];
     } finally {
       loading.value = false;
+      // Snap to current line as soon as lines exist
+      if (parsedLyrics.value.length > 0) {
+        scheduleEnterFollow();
+      }
     }
   }
 

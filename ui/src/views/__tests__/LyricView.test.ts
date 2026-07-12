@@ -111,6 +111,8 @@ describe('LyricView auto-follow integration', () => {
 
     scrollSpy.mockClear();
     await w.find('[data-test="return-to-current"]').trigger('click');
+    await nextTick();
+    await flushPromises();
 
     expect(isFollowing(w)).toBe(true);
     expect(scrollSpy).toHaveBeenCalled();

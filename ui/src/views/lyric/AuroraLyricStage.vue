@@ -37,8 +37,8 @@ function queryLineEls(): Element[] {
 }
 
 /**
- * One unified open: whole stage settles together (soft fade + slight rise).
- * No separate page curtain — that felt disconnected and could fire twice.
+ * Unified page open: soft veil + content settle as one beat (no extra curtain layer).
+ * Fast enough that follow snap (~0.5s) lands while enter still feels intentional.
  */
 function playStageEnter(): void {
   const root = rootRef.value;
@@ -55,11 +55,12 @@ function playStageEnter(): void {
   if (root) {
     gsap.fromTo(
       root,
-      { opacity: 0, y: 18 },
+      { opacity: 0, y: 22, filter: 'blur(6px)' },
       {
         opacity: 1,
         y: 0,
-        duration: 0.55,
+        filter: 'blur(0px)',
+        duration: 0.52,
         ease: 'power3.out',
         onComplete: () => {
           if (rootRef.value) {
@@ -74,14 +75,14 @@ function playStageEnter(): void {
   if (cover) {
     gsap.fromTo(
       cover,
-      { opacity: 0.55, y: 14, scale: 0.97 },
+      { opacity: 0.4, y: 20, scale: 0.96 },
       {
         opacity: 1,
         y: 0,
         scale: 1,
-        duration: 0.58,
+        duration: 0.55,
         ease: 'power3.out',
-        delay: 0.04,
+        delay: 0.05,
         onComplete: () => {
           if (coverRef.value) {
             gsap.set(coverRef.value, { clearProps: 'opacity,transform' });
@@ -93,8 +94,7 @@ function playStageEnter(): void {
 }
 
 /**
- * Lines fade in gently with the stage (short stagger, same direction).
- * Once per FileHash; async lyric load must not restage cover/root.
+ * Lines ease in with the stage (short). Once per FileHash.
  */
 function playLineEnter(fileHash: string): void {
   if (!fileHash || lineEnterDoneForHash.value === fileHash) return;
@@ -113,14 +113,14 @@ function playLineEnter(fileHash: string): void {
 
   gsap.fromTo(
     lines,
-    { opacity: 0, y: 12 },
+    { opacity: 0, y: 10 },
     {
       opacity: 1,
       y: 0,
-      duration: 0.42,
+      duration: 0.36,
       ease: 'power2.out',
-      stagger: 0.035,
-      delay: 0.08,
+      stagger: 0.028,
+      delay: 0.06,
       clearProps: 'opacity,transform',
     },
   );
