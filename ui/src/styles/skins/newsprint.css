@@ -239,3 +239,15 @@
   font-family: var(--font-serif, Georgia, serif);
   font-style: italic;
 }
+
+/* Newsprint: topbar editorial search field — ruled square chrome */
+[data-skin-chrome='newsprint'] .search[data-variant='editorial'] {
+  border-radius: 0;
+  border: 1px solid var(--ink-soft, var(--rule));
+  background: transparent;
+  box-shadow: 2px 2px 0 var(--ink-soft, transparent);
+}
+[data-skin-chrome='newsprint'] .search[data-variant='editorial'] input {
+  font-family: var(--font-serif, Georgia, serif);
+}
+

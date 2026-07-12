@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import { userStore } from '../api/userStore';
+import { useThemeStore } from '../api/themeStore';
 
 const props = defineProps<{
   searchQuery: string;
@@ -14,6 +15,12 @@ const emit = defineEmits<{
   (e: 'back'): void;
   (e: 'forward'): void;
 }>();
+
+const themeStore = useThemeStore();
+const skinId = themeStore.skinId;
+const searchVariant = computed(() =>
+  skinId.value === 'newsprint' ? 'editorial' : 'command',
+);
 
 const localQuery = ref(props.searchQuery);
 
@@ -50,7 +57,11 @@ function shareAlert() {
 </script>
 
 <template>
-  <header class="topbar">
+  <header
+    class="topbar"
+    data-test="topbar-chrome"
+    :data-skin-chrome="skinId"
+  >
     <!-- Back/Forward controls -->
     <div class="nav-arrows">
       <button class="icon-btn" aria-label="back" @click="goBack">
@@ -66,16 +77,22 @@ function shareAlert() {
     </div>
 
     <!-- Search Input -->
-    <div class="search">
+    <div
+      class="search"
+      data-test="topbar-search"
+      :data-variant="searchVariant"
+    >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <circle cx="11" cy="11" r="7"/>
         <path d="m20 20-3.5-3.5"/>
       </svg>
-      <input 
+      <input
         :value="searchQuery"
         @input="handleSearchInput"
         @keyup.enter="triggerSearch"
-        placeholder="搜索歌曲、艺人、专辑、歌单 · Search the press" 
+        :placeholder="skinId === 'newsprint'
+          ? '检索曲目、作者、版面 · Search the press'
+          : '搜索歌曲、艺人、专辑、歌单'"
       />
     </div>
 

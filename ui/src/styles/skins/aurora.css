@@ -379,3 +379,14 @@
   font-family: var(--font-sans, system-ui, sans-serif);
   font-style: normal;
 }
+
+/* Aurora: topbar command search field — pill chrome */
+[data-skin-chrome='aurora'] .search[data-variant='command'] {
+  border-radius: 999px;
+  border: 1px solid var(--border-subtle, var(--rule-soft));
+  background: var(--surface-2, var(--paper));
+}
+[data-skin-chrome='aurora'] .search[data-variant='command'] input {
+  font-family: var(--font-sans, system-ui, sans-serif);
+}
+
