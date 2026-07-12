@@ -274,31 +274,29 @@ export default { name: 'AuroraLyricStage' };
 
 <style scoped>
 /*
-  Centered pair layout:
-  [ outer air ] [ COVER ]  gap  [ LYRICS ] [ outer air ]
-  Not edge-hugging columns. Cover size is explicit (was locked to 240px by global .big-cover).
+  Cover (fixed) + lyrics (fill remaining). No locked lyric box, no right dead zone,
+  no visible scrollbar (scroll still works).
 */
 .aurora-lyric-stage {
   display: flex;
   flex-direction: row;
-  justify-content: center;
-  align-items: center;
-  gap: clamp(36px, 4.5vw, 72px);
+  justify-content: flex-start;
+  align-items: stretch;
+  gap: clamp(28px, 3.5vw, 56px);
   height: 100%;
   min-height: min(640px, calc(100vh - 220px));
-  /* Outer breathing room so the pair sits mid-stage, not flush to window edges */
-  padding: 16px clamp(40px, 8vw, 120px);
+  /* modest inset — not glued to edges, not huge side voids */
+  padding: 12px clamp(20px, 3vw, 40px) 12px clamp(24px, 4vw, 56px);
   box-sizing: border-box;
   width: 100%;
 }
 
-/* Fullscreen: same centered pair, full viewport canvas */
 .aurora-lyric-fullscreen {
   min-height: 100vh;
   height: 100vh;
   width: 100%;
-  gap: clamp(40px, 5vw, 80px);
-  padding: clamp(24px, 4vh, 48px) clamp(48px, 9vw, 140px);
+  gap: clamp(32px, 4vw, 64px);
+  padding: clamp(20px, 3vh, 40px) clamp(24px, 3.5vw, 48px) clamp(20px, 3vh, 40px) clamp(28px, 4vw, 64px);
   background:
     radial-gradient(ellipse 80% 60% at 20% 40%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
     var(--app-bg, #040607);
@@ -311,15 +309,13 @@ export default { name: 'AuroraLyricStage' };
   justify-content: center;
   flex: 0 0 auto;
   min-width: 0;
-  height: auto;
-  max-height: 100%;
+  height: 100%;
   padding: 0;
   box-sizing: border-box;
 }
 
 .aurora-cover {
   position: relative;
-  /* Explicit size — unlocked from global 240px lock, moderated after overshoot */
   width: min(34vw, 46vh, 380px);
   height: auto;
   aspect-ratio: 1;
@@ -355,6 +351,13 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .lyric-scroll {
+  /* Take ALL remaining width after cover — no max-width cage, no empty right slab */
+  flex: 1 1 0;
+  width: auto;
+  max-width: none;
+  min-width: 0;
+  min-height: 0;
+  height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
@@ -362,30 +365,18 @@ export default { name: 'AuroraLyricStage' };
   gap: 18px;
   align-items: center;
   justify-content: flex-start;
-  /* Cap width so lyrics sit beside cover as a pair, not stretched to the right edge */
-  flex: 0 1 min(480px, 40vw);
-  width: min(480px, 40vw);
-  max-width: 520px;
-  min-width: min(280px, 100%);
-  min-height: 0;
-  height: min(70vh, 100%);
-  max-height: 100%;
-  padding: min(12vh, 80px) 8px min(12vh, 80px);
+  padding: min(14vh, 96px) 12px min(14vh, 96px);
   box-sizing: border-box;
-  scrollbar-width: thin;
-  scrollbar-gutter: stable;
-  scrollbar-color: color-mix(in srgb, var(--text-muted, #888) 45%, transparent) transparent;
+  /* Never show a scrollbar gutter — wheel / trackpad still scroll */
+  scrollbar-width: none;
+  scrollbar-gutter: auto;
+  -ms-overflow-style: none;
 }
 
 .lyric-scroll::-webkit-scrollbar {
-  width: 6px;
-}
-.lyric-scroll::-webkit-scrollbar-track {
-  background: transparent;
-}
-.lyric-scroll::-webkit-scrollbar-thumb {
-  background: color-mix(in srgb, var(--text-muted, #888) 40%, transparent);
-  border-radius: 999px;
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 /* Stage mode: stronger edge fade; readable softens / removes mask for scanability */
@@ -399,21 +390,8 @@ export default { name: 'AuroraLyricStage' };
   -webkit-mask-image: none;
 }
 
-/* Fullscreen: immersive — hide scrollbar (scroll still works) */
 .aurora-lyric-fullscreen .lyric-scroll {
-  flex: 0 1 min(560px, 42vw);
-  width: min(560px, 42vw);
-  max-width: 600px;
-  height: min(78vh, 100%);
-  padding: min(18vh, 120px) 8px min(18vh, 120px);
-  justify-content: flex-start;
-  scrollbar-width: none;
-  scrollbar-gutter: auto;
-}
-.aurora-lyric-fullscreen .lyric-scroll::-webkit-scrollbar {
-  width: 0;
-  height: 0;
-  display: none;
+  padding: min(22vh, 160px) 16px min(22vh, 160px);
 }
 
 .lyric-line {
@@ -495,7 +473,6 @@ export default { name: 'AuroraLyricStage' };
   .aurora-lyric-fullscreen .lyric-scroll {
     flex: 1 1 auto;
     width: 100%;
-    max-width: 100%;
     height: auto;
   }
 }
