@@ -185,7 +185,8 @@ function onRelease(e: MouseEvent) {
           @mouseleave="onRelease"
         >
           <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M15.8 6H18v12h-2.2V6zM4.8 12l9.6-6.2v12.4L4.8 12z"/>
+            <!-- triangle points right + bar on the right (skip next) -->
+            <path d="M4.8 5.8v12.4L14.4 12 4.8 5.8zM15.8 6H18v12h-2.2V6z"/>
           </svg>
         </button>
 
@@ -502,20 +503,22 @@ function onRelease(e: MouseEvent) {
   cursor: pointer;
   color: color-mix(in srgb, var(--text-primary) 72%, transparent);
   background: transparent;
-  border: none;
-  border-radius: 50%;
+  border: 1px solid transparent;
+  border-radius: 8px;
   box-shadow: none;
   filter: none;
   outline: none;
   /* Allow GSAP scale Q-bounce; only color/bg transition in CSS */
-  transition: color 0.15s ease, background 0.15s ease;
+  transition: color 0.15s ease, background 0.15s ease, border-color 0.15s ease;
   transform-origin: center center;
   will-change: transform;
+  box-sizing: border-box;
 }
 
 .aurora-pb-btn:hover {
   color: var(--text-primary);
   background: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
 }
 
 .aurora-pb-btn:active {
@@ -684,19 +687,23 @@ function onRelease(e: MouseEvent) {
 }
 
 .aurora-pb-icon {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   display: grid;
   place-items: center;
-  border: 0;
-  border-radius: 50%;
-  background: transparent;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-2) 45%, transparent);
   color: var(--text-secondary);
   cursor: pointer;
+  box-sizing: border-box;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
 .aurora-pb-icon:hover {
   color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--text-primary) 22%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
 }
 
 /* Design de-emphasizes queue when desktop rail is present */

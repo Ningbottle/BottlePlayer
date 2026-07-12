@@ -35,17 +35,19 @@ defineEmits<{ (e: 'resume'): void }>();
 }
 
 .return-to-current {
-  padding: 6px 18px;
+  padding: 7px 16px;
   border: 1px solid var(--rule-soft, var(--rule));
-  border-radius: 999px;
+  border-radius: 8px;
   background: var(--paper);
   color: var(--ink);
-  font-family: var(--font-serif, serif);
-  font-style: italic;
-  font-size: 13px;
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-style: normal;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
   cursor: pointer;
   box-shadow: 0 2px 8px rgba(40, 28, 12, 0.1);
-  transition: transform 0.15s var(--ease-spa, ease), box-shadow 0.15s var(--ease-spa, ease);
+  transition: transform 0.15s var(--ease-spa, ease), box-shadow 0.15s var(--ease-spa, ease), border-color 0.15s ease;
 }
 
 .return-to-current:hover {

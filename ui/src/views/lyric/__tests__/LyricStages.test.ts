@@ -406,22 +406,43 @@ describe('Aurora lyric focus modes', () => {
           } as any,
         }),
       },
+      attachTo: document.body,
     });
 
-    expect(wrapper.find('[data-test="aurora-playlist-shelf"]').exists()).toBe(false);
+    expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeNull();
     expect(wrapper.find('[data-test="cover-webgl-particles"]').exists()).toBe(true);
 
     await wrapper.get('[data-test="lyric-shelf-open"]').trigger('click');
     await nextTick();
-    expect(wrapper.find('[data-test="aurora-playlist-shelf"]').exists()).toBe(true);
+    expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeTruthy();
+    // Coverflow cards + chrome buttons must be present and interactive
+    expect(document.querySelector('[data-test="shelf-card-0"]')).toBeTruthy();
+    expect(document.querySelector('[data-test="shelf-close"]')).toBeTruthy();
+    expect(document.querySelector('[data-test="shelf-play"]')).toBeTruthy();
 
-    await wrapper.get('[data-test="shelf-close"]').trigger('click');
+    (document.querySelector('[data-test="shelf-close"]') as HTMLElement).click();
     await nextTick();
-    expect(wrapper.find('[data-test="aurora-playlist-shelf"]').exists()).toBe(false);
+    expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeNull();
 
     await wrapper.get('[data-test="lyric-cover"]').trigger('click');
     await nextTick();
-    expect(wrapper.find('[data-test="aurora-playlist-shelf"]').exists()).toBe(true);
+    expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeTruthy();
+
+    wrapper.unmount();
+  });
+
+  it('non-fullscreen shows large cover actions row with square-style toggles', () => {
+    const focus = useLyricFocusStore();
+    focus.init();
+
+    const wrapper = mount(AuroraLyricStage, {
+      props: { model: createModel({ fullscreen: false }) },
+    });
+
+    expect(wrapper.find('[data-test="lyric-meta-actions"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="lyric-focus-toggle"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="lyric-enter-fs"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="lyric-shelf-open"]').exists()).toBe(false);
   });
 
   it('Newsprint stage does not expose dual-mode lyric focus toggle', () => {
