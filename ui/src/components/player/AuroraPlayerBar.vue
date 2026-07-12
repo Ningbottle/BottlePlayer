@@ -50,6 +50,7 @@ function onRelease(e: MouseEvent) {
     <AuroraDockParticles
       class="aurora-pb-particles"
       :is-playing="!!c.currentTrack && c.isPlaying"
+      :progress="c.currentTrack ? c.progressPercent / 100 : 0"
     />
 
     <transition name="toast-fade">

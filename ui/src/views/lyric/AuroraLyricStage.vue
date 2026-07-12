@@ -37,8 +37,8 @@ function queryLineEls(): Element[] {
 }
 
 /**
- * Cinematic stage enter: slow rise from below (not a drop from the ceiling).
- * Cover lifts first, root settles with it — film-like ease, no lateral snap.
+ * One unified open: whole stage settles together (soft fade + slight rise).
+ * No separate page curtain — that felt disconnected and could fire twice.
  */
 function playStageEnter(): void {
   const root = rootRef.value;
@@ -52,15 +52,14 @@ function playStageEnter(): void {
     return;
   }
 
-  // Root: soft veil lifts from below
   if (root) {
     gsap.fromTo(
       root,
-      { opacity: 0, y: 42 },
+      { opacity: 0, y: 18 },
       {
         opacity: 1,
         y: 0,
-        duration: 1.05,
+        duration: 0.55,
         ease: 'power3.out',
         onComplete: () => {
           if (rootRef.value) {
@@ -72,18 +71,17 @@ function playStageEnter(): void {
       },
     );
   }
-  // Cover: rises into place like a prop on stage
   if (cover) {
     gsap.fromTo(
       cover,
-      { opacity: 0, y: 56, scale: 0.94 },
+      { opacity: 0.55, y: 14, scale: 0.97 },
       {
         opacity: 1,
         y: 0,
         scale: 1,
-        duration: 1.12,
+        duration: 0.58,
         ease: 'power3.out',
-        delay: 0.1,
+        delay: 0.04,
         onComplete: () => {
           if (coverRef.value) {
             gsap.set(coverRef.value, { clearProps: 'opacity,transform' });
@@ -95,7 +93,7 @@ function playStageEnter(): void {
 }
 
 /**
- * Lines float up after the stage — staggered, unhurried.
+ * Lines fade in gently with the stage (short stagger, same direction).
  * Once per FileHash; async lyric load must not restage cover/root.
  */
 function playLineEnter(fileHash: string): void {
@@ -115,15 +113,14 @@ function playLineEnter(fileHash: string): void {
 
   gsap.fromTo(
     lines,
-    { opacity: 0, y: 40 },
+    { opacity: 0, y: 12 },
     {
       opacity: 1,
       y: 0,
-      duration: 0.85,
+      duration: 0.42,
       ease: 'power2.out',
-      stagger: 0.07,
-      delay: 0.22,
-      // Restore CSS near/mid/far opacity hierarchy after the enter.
+      stagger: 0.035,
+      delay: 0.08,
       clearProps: 'opacity,transform',
     },
   );

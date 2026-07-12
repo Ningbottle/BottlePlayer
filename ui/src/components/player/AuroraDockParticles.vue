@@ -1,15 +1,23 @@
 <script setup lang="ts">
 /**
- * Compact Canvas 2D motes for the Aurora player dock.
- * Non-audio; denser when playing; cleaned on unmount / reduced-motion.
+ * Dock particles linked to playback progress (no audio analyser).
+ * - progress 0–1 moves the bright band and phase along the bar
+ * - isPlaying densifies / speeds motes; paused is calm
  */
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { isReducedMotion } from '../../api/motion';
 
-const props = defineProps<{ isPlaying: boolean }>();
+const props = withDefaults(
+  defineProps<{
+    isPlaying: boolean;
+    /** 0–1 song progress; drives wave position */
+    progress?: number;
+  }>(),
+  { progress: 0 },
+);
 
-const CAP_PAUSED = 28;
-const CAP_PLAYING = 48;
+const CAP_PAUSED = 32;
+const CAP_PLAYING = 56;
 const DPR_CAP = 2;
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -23,6 +31,8 @@ type Particle = {
   baseAlpha: number;
   phase: number;
   speed: number;
+  /** Prefer clustering near this relative X (0–1) when seeded */
+  anchor: number;
 };
 
 let frameId: number | null = null;
@@ -33,6 +43,11 @@ let cssH = 1;
 let lastTs = 0;
 let alive = true;
 
+function clamp01(n: number): number {
+  if (!Number.isFinite(n)) return 0;
+  return Math.max(0, Math.min(1, n));
+}
+
 function cancelFrame(): void {
   if (frameId !== null) {
     cancelAnimationFrame(frameId);
@@ -40,27 +55,36 @@ function cancelFrame(): void {
   }
 }
 
-function makeParticle(): Particle {
+function makeParticle(nearProgress = false): Particle {
   const playing = props.isPlaying;
+  const p = clamp01(props.progress);
+  // Cluster some motes around the playhead when a track is active
+  const anchor = nearProgress
+    ? Math.max(0, Math.min(1, p + (Math.random() - 0.5) * 0.22))
+    : Math.random();
   return {
-    x: Math.random() * cssW,
+    x: anchor * Math.max(cssW, 1),
     y: Math.random() * cssH,
-    vx: (Math.random() - 0.5) * (playing ? 0.28 : 0.1),
-    vy: (Math.random() - 0.5) * (playing ? 0.16 : 0.06) - (playing ? 0.05 : 0.02),
-    r: 0.5 + Math.random() * (playing ? 2.2 : 1.4),
-    baseAlpha: playing ? 0.22 + Math.random() * 0.35 : 0.08 + Math.random() * 0.16,
+    vx: (Math.random() - 0.5) * (playing ? 0.32 : 0.1),
+    vy: (Math.random() - 0.5) * (playing ? 0.18 : 0.06) - (playing ? 0.06 : 0.02),
+    r: 0.55 + Math.random() * (playing ? 2.4 : 1.5),
+    baseAlpha: playing ? 0.24 + Math.random() * 0.38 : 0.08 + Math.random() * 0.16,
     phase: Math.random() * Math.PI * 2,
-    speed: 0.45 + Math.random() * (playing ? 1.0 : 0.6),
+    speed: 0.5 + Math.random() * (playing ? 1.15 : 0.65),
+    anchor,
   };
 }
 
 function seed(count: number): void {
-  particles = Array.from({ length: count }, () => makeParticle());
+  particles = [];
+  for (let i = 0; i < count; i++) {
+    particles.push(makeParticle(i % 3 !== 0));
+  }
 }
 
 function ensureBudget(): void {
   const target = props.isPlaying ? CAP_PLAYING : CAP_PAUSED;
-  while (particles.length < target) particles.push(makeParticle());
+  while (particles.length < target) particles.push(makeParticle(true));
   if (particles.length > target) particles.length = target;
 }
 
@@ -88,16 +112,35 @@ function paint(ts?: number): void {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
-  // Soft accent wash along the dock midline
-  const a = props.isPlaying ? 0.14 : 0.06;
-  const g = ctx.createLinearGradient(0, 0, cssW, 0);
-  g.addColorStop(0, 'rgba(94, 226, 165, 0)');
-  g.addColorStop(0.35, `rgba(94, 226, 165, ${a * 0.55})`);
-  g.addColorStop(0.5, `rgba(120, 200, 255, ${a * 0.35})`);
-  g.addColorStop(0.65, `rgba(94, 226, 165, ${a * 0.55})`);
+  const prog = clamp01(props.progress);
+  const playheadX = prog * cssW;
+  const a = props.isPlaying ? 0.16 : 0.05;
+
+  // Progress-linked wash: glow rides the playhead
+  const g = ctx.createRadialGradient(
+    playheadX,
+    cssH * 0.55,
+    0,
+    playheadX,
+    cssH * 0.55,
+    Math.max(cssW * 0.28, 80),
+  );
+  g.addColorStop(0, `rgba(94, 226, 165, ${a})`);
+  g.addColorStop(0.45, `rgba(120, 200, 255, ${a * 0.4})`);
   g.addColorStop(1, 'rgba(94, 226, 165, 0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, cssW, cssH);
+
+  // Soft floor strip intensity scales with progress (song further = wider breath)
+  const band = ctx.createLinearGradient(0, 0, cssW, 0);
+  const edge = Math.max(0.02, prog);
+  band.addColorStop(0, 'rgba(94, 226, 165, 0)');
+  band.addColorStop(Math.max(0, edge - 0.08), 'rgba(94, 226, 165, 0)');
+  band.addColorStop(edge, `rgba(94, 226, 165, ${props.isPlaying ? 0.1 : 0.04})`);
+  band.addColorStop(Math.min(1, edge + 0.06), 'rgba(94, 226, 165, 0)');
+  band.addColorStop(1, 'rgba(94, 226, 165, 0)');
+  ctx.fillStyle = band;
+  ctx.fillRect(0, cssH * 0.35, cssW, cssH * 0.45);
 
   if (isReducedMotion()) return;
 
@@ -105,27 +148,39 @@ function paint(ts?: number): void {
   const now = ts ?? performance.now();
   const dt = lastTs ? Math.min(48, now - lastTs) : 16;
   lastTs = now;
-  const boost = props.isPlaying ? 1.45 : 1;
+
+  // Progress advances global phase so motes “breathe” with the song clock
+  const progressPhase = prog * Math.PI * 4;
+  const boost = props.isPlaying ? 1.5 : 0.85;
+  const pull = props.isPlaying ? 0.012 : 0.004;
 
   for (const p of particles) {
-    p.phase += dt * 0.0015 * p.speed;
+    // Soft attraction toward current playhead (progress-linked)
+    const targetX = p.anchor * 0.35 * cssW + playheadX * 0.65;
+    p.vx += (targetX - p.x) * pull * (dt * 0.06);
+    p.vx *= 0.98;
+    p.phase += dt * 0.0016 * p.speed + progressPhase * 0.0008;
     p.x += p.vx * p.speed * (dt * 0.07);
     p.y += p.vy * p.speed * (dt * 0.07);
-    if (p.x < -6) p.x = cssW + 6;
-    if (p.x > cssW + 6) p.x = -6;
+    if (p.x < -8) p.x = cssW + 8;
+    if (p.x > cssW + 8) p.x = -8;
     if (p.y < -4) p.y = cssH + 4;
     if (p.y > cssH + 4) p.y = -4;
 
-    const pulse = 0.55 + 0.45 * Math.sin(p.phase);
-    const alpha = Math.min(0.9, p.baseAlpha * pulse * boost);
-    const radius = p.r * (props.isPlaying ? 1.15 : 1) * (0.85 + 0.3 * pulse);
-    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius * 3.2);
-    grad.addColorStop(0, `rgba(200, 255, 230, ${alpha})`);
-    grad.addColorStop(0.4, `rgba(94, 226, 165, ${alpha * 0.5})`);
+    const pulse = 0.55 + 0.45 * Math.sin(p.phase + progressPhase);
+    // Brighter near playhead
+    const dist = Math.abs(p.x - playheadX) / Math.max(cssW * 0.25, 40);
+    const near = Math.max(0, 1 - dist);
+    const alpha = Math.min(0.92, p.baseAlpha * pulse * boost * (0.55 + near * 0.65));
+    const radius = p.r * (props.isPlaying ? 1.2 : 1) * (0.85 + 0.3 * pulse) * (0.85 + near * 0.35);
+
+    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius * 3.4);
+    grad.addColorStop(0, `rgba(210, 255, 235, ${alpha})`);
+    grad.addColorStop(0.4, `rgba(94, 226, 165, ${alpha * 0.55})`);
     grad.addColorStop(1, 'rgba(94, 226, 165, 0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, radius * 3.2, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, radius * 3.4, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -190,20 +245,10 @@ onBeforeUnmount(() => {
 });
 
 watch(
-  () => props.isPlaying,
+  () => [props.isPlaying, props.progress] as const,
   () => {
     ensureBudget();
-    for (const p of particles) {
-      if (props.isPlaying) {
-        p.baseAlpha = Math.min(0.65, p.baseAlpha * 1.3 + 0.05);
-        p.vx *= 1.2;
-        p.vy *= 1.15;
-      } else {
-        p.baseAlpha = Math.max(0.06, p.baseAlpha * 0.82);
-        p.vx *= 0.88;
-        p.vy *= 0.88;
-      }
-    }
+    // Keep loop alive so progress updates repaint even when paused (slow drift)
     startLoop();
   },
 );
@@ -215,6 +260,7 @@ watch(
     class="aurora-dock-particles"
     data-test="aurora-dock-particles"
     :data-playing="isPlaying"
+    :data-progress="Number(progress ?? 0).toFixed(3)"
     aria-hidden="true"
   />
 </template>

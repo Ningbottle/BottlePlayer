@@ -20,24 +20,12 @@ const gsapFromToMock = vi.hoisted(() => vi.fn((_el: any, _from: any, to: any) =>
 }));
 const gsapKillTweensOfMock = vi.hoisted(() => vi.fn());
 
-const gsapTimelineMock = vi.hoisted(() => {
-  const makeTl = () => {
-    const tl: any = {
-      to: vi.fn(() => tl),
-      kill: vi.fn(),
-    };
-    return tl;
-  };
-  return vi.fn(() => makeTl());
-});
-
 vi.mock('gsap', () => ({
   gsap: {
     set: gsapSetMock,
     to: gsapToMock,
     fromTo: gsapFromToMock,
     killTweensOf: gsapKillTweensOfMock,
-    timeline: gsapTimelineMock,
   },
 }));
 

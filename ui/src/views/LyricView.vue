@@ -1,12 +1,10 @@
 <script setup lang="ts">
-import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
-import { gsap } from 'gsap';
+import { computed } from 'vue';
 import { useThemeStore } from '../api/themeStore';
 import { useLyricStage } from './lyric/useLyricStage';
 import AuroraLyricStage from './lyric/AuroraLyricStage.vue';
 import NewsprintLyricStage from './lyric/NewsprintLyricStage.vue';
 import LyricFollowFooter from './lyric/LyricFollowFooter.vue';
-import { isReducedMotion } from '../api/motion';
 
 const props = defineProps<{
   isQueueOpen?: boolean;
@@ -22,85 +20,14 @@ const { model, commands } = useLyricStage();
 const stageComponent = computed(() =>
   themeStore.skinId.value === 'aurora' ? AuroraLyricStage : NewsprintLyricStage,
 );
-
-const isAurora = computed(() => themeStore.skinId.value === 'aurora');
-const curtainRef = ref<HTMLElement | null>(null);
-let curtainTween: { kill: () => void } | null = null;
-
-/**
- * Curtain drop: fabric throws down from the top, then lifts away —
- * page-level theatrical open (not lyric-line motion).
- */
-function playCurtainDrop(): void {
-  if (!isAurora.value || isReducedMotion()) return;
-  const el = curtainRef.value;
-  if (!el) return;
-
-  curtainTween?.kill();
-  gsap.killTweensOf(el);
-  gsap.set(el, {
-    opacity: 1,
-    yPercent: -105,
-    scaleY: 1,
-    transformOrigin: '50% 0%',
-    display: 'block',
-  });
-
-  const tl = gsap.timeline({
-    onComplete: () => {
-      gsap.set(el, { display: 'none', clearProps: 'transform,opacity' });
-      curtainTween = null;
-    },
-  });
-  // Throw down
-  tl.to(el, {
-    yPercent: 0,
-    duration: 0.48,
-    ease: 'power2.in',
-  });
-  // Settle / soft overshoot
-  tl.to(el, {
-    yPercent: 2,
-    duration: 0.14,
-    ease: 'power1.out',
-  });
-  // Lift / peel up like a raised curtain
-  tl.to(el, {
-    yPercent: -108,
-    duration: 0.72,
-    ease: 'power3.inOut',
-  });
-  curtainTween = tl;
-}
-
-watch(
-  () => [model.value.currentTrack?.FileHash, model.value.loading, isAurora.value] as const,
-  async ([hash, loading, aurora]) => {
-    if (!aurora || !hash || loading) return;
-    await nextTick();
-    playCurtainDrop();
-  },
-  { flush: 'post' },
-);
-
-onBeforeUnmount(() => {
-  curtainTween?.kill();
-  curtainTween = null;
-});
 </script>
 
 <template>
-  <div class="list-view lyric-view" :class="{ 'is-aurora': isAurora }">
-    <!-- Aurora page curtain (throws down, then lifts) -->
-    <div
-      v-if="isAurora"
-      ref="curtainRef"
-      class="lyric-curtain"
-      data-test="lyric-curtain"
-      aria-hidden="true"
-    />
-
-    <!-- Empty/No track state -->
+  <!--
+    No separate page curtain — stage enter lives only in AuroraLyricStage
+    (one coordinated open). Extra overlay felt disconnected and double-fired.
+  -->
+  <div class="list-view lyric-view">
     <div v-if="!model.currentTrack" class="lyric-empty-state" data-test="lyric-empty-state">
       <p class="lyric-empty-kicker">LYRICS</p>
       <h1>选择一首歌，歌词会在这里展开</h1>
@@ -111,7 +38,6 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Loading -->
     <div v-else-if="model.loading" class="spinner">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
         <circle cx="12" cy="12" r="10" stroke="rgba(34,27,18,0.1)"></circle>
@@ -120,7 +46,6 @@ onBeforeUnmount(() => {
       译稿编撰中…
     </div>
 
-    <!-- Lyric layout: three-row grid (meta / scroll / footer) -->
     <div
       v-else
       class="lyric-view-grid"
@@ -151,41 +76,6 @@ onBeforeUnmount(() => {
   width: 100%;
   box-sizing: border-box;
   height: 100%;
-  overflow: hidden;
-}
-
-/* Fabric curtain — throws from top, then peels away */
-.lyric-curtain {
-  position: absolute;
-  inset: 0;
-  z-index: 30;
-  pointer-events: none;
-  display: none;
-  background:
-    linear-gradient(
-      180deg,
-      color-mix(in srgb, var(--accent) 28%, #050a08) 0%,
-      color-mix(in srgb, var(--surface-elevated, #0d1213) 92%, var(--accent) 8%) 42%,
-      color-mix(in srgb, var(--app-bg, #040607) 88%, var(--accent) 6%) 100%
-    );
-  box-shadow:
-    0 12px 40px rgba(0, 0, 0, 0.45),
-    inset 0 -1px 0 color-mix(in srgb, var(--accent) 22%, transparent);
-}
-
-.lyric-curtain::after {
-  content: '';
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  height: 28%;
-  background: linear-gradient(
-    180deg,
-    transparent,
-    color-mix(in srgb, #000 35%, transparent)
-  );
-  opacity: 0.55;
 }
 
 .lyric-view-grid {
