@@ -70,8 +70,10 @@ function onRelease(e: MouseEvent) {
       <button
         type="button"
         class="aurora-pb-cover-btn"
-        title="点击查看歌词"
-        @click="c.toggleLyricView"
+        data-test="aurora-pb-cover-immersion"
+        title="打开全屏歌词"
+        :disabled="!c.currentTrack"
+        @click.stop="c.openLyricImmersion"
       >
         <div class="aurora-pb-cover">
           <img :src="c.coverUrl" alt="cover" />

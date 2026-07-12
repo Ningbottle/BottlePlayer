@@ -1,5 +1,5 @@
 import { ref, computed, watch, onMounted, onUnmounted, nextTick, type ComputedRef } from 'vue';
-import { playerStore } from '../../api/playerStore';
+import { playerStore, seek as storeSeek } from '../../api/playerStore';
 import { apiGet } from '../../api/backend';
 import { useLyricFollow } from '../../api/useLyricFollow';
 import { lyricFullscreen, setLyricFullscreen } from '../../api/lyricFullscreen';
@@ -27,6 +27,8 @@ export interface LyricStageCommands {
   resumeFollow: () => void;
   enterFullscreen: () => void;
   exitFullscreen: () => void;
+  /** Seek playback to a lyric line timestamp (seconds) and resume follow. */
+  seekToLine: (timeSeconds: number) => void;
 }
 
 export interface UseLyricStageReturn {
@@ -211,11 +213,22 @@ export function useLyricStage(): UseLyricStageReturn {
     currentTime: currentTime.value,
   }));
 
+  /**
+   * Click-a-line: jump playhead to that line’s LRC time via the real store seek path,
+   * then snap follow so the stage tracks the new line.
+   */
+  function seekToLine(timeSeconds: number): void {
+    if (!Number.isFinite(timeSeconds) || timeSeconds < 0) return;
+    void storeSeek(timeSeconds);
+    snapToActive('smooth');
+  }
+
   const commands: LyricStageCommands = {
     onUserScroll,
     resumeFollow,
     enterFullscreen: () => setLyricFullscreen(true),
     exitFullscreen: () => setLyricFullscreen(false),
+    seekToLine,
   };
 
   return { model, commands };

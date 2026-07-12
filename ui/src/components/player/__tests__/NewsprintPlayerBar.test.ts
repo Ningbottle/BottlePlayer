@@ -53,6 +53,7 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     toggleShuffle: vi.fn(),
     toggleRepeat: vi.fn(),
     toggleLyricView: vi.fn(),
+    openLyricImmersion: vi.fn(),
     handleFavorite: vi.fn(),
     handleSelectQuality: vi.fn(),
     closeQualityMenu: vi.fn(),
@@ -95,6 +96,17 @@ describe('NewsprintPlayerBar', () => {
     expect(wrapper.text()).toContain('歌手名');
     expect(wrapper.find('.progress-root').exists()).toBe(true);
     expect(wrapper.find('[aria-label="play"], [aria-label="pause"]').exists()).toBe(true);
+  });
+
+  it('hides transport and quality when no track is loaded', () => {
+    const ctrl = createStubController();
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: { controller: ctrl },
+    });
+
+    expect(wrapper.find('[data-test="newsprint-player-transport"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="newsprint-player-quality"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="newsprint-player-empty-console"]').exists()).toBe(true);
   });
 
   it('renders shuffle, prev, play/pause, next, repeat controls', () => {
@@ -157,6 +169,7 @@ describe('NewsprintPlayerBar', () => {
 
   it('loading state shows pause icon (showPauseIcon=true)', () => {
     const ctrl = createStubController({
+      currentTrack: mkTrack(),
       isLoading: true,
       showPauseIcon: true,
     });

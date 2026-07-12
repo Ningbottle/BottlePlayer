@@ -58,6 +58,7 @@ const stageComponent = computed(() =>
         class="lyric-stage-slot"
         @enter-fullscreen="commands.enterFullscreen"
         @user-scroll="commands.onUserScroll"
+        @seek-line="commands.seekToLine"
       />
       <LyricFollowFooter
         v-if="!model.fullscreen"

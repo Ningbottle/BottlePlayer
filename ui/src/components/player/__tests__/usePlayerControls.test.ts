@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   seek: vi.fn(),
   setVolume: vi.fn(),
   setQuality: vi.fn(),
+  setLyricFullscreen: vi.fn(),
   store: null as any,
 }));
 
@@ -37,6 +38,11 @@ vi.mock('../../../api/playerStore', async () => {
     setQuality: mocks.setQuality,
   };
 });
+
+vi.mock('../../../api/lyricFullscreen', () => ({
+  lyricFullscreen: { value: false },
+  setLyricFullscreen: (...args: unknown[]) => mocks.setLyricFullscreen(...args),
+}));
 
 import { usePlayerControls } from '../usePlayerControls';
 
@@ -71,6 +77,7 @@ describe('usePlayerControls', () => {
     mocks.seek.mockClear();
     mocks.setVolume.mockClear();
     mocks.setQuality.mockClear();
+    mocks.setLyricFullscreen.mockClear();
   });
 
   // ── Command delegation ──
@@ -169,6 +176,33 @@ describe('usePlayerControls', () => {
     const ctrl = usePlayerControls({ activeView: () => 'lyric', onNavigate });
     ctrl.toggleLyricView();
     expect(onNavigate).toHaveBeenCalledWith('home');
+  });
+
+  it('openLyricImmersion navigates to lyric and enters fullscreen when not on lyric', () => {
+    mocks.store.currentTrack = mkTrack();
+    const onNavigate = vi.fn();
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate });
+    ctrl.openLyricImmersion();
+    expect(onNavigate).toHaveBeenCalledWith('lyric');
+    expect(mocks.setLyricFullscreen).toHaveBeenCalledWith(true);
+  });
+
+  it('openLyricImmersion enters fullscreen without re-navigating when already on lyric', () => {
+    mocks.store.currentTrack = mkTrack();
+    const onNavigate = vi.fn();
+    const ctrl = usePlayerControls({ activeView: () => 'lyric', onNavigate });
+    ctrl.openLyricImmersion();
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(mocks.setLyricFullscreen).toHaveBeenCalledWith(true);
+  });
+
+  it('openLyricImmersion is a no-op without a current track', () => {
+    mocks.store.currentTrack = null;
+    const onNavigate = vi.fn();
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate });
+    ctrl.openLyricImmersion();
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(mocks.setLyricFullscreen).not.toHaveBeenCalled();
   });
 
   // ── handleFavorite ──

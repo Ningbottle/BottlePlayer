@@ -15,6 +15,7 @@ const props = defineProps<{ model: LyricStageModel }>();
 const emit = defineEmits<{
   (e: 'enter-fullscreen'): void;
   (e: 'user-scroll'): void;
+  (e: 'seek-line', timeSeconds: number): void;
 }>();
 
 const coverRef = ref<HTMLElement | null>(null);
@@ -42,6 +43,17 @@ function onSelectTrack(track: Track): void {
   playTrack(track);
   shelfOpen.value = false;
 }
+
+/** Click a timed lyric line → parent seeks via playerStore.seek. */
+function onLineClick(line: { time: number; text: string }): void {
+  if (!Number.isFinite(line.time) || line.time < 0) return;
+  emit('seek-line', line.time);
+}
+
+const reducedMotion = computed(() => isReducedMotion());
+const showCoverWash = computed(
+  () => props.model.fullscreen && !!props.model.coverUrl && !reducedMotion.value,
+);
 
 watch(
   () => props.model.fullscreen,
@@ -218,6 +230,15 @@ watch(() => props.model.fullscreen, (fs) => {
     :data-lyric-focus="focus.mode.value"
     data-test="aurora-lyric-stage"
   >
+    <!-- Fullscreen only: subtle album wash (off under reduced-motion) -->
+    <div
+      v-if="showCoverWash"
+      class="lyric-cover-wash"
+      data-test="lyric-cover-wash"
+      aria-hidden="true"
+      :style="{ backgroundImage: `url(${model.coverUrl})` }"
+    />
+
     <!-- Cover only — no title/artist/hints/buttons. Dblclick → fullscreen; fs click → shelf. -->
     <div
       class="lyric-meta"
@@ -229,6 +250,7 @@ watch(() => props.model.fullscreen, (fs) => {
         ref="coverRef"
         data-test="lyric-cover"
         :class="{ 'is-shelf-hot': model.fullscreen }"
+        :style="{ aspectRatio: '1' }"
         :aria-label="model.fullscreen ? '打开歌单架' : '封面'"
         @click="onCoverClick"
       >
@@ -254,16 +276,18 @@ watch(() => props.model.fullscreen, (fs) => {
       @wheel.passive="$emit('user-scroll')"
       @touchmove.passive="$emit('user-scroll')"
     >
-      <div
+      <button
         v-for="(line, idx) in model.parsedLyrics"
         :key="idx"
+        type="button"
         :id="`lyric-line-${idx}`"
         :data-test="`lyric-line-${idx}`"
         class="lyric-line"
         :class="lineClass(idx)"
+        @click="onLineClick(line)"
       >
         {{ line.text }}
-      </div>
+      </button>
     </div>
   </div>
 </template>
@@ -278,6 +302,8 @@ export default { name: 'AuroraLyricStage' };
   no visible scrollbar (scroll still works).
 */
 .aurora-lyric-stage {
+  position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: row;
   justify-content: flex-start;
@@ -289,6 +315,20 @@ export default { name: 'AuroraLyricStage' };
   padding: 12px clamp(20px, 3vw, 40px) 12px clamp(24px, 4vw, 56px);
   box-sizing: border-box;
   width: 100%;
+  overflow: hidden;
+}
+
+/* Soft album wash behind the stage — no chrome, pointer-events none */
+.lyric-cover-wash {
+  position: absolute;
+  inset: -48px;
+  z-index: 0;
+  pointer-events: none;
+  background-size: cover;
+  background-position: center;
+  filter: blur(64px) brightness(0.38) saturate(1.05);
+  transform: scale(1.12);
+  opacity: 0.9;
 }
 
 .aurora-lyric-fullscreen {
@@ -300,6 +340,12 @@ export default { name: 'AuroraLyricStage' };
   background:
     radial-gradient(ellipse 80% 60% at 20% 40%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
     var(--app-bg, #040607);
+}
+
+.aurora-lyric-fullscreen .lyric-meta,
+.aurora-lyric-fullscreen .lyric-scroll {
+  position: relative;
+  z-index: 1;
 }
 
 .lyric-meta {
@@ -403,6 +449,18 @@ export default { name: 'AuroraLyricStage' };
   font-family: var(--font-serif, serif);
   line-height: 1.7;
   transition: color 0.35s ease, opacity 0.35s ease, transform 0.35s ease, font-size 0.35s ease;
+  /* Reset button chrome — clickable for seek */
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
+}
+.lyric-line:hover {
+  color: color-mix(in srgb, var(--text-primary, #fff) 72%, var(--text-muted, #888) 28%);
 }
 
 .lyric-line.active {

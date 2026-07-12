@@ -8,6 +8,7 @@ import {
   setVolume as storeSetVolume,
   setQuality as storeSetQuality,
 } from '../../api/playerStore';
+import { setLyricFullscreen } from '../../api/lyricFullscreen';
 import type { Track } from '../../api/normalizer';
 import type { LoopMode } from '../../api/playerStore';
 
@@ -44,6 +45,8 @@ export interface PlayerController {
   toggleShuffle: () => void;
   toggleRepeat: () => void;
   toggleLyricView: () => void;
+  /** Open lyric view + fullscreen immersion (dock cover entry). */
+  openLyricImmersion: () => void;
   handleFavorite: () => void;
   handleSelectQuality: (q: string) => void;
   closeQualityMenu: () => void;
@@ -162,6 +165,18 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     }
   }
 
+  /**
+   * Dock cover immersion: go to lyric view if needed, always enter fullscreen.
+   * No-op when nothing is loaded (cover is decorative only).
+   */
+  function openLyricImmersion() {
+    if (!currentTrack.value) return;
+    if (options.activeView() !== 'lyric') {
+      options.onNavigate('lyric');
+    }
+    setLyricFullscreen(true);
+  }
+
   function handleFavorite() {
     if (!currentTrack.value) return;
     showAddModal.value = true;
@@ -232,6 +247,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     toggleShuffle,
     toggleRepeat,
     toggleLyricView,
+    openLyricImmersion,
     handleFavorite,
     handleSelectQuality,
     closeQualityMenu,

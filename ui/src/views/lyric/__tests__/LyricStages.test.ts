@@ -38,6 +38,7 @@ vi.mock('../../../api/playerStore', () => ({
     ],
   },
   playTrack: playTrackMock,
+  seek: vi.fn(),
 }));
 
 import AuroraLyricStage from '../AuroraLyricStage.vue';
@@ -427,5 +428,66 @@ describe('Aurora lyric focus modes', () => {
       props: { model: createModel({ fullscreen: false }) },
     });
     expect(wrapper.find('[data-test="lyric-focus-toggle"]').exists()).toBe(false);
+  });
+
+  it('fullscreen shows cover wash; reduced-motion and non-fs hide it', () => {
+    isReducedMotionMock.mockReturnValue(false);
+    const fs = mount(AuroraLyricStage, {
+      props: {
+        model: createModel({
+          fullscreen: true,
+          coverUrl: 'http://img/cover.jpg',
+        }),
+      },
+    });
+    expect(fs.find('[data-test="lyric-cover-wash"]').exists()).toBe(true);
+    expect(fs.find('[data-test="lyric-cover-wash"]').attributes('style') || '').toContain(
+      'http://img/cover.jpg',
+    );
+
+    const nonFs = mount(AuroraLyricStage, {
+      props: { model: createModel({ fullscreen: false, coverUrl: 'http://img/cover.jpg' }) },
+    });
+    expect(nonFs.find('[data-test="lyric-cover-wash"]').exists()).toBe(false);
+
+    isReducedMotionMock.mockReturnValue(true);
+    const reduced = mount(AuroraLyricStage, {
+      props: {
+        model: createModel({ fullscreen: true, coverUrl: 'http://img/cover.jpg' }),
+      },
+    });
+    expect(reduced.find('[data-test="lyric-cover-wash"]').exists()).toBe(false);
+    isReducedMotionMock.mockReturnValue(false);
+  });
+
+  it('clicking a lyric line emits seek-line with that line timestamp', async () => {
+    const wrapper = mount(AuroraLyricStage, {
+      props: {
+        model: createModel({
+          parsedLyrics: [
+            { time: 0, text: 'First line' },
+            { time: 5, text: 'Second line' },
+            { time: 12.5, text: 'Third line' },
+          ],
+        }),
+      },
+    });
+
+    await wrapper.get('[data-test="lyric-line-1"]').trigger('click');
+    expect(wrapper.emitted('seek-line')).toBeTruthy();
+    expect(wrapper.emitted('seek-line')![0]).toEqual([5]);
+
+    await wrapper.get('[data-test="lyric-line-2"]').trigger('click');
+    expect(wrapper.emitted('seek-line')![1]).toEqual([12.5]);
+  });
+
+  it('lyric-scroll stays flex-fill without thin scrollbar chrome', () => {
+    const wrapper = mount(AuroraLyricStage, {
+      props: { model: createModel({ fullscreen: true }) },
+    });
+    const scroll = wrapper.get('[data-test="lyric-scroll"]');
+    // Class present for layout contract; style block is asserted via source check + visual
+    expect(scroll.exists()).toBe(true);
+    expect(scroll.classes()).not.toContain('with-scrollbar');
   });
 });

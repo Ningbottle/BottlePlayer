@@ -6,9 +6,15 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
+const seekMock = vi.hoisted(() => vi.fn(async (seconds: number) => {
+  // Mirror store seek side-effect used by follow index (tests assert call + time)
+  const { playerStore: store } = await import('../../api/playerStore');
+  store.currentTime = seconds;
+}));
+
 vi.mock('../../api/playerStore', async () => {
   const actual = await vi.importActual<typeof import('../../api/playerStore')>('../../api/playerStore');
-  return { ...actual, playTrack: vi.fn() };
+  return { ...actual, playTrack: vi.fn(), seek: seekMock };
 });
 
 const gsapSetMock = vi.hoisted(() => vi.fn());
@@ -306,6 +312,26 @@ describe('LyricView fullscreen', () => {
     expect(lyricFullscreen.value).toBe(false);
   });
 
+  it('clicking a timed lyric line seeks via playerStore.seek to that line time', async () => {
+    seekMock.mockClear();
+    const w = mountLyric();
+    await flushPromises();
+
+    // Second line is [00:05.00] → 5 seconds
+    await w.get('[data-test="lyric-line-1"]').trigger('click');
+    await flushPromises();
+
+    expect(seekMock).toHaveBeenCalled();
+    expect(seekMock).toHaveBeenCalledWith(5);
+  });
+
+  it('fullscreen stage shows cover wash when motion is allowed', async () => {
+    setLyricFullscreen(true);
+    const w = mountLyric();
+    await flushPromises();
+    expect(w.find('[data-test="lyric-cover-wash"]').exists()).toBe(true);
+  });
+
   it('resets lyricFullscreen to false on unmount', async () => {
     setLyricFullscreen(true);
     const w = mountLyric();
@@ -315,7 +341,7 @@ describe('LyricView fullscreen', () => {
     expect(lyricFullscreen.value).toBe(false);
   });
 
-  it('animates fullscreen cover as a square on enter and clears both dimensions on exit', async () => {
+  it('clears cover size overrides when toggling fullscreen (CSS owns size)', async () => {
     const w = mountLyric();
     await flushPromises();
     gsapToMock.mockClear();
@@ -326,16 +352,17 @@ describe('LyricView fullscreen', () => {
 
     expect(gsapToMock).toHaveBeenCalledWith(
       w.find('[data-test="lyric-cover"]').element,
-      expect.objectContaining({ width: 320, height: 320 }),
+      expect.objectContaining({ clearProps: 'width,height' }),
     );
 
+    gsapToMock.mockClear();
     setLyricFullscreen(false);
     await nextTick();
     await nextTick();
 
     expect(gsapToMock).toHaveBeenCalledWith(
       w.find('[data-test="lyric-cover"]').element,
-      expect.objectContaining({ width: 280, height: 280, clearProps: 'width,height' }),
+      expect.objectContaining({ clearProps: 'width,height' }),
     );
   });
 });

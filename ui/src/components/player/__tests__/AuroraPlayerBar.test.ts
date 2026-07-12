@@ -53,6 +53,7 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     toggleShuffle: vi.fn(),
     toggleRepeat: vi.fn(),
     toggleLyricView: vi.fn(),
+    openLyricImmersion: vi.fn(),
     handleFavorite: vi.fn(),
     handleSelectQuality: vi.fn(),
     closeQualityMenu: vi.fn(),
@@ -95,6 +96,22 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.text()).toContain('歌手名');
     expect(wrapper.find('.progress-root').exists()).toBe(true);
     expect(wrapper.find('[aria-label="play"], [aria-label="pause"]').exists()).toBe(true);
+  });
+
+  it('cover click calls openLyricImmersion for fullscreen lyric entry', async () => {
+    const openLyricImmersion = vi.fn();
+    const ctrl = createStubController({
+      currentTrack: mkTrack(),
+      coverUrl: 'http://example.com/cover.jpg',
+      openLyricImmersion,
+    });
+
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: ctrl },
+    });
+
+    await wrapper.get('[data-test="aurora-pb-cover-immersion"]').trigger('click');
+    expect(openLyricImmersion).toHaveBeenCalledOnce();
   });
 
   it('renders shuffle, prev, play/pause, next, repeat controls', () => {

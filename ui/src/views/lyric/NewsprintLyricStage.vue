@@ -7,10 +7,16 @@ import type { LyricStageModel } from './useLyricStage';
 
 const props = defineProps<{ model: LyricStageModel }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'enter-fullscreen'): void;
   (e: 'user-scroll'): void;
+  (e: 'seek-line', timeSeconds: number): void;
 }>();
+
+function onLineClick(line: { time: number }): void {
+  if (!Number.isFinite(line.time) || line.time < 0) return;
+  emit('seek-line', line.time);
+}
 
 const coverRef = ref<HTMLElement | null>(null);
 const rootRef = ref<HTMLElement | null>(null);
@@ -68,17 +74,19 @@ watch(() => props.model.fullscreen, (fs) => {
       @wheel.passive="$emit('user-scroll')"
       @touchmove.passive="$emit('user-scroll')"
     >
-      <div
+      <button
         v-for="(line, idx) in model.parsedLyrics"
         :key="idx"
+        type="button"
         :id="`lyric-line-${idx}`"
         :data-test="`lyric-line-${idx}`"
         class="np-lyric-line"
         :class="{ active: idx === model.activeIndex }"
+        @click="onLineClick(line)"
       >
         <span class="np-line-num">{{ String(idx + 1).padStart(2, '0') }}</span>
         <span class="np-line-text">{{ line.text }}</span>
-      </div>
+      </button>
     </div>
   </div>
   <!-- Normal mode: single-column, meta row / scroll row -->
@@ -106,17 +114,19 @@ watch(() => props.model.fullscreen, (fs) => {
       @wheel.passive="$emit('user-scroll')"
       @touchmove.passive="$emit('user-scroll')"
     >
-      <div
+      <button
         v-for="(line, idx) in model.parsedLyrics"
         :key="idx"
+        type="button"
         :id="`lyric-line-${idx}`"
         :data-test="`lyric-line-${idx}`"
         class="np-lyric-line"
         :class="{ active: idx === model.activeIndex }"
+        @click="onLineClick(line)"
       >
         <span class="np-line-num">{{ String(idx + 1).padStart(2, '0') }}</span>
         <span class="np-line-text">{{ line.text }}</span>
-      </div>
+      </button>
     </div>
   </div>
 </template>
@@ -226,7 +236,12 @@ export default { name: 'NewsprintLyricStage' };
   grid-template-columns: 36px 1fr;
   gap: 12px;
   padding: 8px 12px;
+  border: 0;
   border-bottom: 1px dotted var(--rule-soft, var(--rule));
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  cursor: pointer;
   font-family: var(--font-serif, serif);
   font-size: 15px;
   color: var(--ink-mute);
