@@ -225,11 +225,10 @@ watch(() => props.model.fullscreen, (fs) => {
       @dblclick="!model.fullscreen && emit('enter-fullscreen')"
     >
       <div
-        class="big-cover aurora-cover"
+        class="aurora-cover"
         ref="coverRef"
         data-test="lyric-cover"
         :class="{ 'is-shelf-hot': model.fullscreen }"
-        :style="{ aspectRatio: '1' }"
         :aria-label="model.fullscreen ? '打开歌单架' : '封面'"
         @click="onCoverClick"
       >
@@ -274,27 +273,32 @@ export default { name: 'AuroraLyricStage' };
 </script>
 
 <style scoped>
+/*
+  Centered pair layout:
+  [ outer air ] [ COVER ]  gap  [ LYRICS ] [ outer air ]
+  Not edge-hugging columns. Cover size is explicit (was locked to 240px by global .big-cover).
+*/
 .aurora-lyric-stage {
-  display: grid;
-  /* Non-fs: left rail owns a big cover; balanced with lyrics */
-  grid-template-columns: minmax(400px, 54%) minmax(0, 1fr);
-  grid-template-rows: 1fr;
-  gap: clamp(10px, 1.5vw, 24px);
+  display: flex;
+  flex-direction: row;
+  justify-content: center;
+  align-items: center;
+  gap: clamp(36px, 4.5vw, 72px);
   height: 100%;
   min-height: min(640px, calc(100vh - 220px));
-  padding: 10px 8px 8px 4px;
-  align-items: stretch;
+  /* Outer breathing room so the pair sits mid-stage, not flush to window edges */
+  padding: 16px clamp(40px, 8vw, 120px);
   box-sizing: border-box;
+  width: 100%;
 }
 
-/* Fullscreen: fill the entire window — no floating island of content */
+/* Fullscreen: same centered pair, full viewport canvas */
 .aurora-lyric-fullscreen {
-  grid-template-columns: minmax(420px, 0.5fr) minmax(0, 1fr);
-  gap: clamp(12px, 1.5vw, 28px);
-  padding: clamp(16px, 2vh, 28px) clamp(20px, 2.5vw, 40px) clamp(16px, 2vh, 28px) clamp(12px, 1.5vw, 28px);
   min-height: 100vh;
   height: 100vh;
   width: 100%;
+  gap: clamp(40px, 5vw, 80px);
+  padding: clamp(24px, 4vh, 48px) clamp(48px, 9vw, 140px);
   background:
     radial-gradient(ellipse 80% 60% at 20% 40%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
     var(--app-bg, #040607);
@@ -303,25 +307,20 @@ export default { name: 'AuroraLyricStage' };
 .lyric-meta {
   display: flex;
   flex-direction: column;
-  /* Slightly left of center for balance with the lyric column */
-  align-items: flex-start;
+  align-items: center;
   justify-content: center;
+  flex: 0 0 auto;
   min-width: 0;
-  height: 100%;
-  padding: 4px 8px 4px 2px;
+  height: auto;
+  max-height: 100%;
+  padding: 0;
   box-sizing: border-box;
-}
-
-.aurora-lyric-fullscreen .lyric-meta {
-  align-items: flex-start;
-  padding: 4px 12px 4px 0;
 }
 
 .aurora-cover {
   position: relative;
-  /* Bold size: fill almost the entire left rail */
-  width: min(100%, 88vh);
-  max-width: 100%;
+  /* Explicit large square — not % of a skinny left rail */
+  width: min(48vw, 62vh, 560px);
   height: auto;
   aspect-ratio: 1;
   border-radius: 22px;
@@ -345,9 +344,7 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .aurora-lyric-fullscreen .aurora-cover {
-  /* Fullscreen: still bold — up to ~78vh square, rail width is the soft cap */
-  width: min(100%, 78vh);
-  max-width: 100%;
+  width: min(46vw, 68vh, 620px);
 }
 
 .aurora-cover img {
@@ -364,12 +361,17 @@ export default { name: 'AuroraLyricStage' };
   flex-direction: column;
   gap: 18px;
   align-items: center;
-  /* Always flex-start — center + overflow clips the first half of long lyrics */
   justify-content: flex-start;
+  /* Cap width so lyrics sit beside cover as a pair, not stretched to the right edge */
+  flex: 0 1 min(480px, 40vw);
+  width: min(480px, 40vw);
+  max-width: 520px;
+  min-width: min(280px, 100%);
   min-height: 0;
-  height: 100%;
-  padding: min(18vh, 120px) 12px 80px;
-  padding-bottom: min(18vh, 120px);
+  height: min(70vh, 100%);
+  max-height: 100%;
+  padding: min(12vh, 80px) 8px min(12vh, 80px);
+  box-sizing: border-box;
   scrollbar-width: thin;
   scrollbar-gutter: stable;
   scrollbar-color: color-mix(in srgb, var(--text-muted, #888) 45%, transparent) transparent;
@@ -397,11 +399,15 @@ export default { name: 'AuroraLyricStage' };
   -webkit-mask-image: none;
 }
 
-/* Fullscreen: immersive — hide scrollbar (scroll still works); never center-flex clip */
+/* Fullscreen: immersive — hide scrollbar (scroll still works) */
 .aurora-lyric-fullscreen .lyric-scroll {
-  padding: min(28vh, 200px) clamp(16px, 3vw, 40px) min(28vh, 200px);
+  flex: 0 1 min(560px, 42vw);
+  width: min(560px, 42vw);
+  max-width: 600px;
+  height: min(78vh, 100%);
+  padding: min(18vh, 120px) 8px min(18vh, 120px);
   justify-content: flex-start;
-  scrollbar-width: none; /* Firefox */
+  scrollbar-width: none;
   scrollbar-gutter: auto;
 }
 .aurora-lyric-fullscreen .lyric-scroll::-webkit-scrollbar {
@@ -472,20 +478,25 @@ export default { name: 'AuroraLyricStage' };
 }
 
 @media (max-width: 900px) {
-  .aurora-lyric-stage {
-    grid-template-columns: 1fr;
-    grid-template-rows: auto 1fr;
-    gap: 16px;
+  .aurora-lyric-stage,
+  .aurora-lyric-fullscreen {
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 20px;
+    padding: 16px clamp(16px, 4vw, 32px);
   }
 
-  .aurora-cover {
-    width: min(360px, 86vw);
+  .aurora-cover,
+  .aurora-lyric-fullscreen .aurora-cover {
+    width: min(72vw, 420px, 48vh);
   }
 
-  .lyric-meta,
-  .aurora-lyric-fullscreen .lyric-meta {
-    align-items: center;
-    padding: 4px 0;
+  .lyric-scroll,
+  .aurora-lyric-fullscreen .lyric-scroll {
+    flex: 1 1 auto;
+    width: 100%;
+    max-width: 100%;
+    height: auto;
   }
 }
 </style>
