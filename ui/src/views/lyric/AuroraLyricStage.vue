@@ -100,13 +100,13 @@ function playStageEnter(): void {
   if (root) {
     gsap.fromTo(
       root,
-      { opacity: 0, y: 22, filter: 'blur(6px)' },
+      { opacity: 0, y: 28, filter: 'blur(8px)' },
       {
         opacity: 1,
         y: 0,
         filter: 'blur(0px)',
-        duration: 0.52,
-        ease: 'power3.out',
+        duration: 0.58,
+        ease: 'back.out(1.2)',
         onComplete: () => {
           if (rootRef.value) {
             rootRef.value.style.filter = 'none';
@@ -120,13 +120,13 @@ function playStageEnter(): void {
   if (cover) {
     gsap.fromTo(
       cover,
-      { opacity: 0.4, y: 20, scale: 0.96 },
+      { opacity: 0.3, y: 26, scale: 0.92 },
       {
         opacity: 1,
         y: 0,
         scale: 1,
-        duration: 0.58,
-        ease: 'back.out(1.4)',
+        duration: 0.65,
+        ease: 'back.out(1.6)',
         delay: 0.05,
         onComplete: () => {
           if (coverRef.value) {
@@ -162,9 +162,9 @@ function playLineEnter(fileHash: string): void {
     {
       opacity: 1,
       y: 0,
-      duration: 0.38,
-      ease: 'back.out(1.15)',
-      stagger: 0.028,
+      duration: 0.42,
+      ease: 'back.out(1.3)',
+      stagger: 0.03,
       delay: 0.06,
       clearProps: 'opacity,transform',
     },
@@ -362,9 +362,17 @@ export default { name: 'AuroraLyricStage' };
   pointer-events: none;
   background-size: cover;
   background-position: center;
-  filter: blur(64px) brightness(0.38) saturate(1.05);
+  filter: blur(56px) saturate(1.3);
   transform: scale(1.12);
   opacity: 0;
+}
+
+[data-mode='dark'] .lyric-cover-wash {
+  filter: blur(56px) brightness(0.4) saturate(1.3);
+}
+
+[data-mode='light'] .lyric-cover-wash {
+  filter: blur(56px) brightness(0.7) saturate(1.4);
 }
 
 .aurora-lyric-fullscreen {
@@ -374,7 +382,8 @@ export default { name: 'AuroraLyricStage' };
   gap: clamp(32px, 4vw, 64px);
   padding: clamp(20px, 3vh, 40px) clamp(24px, 3.5vw, 48px) clamp(20px, 3vh, 40px) clamp(28px, 4vw, 64px);
   background:
-    radial-gradient(ellipse 80% 60% at 20% 40%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 60%),
+    radial-gradient(ellipse 80% 60% at 20% 40%, color-mix(in srgb, var(--accent) 22%, transparent), transparent 65%),
+    radial-gradient(ellipse 60% 50% at 80% 70%, color-mix(in srgb, var(--accent) 14%, transparent), transparent 55%),
     var(--app-bg, #040607);
 }
 

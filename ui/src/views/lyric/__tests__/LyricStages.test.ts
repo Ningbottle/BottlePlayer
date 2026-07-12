@@ -223,13 +223,12 @@ describe('Lyric stage motion profiles', () => {
     clearGsapMocks();
   });
 
-  it('Aurora uses cinematic power3.out rise-in for entrance', () => {
+  it('Aurora uses bouncy back.out rise-in for entrance', () => {
     const model = createModel();
     mount(AuroraLyricStage, { props: { model } });
 
     const eases = extractEases();
-    // Film-like rise from below uses power3.out (not elastic/bounce).
-    expect(eases.some((e: string) => e.includes('power3') || e.includes('power2'))).toBe(true);
+    expect(eases.some((e: string) => e.includes('back.out'))).toBe(true);
     expect(eases.some((e: string) => e.includes('elastic'))).toBe(false);
   });
 
