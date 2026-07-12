@@ -62,6 +62,11 @@ const queueCount = computed(() => {
 
 const displayedQueuePreview = computed(() => props.model.queuePreview.slice(0, 12));
 
+const emptyQueueSuggestions = computed(() => {
+  const daily = props.model.dailyTracks ?? [];
+  return (Array.isArray(daily) ? daily : []).slice(0, 3);
+});
+
 function onHeroPlay() {
   const t = props.model.heroTrack;
   if (t) onTrackPlay(t);
@@ -222,7 +227,25 @@ function formatDuration(sec: number): string {
             </button>
           </li>
         </ol>
-        <div v-else class="aurora-queue-empty">暂无队列</div>
+        <div
+          v-else
+          class="aurora-queue-empty"
+          data-test="queue-empty-state"
+        >
+          <p class="aurora-queue-empty-title">队列还是空的</p>
+          <p class="aurora-queue-empty-hint">播放每日推荐或歌单后，曲目会出现在这里</p>
+          <ul
+            v-if="emptyQueueSuggestions.length"
+            class="aurora-queue-suggestions"
+          >
+            <li v-for="track in emptyQueueSuggestions" :key="track.FileHash">
+              <button type="button" @click="onTrackPlay(track)">
+                {{ track.SongName }}
+                <small>{{ track.SingerName }}</small>
+              </button>
+            </li>
+          </ul>
+        </div>
       </aside>
     </section>
 
@@ -681,12 +704,76 @@ export default { name: 'AuroraHome' };
 }
 
 .aurora-queue-empty {
-  display: grid;
-  place-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  justify-content: center;
   flex: 1;
   min-height: 200px;
+  padding: 16px 10px;
+  gap: 8px;
   color: var(--text-muted);
   font-size: 13px;
+  box-sizing: border-box;
+}
+
+.aurora-queue-empty-title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-align: center;
+}
+
+.aurora-queue-empty-hint {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.aurora-queue-suggestions {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.aurora-queue-suggestions li {
+  margin: 0;
+}
+
+.aurora-queue-suggestions button {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 8px;
+  border: 0;
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--text-primary) 4%, transparent);
+  color: var(--text-primary);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 600;
+}
+
+.aurora-queue-suggestions button small {
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 400;
+}
+
+.aurora-queue-suggestions button:hover,
+.aurora-queue-suggestions button:focus-visible {
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  outline: none;
 }
 
 /* Spec §6.5: DAILY PICKS — 6 small albums in a tight row under hero */

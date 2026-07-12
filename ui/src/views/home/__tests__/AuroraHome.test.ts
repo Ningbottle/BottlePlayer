@@ -149,6 +149,44 @@ describe('AuroraHome', () => {
     expect(wrapper.get('.aurora-queue-rail-head h2 span').text()).toBe('0');
   });
 
+  it('renders enriched empty queue state when queue is empty', () => {
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: null,
+          dailyTracks: [],
+          playlists: [],
+          albums: [],
+          queuePreview: [],
+          queueTotal: 0,
+        }),
+      },
+    });
+    const empty = wrapper.get('[data-test="queue-empty-state"]');
+    expect(empty.text()).toMatch(/队列|推荐/);
+    expect(empty.text()).not.toBe('暂无队列');
+  });
+
+  it('keeps list rows when queue has tracks', () => {
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          queuePreview: [
+            createTrack({
+              FileHash: 'q-has-1',
+              SongName: 'Queued Song',
+              SingerName: 'Queued Artist',
+              Duration: 200,
+            }),
+          ],
+          queueTotal: 1,
+        }),
+      },
+    });
+    expect(wrapper.find('[data-test="queue-empty-state"]').exists()).toBe(false);
+    expect(wrapper.findAll('[data-test^="queue-track-"]').length).toBeGreaterThan(0);
+  });
+
   it('emits play-track when a queue row or daily card is selected', async () => {
     const queued = createTrack({ FileHash: 'queue-play', SongName: 'Queue Play' });
     const daily = createTrack({ FileHash: 'daily-play', SongName: 'Daily Play' });
