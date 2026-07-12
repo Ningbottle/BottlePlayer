@@ -19,6 +19,7 @@ const emit = defineEmits<{
 
 const coverRef = ref<HTMLElement | null>(null);
 const rootRef = ref<HTMLElement | null>(null);
+const washRef = ref<HTMLElement | null>(null);
 const focus = useLyricFocusStore();
 const shelfOpen = ref(false);
 
@@ -50,6 +51,7 @@ function onLineClick(line: { time: number; text: string }): void {
 }
 
 const reducedMotion = computed(() => isReducedMotion());
+const hasCover = computed(() => !!props.model.coverUrl && !reducedMotion.value);
 const showCoverWash = computed(
   () => props.model.fullscreen && !!props.model.coverUrl && !reducedMotion.value,
 );
@@ -180,6 +182,9 @@ function tryPlayLineEnter(): void {
 onMounted(() => {
   playStageEnter();
   tryPlayLineEnter();
+  if (washRef.value) {
+    gsap.set(washRef.value, { opacity: showCoverWash.value && !isReducedMotion() ? 0.9 : 0 });
+  }
 });
 
 watch(
@@ -216,6 +221,26 @@ watch(() => props.model.fullscreen, (fs) => {
   });
   void fs;
 }, { flush: 'post' });
+
+watch(showCoverWash, (show) => {
+  const wash = washRef.value;
+  if (!wash) return;
+  if (isReducedMotion()) {
+    gsap.set(wash, { opacity: 0 });
+    return;
+  }
+  if (show) {
+    gsap.to(wash, { opacity: 0.9, duration: 0.6, ease: 'power2.out' });
+  } else {
+    gsap.to(wash, { opacity: 0, duration: 0.35, ease: 'power2.in' });
+  }
+}, { flush: 'post' });
+
+watch(() => props.model.coverUrl, () => {
+  const wash = washRef.value;
+  if (!wash || !showCoverWash.value || isReducedMotion()) return;
+  gsap.fromTo(wash, { opacity: 0 }, { opacity: 0.9, duration: 0.6, ease: 'power2.out' });
+}, { flush: 'post' });
 </script>
 
 <template>
@@ -227,9 +252,10 @@ watch(() => props.model.fullscreen, (fs) => {
     :data-lyric-focus="focus.mode.value"
     data-test="aurora-lyric-stage"
   >
-    <!-- Fullscreen only: subtle album wash (off under reduced-motion) -->
+    <!-- Cover wash: always in DOM when cover exists; GSAP controls opacity fade -->
     <div
-      v-if="showCoverWash"
+      v-if="hasCover"
+      ref="washRef"
       class="lyric-cover-wash"
       data-test="lyric-cover-wash"
       aria-hidden="true"
@@ -313,6 +339,10 @@ export default { name: 'AuroraLyricStage' };
   box-sizing: border-box;
   width: 100%;
   overflow: hidden;
+  transition:
+    padding 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    gap 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+    min-height 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Soft album wash behind the stage — no chrome, pointer-events none */
@@ -325,7 +355,7 @@ export default { name: 'AuroraLyricStage' };
   background-position: center;
   filter: blur(64px) brightness(0.38) saturate(1.05);
   transform: scale(1.12);
-  opacity: 0.9;
+  opacity: 0;
 }
 
 .aurora-lyric-fullscreen {
@@ -370,6 +400,7 @@ export default { name: 'AuroraLyricStage' };
   margin: 0;
   background: var(--surface-1, var(--paper-2));
   flex: none;
+  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .aurora-cover.is-shelf-hot {
@@ -410,6 +441,7 @@ export default { name: 'AuroraLyricStage' };
   justify-content: flex-start;
   padding: min(14vh, 96px) 12px min(14vh, 96px);
   box-sizing: border-box;
+  transition: padding 0.45s cubic-bezier(0.22, 1, 0.36, 1);
   /* Never show a scrollbar gutter — wheel / trackpad still scroll */
   scrollbar-width: none;
   scrollbar-gutter: auto;

@@ -444,12 +444,32 @@ describe('Aurora lyric focus modes', () => {
     expect(fs.find('[data-test="lyric-cover-wash"]').attributes('style') || '').toContain(
       'http://img/cover.jpg',
     );
+    const fsWashToCalls = gsapToMock.mock.calls.filter((c: any[]) => {
+      const el = c[0];
+      return el?.getAttribute?.('data-test') === 'lyric-cover-wash';
+    });
+    const fsWashSetCalls = gsapSetMock.mock.calls.filter((c: any[]) => {
+      const el = c[0];
+      return el?.getAttribute?.('data-test') === 'lyric-cover-wash';
+    });
+    expect(
+      fsWashToCalls.some((c: any[]) => c[1]?.opacity === 0.9) ||
+      fsWashSetCalls.some((c: any[]) => c[1]?.opacity === 0.9),
+    ).toBe(true);
+
+    clearGsapMocks();
 
     const nonFs = mount(AuroraLyricStage, {
       props: { model: createModel({ fullscreen: false, coverUrl: 'http://img/cover.jpg' }) },
     });
-    expect(nonFs.find('[data-test="lyric-cover-wash"]').exists()).toBe(false);
+    expect(nonFs.find('[data-test="lyric-cover-wash"]').exists()).toBe(true);
+    const nonFsWashCalls = gsapSetMock.mock.calls.filter((c: any[]) => {
+      const el = c[0];
+      return el?.getAttribute?.('data-test') === 'lyric-cover-wash';
+    });
+    expect(nonFsWashCalls.some((c: any[]) => c[1]?.opacity === 0)).toBe(true);
 
+    clearGsapMocks();
     isReducedMotionMock.mockReturnValue(true);
     const reduced = mount(AuroraLyricStage, {
       props: {
