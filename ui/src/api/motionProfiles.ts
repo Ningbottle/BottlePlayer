@@ -18,11 +18,11 @@ export interface MotionProfile {
 export type ProfileKey = 'pageEnter' | 'pageLeave' | 'controlPress' | 'controlRelease';
 
 const auroraProfile: MotionProfile = {
-  pageEnter: { duration: 0.52, ease: 'expo.out' },
+  pageEnter: { duration: 0.56, ease: 'expo.out' },
   pageLeave: { duration: 0.2, ease: 'power2.in' },
-  controlPress: { duration: 0.1, ease: 'power2.out' },
-  controlRelease: { duration: 0.42, ease: 'elastic.out(1, 0.55)' },
-  cardEnter: { duration: 0.36, ease: 'back.out(1.25)', stagger: 0.04, maxItems: 12 },
+  controlPress: { duration: 0.08, ease: 'power2.out' },
+  controlRelease: { duration: 0.46, ease: 'elastic.out(1, 0.4)' },
+  cardEnter: { duration: 0.4, ease: 'back.out(1.5)', stagger: 0.04, maxItems: 12 },
   ambient: { enabled: true, duration: 3, scale: 1.01 },
 };
 

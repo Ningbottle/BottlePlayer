@@ -57,6 +57,7 @@ const stageComponent = computed(() =>
         :model="model"
         class="lyric-stage-slot"
         @enter-fullscreen="commands.enterFullscreen"
+        @exit-fullscreen="commands.exitFullscreen"
         @user-scroll="commands.onUserScroll"
         @seek-line="commands.seekToLine"
         @seek="commands.seekToLine"
@@ -92,6 +93,18 @@ const stageComponent = computed(() =>
 
 .lyric-view-grid.queue-open {
   padding-right: 340px;
+}
+
+.lyric-view-grid.queue-open .aurora-cover {
+  width: min(26vw, 36vh, 280px) !important;
+}
+
+.lyric-view-grid.queue-open .lyric-line {
+  font-size: 17px !important;
+}
+
+.lyric-view-grid.queue-open .lyric-line.active {
+  font-size: 24px !important;
 }
 
 .lyric-view-grid.fullscreen {

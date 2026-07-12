@@ -27,14 +27,12 @@ describe('Drawer theming demotion', () => {
     expect(style.getPropertyValue('--ink-soft')).toBe('');
   });
 
-  it('still writes micro-adjustment variables (--glass-blur, --grain) and leaves Aurora accent to tokens', () => {
+  it('writes micro-adjustment variables and applies user-selected accent for all skins', () => {
     mount(Drawer, { props: { collapsed: false } });
     const style = document.documentElement.style;
-    // Micro-adjustments that Drawer keeps.
     expect(style.getPropertyValue('--glass-blur')).not.toBe('');
     expect(style.getPropertyValue('--grain')).not.toBe('');
-    // Default skin is Aurora — emerald accent comes from tokens.css, not Drawer inline overrides.
-    expect(style.getPropertyValue('--accent')).toBe('');
+    expect(style.getPropertyValue('--accent')).not.toBe('');
   });
 
   it('leaves the default font token to the active skin', () => {

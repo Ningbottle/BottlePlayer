@@ -1,6 +1,5 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { useThemeStore } from '../api/themeStore';
 
 defineProps<{
   collapsed: boolean;
@@ -9,8 +8,6 @@ defineProps<{
 const emit = defineEmits<{
   (e: 'close'): void;
 }>();
-
-const themeStore = useThemeStore();
 
 // Tweak variables
 const paperWarmth = ref(parseInt(localStorage.getItem('tweak_warmth') || '32', 10));
@@ -60,16 +57,10 @@ function applyTweaks() {
   localStorage.setItem('tweak_blur', '0');
   localStorage.setItem('tweak_grain', '0');
 
-  // Aurora skin owns emerald accent via tokens.css — do not stomp with Newsprint tweak default.
-  if (themeStore.skinId.value === 'aurora') {
-    root.style.removeProperty('--accent');
-    root.style.removeProperty('--accent-deep');
-  } else {
-    root.style.setProperty('--accent', accent.value);
-    const accentObj = accentsList.find(a => a.value === accent.value);
-    if (accentObj) {
-      root.style.setProperty('--accent-deep', accentObj.deep);
-    }
+  root.style.setProperty('--accent', accent.value);
+  const accentObj = accentsList.find(a => a.value === accent.value);
+  if (accentObj) {
+    root.style.setProperty('--accent-deep', accentObj.deep);
   }
 
   if (isCompact.value) {

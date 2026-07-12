@@ -178,22 +178,20 @@ describe('usePlayerControls', () => {
     expect(onNavigate).toHaveBeenCalledWith('home');
   });
 
-  it('openLyricImmersion navigates to lyric and enters fullscreen when not on lyric', () => {
+  it('openLyricImmersion navigates to lyric when not on lyric', () => {
     mocks.store.currentTrack = mkTrack();
     const onNavigate = vi.fn();
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate });
     ctrl.openLyricImmersion();
     expect(onNavigate).toHaveBeenCalledWith('lyric');
-    expect(mocks.setLyricFullscreen).toHaveBeenCalledWith(true);
   });
 
-  it('openLyricImmersion enters fullscreen without re-navigating when already on lyric', () => {
+  it('openLyricImmersion does not re-navigate when already on lyric', () => {
     mocks.store.currentTrack = mkTrack();
     const onNavigate = vi.fn();
     const ctrl = usePlayerControls({ activeView: () => 'lyric', onNavigate });
     ctrl.openLyricImmersion();
     expect(onNavigate).not.toHaveBeenCalled();
-    expect(mocks.setLyricFullscreen).toHaveBeenCalledWith(true);
   });
 
   it('openLyricImmersion is a no-op without a current track', () => {
@@ -202,7 +200,6 @@ describe('usePlayerControls', () => {
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate });
     ctrl.openLyricImmersion();
     expect(onNavigate).not.toHaveBeenCalled();
-    expect(mocks.setLyricFullscreen).not.toHaveBeenCalled();
   });
 
   // ── handleFavorite ──

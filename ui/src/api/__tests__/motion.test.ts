@@ -109,7 +109,7 @@ describe('motion.ts', () => {
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
       { opacity: 0, y: 28 },
-      expect.objectContaining({ opacity: 1, y: 0, ease: 'power3.out', duration: 0.52 }),
+      expect.objectContaining({ opacity: 1, y: 0, ease: 'power3.out', duration: 0.56 }),
     );
     expect(done).toHaveBeenCalledTimes(1);
   });
@@ -281,7 +281,7 @@ describe('motion.ts', () => {
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
       { opacity: 0 },
-      expect.objectContaining({ ease: 'elastic.out(1, 0.55)' }),
+      expect.objectContaining({ ease: 'elastic.out(1, 0.4)' }),
     );
   });
 
@@ -386,7 +386,7 @@ describe('motion.ts', () => {
       els.slice(0, 12),
       { opacity: 0, y: 20 },
       expect.objectContaining({
-        duration: 0.36,
+        duration: 0.4,
         stagger: 0.04,
       }),
     );

@@ -8,7 +8,6 @@ import {
   setVolume as storeSetVolume,
   setQuality as storeSetQuality,
 } from '../../api/playerStore';
-import { setLyricFullscreen } from '../../api/lyricFullscreen';
 import type { Track } from '../../api/normalizer';
 import type { LoopMode } from '../../api/playerStore';
 
@@ -166,7 +165,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   }
 
   /**
-   * Dock cover immersion: go to lyric view if needed, always enter fullscreen.
+   * Dock cover: go to lyric view (user chooses fullscreen via dblclick).
    * No-op when nothing is loaded (cover is decorative only).
    */
   function openLyricImmersion() {
@@ -174,7 +173,6 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     if (options.activeView() !== 'lyric') {
       options.onNavigate('lyric');
     }
-    setLyricFullscreen(true);
   }
 
   function handleFavorite() {

@@ -14,6 +14,7 @@ const props = defineProps<{ model: LyricStageModel }>();
 
 const emit = defineEmits<{
   (e: 'enter-fullscreen'): void;
+  (e: 'exit-fullscreen'): void;
   (e: 'user-scroll'): void;
   (e: 'seek-line', timeSeconds: number): void;
   (e: 'seek', timeSeconds: number): void;
@@ -28,7 +29,6 @@ const shelfOpen = ref(false);
 const queueTracks = computed(() => playerStore.queue ?? []);
 
 function openShelf(): void {
-  if (!props.model.fullscreen) return;
   shelfOpen.value = true;
 }
 
@@ -37,8 +37,7 @@ function closeShelf(): void {
 }
 
 function onCoverClick(): void {
-  // Fullscreen: click cover opens 3D shelf; non-fs uses dblclick to enter fullscreen
-  if (props.model.fullscreen) openShelf();
+  openShelf();
 }
 
 function onSelectTrack(track: Track): void {
@@ -126,8 +125,8 @@ function playStageEnter(): void {
         opacity: 1,
         y: 0,
         scale: 1,
-        duration: 0.55,
-        ease: 'power3.out',
+        duration: 0.58,
+        ease: 'back.out(1.4)',
         delay: 0.05,
         onComplete: () => {
           if (coverRef.value) {
@@ -163,8 +162,8 @@ function playLineEnter(fileHash: string): void {
     {
       opacity: 1,
       y: 0,
-      duration: 0.36,
-      ease: 'power2.out',
+      duration: 0.38,
+      ease: 'back.out(1.15)',
       stagger: 0.028,
       delay: 0.06,
       clearProps: 'opacity,transform',
@@ -253,6 +252,7 @@ watch(() => props.model.coverUrl, () => {
     :class="{ 'aurora-lyric-fullscreen': model.fullscreen }"
     :data-lyric-focus="focus.mode.value"
     data-test="aurora-lyric-stage"
+    @dblclick.self="model.fullscreen && emit('exit-fullscreen')"
   >
     <!-- Cover wash: always in DOM when cover exists; GSAP controls opacity fade -->
     <div
@@ -271,12 +271,11 @@ watch(() => props.model.coverUrl, () => {
       @dblclick="!model.fullscreen && emit('enter-fullscreen')"
     >
       <div
-        class="aurora-cover"
+        class="aurora-cover is-shelf-hot"
         ref="coverRef"
         data-test="lyric-cover"
-        :class="{ 'is-shelf-hot': model.fullscreen }"
         :style="{ aspectRatio: '1' }"
-        :aria-label="model.fullscreen ? '打开歌单架' : '封面'"
+        aria-label="打开歌单架"
         @click="onCoverClick"
       >
         <img :src="model.coverUrl" alt="" />
@@ -288,7 +287,7 @@ watch(() => props.model.coverUrl, () => {
     </div>
 
     <AuroraPlaylistShelf
-      :open="shelfOpen && model.fullscreen"
+      :open="shelfOpen"
       :tracks="queueTracks"
       :active-hash="model.currentTrack?.FileHash ?? null"
       @close="closeShelf"
@@ -353,10 +352,6 @@ export default { name: 'AuroraLyricStage' };
   box-sizing: border-box;
   width: 100%;
   overflow: hidden;
-  transition:
-    padding 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-    gap 0.45s cubic-bezier(0.22, 1, 0.36, 1),
-    min-height 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 /* Soft album wash behind the stage — no chrome, pointer-events none */
@@ -414,7 +409,6 @@ export default { name: 'AuroraLyricStage' };
   margin: 0;
   background: var(--surface-1, var(--paper-2));
   flex: none;
-  transition: width 0.45s cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 .aurora-cover.is-shelf-hot {
@@ -455,8 +449,6 @@ export default { name: 'AuroraLyricStage' };
   justify-content: flex-start;
   padding: min(14vh, 96px) 12px min(14vh, 96px);
   box-sizing: border-box;
-  transition: padding 0.45s cubic-bezier(0.22, 1, 0.36, 1);
-  /* Never show a scrollbar gutter — wheel / trackpad still scroll */
   scrollbar-width: none;
   scrollbar-gutter: auto;
   -ms-overflow-style: none;
