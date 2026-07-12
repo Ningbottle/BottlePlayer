@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 
 const gsapSetMock = vi.hoisted(() => vi.fn());
 const gsapToMock = vi.hoisted(() => vi.fn((_: any, opts: any) => {
@@ -19,8 +20,10 @@ vi.mock('gsap', () => ({
   },
 }));
 
+const isReducedMotionMock = vi.hoisted(() => vi.fn(() => false));
+
 vi.mock('../../../api/motion', () => ({
-  isReducedMotion: vi.fn(() => false),
+  isReducedMotion: isReducedMotionMock,
   animateElement: vi.fn(),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
   startAmbientMotion: vi.fn(() => ({ kill: () => {} })),
@@ -34,14 +37,16 @@ import {
   __resetLyricFocusForTest,
 } from '../../../api/lyricFocusStore';
 
+const SAMPLE_LINES = [
+  { time: 0, text: 'First line' },
+  { time: 5, text: 'Second line' },
+  { time: 10, text: 'Third line' },
+];
+
 function createModel(overrides: Partial<LyricStageModel> = {}): LyricStageModel {
   return {
     loading: false,
-    parsedLyrics: [
-      { time: 0, text: 'First line' },
-      { time: 5, text: 'Second line' },
-      { time: 10, text: 'Third line' },
-    ],
+    parsedLyrics: SAMPLE_LINES,
     activeIndex: 1,
     currentTrack: { FileHash: 'h1', SongName: 'Test Song', SingerName: 'Test Artist', Duration: 100, Image: 'http://img/' } as any,
     coverUrl: 'http://img/',
@@ -51,6 +56,38 @@ function createModel(overrides: Partial<LyricStageModel> = {}): LyricStageModel 
     currentTime: 5,
     ...overrides,
   };
+}
+
+/** Stage chrome: root or cover single-element fromTo (no stagger). */
+function stageRootFromToCalls() {
+  return gsapFromToMock.mock.calls.filter((call: any[]) => {
+    const el = call[0];
+    const to = call[call.length - 1];
+    if (to?.stagger != null) return false;
+    return el?.getAttribute?.('data-test') === 'aurora-lyric-stage';
+  });
+}
+
+function stageCoverFromToCalls() {
+  return gsapFromToMock.mock.calls.filter((call: any[]) => {
+    const el = call[0];
+    const to = call[call.length - 1];
+    if (to?.stagger != null) return false;
+    return (
+      el?.getAttribute?.('data-test') === 'lyric-cover' ||
+      el?.classList?.contains?.('aurora-cover')
+    );
+  });
+}
+
+/** Line enter: fromTo with stagger (or multi-element target). */
+function lineStaggerFromToCalls() {
+  return gsapFromToMock.mock.calls.filter((call: any[]) => {
+    const el = call[0];
+    const to = call[call.length - 1];
+    if (to?.stagger != null) return true;
+    return Array.isArray(el) || (typeof NodeList !== 'undefined' && el instanceof NodeList);
+  });
 }
 
 function extractEases(): string[] {
@@ -67,11 +104,18 @@ function extractEases(): string[] {
   return calls.concat(fromToCalls).filter(Boolean);
 }
 
+function clearGsapMocks() {
+  gsapToMock.mockClear();
+  gsapFromToMock.mockClear();
+  gsapSetMock.mockClear();
+  gsapKillTweensOfMock.mockClear();
+  isReducedMotionMock.mockReset();
+  isReducedMotionMock.mockReturnValue(false);
+}
+
 describe('Lyric stage structure differences', () => {
   beforeEach(() => {
-    gsapToMock.mockClear();
-    gsapFromToMock.mockClear();
-    gsapSetMock.mockClear();
+    clearGsapMocks();
   });
 
   it('Aurora and Newsprint have different root element classes', () => {
@@ -160,9 +204,7 @@ describe('Lyric stage shared data', () => {
 
 describe('Lyric stage motion profiles', () => {
   beforeEach(() => {
-    gsapToMock.mockClear();
-    gsapFromToMock.mockClear();
-    gsapSetMock.mockClear();
+    clearGsapMocks();
   });
 
   it('Aurora uses expo.out for entrance', () => {
@@ -190,14 +232,104 @@ describe('Lyric stage motion profiles', () => {
   });
 });
 
+describe('Aurora lyric enter split (stage vs lines)', () => {
+  beforeEach(() => {
+    clearGsapMocks();
+  });
+
+  it('when lyrics go [] → N, only line stagger fires (no second stage root fromTo)', async () => {
+    const wrapper = mount(AuroraLyricStage, {
+      props: { model: createModel({ parsedLyrics: [] }) },
+    });
+
+    const rootCallsAfterMount = stageRootFromToCalls().length;
+    const coverCallsAfterMount = stageCoverFromToCalls().length;
+    expect(rootCallsAfterMount).toBeGreaterThanOrEqual(1);
+    expect(coverCallsAfterMount).toBeGreaterThanOrEqual(1);
+    expect(lineStaggerFromToCalls().length).toBe(0);
+
+    clearGsapMocks();
+
+    await wrapper.setProps({
+      model: createModel({ parsedLyrics: SAMPLE_LINES }),
+    });
+    await nextTick();
+    await flushPromises();
+
+    expect(lineStaggerFromToCalls().length).toBe(1);
+    expect(stageRootFromToCalls().length).toBe(0);
+    expect(stageCoverFromToCalls().length).toBe(0);
+  });
+
+  it('when FileHash changes, stage re-runs and line enter runs again for the new hash', async () => {
+    const wrapper = mount(AuroraLyricStage, {
+      props: { model: createModel({ currentTrack: { FileHash: 'h1', SongName: 'A', SingerName: 'B', Duration: 100, Image: '' } as any }) },
+    });
+    await nextTick();
+    await flushPromises();
+
+    expect(stageRootFromToCalls().length).toBeGreaterThanOrEqual(1);
+    expect(lineStaggerFromToCalls().length).toBe(1);
+
+    clearGsapMocks();
+
+    await wrapper.setProps({
+      model: createModel({
+        currentTrack: { FileHash: 'h2', SongName: 'C', SingerName: 'D', Duration: 100, Image: '' } as any,
+        parsedLyrics: SAMPLE_LINES,
+      }),
+    });
+    await nextTick();
+    await flushPromises();
+
+    expect(stageRootFromToCalls().length).toBeGreaterThanOrEqual(1);
+    expect(stageCoverFromToCalls().length).toBeGreaterThanOrEqual(1);
+    expect(lineStaggerFromToCalls().length).toBe(1);
+  });
+
+  it('line enter is not run twice for the same FileHash', async () => {
+    const wrapper = mount(AuroraLyricStage, {
+      props: { model: createModel({ parsedLyrics: SAMPLE_LINES }) },
+    });
+    await nextTick();
+    await flushPromises();
+
+    expect(lineStaggerFromToCalls().length).toBe(1);
+    clearGsapMocks();
+
+    // Lyrics clear then reload for the same hash — must not restage lines.
+    await wrapper.setProps({
+      model: createModel({ parsedLyrics: [] }),
+    });
+    await nextTick();
+    await wrapper.setProps({
+      model: createModel({ parsedLyrics: SAMPLE_LINES }),
+    });
+    await nextTick();
+    await flushPromises();
+
+    expect(lineStaggerFromToCalls().length).toBe(0);
+    expect(stageRootFromToCalls().length).toBe(0);
+  });
+
+  it('reduced motion sets final styles only (no fromTo theater)', async () => {
+    isReducedMotionMock.mockReturnValue(true);
+    mount(AuroraLyricStage, { props: { model: createModel() } });
+    await nextTick();
+    await flushPromises();
+
+    expect(gsapFromToMock).not.toHaveBeenCalled();
+    expect(gsapSetMock).toHaveBeenCalled();
+  });
+});
+
 describe('Aurora lyric focus modes', () => {
   beforeEach(() => {
     localStorage.clear();
     __resetLyricFocusForTest();
-    gsapToMock.mockClear();
-    gsapFromToMock.mockClear();
-    gsapSetMock.mockClear();
+    clearGsapMocks();
   });
+
 
   it('roots data-lyric-focus from the focus store', () => {
     const focus = useLyricFocusStore();

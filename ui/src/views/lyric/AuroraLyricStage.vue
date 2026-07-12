@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, nextTick } from 'vue';
 import { gsap } from 'gsap';
 import { isReducedMotion } from '../../api/motion';
 import { getMotionProfile } from '../../api/motionProfiles';
@@ -17,6 +17,9 @@ const coverRef = ref<HTMLElement | null>(null);
 const rootRef = ref<HTMLElement | null>(null);
 const focus = useLyricFocusStore();
 
+/** Once per FileHash when lines have been staggered (async lyrics must not double-flash). */
+const lineEnterDoneForHash = ref<string | null>(null);
+
 const profile = getMotionProfile('aurora');
 
 function lineClass(idx: number): string {
@@ -28,28 +31,46 @@ function lineClass(idx: number): string {
   return 'far';
 }
 
-function playEnter(): void {
-  if (!rootRef.value || isReducedMotion()) return;
-  gsap.fromTo(
-    rootRef.value,
-    { opacity: 0, y: 20 },
-    {
-      opacity: 1,
-      y: 0,
-      duration: profile.pageEnter.duration + 0.08,
-      ease: profile.pageEnter.ease,
-      onComplete: () => {
-        if (rootRef.value) {
-          rootRef.value.style.filter = 'none';
-          rootRef.value.style.opacity = '';
-          rootRef.value.style.transform = '';
-        }
-      },
-    },
-  );
-  if (coverRef.value) {
+function queryLineEls(): Element[] {
+  if (!rootRef.value) return [];
+  return Array.from(rootRef.value.querySelectorAll('.lyric-line'));
+}
+
+/** Cover + root; once per stage show. Kill previous stage tweens; do not restage when only lines load. */
+function playStageEnter(): void {
+  const root = rootRef.value;
+  const cover = coverRef.value;
+  if (root) gsap.killTweensOf(root);
+  if (cover) gsap.killTweensOf(cover);
+
+  if (isReducedMotion()) {
+    if (root) gsap.set(root, { opacity: 1, y: 0, clearProps: 'filter,opacity,transform' });
+    if (cover) gsap.set(cover, { opacity: 1, scale: 1, x: 0, clearProps: 'opacity,transform' });
+    return;
+  }
+
+  if (root) {
     gsap.fromTo(
-      coverRef.value,
+      root,
+      { opacity: 0, y: 20 },
+      {
+        opacity: 1,
+        y: 0,
+        duration: profile.pageEnter.duration + 0.08,
+        ease: profile.pageEnter.ease,
+        onComplete: () => {
+          if (rootRef.value) {
+            rootRef.value.style.filter = 'none';
+            rootRef.value.style.opacity = '';
+            rootRef.value.style.transform = '';
+          }
+        },
+      },
+    );
+  }
+  if (cover) {
+    gsap.fromTo(
+      cover,
       { opacity: 0.4, scale: 0.92, x: -24 },
       {
         opacity: 1,
@@ -63,12 +84,67 @@ function playEnter(): void {
   }
 }
 
-onMounted(playEnter);
+/** Line stagger; once per FileHash when parsedLyrics.length > 0. */
+function playLineEnter(fileHash: string): void {
+  if (!fileHash || lineEnterDoneForHash.value === fileHash) return;
+  if (props.model.parsedLyrics.length === 0) return;
+
+  const lines = queryLineEls();
+  if (lines.length === 0) return;
+
+  lineEnterDoneForHash.value = fileHash;
+  lines.forEach((el) => gsap.killTweensOf(el));
+
+  if (isReducedMotion()) {
+    gsap.set(lines, { opacity: 1, y: 0, clearProps: 'opacity,transform' });
+    return;
+  }
+
+  gsap.fromTo(
+    lines,
+    { opacity: 0, y: 12 },
+    {
+      opacity: 1,
+      y: 0,
+      duration: profile.cardEnter.duration,
+      ease: profile.cardEnter.ease,
+      stagger: profile.cardEnter.stagger,
+      // Restore CSS near/mid/far opacity hierarchy after the enter.
+      clearProps: 'opacity,transform',
+    },
+  );
+}
+
+function tryPlayLineEnter(): void {
+  const hash = props.model.currentTrack?.FileHash;
+  if (!hash || props.model.parsedLyrics.length === 0) return;
+  if (lineEnterDoneForHash.value === hash) return;
+  void nextTick(() => {
+    playLineEnter(hash);
+  });
+}
+
+onMounted(() => {
+  playStageEnter();
+  tryPlayLineEnter();
+});
 
 watch(
   () => props.model.currentTrack?.FileHash,
-  () => {
-    playEnter();
+  (hash) => {
+    if (hash !== lineEnterDoneForHash.value) {
+      lineEnterDoneForHash.value = null;
+    }
+    playStageEnter();
+    tryPlayLineEnter();
+  },
+);
+
+watch(
+  () => props.model.parsedLyrics.length,
+  (len) => {
+    if (len <= 0) return;
+    tryPlayLineEnter();
   },
 );
 
