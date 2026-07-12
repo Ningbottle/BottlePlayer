@@ -29,6 +29,10 @@ vi.mock('../../../api/motion', () => ({
 import AuroraLyricStage from '../AuroraLyricStage.vue';
 import NewsprintLyricStage from '../NewsprintLyricStage.vue';
 import type { LyricStageModel } from '../useLyricStage';
+import {
+  useLyricFocusStore,
+  __resetLyricFocusForTest,
+} from '../../../api/lyricFocusStore';
 
 function createModel(overrides: Partial<LyricStageModel> = {}): LyricStageModel {
   return {
@@ -183,5 +187,73 @@ describe('Lyric stage motion profiles', () => {
 
     const eases = extractEases();
     expect(eases.every((e: string) => !e.includes('elastic'))).toBe(true);
+  });
+});
+
+describe('Aurora lyric focus modes', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    __resetLyricFocusForTest();
+    gsapToMock.mockClear();
+    gsapFromToMock.mockClear();
+    gsapSetMock.mockClear();
+  });
+
+  it('roots data-lyric-focus from the focus store', () => {
+    const focus = useLyricFocusStore();
+    focus.init();
+    focus.setMode('stage');
+
+    const wrapper = mount(AuroraLyricStage, { props: { model: createModel() } });
+    const root = wrapper.get('[data-test="aurora-lyric-stage"]');
+    expect(root.attributes('data-lyric-focus')).toBe('stage');
+
+    focus.setMode('readable');
+    return wrapper.vm.$nextTick().then(() => {
+      expect(wrapper.get('[data-test="aurora-lyric-stage"]').attributes('data-lyric-focus')).toBe(
+        'readable',
+      );
+    });
+  });
+
+  it('page toggle flips mode when not fullscreen', async () => {
+    const focus = useLyricFocusStore();
+    focus.init();
+    focus.setMode('readable');
+
+    const wrapper = mount(AuroraLyricStage, {
+      props: { model: createModel({ fullscreen: false }) },
+    });
+    const toggle = wrapper.get('[data-test="lyric-focus-toggle"]');
+    expect(toggle.attributes('aria-pressed')).toBe('false');
+    expect(toggle.attributes('aria-label')).toBe('切换为舞台渐隐');
+
+    await toggle.trigger('click');
+    expect(focus.mode.value).toBe('stage');
+    expect(toggle.attributes('aria-pressed')).toBe('true');
+    expect(toggle.attributes('aria-label')).toBe('切换为清晰可读');
+    expect(wrapper.get('[data-test="aurora-lyric-stage"]').attributes('data-lyric-focus')).toBe(
+      'stage',
+    );
+  });
+
+  it('fullscreen has no lyric-focus-toggle in the DOM', () => {
+    const focus = useLyricFocusStore();
+    focus.init();
+
+    const wrapper = mount(AuroraLyricStage, {
+      props: { model: createModel({ fullscreen: true }) },
+    });
+    expect(wrapper.find('[data-test="lyric-focus-toggle"]').exists()).toBe(false);
+  });
+
+  it('Newsprint stage does not expose dual-mode lyric focus toggle', () => {
+    const focus = useLyricFocusStore();
+    focus.init();
+
+    const wrapper = mount(NewsprintLyricStage, {
+      props: { model: createModel({ fullscreen: false }) },
+    });
+    expect(wrapper.find('[data-test="lyric-focus-toggle"]').exists()).toBe(false);
   });
 });

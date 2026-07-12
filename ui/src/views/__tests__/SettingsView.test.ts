@@ -12,6 +12,10 @@ vi.mock('../../api/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
 import SettingsView from '../SettingsView.vue';
 import { playbackDiagnostics } from '../../api/playbackDiagnostics';
 import { useThemeStore, __resetForTest as resetTheme } from '../../api/themeStore';
+import {
+  useLyricFocusStore,
+  __resetLyricFocusForTest,
+} from '../../api/lyricFocusStore';
 
 // Reduced-motion stub: makes GSAP transition hooks (transitionEnter/Leave)
 // call done() synchronously so <Transition> leave/enter completes within the
@@ -121,5 +125,92 @@ describe('SettingsView sub-navigation', () => {
     await flushPromises();
     expect(store.mode.value).toBe('dark');
     expect(document.documentElement.dataset.mode).toBe('dark');
+  });
+});
+
+describe('SettingsView lyric focus a11y', () => {
+  let wrapper: VueWrapper<any> | undefined;
+
+  beforeEach(() => {
+    localStorage.clear();
+    __resetLyricFocusForTest();
+    resetTheme();
+    mockApiGet.mockReset();
+    mockApiGet.mockResolvedValue({ status: 1, data: {} });
+    useLyricFocusStore().init();
+  });
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+  });
+
+  it('exposes an accessible lyric-focus group with labelled hint and pressed state', async () => {
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+
+    const section = wrapper.get('[data-test="settings-lyric-focus"]');
+    const group = section.get('[role="group"]');
+    expect(group.attributes('aria-labelledby')).toBe('settings-lyric-focus-label');
+    expect(group.attributes('aria-describedby')).toBe('settings-lyric-focus-hint');
+
+    const label = wrapper.get('#settings-lyric-focus-label');
+    const hint = wrapper.get('#settings-lyric-focus-hint');
+    expect(label.text()).toContain('歌词显示');
+    expect(hint.text().length).toBeGreaterThan(0);
+
+    const readable = wrapper.get('[data-test="settings-lyric-focus-readable"]');
+    const stage = wrapper.get('[data-test="settings-lyric-focus-stage"]');
+    expect(readable.element.tagName).toBe('BUTTON');
+    expect(stage.element.tagName).toBe('BUTTON');
+    expect(readable.attributes('type')).toBe('button');
+    expect(stage.attributes('type')).toBe('button');
+    expect(readable.attributes('aria-pressed')).toBe('true');
+    expect(stage.attributes('aria-pressed')).toBe('false');
+
+    const live = wrapper.get('[data-test="settings-lyric-focus-live"]');
+    expect(live.attributes('aria-live')).toBe('polite');
+    expect(live.text()).toContain('清晰可读');
+  });
+
+  it('updates aria-pressed and polite live region when mode changes', async () => {
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+
+    const focus = useLyricFocusStore();
+    const stageBtn = wrapper.get('[data-test="settings-lyric-focus-stage"]');
+    await stageBtn.trigger('click');
+    await flushPromises();
+
+    expect(focus.mode.value).toBe('stage');
+    expect(wrapper.get('[data-test="settings-lyric-focus-stage"]').attributes('aria-pressed')).toBe(
+      'true',
+    );
+    expect(
+      wrapper.get('[data-test="settings-lyric-focus-readable"]').attributes('aria-pressed'),
+    ).toBe('false');
+    expect(wrapper.get('[data-test="settings-lyric-focus-live"]').text()).toContain('舞台渐隐');
+  });
+
+  it('persists setMode across remount via localStorage', async () => {
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    await wrapper.get('[data-test="settings-lyric-focus-stage"]').trigger('click');
+    await flushPromises();
+    expect(localStorage.getItem('tweak_lyric_focus')).toBe('stage');
+
+    wrapper.unmount();
+    __resetLyricFocusForTest();
+    useLyricFocusStore().init();
+
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    expect(useLyricFocusStore().mode.value).toBe('stage');
+    expect(wrapper.get('[data-test="settings-lyric-focus-stage"]').attributes('aria-pressed')).toBe(
+      'true',
+    );
+    expect(
+      wrapper.get('[data-test="settings-lyric-focus-readable"]').attributes('aria-pressed'),
+    ).toBe('false');
+    expect(wrapper.get('[data-test="settings-lyric-focus-live"]').text()).toContain('舞台渐隐');
   });
 });

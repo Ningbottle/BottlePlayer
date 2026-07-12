@@ -5,6 +5,7 @@ import { checkLoginStatus } from '../api/userStore';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { useThemeStore, type SkinId, type Mode } from '../api/themeStore';
+import { useLyricFocusStore } from '../api/lyricFocusStore';
 import { setSkippedVersion } from '../api/skippedVersion';
 import { playbackDiagnostics, type DiagEvent } from '../api/playbackDiagnostics';
 import { crossfadeTheme, transitionEnter, transitionLeave } from '../api/motion';
@@ -13,6 +14,7 @@ import SkinButton from '../components/primitives/SkinButton.vue';
 import SkinEmptyState from '../components/primitives/SkinEmptyState.vue';
 
 const themeStore = useThemeStore();
+const lyricFocus = useLyricFocusStore();
 
 type SectionId = 'appearance' | 'device' | 'vip' | 'update' | 'storage' | 'diagnostics';
 const activeSection = ref<SectionId>('appearance');
@@ -360,6 +362,43 @@ async function copyDiag() {
                 @click="selectMode('dark')"
               >🌙 深色</SkinButton>
             </div>
+
+            <section class="settings-row" data-test="settings-lyric-focus">
+              <div
+                role="group"
+                class="settings-segment"
+                aria-labelledby="settings-lyric-focus-label"
+                aria-describedby="settings-lyric-focus-hint"
+              >
+                <span id="settings-lyric-focus-label" class="settings-field-label">歌词显示</span>
+                <p id="settings-lyric-focus-hint" class="settings-hint">
+                  默认清晰可读，可扫读全部歌词；舞台模式增强远近层次。
+                </p>
+                <div class="settings-segment-buttons">
+                  <button
+                    type="button"
+                    data-test="settings-lyric-focus-readable"
+                    :aria-pressed="lyricFocus.mode.value === 'readable'"
+                    :data-active="lyricFocus.mode.value === 'readable'"
+                    @click="lyricFocus.setMode('readable')"
+                  >
+                    清晰可读
+                  </button>
+                  <button
+                    type="button"
+                    data-test="settings-lyric-focus-stage"
+                    :aria-pressed="lyricFocus.mode.value === 'stage'"
+                    :data-active="lyricFocus.mode.value === 'stage'"
+                    @click="lyricFocus.setMode('stage')"
+                  >
+                    舞台渐隐
+                  </button>
+                </div>
+                <p class="sr-only" aria-live="polite" data-test="settings-lyric-focus-live">
+                  当前：{{ lyricFocus.mode.value === 'readable' ? '清晰可读' : '舞台渐隐' }}
+                </p>
+              </div>
+            </section>
           </section>
 
           <!-- ── Device Fingerprint ── -->
@@ -563,5 +602,57 @@ async function copyDiag() {
 .diag-stall {
   background: rgba(220, 50, 47, 0.08) !important;
   border-left: 3px solid #dc322f !important;
+}
+.settings-segment {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+}
+.settings-segment .settings-field-label {
+  display: block;
+  font-weight: 600;
+  color: var(--text-primary, var(--ink));
+}
+.settings-segment .settings-hint {
+  margin: 0;
+}
+.settings-segment-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.settings-segment-buttons button {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: 1px solid var(--rule, var(--border, #ccc));
+  background: transparent;
+  color: var(--text-secondary, var(--ink-soft));
+  font-size: 13px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
+}
+.settings-segment-buttons button:hover {
+  border-color: var(--accent);
+  color: var(--text-primary, var(--ink));
+}
+.settings-segment-buttons button[aria-pressed='true'],
+.settings-segment-buttons button[data-active='true'] {
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  border-color: var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
 }
 </style>
