@@ -6,7 +6,7 @@ import AuroraAtmosphere from '../AuroraAtmosphere.vue';
 const isReducedMotionMock = vi.hoisted(() => vi.fn(() => false));
 
 vi.mock('../../../api/motion', () => ({
-  isReducedMotion: (...args: unknown[]) => isReducedMotionMock(...args),
+  isReducedMotion: () => isReducedMotionMock(),
 }));
 
 type FakeCtx = {

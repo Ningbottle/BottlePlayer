@@ -123,13 +123,6 @@ const heroCover = computed(() => {
   return props.model.heroTrack?.Image || '';
 });
 
-const heroSource = computed(() => {
-  const t = props.model.heroTrack;
-  if (!t) return '';
-  if (t.AlbumName) return t.AlbumName;
-  return '每日推荐';
-});
-
 /** Album line only when it adds info beyond the song title (avoid triple-repeat clutter). */
 const heroAlbumLine = computed(() => {
   const t = props.model.heroTrack;

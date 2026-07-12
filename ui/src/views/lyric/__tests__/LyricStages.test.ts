@@ -485,8 +485,7 @@ describe('Aurora lyric focus modes', () => {
     const wrapper = mount(AuroraLyricStage, {
       props: { model: createModel({ fullscreen: true }) },
     });
-    const scroll = wrapper.get('[data-test="lyric-scroll"]');
-    // Class present for layout contract; style block is asserted via source check + visual
+    const scroll = wrapper.find('[data-test="lyric-scroll"]');
     expect(scroll.exists()).toBe(true);
     expect(scroll.classes()).not.toContain('with-scrollbar');
   });

@@ -2,7 +2,6 @@
 import { ref, watch, onMounted, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
 import { isReducedMotion } from '../../api/motion';
-import { getMotionProfile } from '../../api/motionProfiles';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
 import { playerStore, playTrack } from '../../api/playerStore';
 import type { Track } from '../../api/normalizer';
@@ -64,8 +63,6 @@ watch(
 
 /** Once per FileHash when lines have been staggered (async lyrics must not double-flash). */
 const lineEnterDoneForHash = ref<string | null>(null);
-
-const profile = getMotionProfile('aurora');
 
 function lineClass(idx: number): string {
   const active = props.model.activeIndex;

@@ -494,7 +494,8 @@ describe('AuroraHome', () => {
       expect((animateStagger as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(
         callsAfterCold,
       );
-      const lastCall = (animateStagger as ReturnType<typeof vi.fn>).mock.calls.at(-1);
+      const callsArr = (animateStagger as ReturnType<typeof vi.fn>).mock.calls;
+      const lastCall = callsArr[callsArr.length - 1];
       expect(lastCall?.[2]).toEqual(
         expect.objectContaining({ duration: 0.32, maxItems: 8, fromY: 16 }),
       );
