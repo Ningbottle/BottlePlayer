@@ -4,6 +4,7 @@ import { apiGet } from '../api/backend';
 import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
 import AddToPlaylistModal from '../components/AddToPlaylistModal.vue';
+import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 
 
 const props = defineProps<{
@@ -103,15 +104,15 @@ function handleFavoriteError(msg: string) {
 
 <template>
   <div class="list-view">
-    <div class="page-head">
-      <div>
-        <div class="kicker">SEARCH RESULTS · 通讯检索</div>
-        <h1>关于“{{ query }}”</h1>
-      </div>
-      <div class="date">
-        找到大约 <b>{{ totalCount }}</b> 条结果
-      </div>
-    </div>
+    <SkinPageHeader
+      title="搜索"
+      kicker="SEARCH · 检索"
+      :subtitle="query || '输入关键词'"
+    >
+      <template #actions>
+        <span class="search-count">找到大约 <b>{{ totalCount }}</b> 条结果</span>
+      </template>
+    </SkinPageHeader>
 
     <!-- Spinner -->
     <div v-if="loading" class="spinner">
@@ -206,6 +207,16 @@ function handleFavoriteError(msg: string) {
 </template>
 
 <style scoped>
+.search-count {
+  font-size: 13px;
+  color: var(--text-muted, var(--ink-mute, #8a7e6a));
+  white-space: nowrap;
+}
+.search-count b {
+  color: var(--text-primary, var(--ink, #221b12));
+  font-weight: 600;
+}
+
 .fav-btn {
   background: none;
   border: none;

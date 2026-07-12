@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue';
 import { apiGet } from '../api/backend';
 import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
+import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 
 
 const props = defineProps<{
@@ -80,28 +81,29 @@ const isCurrentTrack = (song: SongInfo) => {
 
 <template>
   <div class="list-view">
-    <div class="page-head">
-      <div>
-        <div class="kicker">PLAYLIST REVIEW · 歌单专栏</div>
-        <h1>{{ playlistName }}</h1>
-      </div>
-      <div class="date" style="display:flex; flex-direction:column; align-items:flex-end;">
-        <div>曲目数 <b>{{ totalCount }}</b> 首</div>
-        <button 
-          v-if="songs.length > 0"
-          class="play-cta" 
-          style="margin-top: 10px; font-size:12px; padding: 6px 14px;"
-          @click="handlePlayAll"
-        >
-          <span class="pp" style="width:18px; height:18px;">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="8" height="8">
-              <polygon points="6,4 20,12 6,20"/>
-            </svg>
-          </span>
-          播放全部
-        </button>
-      </div>
-    </div>
+    <SkinPageHeader
+      :title="playlistName || '歌单'"
+      kicker="PLAYLIST · 歌单"
+    >
+      <template #actions>
+        <div class="playlist-header-actions">
+          <span class="playlist-count">曲目数 <b>{{ totalCount }}</b> 首</span>
+          <button
+            v-if="songs.length > 0"
+            class="play-cta"
+            style="font-size:12px; padding: 6px 14px;"
+            @click="handlePlayAll"
+          >
+            <span class="pp" style="width:18px; height:18px;">
+              <svg viewBox="0 0 24 24" fill="currentColor" width="8" height="8">
+                <polygon points="6,4 20,12 6,20"/>
+              </svg>
+            </span>
+            播放全部
+          </button>
+        </div>
+      </template>
+    </SkinPageHeader>
 
     <!-- Spinner -->
     <div v-if="loading" class="spinner">
@@ -171,5 +173,19 @@ const isCurrentTrack = (song: SongInfo) => {
 </template>
 
 <style scoped>
-/* Scoped overrides */
+.playlist-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 10px;
+}
+.playlist-count {
+  font-size: 13px;
+  color: var(--text-muted, var(--ink-mute, #8a7e6a));
+  white-space: nowrap;
+}
+.playlist-count b {
+  color: var(--text-primary, var(--ink, #221b12));
+  font-weight: 600;
+}
 </style>
