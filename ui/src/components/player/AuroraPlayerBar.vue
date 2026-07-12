@@ -2,6 +2,8 @@
 import { computed } from 'vue';
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
+import AuroraDockParticles from './AuroraDockParticles.vue';
+
 const props = defineProps<{
   controller: PlayerController;
 }>();
@@ -42,6 +44,11 @@ function onRelease(_e: MouseEvent) {
 
 <template>
   <footer class="aurora-pb" @click="c.closeQualityMenu">
+    <AuroraDockParticles
+      class="aurora-pb-particles"
+      :is-playing="!!c.currentTrack && c.isPlaying"
+    />
+
     <transition name="toast-fade">
       <div v-if="c.toastMsg" class="mode-toast aurora-pb-toast">
         {{ c.toastMsg }}
@@ -105,96 +112,98 @@ function onRelease(_e: MouseEvent) {
 
     <!-- Center: transport only when a track is loaded -->
     <div class="aurora-pb-center" data-test="aurora-player-console">
-      <div v-if="c.currentTrack" class="aurora-pb-bubble">
-        <div class="aurora-pb-transport" role="group" aria-label="播放控制">
-          <button
-            type="button"
-            class="aurora-pb-btn aurora-pb-btn-edge"
-            :class="{ 'is-active': c.loopMode === 'random' }"
-            aria-label="shuffle"
-            title="随机播放"
-            @click="c.toggleShuffle"
-            @mousedown="onPress"
-            @mouseup="onRelease"
-            @mouseleave="onRelease"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-              <path d="M16 3h5v5M4 20l17-17M21 16v5h-5M15 15l6 6M4 4l5 5"/>
-            </svg>
-          </button>
+      <!-- Single integrated strip (same glass family as dock — no dark island) -->
+      <div
+        v-if="c.currentTrack"
+        class="aurora-pb-transport"
+        role="group"
+        aria-label="播放控制"
+        data-test="aurora-player-transport"
+      >
+        <button
+          type="button"
+          class="aurora-pb-btn"
+          :class="{ 'is-active': c.loopMode === 'random' }"
+          aria-label="shuffle"
+          title="随机播放"
+          @click="c.toggleShuffle"
+          @mousedown="onPress"
+          @mouseup="onRelease"
+          @mouseleave="onRelease"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+            <path d="M16 3h5v5M4 20l17-17M21 16v5h-5M15 15l6 6M4 4l5 5"/>
+          </svg>
+        </button>
 
-          <!-- Fused prev · play · next cluster -->
-          <div class="aurora-pb-core" role="group" aria-label="曲目控制">
-            <button
-              type="button"
-              class="aurora-pb-btn aurora-pb-skip"
-              aria-label="prev"
-              title="上一首"
-              @click="c.prev"
-              @mousedown="onPress"
-              @mouseup="onRelease"
-              @mouseleave="onRelease"
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M6 6h2.2v12H6V6zm3.4 6 9.6 6.2V5.8L9.4 12z"/>
-              </svg>
-            </button>
+        <button
+          type="button"
+          class="aurora-pb-btn"
+          aria-label="prev"
+          title="上一首"
+          @click="c.prev"
+          @mousedown="onPress"
+          @mouseup="onRelease"
+          @mouseleave="onRelease"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M6 6h2.2v12H6V6zm3.4 6 9.6 6.2V5.8L9.4 12z"/>
+          </svg>
+        </button>
 
-            <button
-              type="button"
-              class="aurora-pb-btn aurora-pb-play"
-              :aria-label="c.showPauseIcon ? 'pause' : 'play'"
-              :title="c.isLoading ? '取消加载' : (c.isPlaying ? '暂停' : '播放')"
-              @click="c.togglePlay"
-              @mousedown="onPress"
-              @mouseup="onRelease"
-              @mouseleave="onRelease"
-            >
-              <svg v-if="c.showPauseIcon" viewBox="0 0 24 24" fill="currentColor">
-                <rect x="6" y="4" width="4" height="16" rx="1.5" />
-                <rect x="14" y="4" width="4" height="16" rx="1.5" />
-              </svg>
-              <svg v-else viewBox="0 0 24 24" fill="currentColor">
-                <path d="M8 5.2v13.6c0 .7.75 1.12 1.34.74l10.4-6.8a.88.88 0 0 0 0-1.48l-10.4-6.8A.88.88 0 0 0 8 5.2z"/>
-              </svg>
-            </button>
+        <button
+          type="button"
+          class="aurora-pb-btn aurora-pb-play"
+          :aria-label="c.showPauseIcon ? 'pause' : 'play'"
+          :title="c.isLoading ? '取消加载' : (c.isPlaying ? '暂停' : '播放')"
+          @click="c.togglePlay"
+          @mousedown="onPress"
+          @mouseup="onRelease"
+          @mouseleave="onRelease"
+        >
+          <svg v-if="c.showPauseIcon" viewBox="0 0 24 24" fill="currentColor">
+            <rect x="6" y="4" width="4" height="16" rx="1.5" />
+            <rect x="14" y="4" width="4" height="16" rx="1.5" />
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="currentColor">
+            <path d="M8 5.2v13.6c0 .7.75 1.12 1.34.74l10.4-6.8a.88.88 0 0 0 0-1.48l-10.4-6.8A.88.88 0 0 0 8 5.2z"/>
+          </svg>
+        </button>
 
-            <button
-              type="button"
-              class="aurora-pb-btn aurora-pb-skip"
-              aria-label="next"
-              title="下一首"
-              @click="c.next"
-              @mousedown="onPress"
-              @mouseup="onRelease"
-              @mouseleave="onRelease"
-            >
-              <svg viewBox="0 0 24 24" fill="currentColor">
-                <path d="M15.8 6H18v12h-2.2V6zM4.8 12l9.6-6.2v12.4L4.8 12z"/>
-              </svg>
-            </button>
-          </div>
+        <button
+          type="button"
+          class="aurora-pb-btn"
+          aria-label="next"
+          title="下一首"
+          @click="c.next"
+          @mousedown="onPress"
+          @mouseup="onRelease"
+          @mouseleave="onRelease"
+        >
+          <svg viewBox="0 0 24 24" fill="currentColor">
+            <path d="M15.8 6H18v12h-2.2V6zM4.8 12l9.6-6.2v12.4L4.8 12z"/>
+          </svg>
+        </button>
 
-          <button
-            type="button"
-            class="aurora-pb-btn aurora-pb-btn-edge"
-            :class="{ 'is-active': c.loopMode === 'single' }"
-            aria-label="repeat"
-            title="单曲循环"
-            @click="c.toggleRepeat"
-            @mousedown="onPress"
-            @mouseup="onRelease"
-            @mouseleave="onRelease"
-          >
-            <svg v-if="c.loopMode === 'single'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-              <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/>
-              <text x="12" y="15.5" font-size="7.5" font-weight="800" fill="currentColor" stroke="none" text-anchor="middle">1</text>
-            </svg>
-            <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-              <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/>
-            </svg>
-          </button>
-        </div>
+        <button
+          type="button"
+          class="aurora-pb-btn"
+          :class="{ 'is-active': c.loopMode === 'single' }"
+          aria-label="repeat"
+          title="单曲循环"
+          @click="c.toggleRepeat"
+          @mousedown="onPress"
+          @mouseup="onRelease"
+          @mouseleave="onRelease"
+        >
+          <svg v-if="c.loopMode === 'single'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+            <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/>
+            <text x="12" y="15.5" font-size="7.5" font-weight="800" fill="currentColor" stroke="none" text-anchor="middle">1</text>
+          </svg>
+          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
+            <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/>
+          </svg>
+        </button>
       </div>
       <div
         v-else
@@ -284,8 +293,8 @@ function onRelease(_e: MouseEvent) {
 /* ── Dock: full-width liquid capsule (design target) ── */
 .aurora-pb {
   --pb-glass: color-mix(in srgb, var(--surface-elevated) 78%, #000 22%);
-  --pb-bubble: color-mix(in srgb, var(--surface-2) 70%, #000 30%);
   position: relative;
+  isolation: isolate;
   display: grid;
   grid-template-columns: minmax(180px, 0.78fr) minmax(280px, 1.5fr) minmax(180px, 0.78fr);
   gap: 6px 12px;
@@ -307,6 +316,16 @@ function onRelease(_e: MouseEvent) {
     0 18px 40px rgba(0, 0, 0, 0.38),
     0 2px 0 color-mix(in srgb, #fff 6%, transparent) inset,
     0 -1px 0 rgba(0, 0, 0, 0.25) inset;
+  overflow: hidden;
+}
+
+.aurora-pb > *:not(.aurora-pb-particles) {
+  position: relative;
+  z-index: 1;
+}
+
+.aurora-pb-particles {
+  z-index: 0;
 }
 
 :global(:root[data-mode='light']) .aurora-pb {
@@ -446,46 +465,38 @@ function onRelease(_e: MouseEvent) {
   font-size: 12px;
 }
 
-.aurora-pb-bubble {
-  position: relative;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 248px;
-  height: 48px;
-  padding: 0 12px;
-  border-radius: 999px;
-  border: 1px solid color-mix(in srgb, #fff 7%, transparent);
-  background: color-mix(in srgb, var(--surface-2) 75%, #050808 25%);
-  box-shadow:
-    0 1px 0 color-mix(in srgb, #fff 8%, transparent) inset,
-    0 10px 24px rgba(0, 0, 0, 0.22);
-}
-
-:global(:root[data-mode='light']) .aurora-pb-bubble {
-  border-color: color-mix(in srgb, var(--text-primary) 7%, transparent);
-  background: color-mix(in srgb, var(--surface-2) 40%, #fff 60%);
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.85) inset,
-    0 8px 18px rgba(22, 32, 29, 0.1);
-}
-
+/*
+  Transport: one flat strip on the same glass as the dock.
+  No nested dark bubble / second capsule — only the play disc carries accent.
+*/
 .aurora-pb-transport {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
+  gap: 2px;
+  min-height: 44px;
+  padding: 4px 6px;
+  border-radius: 999px;
+  /* Match dock surface — slightly lifted only */
+  background: color-mix(in srgb, var(--surface-elevated) 55%, transparent);
+  border: 1px solid color-mix(in srgb, #fff 6%, transparent);
+  box-shadow: 0 1px 0 color-mix(in srgb, #fff 5%, transparent) inset;
+  box-sizing: border-box;
 }
 
-/* Shared base for all transport buttons */
+:global(:root[data-mode='light']) .aurora-pb-transport {
+  background: color-mix(in srgb, #fff 42%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 7%, transparent);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.75) inset;
+}
+
 .aurora-pb-btn {
-  width: 32px;
-  height: 32px;
+  width: 36px;
+  height: 36px;
   display: grid;
   place-items: center;
   cursor: pointer;
-  color: color-mix(in srgb, var(--text-secondary) 88%, transparent);
+  color: color-mix(in srgb, var(--text-primary) 72%, transparent);
   background: transparent;
   border: none;
   border-radius: 50%;
@@ -497,7 +508,7 @@ function onRelease(_e: MouseEvent) {
 
 .aurora-pb-btn:hover {
   color: var(--text-primary);
-  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   transform: none !important;
 }
 
@@ -511,86 +522,37 @@ function onRelease(_e: MouseEvent) {
 }
 
 .aurora-pb-btn svg {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
   display: block;
 }
 
-/* Shuffle / repeat sit outside the core cluster */
-.aurora-pb-btn-edge {
-  width: 30px;
-  height: 30px;
-  color: color-mix(in srgb, var(--text-muted, var(--text-secondary)) 92%, transparent);
-}
-.aurora-pb-btn-edge svg {
-  width: 15px;
-  height: 15px;
-}
-
-/*
-  Core cluster: prev · play · next as one fused capsule
-  so the big play no longer floats alone next to tiny skips.
-*/
-.aurora-pb-core {
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0;
-  height: 40px;
-  padding: 2px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--text-primary) 6%, transparent);
-  border: 1px solid color-mix(in srgb, var(--text-primary) 6%, transparent);
-  box-sizing: border-box;
-}
-
-:global(:root[data-mode='light']) .aurora-pb-core {
-  background: color-mix(in srgb, var(--text-primary) 5%, #fff 8%);
-  border-color: color-mix(in srgb, var(--text-primary) 8%, transparent);
-}
-
-.aurora-pb-skip {
-  width: 36px;
-  height: 36px;
-  color: color-mix(in srgb, var(--text-primary) 78%, transparent);
-  border-radius: 50%;
-}
-.aurora-pb-skip:hover {
-  color: var(--text-primary);
-  background: color-mix(in srgb, var(--text-primary) 10%, transparent);
-}
-.aurora-pb-skip svg {
-  width: 16px;
-  height: 16px;
-}
-
-/* Play sits in the capsule — one soft glow, no double ring halo */
 .aurora-pb-play {
   width: 40px;
   height: 40px;
-  margin: 0 1px;
-  border-radius: 50% !important;
-  background: var(--accent) !important;
-  color: #0a1410 !important;
+  margin: 0 2px;
+  border-radius: 50%;
+  background: var(--accent);
+  color: #0a1410;
   box-shadow:
-    0 1px 0 color-mix(in srgb, #fff 28%, transparent) inset,
-    0 4px 14px color-mix(in srgb, var(--accent) 38%, transparent) !important;
-  filter: none !important;
+    0 1px 0 color-mix(in srgb, #fff 22%, transparent) inset,
+    0 3px 10px color-mix(in srgb, var(--accent) 28%, transparent);
 }
 
 .aurora-pb-play:hover {
-  filter: brightness(1.05) !important;
-  background: var(--accent) !important;
+  filter: brightness(1.05);
+  background: var(--accent);
+  color: #0a1410;
   transform: none !important;
 }
 
 .aurora-pb-play:active {
-  filter: brightness(0.96) !important;
+  filter: brightness(0.96);
 }
 
 .aurora-pb-play svg {
-  width: 17px;
-  height: 17px;
+  width: 16px;
+  height: 16px;
 }
 
 .aurora-pb-progress-wrap {
@@ -874,11 +836,9 @@ function onRelease(_e: MouseEvent) {
     min-height: 58px;
   }
 
-  .aurora-pb-bubble {
+  .aurora-pb-transport {
     margin-top: 0;
-    min-width: 220px;
-    height: 44px;
-    padding: 0 14px;
+    min-width: 200px;
   }
 
   .aurora-pb-right {

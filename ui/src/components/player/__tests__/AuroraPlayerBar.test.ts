@@ -144,7 +144,7 @@ describe('AuroraPlayerBar', () => {
 
   // ── States ──
 
-  it('empty track shows placeholder without overflow', () => {
+  it('empty track shows placeholder without hollow transport or quality', () => {
     const ctrl = createStubController();
     const wrapper = mount(AuroraPlayerBar, {
       props: { controller: ctrl },
@@ -153,10 +153,14 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.text()).toContain('未播放歌曲');
     expect(wrapper.find('.aurora-pb-cover img').exists()).toBe(true);
     expect(wrapper.find('.aurora-pb-info-btn').exists()).toBe(true);
+    expect(wrapper.find('.aurora-pb-transport').exists()).toBe(false);
+    expect(wrapper.find('[data-test="aurora-player-quality"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="aurora-player-empty-console"]').exists()).toBe(true);
   });
 
   it('loading state shows pause icon (showPauseIcon=true)', () => {
     const ctrl = createStubController({
+      currentTrack: mkTrack(),
       isLoading: true,
       showPauseIcon: true,
     });
@@ -211,6 +215,17 @@ describe('AuroraPlayerBar', () => {
     });
 
     expect(wrapper.find('.np-pb').exists()).toBe(false);
+  });
+
+  it('renders dock particles canvas behind the bar', () => {
+    const ctrl = createStubController({ currentTrack: mkTrack(), isPlaying: true });
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: ctrl },
+      global: { stubs: { PlayerProgress: true, AddToPlaylistModal: true } },
+    });
+    const canvas = wrapper.find('[data-test="aurora-dock-particles"]');
+    expect(canvas.exists()).toBe(true);
+    expect(canvas.attributes('data-playing')).toBe('true');
   });
 
   it('has Aurora-specific transport section', () => {
