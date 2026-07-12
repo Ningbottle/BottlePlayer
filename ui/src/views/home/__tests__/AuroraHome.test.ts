@@ -435,17 +435,17 @@ describe('AuroraHome', () => {
         expect.any(Array),
         'cardEnter',
         expect.objectContaining({
-          duration: 0.42,
-          stagger: 0.04,
-          maxItems: 12,
-          fromY: 20,
+          duration: 0.52,
+          stagger: 0.055,
+          maxItems: 14,
+          fromY: 32,
         }),
       );
       const { gsap } = await import('gsap');
       expect(gsap.fromTo).toHaveBeenCalledWith(
         expect.any(Object),
-        expect.objectContaining({ opacity: 0, y: 20 }),
-        expect.objectContaining({ duration: 0.55, ease: 'expo.out' }),
+        expect.objectContaining({ opacity: 0, y: 36 }),
+        expect.objectContaining({ duration: 0.72, ease: 'expo.out' }),
       );
     });
 
@@ -467,10 +467,10 @@ describe('AuroraHome', () => {
         expect.any(Array),
         'cardEnter',
         expect.objectContaining({
-          duration: 0.24,
-          stagger: 0.025,
-          maxItems: 6,
-          fromY: 10,
+          duration: 0.32,
+          stagger: 0.035,
+          maxItems: 8,
+          fromY: 16,
         }),
       );
     });
@@ -496,7 +496,7 @@ describe('AuroraHome', () => {
       );
       const lastCall = (animateStagger as ReturnType<typeof vi.fn>).mock.calls.at(-1);
       expect(lastCall?.[2]).toEqual(
-        expect.objectContaining({ duration: 0.24, maxItems: 6, fromY: 10 }),
+        expect.objectContaining({ duration: 0.32, maxItems: 8, fromY: 16 }),
       );
     });
 

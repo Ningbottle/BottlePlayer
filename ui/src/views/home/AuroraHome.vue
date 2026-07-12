@@ -50,9 +50,9 @@ function killEnterHandles(): void {
 }
 
 /**
- * Cold vs return home enter. Budgets:
- * - cold: stage ~0.55s expo.out, stagger max 12
- * - return: stage ~0.28s, stagger max 6
+ * Cold vs return home enter. Budgets (boosted for stronger Aurora feel):
+ * - cold: stage ~0.72s expo.out, stagger max 14, larger fromY
+ * - return: stage ~0.36s, stagger max 8
  * - reduced: set only (via motion helpers)
  *
  * Deferred to nextTick so stage/recommendation refs exist after mount / KeepAlive activate.
@@ -64,11 +64,11 @@ function playHomeEnter(): void {
   killEnterHandles();
 
   const isCold = mode === 'cold';
-  const stageFromY = isCold ? 20 : 10;
-  const stageDuration = isCold ? 0.55 : 0.28;
+  const stageFromY = isCold ? 36 : 16;
+  const stageDuration = isCold ? 0.72 : 0.36;
   const staggerOptions = isCold
-    ? { duration: 0.42, stagger: 0.04, maxItems: 12, fromY: 20 }
-    : { duration: 0.24, stagger: 0.025, maxItems: 6, fromY: 10 };
+    ? { duration: 0.52, stagger: 0.055, maxItems: 14, fromY: 32 }
+    : { duration: 0.32, stagger: 0.035, maxItems: 8, fromY: 16 };
   const nonceAtSchedule = props.enterNonce;
 
   void nextTick(() => {

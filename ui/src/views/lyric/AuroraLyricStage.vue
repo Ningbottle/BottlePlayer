@@ -52,11 +52,11 @@ function playStageEnter(): void {
   if (root) {
     gsap.fromTo(
       root,
-      { opacity: 0, y: 20 },
+      { opacity: 0, y: 36 },
       {
         opacity: 1,
         y: 0,
-        duration: profile.pageEnter.duration + 0.08,
+        duration: Math.max(0.68, profile.pageEnter.duration + 0.18),
         ease: profile.pageEnter.ease,
         onComplete: () => {
           if (rootRef.value) {
@@ -71,14 +71,15 @@ function playStageEnter(): void {
   if (cover) {
     gsap.fromTo(
       cover,
-      { opacity: 0.4, scale: 0.92, x: -24 },
+      { opacity: 0.2, scale: 0.78, x: -56, rotate: -2.5 },
       {
         opacity: 1,
         scale: 1,
         x: 0,
-        duration: 0.55,
+        rotate: 0,
+        duration: 0.78,
         ease: 'expo.out',
-        delay: 0.04,
+        delay: 0.06,
       },
     );
   }
@@ -102,13 +103,14 @@ function playLineEnter(fileHash: string): void {
 
   gsap.fromTo(
     lines,
-    { opacity: 0, y: 12 },
+    { opacity: 0, y: 28, scale: 0.96 },
     {
       opacity: 1,
       y: 0,
-      duration: profile.cardEnter.duration,
+      scale: 1,
+      duration: Math.max(0.48, profile.cardEnter.duration + 0.12),
       ease: profile.cardEnter.ease,
-      stagger: profile.cardEnter.stagger,
+      stagger: Math.max(0.055, profile.cardEnter.stagger + 0.015),
       // Restore CSS near/mid/far opacity hierarchy after the enter.
       clearProps: 'opacity,transform',
     },

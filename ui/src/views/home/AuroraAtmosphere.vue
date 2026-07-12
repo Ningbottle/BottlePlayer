@@ -16,8 +16,9 @@ import { isReducedMotion } from '../../api/motion';
 
 const props = defineProps<{ isPlaying: boolean }>();
 
-const CAP_PAUSED = 80;
-const CAP_PLAYING = 120;
+/** Higher caps = more visible motes when playing (still capped for cost). */
+const CAP_PAUSED = 100;
+const CAP_PLAYING = 180;
 const DPR_CAP = 2;
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -89,12 +90,12 @@ function makeParticle(): Particle {
   return {
     x: Math.random() * cssW,
     y: Math.random() * cssH,
-    vx: (Math.random() - 0.5) * (playing ? 0.22 : 0.12),
-    vy: (Math.random() - 0.5) * (playing ? 0.18 : 0.09) - (playing ? 0.04 : 0.02),
-    r: 0.6 + Math.random() * (playing ? 2.4 : 1.8),
-    baseAlpha: playing ? 0.18 + Math.random() * 0.35 : 0.1 + Math.random() * 0.22,
+    vx: (Math.random() - 0.5) * (playing ? 0.32 : 0.14),
+    vy: (Math.random() - 0.5) * (playing ? 0.26 : 0.1) - (playing ? 0.07 : 0.025),
+    r: 0.7 + Math.random() * (playing ? 3.2 : 2.0),
+    baseAlpha: playing ? 0.28 + Math.random() * 0.42 : 0.12 + Math.random() * 0.26,
     phase: Math.random() * Math.PI * 2,
-    speed: 0.4 + Math.random() * 0.8,
+    speed: 0.5 + Math.random() * (playing ? 1.15 : 0.85),
   };
 }
 
@@ -108,17 +109,17 @@ function ensureParticleBudget(): void {
 }
 
 function paintWash(ctx: CanvasRenderingContext2D): void {
-  const a = props.isPlaying ? 0.16 : 0.08;
+  const a = props.isPlaying ? 0.24 : 0.1;
   const g = ctx.createRadialGradient(
     cssW * 0.72,
     cssH * 0.22,
     0,
     cssW * 0.72,
     cssH * 0.22,
-    Math.max(cssW, cssH) * 0.58,
+    Math.max(cssW, cssH) * 0.62,
   );
   g.addColorStop(0, `rgba(94, 226, 165, ${a})`);
-  g.addColorStop(0.55, `rgba(72, 180, 200, ${a * 0.35})`);
+  g.addColorStop(0.55, `rgba(72, 180, 200, ${a * 0.4})`);
   g.addColorStop(1, 'rgba(94, 226, 165, 0)');
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, cssW, cssH);
@@ -130,9 +131,9 @@ function paintWash(ctx: CanvasRenderingContext2D): void {
     0,
     cssW * 0.18,
     cssH * 0.75,
-    Math.max(cssW, cssH) * 0.42,
+    Math.max(cssW, cssH) * 0.48,
   );
-  const a2 = props.isPlaying ? 0.08 : 0.04;
+  const a2 = props.isPlaying ? 0.12 : 0.05;
   g2.addColorStop(0, `rgba(120, 160, 255, ${a2})`);
   g2.addColorStop(1, 'rgba(120, 160, 255, 0)');
   ctx.fillStyle = g2;
@@ -141,28 +142,29 @@ function paintWash(ctx: CanvasRenderingContext2D): void {
 
 function paintParticles(ctx: CanvasRenderingContext2D, dt: number): void {
   ensureParticleBudget();
-  const alphaBoost = props.isPlaying ? 1.15 : 1;
+  const alphaBoost = props.isPlaying ? 1.55 : 1;
+  const sizeBoost = props.isPlaying ? 1.2 : 1;
   for (const p of particles) {
-    p.phase += dt * 0.0012 * p.speed;
-    p.x += p.vx * p.speed * (dt * 0.06);
-    p.y += p.vy * p.speed * (dt * 0.06);
+    p.phase += dt * 0.0014 * p.speed;
+    p.x += p.vx * p.speed * (dt * 0.07);
+    p.y += p.vy * p.speed * (dt * 0.07);
     // Soft wrap
     if (p.x < -8) p.x = cssW + 8;
     if (p.x > cssW + 8) p.x = -8;
     if (p.y < -8) p.y = cssH + 8;
     if (p.y > cssH + 8) p.y = -8;
 
-    const pulse = 0.65 + 0.35 * Math.sin(p.phase);
-    const alpha = Math.min(0.85, p.baseAlpha * pulse * alphaBoost);
-    const radius = p.r * (0.85 + 0.25 * pulse);
+    const pulse = 0.6 + 0.4 * Math.sin(p.phase);
+    const alpha = Math.min(0.95, p.baseAlpha * pulse * alphaBoost);
+    const radius = p.r * sizeBoost * (0.9 + 0.3 * pulse);
 
-    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius * 3.2);
-    grad.addColorStop(0, `rgba(180, 255, 220, ${alpha})`);
-    grad.addColorStop(0.35, `rgba(94, 226, 165, ${alpha * 0.55})`);
+    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius * 3.6);
+    grad.addColorStop(0, `rgba(200, 255, 230, ${alpha})`);
+    grad.addColorStop(0.35, `rgba(94, 226, 165, ${alpha * 0.6})`);
     grad.addColorStop(1, 'rgba(94, 226, 165, 0)');
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, radius * 3.2, 0, Math.PI * 2);
+    ctx.arc(p.x, p.y, radius * 3.6, 0, Math.PI * 2);
     ctx.fill();
   }
 }
@@ -305,13 +307,14 @@ watch(
     // Softly retune velocities/alphas for existing motes without multi-loop.
     for (const p of particles) {
       if (props.isPlaying) {
-        p.baseAlpha = Math.min(0.55, p.baseAlpha * 1.2 + 0.04);
-        p.vx *= 1.15;
-        p.vy *= 1.1;
+        p.baseAlpha = Math.min(0.72, p.baseAlpha * 1.35 + 0.06);
+        p.r = Math.min(4.2, p.r * 1.12);
+        p.vx *= 1.25;
+        p.vy *= 1.18;
       } else {
-        p.baseAlpha = Math.max(0.08, p.baseAlpha * 0.85);
-        p.vx *= 0.9;
-        p.vy *= 0.9;
+        p.baseAlpha = Math.max(0.08, p.baseAlpha * 0.8);
+        p.vx *= 0.88;
+        p.vy *= 0.88;
       }
     }
     if (treeActive && !isReducedMotion() && document.visibilityState !== 'hidden') {
