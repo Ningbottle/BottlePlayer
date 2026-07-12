@@ -3,7 +3,7 @@ import { ref, watch, onMounted, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
 import { isReducedMotion } from '../../api/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
-import { playerStore, playTrack } from '../../api/playerStore';
+import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api/playerStore';
 import type { Track } from '../../api/normalizer';
 import type { LyricStageModel } from './useLyricStage';
 import CoverWebGLParticles from './CoverWebGLParticles.vue';
@@ -323,9 +323,19 @@ watch(() => props.model.coverUrl, () => {
 
     <div
       v-if="model.fullscreen && model.duration > 0"
-      class="aurora-fs-progress"
-      data-test="aurora-fs-progress"
+      class="aurora-fs-controls"
+      data-test="aurora-fs-controls"
     >
+      <button
+        type="button"
+        class="aurora-fs-play"
+        :data-test="model.isPlaying ? 'aurora-fs-pause' : 'aurora-fs-play'"
+        :aria-label="model.isPlaying ? '暂停' : '播放'"
+        @click="storeTogglePlay"
+      >
+        <svg v-if="model.isPlaying" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+        <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+      </button>
       <PlayerProgress
         :current-time="model.currentTime"
         :duration="model.duration"
@@ -586,17 +596,46 @@ export default { name: 'AuroraLyricStage' };
   }
 }
 
-.aurora-fs-progress {
+.aurora-fs-controls {
   position: absolute;
   bottom: clamp(12px, 2.5vh, 24px);
   left: 50%;
   transform: translateX(-50%);
-  width: min(520px, 60%);
+  width: min(580px, 66%);
   z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 14px;
   opacity: 0.5;
   transition: opacity 0.3s ease;
 }
-.aurora-fs-progress:hover {
+.aurora-fs-controls:hover {
   opacity: 1;
+}
+
+.aurora-fs-play {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
+  color: var(--accent);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, transform 0.15s ease;
+}
+.aurora-fs-play:hover {
+  background: color-mix(in srgb, var(--accent) 38%, transparent);
+  transform: scale(1.08);
+}
+.aurora-fs-play:active {
+  transform: scale(0.94);
+}
+.aurora-fs-play svg {
+  width: 18px;
+  height: 18px;
 }
 </style>
