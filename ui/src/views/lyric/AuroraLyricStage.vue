@@ -340,17 +340,31 @@ export default { name: 'AuroraLyricStage' };
 
 .lyric-scroll {
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 16px;
   align-items: center;
+  /* Always flex-start — center + overflow clips the first half of long lyrics */
   justify-content: flex-start;
   min-height: 0;
   height: 100%;
-  padding: 22% 12px 80px;
-  padding-bottom: 80px;
+  padding: min(18vh, 120px) 12px 80px;
+  padding-bottom: min(18vh, 120px);
   scrollbar-width: thin;
   scrollbar-gutter: stable;
+  scrollbar-color: color-mix(in srgb, var(--text-muted, #888) 45%, transparent) transparent;
+}
+
+.lyric-scroll::-webkit-scrollbar {
+  width: 6px;
+}
+.lyric-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.lyric-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in srgb, var(--text-muted, #888) 40%, transparent);
+  border-radius: 999px;
 }
 
 /* Stage mode: stronger edge fade; readable softens / removes mask for scanability */
@@ -364,9 +378,17 @@ export default { name: 'AuroraLyricStage' };
   -webkit-mask-image: none;
 }
 
+/* Fullscreen: immersive — hide scrollbar (scroll still works); never center-flex clip */
 .aurora-lyric-fullscreen .lyric-scroll {
-  padding: min(18vh, 120px) clamp(12px, 2vw, 32px) 12vh;
-  justify-content: center;
+  padding: min(28vh, 200px) clamp(16px, 3vw, 40px) min(28vh, 200px);
+  justify-content: flex-start;
+  scrollbar-width: none; /* Firefox */
+  scrollbar-gutter: auto;
+}
+.aurora-lyric-fullscreen .lyric-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .lyric-line {

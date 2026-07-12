@@ -42,25 +42,60 @@ const FALLBACK_BIG_COVER =
     `font-weight="700" font-size="36" fill="#f1ead8">听</text></svg>`
   );
 
-function parseLrc(lrcText: string): LyricLine[] {
-  const lines = lrcText.split('\n');
-  const result: LyricLine[] = [];
-  for (const line of lines) {
-    const timeMatches = [...line.matchAll(/\[(\d+):(\d+)(?:\.(\d+))?\]/g)];
-    if (timeMatches.length > 0) {
-      const text = line.replace(/\[\d+:\d+(?:\.\d+)?\]/g, '').trim();
-      if (text) {
-        for (const match of timeMatches) {
-          const min = parseInt(match[1], 10);
-          const sec = parseInt(match[2], 10);
-          const msStr = match[3] || '0';
-          const ms = parseFloat('0.' + msStr);
-          const time = min * 60 + sec + ms;
-          result.push({ time, text });
-        }
+/**
+ * Parse LRC (and light enhanced LRC). Exported for unit tests.
+ * - Decodes base64 payloads when the body has no `[mm:ss]` tags
+ * - Strips word-level tags like `<00:01.20>`
+ * - Accepts `[mm:ss.xx]` / `[mm:ss:xx]` fractions
+ */
+export function parseLrc(raw: string): LyricLine[] {
+  let lrcText = (raw || '').replace(/^\uFEFF/, '').replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+
+  // Some providers return base64 LRC without brackets until decoded.
+  if (lrcText && !/\[\d+:\d+/.test(lrcText)) {
+    const compact = lrcText.replace(/\s+/g, '');
+    if (/^[A-Za-z0-9+/]+=*$/.test(compact) && compact.length > 32) {
+      try {
+        const decoded = typeof atob === 'function'
+          ? atob(compact)
+          : Buffer.from(compact, 'base64').toString('utf8');
+        if (/\[\d+:\d+/.test(decoded)) lrcText = decoded;
+      } catch {
+        /* keep original */
       }
     }
   }
+
+  const lines = lrcText.split('\n');
+  const result: LyricLine[] = [];
+  // [mm:ss.xx] or [mm:ss:xx] or [mm:ss]
+  const tagRe = /\[(\d{1,3}):(\d{1,2})(?:[.:](\d{1,3}))?\]/g;
+
+  for (const line of lines) {
+    const timeMatches = [...line.matchAll(tagRe)];
+    if (timeMatches.length === 0) continue;
+
+    let text = line
+      .replace(tagRe, '')
+      // Enhanced LRC word timing: <mm:ss.xx>
+      .replace(/<\d{1,3}:\d{1,2}(?:[.:]\d{1,3})?>/g, '')
+      .replace(/\{[^}]*\}/g, '')
+      .trim();
+    // Drop pure-metadata residual like empty or "///"
+    if (!text || /^[/\-–—·.\s]+$/.test(text)) continue;
+
+    for (const match of timeMatches) {
+      const min = parseInt(match[1], 10);
+      const sec = parseInt(match[2], 10);
+      const fracRaw = match[3] || '0';
+      // Interpret fraction as milliseconds padded to 3 digits (LRC convention).
+      const frac = parseInt(fracRaw.padEnd(3, '0').slice(0, 3), 10) / 1000;
+      const time = min * 60 + sec + frac;
+      if (!Number.isFinite(time)) continue;
+      result.push({ time, text });
+    }
+  }
+
   return result.sort((a, b) => a.time - b.time);
 }
 

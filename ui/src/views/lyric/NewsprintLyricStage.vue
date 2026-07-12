@@ -201,17 +201,24 @@ export default { name: 'NewsprintLyricStage' };
 
 .lyric-scroll {
   overflow-y: auto;
+  overflow-x: hidden;
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 20% 0 60px;
+  justify-content: flex-start;
+  padding: min(18vh, 120px) 0 min(18vh, 100px);
   mask-image: linear-gradient(to bottom, transparent, white 12%, white 88%, transparent);
   -webkit-mask-image: linear-gradient(to bottom, transparent, white 12%, white 88%, transparent);
   scrollbar-width: thin;
 }
 
 .np-lyric-fullscreen .lyric-scroll {
-  padding: 15% 0 60px;
+  padding: min(22vh, 160px) 0 min(22vh, 140px);
+  scrollbar-width: none;
+}
+.np-lyric-fullscreen .lyric-scroll::-webkit-scrollbar {
+  width: 0;
+  display: none;
 }
 
 .np-lyric-line {
