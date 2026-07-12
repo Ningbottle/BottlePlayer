@@ -51,6 +51,13 @@ function onLineClick(line: { time: number; text: string }): void {
   emit('seek-line', line.time);
 }
 
+function onStageDblClick(e: MouseEvent): void {
+  if (!props.model.fullscreen) return;
+  const target = e.target as HTMLElement;
+  if (target.closest('.lyric-line') || target.closest('.aurora-cover')) return;
+  emit('exit-fullscreen');
+}
+
 const reducedMotion = computed(() => isReducedMotion());
 const hasCover = computed(() => !!props.model.coverUrl && !reducedMotion.value);
 const showCoverWash = computed(
@@ -252,7 +259,7 @@ watch(() => props.model.coverUrl, () => {
     :class="{ 'aurora-lyric-fullscreen': model.fullscreen }"
     :data-lyric-focus="focus.mode.value"
     data-test="aurora-lyric-stage"
-    @dblclick.self="model.fullscreen && emit('exit-fullscreen')"
+    @dblclick="onStageDblClick"
   >
     <!-- Cover wash: always in DOM when cover exists; GSAP controls opacity fade -->
     <div
