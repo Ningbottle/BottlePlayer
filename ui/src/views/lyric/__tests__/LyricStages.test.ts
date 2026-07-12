@@ -29,6 +29,17 @@ vi.mock('../../../api/motion', () => ({
   startAmbientMotion: vi.fn(() => ({ kill: () => {} })),
 }));
 
+const playTrackMock = vi.hoisted(() => vi.fn());
+vi.mock('../../../api/playerStore', () => ({
+  playerStore: {
+    queue: [
+      { FileHash: 'q1', SongName: 'Queue One', SingerName: 'A', Duration: 100, Image: '' },
+      { FileHash: 'q2', SongName: 'Queue Two', SingerName: 'B', Duration: 120, Image: '' },
+    ],
+  },
+  playTrack: playTrackMock,
+}));
+
 import AuroraLyricStage from '../AuroraLyricStage.vue';
 import NewsprintLyricStage from '../NewsprintLyricStage.vue';
 import type { LyricStageModel } from '../useLyricStage';
@@ -379,6 +390,38 @@ describe('Aurora lyric focus modes', () => {
       props: { model: createModel({ fullscreen: true }) },
     });
     expect(wrapper.find('[data-test="lyric-focus-toggle"]').exists()).toBe(false);
+  });
+
+  it('fullscreen opens 3D playlist shelf from cover click or shelf button', async () => {
+    const wrapper = mount(AuroraLyricStage, {
+      props: {
+        model: createModel({
+          fullscreen: true,
+          currentTrack: {
+            FileHash: 'q1',
+            SongName: 'Queue One',
+            SingerName: 'A',
+            Duration: 100,
+            Image: '',
+          } as any,
+        }),
+      },
+    });
+
+    expect(wrapper.find('[data-test="aurora-playlist-shelf"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="cover-webgl-particles"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="lyric-shelf-open"]').trigger('click');
+    await nextTick();
+    expect(wrapper.find('[data-test="aurora-playlist-shelf"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="shelf-close"]').trigger('click');
+    await nextTick();
+    expect(wrapper.find('[data-test="aurora-playlist-shelf"]').exists()).toBe(false);
+
+    await wrapper.get('[data-test="lyric-cover"]').trigger('click');
+    await nextTick();
+    expect(wrapper.find('[data-test="aurora-playlist-shelf"]').exists()).toBe(true);
   });
 
   it('Newsprint stage does not expose dual-mode lyric focus toggle', () => {

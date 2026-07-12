@@ -1,14 +1,18 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, nextTick } from 'vue';
+import { ref, watch, onMounted, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
 import { isReducedMotion } from '../../api/motion';
 import { getMotionProfile } from '../../api/motionProfiles';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
+import { playerStore, playTrack } from '../../api/playerStore';
+import type { Track } from '../../api/normalizer';
 import type { LyricStageModel } from './useLyricStage';
+import CoverWebGLParticles from './CoverWebGLParticles.vue';
+import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
 
 const props = defineProps<{ model: LyricStageModel }>();
 
-defineEmits<{
+const emit = defineEmits<{
   (e: 'enter-fullscreen'): void;
   (e: 'user-scroll'): void;
 }>();
@@ -16,6 +20,35 @@ defineEmits<{
 const coverRef = ref<HTMLElement | null>(null);
 const rootRef = ref<HTMLElement | null>(null);
 const focus = useLyricFocusStore();
+const shelfOpen = ref(false);
+
+const queueTracks = computed(() => playerStore.queue ?? []);
+
+function openShelf(): void {
+  if (!props.model.fullscreen) return;
+  shelfOpen.value = true;
+}
+
+function closeShelf(): void {
+  shelfOpen.value = false;
+}
+
+function onCoverClick(): void {
+  // Fullscreen: click cover opens 3D shelf; non-fs uses dblclick to enter fullscreen
+  if (props.model.fullscreen) openShelf();
+}
+
+function onSelectTrack(track: Track): void {
+  playTrack(track);
+  shelfOpen.value = false;
+}
+
+watch(
+  () => props.model.fullscreen,
+  (fs) => {
+    if (!fs) shelfOpen.value = false;
+  },
+);
 
 /** Once per FileHash when lines have been staggered (async lyrics must not double-flash). */
 const lineEnterDoneForHash = ref<string | null>(null);
@@ -190,18 +223,39 @@ watch(() => props.model.fullscreen, (fs) => {
     :data-lyric-focus="focus.mode.value"
     data-test="aurora-lyric-stage"
   >
-    <div class="lyric-meta" data-test="lyric-meta" @dblclick="$emit('enter-fullscreen')">
+    <div
+      class="lyric-meta"
+      data-test="lyric-meta"
+      @dblclick="!model.fullscreen && emit('enter-fullscreen')"
+    >
       <div
         class="big-cover aurora-cover"
         ref="coverRef"
         data-test="lyric-cover"
+        :class="{ 'is-shelf-hot': model.fullscreen }"
         :style="{ aspectRatio: '1' }"
+        :title="model.fullscreen ? '点击打开 3D 歌单架' : undefined"
+        @click="onCoverClick"
       >
         <img :src="model.coverUrl" alt="cover" />
+        <CoverWebGLParticles
+          :active="model.fullscreen"
+          :is-playing="model.isPlaying"
+        />
       </div>
       <h2 class="aurora-song-title">{{ model.currentTrack?.SongName }}</h2>
       <p class="aurora-artist">{{ model.currentTrack?.SingerName }}</p>
       <p v-if="!model.fullscreen" class="aurora-fs-hint">双击封面进入全屏</p>
+      <p v-else class="aurora-fs-hint">点击封面打开 3D 歌单架</p>
+      <button
+        v-if="model.fullscreen"
+        type="button"
+        class="lyric-shelf-btn"
+        data-test="lyric-shelf-open"
+        @click.stop="openShelf"
+      >
+        歌单架
+      </button>
       <button
         v-if="!model.fullscreen"
         type="button"
@@ -214,6 +268,14 @@ watch(() => props.model.fullscreen, (fs) => {
         {{ focus.mode.value === 'readable' ? '清晰' : '舞台' }}
       </button>
     </div>
+
+    <AuroraPlaylistShelf
+      :open="shelfOpen && model.fullscreen"
+      :tracks="queueTracks"
+      :active-hash="model.currentTrack?.FileHash ?? null"
+      @close="closeShelf"
+      @select="onSelectTrack"
+    />
     <div
       class="lyric-scroll"
       :class="{ paused: !model.autoFollowing }"
@@ -275,6 +337,7 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .aurora-cover {
+  position: relative;
   width: min(280px, 100%);
   height: auto;
   aspect-ratio: 1;
@@ -285,6 +348,34 @@ export default { name: 'AuroraLyricStage' };
     0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
   margin-bottom: 18px;
   background: var(--surface-1, var(--paper-2));
+}
+
+.aurora-cover.is-shelf-hot {
+  cursor: pointer;
+}
+.aurora-cover.is-shelf-hot:hover {
+  box-shadow:
+    0 20px 52px rgba(0, 0, 0, 0.4),
+    0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent),
+    0 0 28px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+.lyric-shelf-btn {
+  margin-top: 12px;
+  padding: 8px 16px;
+  border-radius: 999px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  background: color-mix(in srgb, var(--accent) 16%, transparent);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+}
+.lyric-shelf-btn:hover {
+  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  border-color: var(--accent);
 }
 
 .aurora-lyric-fullscreen .aurora-cover {
