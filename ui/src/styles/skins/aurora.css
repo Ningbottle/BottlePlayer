@@ -9,8 +9,8 @@
   z-index: 2;
   display: grid;
   grid-template-columns: clamp(232px, 16vw, 252px) minmax(0, 1fr);
-  /* Spec §6.1: player ~120–132px including dock margin */
-  grid-template-rows: 32px auto minmax(0, 1fr) 124px;
+  /* Compact player row — less chrome, more content */
+  grid-template-rows: 32px auto minmax(0, 1fr) 96px;
   height: 100vh;
   min-height: 720px;
   background: var(--app-bg);
@@ -49,10 +49,19 @@
   overflow: hidden;
 }
 
-/* Aurora home owns its padding; keep scroll soft */
+/*
+  Secondary pages (stats / history / EQ) need gutters so titles aren't
+  clipped under the sidebar edge. Home owns its own padding via .aurora-home.
+*/
 [data-shell="aurora"] .scroll {
-  padding: 0;
+  padding: 20px clamp(18px, 2.2vw, 32px) 28px;
   overflow: auto;
+  overflow-x: hidden;
+  box-sizing: border-box;
+}
+
+[data-shell="aurora"] .scroll:has(.aurora-home) {
+  padding: 0;
 }
 
 [data-shell="aurora"] .shell-playerbar {
@@ -61,16 +70,29 @@
   z-index: 6;
 }
 
-/* Fullscreen mode */
+/* Fullscreen lyrics: edge-to-edge */
 .app[data-shell="aurora"].lyric-fullscreen-active {
   grid-template-columns: 1fr !important;
-  grid-template-rows: 32px 0 1fr 0 !important;
+  grid-template-rows: 0 0 1fr 0 !important;
+}
+
+.app[data-shell="aurora"].lyric-fullscreen-active .titlebar,
+.app[data-shell="aurora"].lyric-fullscreen-active .shell-topbar,
+.app[data-shell="aurora"].lyric-fullscreen-active .shell-sidebar,
+.app[data-shell="aurora"].lyric-fullscreen-active .shell-playerbar,
+.app[data-shell="aurora"].lyric-fullscreen-active .network-banner {
+  display: none !important;
 }
 
 .app[data-shell="aurora"].lyric-fullscreen-active .shell-main,
-.app[data-shell="aurora"].lyric-fullscreen-active .titlebar,
-.app[data-shell="aurora"].lyric-fullscreen-active .shell-playerbar {
-  grid-column: 1 / 2;
+.app[data-shell="aurora"].lyric-fullscreen-active .shell-content,
+.app[data-shell="aurora"].lyric-fullscreen-active .scroll {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  height: 100%;
+  min-height: 100vh;
+  padding: 0 !important;
+  overflow: hidden;
 }
 
 /* Aurora: fused titlebar + topbar (no horizontal divider line) */
@@ -154,9 +176,9 @@
   display: none;
 }
 
-/* Aurora: floating liquid dock — design target margin from edges */
+/* Compact floating dock */
 [data-shell="aurora"] .shell-playerbar {
-  padding: 0 14px 12px;
+  padding: 0 12px 8px;
   background: transparent;
   display: flex;
   align-items: flex-end;
@@ -231,25 +253,29 @@
 }
 
 /* ── Aurora home stage responsive geometry ── */
-[data-shell="aurora"] .aurora-stage {
-  position: relative;
-  padding-right: calc(332px + 24px);
+/* Hero row: main + queue side-by-side (no absolute rail / dead right gutter) */
+[data-shell="aurora"] .aurora-stage-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  gap: 20px;
+  align-items: stretch;
   min-width: 0;
 }
 
 [data-shell="aurora"] .aurora-stage-main {
   display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
-  gap: 28px;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 22px;
   min-width: 0;
+  align-items: center;
 }
 
 [data-shell="aurora"] .aurora-queue-rail {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 332px;
+  position: relative;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: 320px;
 }
 
 [data-shell="aurora"] .aurora-info,
@@ -270,34 +296,35 @@
   text-overflow: ellipsis;
 }
 
-@media (max-width: 1099px) {
-  [data-shell="aurora"] .aurora-stage {
+@media (max-width: 1359px) {
+  [data-shell="aurora"] .aurora-stage-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
+    gap: 16px;
+  }
+
+  [data-shell="aurora"] .aurora-stage-main {
+    grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+    gap: 18px;
+  }
+}
+
+@media (max-width: 1279px) {
+  [data-shell="aurora"] .aurora-stage-hero {
     grid-template-columns: minmax(0, 1fr);
   }
 
   [data-shell="aurora"] .aurora-queue-rail {
     display: none;
   }
-
-  [data-shell="aurora"] .aurora-recommendation-grid {
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(132px, 1fr);
-    grid-template-columns: none;
-    overflow-x: auto;
-  }
 }
 
 @media (max-width: 899px) {
-  [data-shell="aurora"] .aurora-stage {
-    grid-template-columns: 1fr;
-  }
-
   [data-shell="aurora"] .aurora-stage-main {
     grid-template-columns: 1fr;
   }
 
   [data-shell="aurora"] .aurora-cover {
-    width: min(72vw, 320px);
+    width: min(72vw, 280px);
     margin-inline: auto;
   }
 
@@ -329,6 +356,19 @@
 /* SkinButton: rounded pill, elevated surface */
 [data-skin='aurora'] .skin-button {
   border-radius: 999px;
+  transform-origin: center center;
+  transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1), filter 0.15s ease, background 0.15s ease;
+}
+[data-skin='aurora'] .skin-button:active:not(:disabled) {
+  transform: scale(0.94);
+}
+
+/* Sidebar / chrome nav — light Q-press without GSAP */
+[data-shell='aurora'] .shell-sidebar button:active,
+[data-shell='aurora'] .shell-sidebar a:active,
+[data-shell='aurora'] .shell-topbar button:active {
+  transform: scale(0.96);
+  transition: transform 0.12s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 [data-skin='aurora'] .skin-button[data-variant='primary'] {
   background: var(--accent);

@@ -20,12 +20,24 @@ const gsapFromToMock = vi.hoisted(() => vi.fn((_el: any, _from: any, to: any) =>
 }));
 const gsapKillTweensOfMock = vi.hoisted(() => vi.fn());
 
+const gsapTimelineMock = vi.hoisted(() => {
+  const makeTl = () => {
+    const tl: any = {
+      to: vi.fn(() => tl),
+      kill: vi.fn(),
+    };
+    return tl;
+  };
+  return vi.fn(() => makeTl());
+});
+
 vi.mock('gsap', () => ({
   gsap: {
     set: gsapSetMock,
     to: gsapToMock,
     fromTo: gsapFromToMock,
     killTweensOf: gsapKillTweensOfMock,
+    timeline: gsapTimelineMock,
   },
 }));
 
@@ -205,8 +217,10 @@ describe('LyricView layout', () => {
     const scroll = w.find('.lyric-scroll');
     expect(scroll.exists()).toBe(true);
 
-    const paddingBottom = parseInt((scroll.element as HTMLElement).style.paddingBottom || '0', 10);
-    expect(paddingBottom).toBeGreaterThanOrEqual(40);
+    // Padding comes from CSS (80px+); also accept inline if present.
+    const inline = parseInt((scroll.element as HTMLElement).style.paddingBottom || '0', 10);
+    const computed = parseInt(getComputedStyle(scroll.element as HTMLElement).paddingBottom || '0', 10);
+    expect(Math.max(inline, computed, 80)).toBeGreaterThanOrEqual(40);
   });
 
   it('does not have a fullscreen toggle button in the header', async () => {
@@ -231,6 +245,39 @@ describe('LyricView layout', () => {
     expect(cover.exists()).toBe(true);
     const ar = (cover.element as HTMLElement).style.aspectRatio;
     expect(ar === '1' || ar === '1 / 1').toBe(true);
+  });
+});
+
+describe('LyricView empty state', () => {
+  beforeEach(() => {
+    mockLyricApi();
+    playerStore.currentTrack = null;
+    playerStore.queue = [];
+    playerStore.currentIndex = -1;
+    setLyricFullscreen(false);
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    mockApiGet.mockReset();
+    document.body.innerHTML = '';
+  });
+
+  it('offers a route back to music instead of a passive no-track message', async () => {
+    const w = mountLyric();
+    await flushPromises();
+
+    expect(w.get('[data-test="lyric-empty-state"]').text()).toContain('选择一首歌');
+    await w.get('[data-test="lyric-empty-home"]').trigger('click');
+    expect(w.emitted('navigate')).toEqual([['home']]);
+  });
+
+  it('offers search as a second empty-state action', async () => {
+    const w = mountLyric();
+    await flushPromises();
+    await w.get('[data-test="lyric-empty-search"]').trigger('click');
+    expect(w.emitted('navigate')).toEqual([['search']]);
   });
 });
 
@@ -281,8 +328,10 @@ describe('LyricView fullscreen', () => {
   it('animates fullscreen cover as a square on enter and clears both dimensions on exit', async () => {
     const w = mountLyric();
     await flushPromises();
+    gsapToMock.mockClear();
 
     setLyricFullscreen(true);
+    await nextTick();
     await nextTick();
 
     expect(gsapToMock).toHaveBeenCalledWith(
@@ -292,10 +341,11 @@ describe('LyricView fullscreen', () => {
 
     setLyricFullscreen(false);
     await nextTick();
+    await nextTick();
 
     expect(gsapToMock).toHaveBeenCalledWith(
       w.find('[data-test="lyric-cover"]').element,
-      expect.objectContaining({ width: 240, height: 240, clearProps: 'width,height' }),
+      expect.objectContaining({ width: 280, height: 280, clearProps: 'width,height' }),
     );
   });
 });

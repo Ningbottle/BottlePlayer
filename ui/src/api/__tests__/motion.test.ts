@@ -37,6 +37,8 @@ import {
   animateElement,
   animateStagger,
   startAmbientMotion,
+  pressBounceDown,
+  pressBounceUp,
 } from '../motion';
 import { useThemeStore, __resetForTest } from '../themeStore';
 
@@ -97,7 +99,7 @@ describe('motion.ts', () => {
     expect(gsap.killTweensOf).toHaveBeenCalledWith(el);
   });
 
-  it('transitionEnter uses stronger distance and expo.out', async () => {
+  it('transitionEnter uses deeper travel and power3.out for aurora', async () => {
     const { gsap } = await import('gsap');
     const el = document.createElement('div');
     const done = vi.fn();
@@ -106,8 +108,8 @@ describe('motion.ts', () => {
 
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
-      { opacity: 0, y: 22 },
-      expect.objectContaining({ opacity: 1, y: 0, ease: 'expo.out', duration: 0.52 }),
+      { opacity: 0, y: 28 },
+      expect.objectContaining({ opacity: 1, y: 0, ease: 'power3.out', duration: 0.52 }),
     );
     expect(done).toHaveBeenCalledTimes(1);
   });
@@ -221,7 +223,7 @@ describe('motion.ts', () => {
 
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
-      { opacity: 0, y: 22 },
+      { opacity: 0, y: 16 },
       expect.objectContaining({ ease: 'power3.out', duration: 0.3 }),
     );
   });
@@ -334,6 +336,21 @@ describe('motion.ts', () => {
 
     expect(gsap.set).toHaveBeenCalledWith(els, { opacity: 1, y: 0 });
     expect(gsap.fromTo).not.toHaveBeenCalled();
+  });
+
+  it('pressBounceDown scales down and pressBounceUp springs with elastic', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('button');
+    pressBounceDown(el);
+    expect(gsap.to).toHaveBeenCalledWith(
+      el,
+      expect.objectContaining({ scale: 0.86, duration: 0.09 }),
+    );
+    pressBounceUp(el);
+    expect(gsap.to).toHaveBeenCalledWith(
+      el,
+      expect.objectContaining({ scale: 1, ease: expect.stringContaining('elastic') }),
+    );
   });
 
   it('animateStagger merges overrides for duration, stagger, maxItems, and fromY', async () => {

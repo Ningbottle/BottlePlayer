@@ -84,11 +84,14 @@ export function transitionEnter(el: Element, done?: () => void): void {
     return;
   }
   const spec = currentProfile().pageEnter;
-  gsap.fromTo(el, { opacity: 0, y: 22 }, {
+  // Aurora: slightly deeper travel for page opens (still short leave elsewhere).
+  const skin = useThemeStore().skinId.value;
+  const fromY = skin === 'aurora' ? 28 : 16;
+  gsap.fromTo(el, { opacity: 0, y: fromY }, {
     opacity: 1,
     y: 0,
     duration: spec.duration,
-    ease: spec.ease,
+    ease: skin === 'aurora' ? 'power3.out' : spec.ease,
     delay: spec.delay ?? 0,
     onComplete: () => {
       gsap.set(el, { clearProps: 'transform,opacity' });
@@ -158,6 +161,43 @@ export interface StaggerOverrides {
   stagger?: number;
   maxItems?: number;
   fromY?: number;
+}
+
+/**
+ * Q-bounce press: squash on mousedown, elastic spring on mouseup/leave.
+ * Aurora transport / chrome only — respects reduced motion.
+ */
+export function pressBounceDown(el: Element): void {
+  if (!(el instanceof HTMLElement)) return;
+  gsap.killTweensOf(el);
+  if (isReducedMotion()) {
+    el.style.transform = 'scale(0.94)';
+    return;
+  }
+  gsap.to(el, {
+    scale: 0.86,
+    duration: 0.09,
+    ease: 'power2.out',
+    overwrite: true,
+  });
+}
+
+export function pressBounceUp(el: Element): void {
+  if (!(el instanceof HTMLElement)) return;
+  gsap.killTweensOf(el);
+  if (isReducedMotion()) {
+    el.style.transform = '';
+    return;
+  }
+  gsap.to(el, {
+    scale: 1,
+    duration: 0.55,
+    ease: 'elastic.out(1.15, 0.42)',
+    overwrite: true,
+    onComplete: () => {
+      gsap.set(el, { clearProps: 'transform' });
+    },
+  });
 }
 
 /** Animate a list of elements with stagger using the cardEnter profile. Returns a cancellable handle. */

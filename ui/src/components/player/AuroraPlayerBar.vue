@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
 import AuroraDockParticles from './AuroraDockParticles.vue';
+import { pressBounceDown, pressBounceUp } from '../../api/motion';
 
 const props = defineProps<{
   controller: PlayerController;
@@ -32,13 +33,15 @@ function handleVolumeClick(e: MouseEvent) {
   c.value.setVolume(pct);
 }
 
-/** No bounce on transport — candy jelly was the ugly “QQ sticker” look. */
-function onPress(_e: MouseEvent) {
-  /* intentionally flat */
+/** Q-bounce: squash → elastic spring (elastic.out). */
+function onPress(e: MouseEvent) {
+  const el = e.currentTarget;
+  if (el instanceof Element) pressBounceDown(el);
 }
 
-function onRelease(_e: MouseEvent) {
-  /* intentionally flat */
+function onRelease(e: MouseEvent) {
+  const el = e.currentTarget;
+  if (el instanceof Element) pressBounceUp(el);
 }
 </script>
 
@@ -503,18 +506,19 @@ function onRelease(_e: MouseEvent) {
   box-shadow: none;
   filter: none;
   outline: none;
-  transition: color 0.15s ease, background 0.15s ease, opacity 0.12s ease;
+  /* Allow GSAP scale Q-bounce; only color/bg transition in CSS */
+  transition: color 0.15s ease, background 0.15s ease;
+  transform-origin: center center;
+  will-change: transform;
 }
 
 .aurora-pb-btn:hover {
   color: var(--text-primary);
   background: color-mix(in srgb, var(--text-primary) 7%, transparent);
-  transform: none !important;
 }
 
 .aurora-pb-btn:active {
-  opacity: 0.85;
-  transform: none !important;
+  /* press depth handled by GSAP pressBounceDown */
 }
 
 .aurora-pb-btn.is-active {
@@ -543,11 +547,6 @@ function onRelease(_e: MouseEvent) {
   filter: brightness(1.05);
   background: var(--accent);
   color: #0a1410;
-  transform: none !important;
-}
-
-.aurora-pb-play:active {
-  filter: brightness(0.96);
 }
 
 .aurora-pb-play svg {
