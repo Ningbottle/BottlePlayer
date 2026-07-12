@@ -41,10 +41,25 @@ import {
 import { useThemeStore, __resetForTest } from '../themeStore';
 
 describe('motion.ts', () => {
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
     vi.unstubAllGlobals();
     __resetForTest();
+    // Restore default gsap mock behavior after tests that replace implementations
+    const { gsap } = await import('gsap');
+    (gsap.to as ReturnType<typeof vi.fn>).mockImplementation((target, opts) => {
+      if (opts.onUpdate) {
+        const obj = typeof target === 'object' ? target : { value: target };
+        obj.value = opts.value;
+        opts.onUpdate();
+      }
+      if (opts.onComplete) opts.onComplete();
+      return { kill: vi.fn() };
+    });
+    (gsap.fromTo as ReturnType<typeof vi.fn>).mockImplementation((_, __, opts) => {
+      if (opts.onComplete) opts.onComplete();
+      return { kill: vi.fn() };
+    });
   });
 
   afterEach(() => {
@@ -91,9 +106,10 @@ describe('motion.ts', () => {
 
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
-      { opacity: 0, y: 20 },
-      expect.objectContaining({ opacity: 1, y: 0, ease: 'expo.out' }),
+      { opacity: 0, y: 22 },
+      expect.objectContaining({ opacity: 1, y: 0, ease: 'expo.out', duration: 0.52 }),
     );
+    expect(done).toHaveBeenCalledTimes(1);
   });
 
   it('transitionLeave stays fast and calls gsap.to', async () => {
@@ -105,8 +121,76 @@ describe('motion.ts', () => {
 
     expect(gsap.to).toHaveBeenCalledWith(
       el,
-      expect.objectContaining({ opacity: 0, y: -16, duration: 0.24 }),
+      expect.objectContaining({ opacity: 0, y: -16, duration: 0.2 }),
     );
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it('transitionEnter kill/onInterrupt still settles done exactly once', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('div');
+    const done = vi.fn();
+    let interrupt: (() => void) | undefined;
+
+    (gsap.fromTo as ReturnType<typeof vi.fn>).mockImplementationOnce((_el, _from, opts) => {
+      interrupt = opts.onInterrupt;
+      return { kill: vi.fn() };
+    });
+
+    transitionEnter(el, done);
+    expect(done).not.toHaveBeenCalled();
+    expect(gsap.killTweensOf).toHaveBeenCalledWith(el);
+
+    interrupt?.();
+    interrupt?.();
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it('transitionLeave kill/onInterrupt still settles done exactly once', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('div');
+    const done = vi.fn();
+    let interrupt: (() => void) | undefined;
+
+    (gsap.to as ReturnType<typeof vi.fn>).mockImplementationOnce((_el, opts) => {
+      interrupt = opts.onInterrupt;
+      return { kill: vi.fn() };
+    });
+
+    transitionLeave(el, done);
+    expect(done).not.toHaveBeenCalled();
+    expect(gsap.killTweensOf).toHaveBeenCalledWith(el);
+
+    interrupt?.();
+    interrupt?.();
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it('rapid re-enter on same el interrupts prior session; each done once', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('div');
+    const done1 = vi.fn();
+    const done2 = vi.fn();
+    let secondComplete: (() => void) | undefined;
+
+    (gsap.fromTo as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(() => ({ kill: vi.fn() }))
+      .mockImplementationOnce((_el, _from, opts) => {
+        secondComplete = opts.onComplete;
+        return { kill: vi.fn() };
+      });
+
+    transitionEnter(el, done1);
+    transitionEnter(el, done2);
+
+    // beginTransitionSession on same el settles the first session immediately
+    expect(done1).toHaveBeenCalledTimes(1);
+    expect(done2).not.toHaveBeenCalled();
+
+    secondComplete?.();
+    secondComplete?.();
+    expect(done2).toHaveBeenCalledTimes(1);
+    expect(done1).toHaveBeenCalledTimes(1);
   });
 
   it('crossfadeTheme calls applyFn at the opacity dip', async () => {
@@ -137,8 +221,8 @@ describe('motion.ts', () => {
 
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
-      { opacity: 0, y: 20 },
-      expect.objectContaining({ ease: 'power3.out' }),
+      { opacity: 0, y: 22 },
+      expect.objectContaining({ ease: 'power3.out', duration: 0.3 }),
     );
   });
 
@@ -154,6 +238,19 @@ describe('motion.ts', () => {
       el,
       expect.objectContaining({ duration: 0.16 }),
     );
+  });
+
+  it('transitionEnter reduced motion completes session without fromTo', async () => {
+    const { gsap } = await import('gsap');
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+    const el = document.createElement('div');
+    const done = vi.fn();
+
+    transitionEnter(el, done);
+
+    expect(gsap.fromTo).not.toHaveBeenCalled();
+    expect(gsap.set).toHaveBeenCalled();
+    expect(done).toHaveBeenCalledTimes(1);
   });
 
   // --- animateElement tests ---

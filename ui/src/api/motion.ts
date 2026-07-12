@@ -3,6 +3,7 @@ import type { Ref } from 'vue';
 import { useThemeStore } from './themeStore';
 import { getMotionProfile } from './motionProfiles';
 import type { ProfileKey, TweenSpec } from './motionProfiles';
+import { beginTransitionSession } from './transitionSession';
 
 export interface CountUpOptions {
   duration?: number;
@@ -73,20 +74,58 @@ function currentProfile() {
   return getMotionProfile(useThemeStore().skinId.value);
 }
 
-/** Vue <Transition> JS hook: enter (fade + translateY). */
+/** Vue <Transition> JS hook: enter (fade + translateY). Kill-safe via transitionSession. */
 export function transitionEnter(el: Element, done?: () => void): void {
-  if (isReducedMotion()) { done?.(); return; }
+  const session = beginTransitionSession(el, 'enter', done);
+  gsap.killTweensOf(el);
+  if (isReducedMotion()) {
+    gsap.set(el, { opacity: 1, y: 0, clearProps: 'transform,opacity' });
+    session.complete();
+    return;
+  }
   const spec = currentProfile().pageEnter;
-  gsap.fromTo(el, { opacity: 0, y: 20 }, {
-    opacity: 1, y: 0, duration: spec.duration, ease: spec.ease, delay: spec.delay ?? 0, onComplete: done,
+  gsap.fromTo(el, { opacity: 0, y: 22 }, {
+    opacity: 1,
+    y: 0,
+    duration: spec.duration,
+    ease: spec.ease,
+    delay: spec.delay ?? 0,
+    onComplete: () => {
+      gsap.set(el, { clearProps: 'transform,opacity' });
+      session.complete();
+    },
+    onInterrupt: () => {
+      gsap.set(el, { clearProps: 'transform,opacity' });
+      session.interrupt();
+    },
   });
 }
 
-/** Vue <Transition> JS hook: leave (fade + translateY). */
+/** Vue <Transition> JS hook: leave (fade + translateY). Kill-safe via transitionSession. */
 export function transitionLeave(el: Element, done?: () => void): void {
-  if (isReducedMotion()) { done?.(); return; }
+  const session = beginTransitionSession(el, 'leave', done);
+  gsap.killTweensOf(el);
+  if (isReducedMotion()) {
+    gsap.set(el, { opacity: 0, y: 0, clearProps: 'transform,opacity' });
+    session.complete();
+    return;
+  }
   const spec = currentProfile().pageLeave;
-  gsap.to(el, { opacity: 0, y: -16, duration: spec.duration, ease: spec.ease, delay: spec.delay ?? 0, onComplete: done });
+  gsap.to(el, {
+    opacity: 0,
+    y: -16,
+    duration: spec.duration,
+    ease: spec.ease,
+    delay: spec.delay ?? 0,
+    onComplete: () => {
+      gsap.set(el, { clearProps: 'transform,opacity' });
+      session.complete();
+    },
+    onInterrupt: () => {
+      gsap.set(el, { clearProps: 'transform,opacity' });
+      session.interrupt();
+    },
+  });
 }
 
 /** Animate a single element using a profile key. Returns a cancellable handle. */

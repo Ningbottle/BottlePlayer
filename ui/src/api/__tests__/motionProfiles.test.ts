@@ -24,9 +24,16 @@ describe('motionProfiles', () => {
 
   it('uses a longer expo entrance and a bounded jelly card entrance for Aurora', () => {
     const profile = getMotionProfile('aurora');
-    expect(profile.pageEnter).toMatchObject({ duration: 0.42, ease: 'expo.out' });
+    expect(profile.pageEnter).toMatchObject({ duration: 0.52, ease: 'expo.out' });
+    expect(profile.pageLeave).toMatchObject({ duration: 0.2, ease: 'power2.in' });
     expect(profile.cardEnter).toMatchObject({ duration: 0.36, stagger: 0.04, maxItems: 12 });
     expect(profile.cardEnter.ease).toContain('back.out');
+  });
+
+  it('newsprint page timings remain serial-friendly and unchanged', () => {
+    const profile = getMotionProfile('newsprint');
+    expect(profile.pageEnter).toMatchObject({ duration: 0.3, ease: 'power3.out' });
+    expect(profile.pageLeave).toMatchObject({ duration: 0.16, ease: 'power2.in' });
   });
 
   it('keeps Aurora control release elastic without changing Newsprint', () => {

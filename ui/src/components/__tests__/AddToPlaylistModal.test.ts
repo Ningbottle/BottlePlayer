@@ -4,11 +4,15 @@ import { mount, flushPromises } from '@vue/test-utils';
 vi.mock('gsap', () => {
   const fromTo = vi.fn((_el: any, _from: any, opts: any) => {
     if (opts?.onComplete) opts.onComplete();
+    return { kill: vi.fn() };
   });
   const to = vi.fn((_el: any, opts: any) => {
     if (opts?.onComplete) opts.onComplete();
+    return { kill: vi.fn() };
   });
-  return { gsap: { fromTo, to } };
+  const set = vi.fn();
+  const killTweensOf = vi.fn();
+  return { gsap: { fromTo, to, set, killTweensOf } };
 });
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue('') }));

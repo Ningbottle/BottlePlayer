@@ -14,13 +14,18 @@ import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
 import { ping } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
-import { lyricFullscreen } from './api/lyricFullscreen';
+import { lyricFullscreen, setLyricFullscreen } from './api/lyricFullscreen';
 import { transitionEnter, transitionLeave } from './api/motion';
 import { resolveViewDescriptor, type HistoryEntry, type ViewDescriptor } from './api/viewRegistry';
 import { useThemeStore } from './api/themeStore';
 
 const themeStore = useThemeStore();
 const currentShell = computed(() => themeStore.skinId.value === 'aurora' ? AuroraShell : NewsprintShell);
+/** Aurora: simultaneous enter/leave (overlap). Newsprint: serial out-in. */
+const pageTransitionMode = computed<'out-in' | undefined>(() =>
+  themeStore.skinId.value === 'aurora' ? undefined : 'out-in',
+);
+const isAuroraOverlap = computed(() => themeStore.skinId.value === 'aurora');
 
 const currentView = ref('home');
 const searchQuery = ref('');
@@ -123,6 +128,16 @@ function goForward() {
 }
 
 onMounted(() => {
+  // Clear any stuck inline styles from interrupted page transitions
+  document.querySelectorAll('.scroll > *, .list-view, .aurora-home, .np-home').forEach((node) => {
+    const el = node as HTMLElement;
+    el.style.opacity = '';
+    el.style.filter = '';
+    el.style.transform = '';
+  });
+  // Don't boot into a broken fullscreen shell with zero chrome rows
+  setLyricFullscreen(false);
+
   // Initialize HTML5 Audio element and reactive player events
   initPlayer();
   // Initialize native playback backend (falls back to HTML5)
@@ -174,9 +189,9 @@ onUnmounted(() => {
       />
     </template>
 
-    <div class="scroll">
+    <div class="scroll" :class="{ 'page-transition-stack': isAuroraOverlap }">
       <Transition
-        mode="out-in"
+        :mode="pageTransitionMode"
         :css="false"
         @enter="transitionEnter"
         @leave="transitionLeave"
@@ -216,17 +231,33 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
+/* Narrow, non-blocking strip — must not dominate brand/hero color hierarchy */
 .network-banner {
   z-index: 7;
-  background: var(--accent);
-  color: var(--paper);
+  background: color-mix(in srgb, var(--surface-2, #2a2520) 88%, var(--accent) 12%);
+  color: var(--text-secondary, var(--ink-soft, #8a8070));
   text-align: center;
-  padding: 6px 12px;
-  font-size: 13px;
+  padding: 3px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
   font-family: var(--font-sans);
+  border-bottom: 1px solid color-mix(in srgb, var(--border-subtle, #444) 70%, transparent);
 }
 
 .scroll > :deep(*) {
+  min-height: 100%;
+}
+
+/* One grid cell: old and new pages overlap instead of becoming two flex rows. */
+.scroll.page-transition-stack {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  align-items: start;
+}
+.scroll.page-transition-stack > :deep(*) {
+  grid-area: 1 / 1;
+  min-width: 0;
   min-height: 100%;
 }
 
