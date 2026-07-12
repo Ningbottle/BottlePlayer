@@ -66,6 +66,7 @@ function createModel(overrides: Partial<LyricStageModel> = {}): LyricStageModel 
     fullscreen: false,
     isPlaying: true,
     currentTime: 5,
+    duration: 100,
     ...overrides,
   };
 }

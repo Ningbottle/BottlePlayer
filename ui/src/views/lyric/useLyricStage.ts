@@ -20,6 +20,7 @@ export interface LyricStageModel {
   fullscreen: boolean;
   isPlaying: boolean;
   currentTime: number;
+  duration: number;
 }
 
 export interface LyricStageCommands {
@@ -211,6 +212,7 @@ export function useLyricStage(): UseLyricStageReturn {
     fullscreen: lyricFullscreen.value,
     isPlaying: playerStore.isPlaying,
     currentTime: currentTime.value,
+    duration: playerStore.duration,
   }));
 
   /**

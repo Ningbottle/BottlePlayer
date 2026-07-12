@@ -59,6 +59,7 @@ const stageComponent = computed(() =>
         @enter-fullscreen="commands.enterFullscreen"
         @user-scroll="commands.onUserScroll"
         @seek-line="commands.seekToLine"
+        @seek="commands.seekToLine"
       />
       <LyricFollowFooter
         v-if="!model.fullscreen"

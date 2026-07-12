@@ -8,6 +8,7 @@ import type { Track } from '../../api/normalizer';
 import type { LyricStageModel } from './useLyricStage';
 import CoverWebGLParticles from './CoverWebGLParticles.vue';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
+import PlayerProgress from '../../components/player/PlayerProgress.vue';
 
 const props = defineProps<{ model: LyricStageModel }>();
 
@@ -15,6 +16,7 @@ const emit = defineEmits<{
   (e: 'enter-fullscreen'): void;
   (e: 'user-scroll'): void;
   (e: 'seek-line', timeSeconds: number): void;
+  (e: 'seek', timeSeconds: number): void;
 }>();
 
 const coverRef = ref<HTMLElement | null>(null);
@@ -312,6 +314,18 @@ watch(() => props.model.coverUrl, () => {
         {{ line.text }}
       </button>
     </div>
+
+    <div
+      v-if="model.fullscreen && model.duration > 0"
+      class="aurora-fs-progress"
+      data-test="aurora-fs-progress"
+    >
+      <PlayerProgress
+        :current-time="model.currentTime"
+        :duration="model.duration"
+        @seek="(s: number) => emit('seek', s)"
+      />
+    </div>
   </div>
 </template>
 
@@ -562,5 +576,19 @@ export default { name: 'AuroraLyricStage' };
     width: 100%;
     height: auto;
   }
+}
+
+.aurora-fs-progress {
+  position: absolute;
+  bottom: clamp(12px, 2.5vh, 24px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: min(520px, 60%);
+  z-index: 2;
+  opacity: 0.5;
+  transition: opacity 0.3s ease;
+}
+.aurora-fs-progress:hover {
+  opacity: 1;
 }
 </style>
