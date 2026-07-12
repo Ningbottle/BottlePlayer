@@ -36,7 +36,10 @@ function queryLineEls(): Element[] {
   return Array.from(rootRef.value.querySelectorAll('.lyric-line'));
 }
 
-/** Cover + root; once per stage show. Kill previous stage tweens; do not restage when only lines load. */
+/**
+ * Cinematic stage enter: slow rise from below (not a drop from the ceiling).
+ * Cover lifts first, root settles with it — film-like ease, no lateral snap.
+ */
 function playStageEnter(): void {
   const root = rootRef.value;
   const cover = coverRef.value;
@@ -45,19 +48,20 @@ function playStageEnter(): void {
 
   if (isReducedMotion()) {
     if (root) gsap.set(root, { opacity: 1, y: 0, clearProps: 'filter,opacity,transform' });
-    if (cover) gsap.set(cover, { opacity: 1, scale: 1, x: 0, clearProps: 'opacity,transform' });
+    if (cover) gsap.set(cover, { opacity: 1, scale: 1, y: 0, clearProps: 'opacity,transform' });
     return;
   }
 
+  // Root: soft veil lifts from below
   if (root) {
     gsap.fromTo(
       root,
-      { opacity: 0, y: 36 },
+      { opacity: 0, y: 42 },
       {
         opacity: 1,
         y: 0,
-        duration: Math.max(0.68, profile.pageEnter.duration + 0.18),
-        ease: profile.pageEnter.ease,
+        duration: 1.05,
+        ease: 'power3.out',
         onComplete: () => {
           if (rootRef.value) {
             rootRef.value.style.filter = 'none';
@@ -68,24 +72,32 @@ function playStageEnter(): void {
       },
     );
   }
+  // Cover: rises into place like a prop on stage
   if (cover) {
     gsap.fromTo(
       cover,
-      { opacity: 0.2, scale: 0.78, x: -56, rotate: -2.5 },
+      { opacity: 0, y: 56, scale: 0.94 },
       {
         opacity: 1,
+        y: 0,
         scale: 1,
-        x: 0,
-        rotate: 0,
-        duration: 0.78,
-        ease: 'expo.out',
-        delay: 0.06,
+        duration: 1.12,
+        ease: 'power3.out',
+        delay: 0.1,
+        onComplete: () => {
+          if (coverRef.value) {
+            gsap.set(coverRef.value, { clearProps: 'opacity,transform' });
+          }
+        },
       },
     );
   }
 }
 
-/** Line stagger; once per FileHash when parsedLyrics.length > 0. */
+/**
+ * Lines float up after the stage — staggered, unhurried.
+ * Once per FileHash; async lyric load must not restage cover/root.
+ */
 function playLineEnter(fileHash: string): void {
   if (!fileHash || lineEnterDoneForHash.value === fileHash) return;
   if (props.model.parsedLyrics.length === 0) return;
@@ -103,14 +115,14 @@ function playLineEnter(fileHash: string): void {
 
   gsap.fromTo(
     lines,
-    { opacity: 0, y: 28, scale: 0.96 },
+    { opacity: 0, y: 40 },
     {
       opacity: 1,
       y: 0,
-      scale: 1,
-      duration: Math.max(0.48, profile.cardEnter.duration + 0.12),
-      ease: profile.cardEnter.ease,
-      stagger: Math.max(0.055, profile.cardEnter.stagger + 0.015),
+      duration: 0.85,
+      ease: 'power2.out',
+      stagger: 0.07,
+      delay: 0.22,
       // Restore CSS near/mid/far opacity hierarchy after the enter.
       clearProps: 'opacity,transform',
     },
