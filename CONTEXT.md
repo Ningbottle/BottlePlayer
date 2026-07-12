@@ -60,6 +60,21 @@ C++ Core (native/) → EchoCAPI.dll
 | **S4 Playback+EQ** | ✅ Complete | HTML5 backend + Web Audio API EQ (production), PlaySessionTracker, event ownership |
 | **S5 Statistics** | ✅ Complete | PlayStatsService, StatsView, DeepSeek AI analysis, 6 stats Tauri commands |
 
+## Dual-interface redesign (2026-07)
+
+| Item | Status |
+|---|---|
+| Aurora / Newsprint independent shells (Home, PlayerBar, LyricStage) | ✅ Closeout complete |
+| Home keep-alive + `homeFeedStore` | ✅ |
+| Skin-differentiated Sidebar / Topbar chrome | ✅ |
+| Enriched Aurora empty queue rail | ✅ |
+| Search / Playlist `SkinPageHeader` | ✅ |
+| Verification report | `docs/superpowers/reports/2026-07-12-dual-interface-closeout-verification.md` |
+
+**Dev:** after merge to `main`, run from repo root `ui/` (`pnpm tauri dev` or `pnpm dev`). Historical worktree: `.worktrees/dual-interface-player-redesign` (optional to remove after merge).
+
+**Closeout plan/spec:** `docs/superpowers/specs/2026-07-12-dual-interface-closeout-design.md`, `docs/superpowers/plans/2026-07-12-dual-interface-closeout.md`.
+
 ## S4 Details
 
 - **Default backend**: HTML5 Audio (Html5AudioBackend) — sole source of play/pause/timeupdate/ended/error events
