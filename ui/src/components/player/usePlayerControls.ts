@@ -8,6 +8,7 @@ import {
   setVolume as storeSetVolume,
   setQuality as storeSetQuality,
 } from '../../api/playerStore';
+import { setLyricFullscreen } from '../../api/lyricFullscreen';
 import type { Track } from '../../api/normalizer';
 import type { LoopMode } from '../../api/playerStore';
 
@@ -173,6 +174,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     if (options.activeView() !== 'lyric') {
       options.onNavigate('lyric');
     }
+    setLyricFullscreen(true);
   }
 
   function handleFavorite() {
