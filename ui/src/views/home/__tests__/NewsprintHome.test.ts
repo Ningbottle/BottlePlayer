@@ -46,6 +46,8 @@ function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel 
     isInitialLoading: false,
     isRefreshing: false,
     errors: [] as readonly HomeSectionError[],
+    errorSummary: '',
+    heroQualityChips: [],
     ...overrides,
   };
 }
@@ -55,7 +57,7 @@ describe('NewsprintHome', () => {
     vi.clearAllMocks();
   });
 
-  it('renders masthead with cover, headline, and editorial phrase', () => {
+  it('renders classic late-edition masthead and feature row', () => {
     const vm = createViewModel({
       heroTrack: createTrack({
         SongName: '主推荐歌曲',
@@ -69,7 +71,10 @@ describe('NewsprintHome', () => {
     });
 
     expect(wrapper.find('.np-masthead').exists()).toBe(true);
-    expect(wrapper.find('.np-hero-cover').exists()).toBe(true);
+    expect(wrapper.find('.page-head').exists()).toBe(true);
+    expect(wrapper.find('.feature').exists()).toBe(true);
+    expect(wrapper.find('.hero').exists()).toBe(true);
+    expect(wrapper.text()).toContain('为你精选');
     expect(wrapper.text()).toContain('主推荐歌曲');
   });
 
@@ -159,16 +164,34 @@ describe('NewsprintHome', () => {
     expect(wrapper.text()).toContain('Existing Track');
   });
 
-  it('displays section errors', () => {
+  it('displays a single columnized error summary', async () => {
     const vm = createViewModel({
-      errors: [{ section: 'daily', message: '加载失败' }],
+      errors: [
+        { section: 'daily', message: '加载失败' },
+        { section: 'playlists', message: '加载失败' },
+      ],
+      errorSummary: '每日推荐、编辑推荐加载失败',
     });
 
     const wrapper = mount(NewsprintHome, {
       props: { model: vm },
     });
 
-    expect(wrapper.text()).toContain('加载失败');
+    expect(wrapper.get('[data-test="home-error-summary"]').text()).toContain('每日推荐、编辑推荐加载失败');
+    await wrapper.get('[data-test="home-error-retry-all"]').trigger('click');
+    expect(wrapper.emitted('refresh')).toBeTruthy();
+  });
+
+  it('disables the listen CTA when there is no hero track', () => {
+    const wrapper = mount(NewsprintHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: null,
+          dailyTracks: [],
+        }),
+      },
+    });
+    expect(wrapper.get('[data-test="hero-play"]').attributes('disabled')).toBeDefined();
   });
 
   it('limits recommendations to 10 items', () => {

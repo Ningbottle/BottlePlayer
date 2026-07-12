@@ -15,6 +15,11 @@
         var m = localStorage.getItem('tweak_mode') || 'light';
         document.documentElement.dataset.skin = s;
         document.documentElement.dataset.mode = m;
+        // Clear legacy frosted-glass prefs that fog the whole window
+        try {
+          localStorage.setItem('tweak_blur', '0');
+          localStorage.setItem('tweak_grain', '0');
+        } catch (e) {}
       })();
     </script>
   </head>

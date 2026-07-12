@@ -14,8 +14,9 @@ const themeStore = useThemeStore();
 
 // Tweak variables
 const paperWarmth = ref(parseInt(localStorage.getItem('tweak_warmth') || '32', 10));
-const glassBlur = ref(parseInt(localStorage.getItem('tweak_blur') || '22', 10));
-const grainAmount = ref(parseInt(localStorage.getItem('tweak_grain') || '28', 10));
+// Default 0 — glass/grain overlays make the whole window unreadable in WebView.
+const glassBlur = ref(0);
+const grainAmount = ref(0);
 const accent = ref(localStorage.getItem('tweak_accent') || '#a8311b');
 
 const isCompact = ref(localStorage.getItem('tweak_compact') === 'true');
@@ -53,8 +54,11 @@ function applyTweaks() {
   // We write a --warmth variable that style.css can blend, NOT --paper directly.
   root.style.setProperty('--warmth', String(w));
 
-  root.style.setProperty('--glass-blur', `${glassBlur.value}px`);
-  root.style.setProperty('--grain', String(grainAmount.value / 100));
+  // Always off: frosted glass + paper grain look like a sheet over the UI.
+  root.style.setProperty('--glass-blur', '0px');
+  root.style.setProperty('--grain', '0');
+  localStorage.setItem('tweak_blur', '0');
+  localStorage.setItem('tweak_grain', '0');
 
   // Aurora skin owns emerald accent via tokens.css — do not stomp with Newsprint tweak default.
   if (themeStore.skinId.value === 'aurora') {

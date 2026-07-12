@@ -758,3 +758,22 @@ export function removeFromQueue(index: number) {
 
   saveQueue();
 }
+
+/** Empty the play queue without necessarily stopping the current audio element. */
+export function clearQueue() {
+  playerStore.queue = [];
+  playerStore.currentIndex = -1;
+  playerStore.currentTrack = null;
+  playerStore.isPlaying = false;
+  playerStore.isLoading = false;
+  playSession.skip();
+  if (playerStore.audio) {
+    try {
+      playerStore.audio.pause();
+      playerStore.audio.src = '';
+    } catch {
+      /* ignore */
+    }
+  }
+  saveQueue();
+}

@@ -19,7 +19,7 @@ const emit = defineEmits<{
 const themeStore = useThemeStore();
 const skinId = themeStore.skinId;
 const searchVariant = computed(() =>
-  skinId.value === 'newsprint' ? 'editorial' : 'command',
+  skinId.value === 'newsprint' ? 'legacy' : 'command',
 );
 
 const localQuery = ref(props.searchQuery);
@@ -91,7 +91,7 @@ function shareAlert() {
         @input="handleSearchInput"
         @keyup.enter="triggerSearch"
         :placeholder="skinId === 'newsprint'
-          ? '检索曲目、作者、版面 · Search the press'
+          ? '搜索歌曲、艺人、专辑、歌单 · Search the press'
           : '搜索歌曲、艺人、专辑、歌单'"
       />
     </div>

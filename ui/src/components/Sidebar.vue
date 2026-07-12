@@ -153,17 +153,12 @@ function handlePlaylist(playlist: { id: string; name: string }) {
     <!-- Navigation Menu -->
     <nav class="nav">
       <a
-        v-for="(item, index) in sidebarNav"
+        v-for="item in sidebarNav"
         :key="item.id"
         data-test="sidebar-nav-item"
         :class="{ active: activeView === item.id }"
         @click="handleNav(item.id)"
       >
-        <span
-          v-if="skinId === 'newsprint'"
-          class="nav-index"
-          data-test="sidebar-nav-index"
-        >{{ String(index + 1).padStart(2, '0') }}</span>
         <span
           v-if="skinId === 'aurora' && activeView === item.id"
           class="nav-active-pill"

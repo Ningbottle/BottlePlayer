@@ -30,14 +30,15 @@ describe('Topbar skin chrome', () => {
     expect(wrapper.get('[data-test="topbar-search"]').attributes('data-variant')).toBe('command');
   });
 
-  it('marks newsprint topbar editorial field', async () => {
+  it('keeps the original rounded Newsprint search field and copy', async () => {
     useThemeStore().setSkin('newsprint');
     const wrapper = mount(Topbar, {
       props: { searchQuery: '' },
     });
     await nextTick();
     expect(wrapper.get('[data-test="topbar-chrome"]').attributes('data-skin-chrome')).toBe('newsprint');
-    expect(wrapper.get('[data-test="topbar-search"]').attributes('data-variant')).toBe('editorial');
+    expect(wrapper.get('[data-test="topbar-search"]').attributes('data-variant')).toBe('legacy');
+    expect(wrapper.get('input').attributes('placeholder')).toBe('搜索歌曲、艺人、专辑、歌单 · Search the press');
   });
 
   it('emits search on enter for either skin', async () => {

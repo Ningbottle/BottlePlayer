@@ -64,6 +64,7 @@ export function resolveViewDescriptor(entry: HistoryEntry): ViewDescriptor {
 
   switch (name) {
     case 'home':
+      // Stable key so KeepAlive preserves the home instance.
       cacheKey = 'home';
       keepAlive = true;
       break;
@@ -76,12 +77,16 @@ export function resolveViewDescriptor(entry: HistoryEntry): ViewDescriptor {
       keepAlive = false;
       break;
     default:
-      cacheKey = name;
+      // Unique key per navigation so <Transition> always runs enter/leave.
+      if (!entry.transitionKey) {
+        entry.transitionKey = nextTransitionKey(name);
+      }
+      cacheKey = entry.transitionKey;
       keepAlive = false;
       break;
   }
 
-  const transitionKey = entry.transitionKey || nextTransitionKey(name);
+  const transitionKey = entry.transitionKey || cacheKey;
 
   return {
     name,

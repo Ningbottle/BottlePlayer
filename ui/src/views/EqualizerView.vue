@@ -74,20 +74,25 @@ function applyEffect(name: string) {
 .eq-view {
   display: flex;
   flex-direction: column;
-  gap: 18px;
-  padding: 28px 48px 148px;
+  gap: 16px;
+  padding: 0 0 28px;
   min-height: 100%;
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .eq-health {
-  max-width: 360px;
+  max-width: min(360px, 42vw);
   padding: 10px 12px;
   border: 1px solid var(--border-subtle);
   color: var(--accent);
   background: var(--surface-1);
-  font-size: 13px;
-  line-height: 1.5;
+  font-size: 12px;
+  line-height: 1.45;
   text-align: right;
+  border-radius: 8px;
 }
 
 .eq-health.unavailable {
@@ -95,41 +100,51 @@ function applyEffect(name: string) {
 }
 
 .eq-console {
-  padding: 18px 22px 14px;
+  padding: 14px clamp(12px, 1.5vw, 20px) 12px;
   border: 1px solid var(--border-subtle);
   background: var(--surface-1);
   border-radius: 10px;
+  min-width: 0;
+  overflow: visible;
+  box-sizing: border-box;
 }
 
 .band-guide {
   display: grid;
   grid-template-columns: repeat(10, minmax(0, 1fr));
-  gap: 8px;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
+  gap: 4px 6px;
+  margin-bottom: 10px;
+  padding-bottom: 10px;
   border-bottom: 1px solid var(--border-subtle);
+  min-width: 0;
 }
 
 .band-guide span {
   color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.25;
+  font-size: clamp(10px, 0.85vw, 12px);
+  line-height: 1.2;
   text-align: center;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sound-effects {
   display: grid;
-  grid-template-columns: minmax(220px, 0.7fr) 1.3fr;
-  gap: 24px;
+  grid-template-columns: minmax(180px, 0.65fr) minmax(0, 1.35fr);
+  gap: 20px;
   align-items: start;
-  padding-top: 14px;
+  padding-top: 12px;
+  margin-bottom: 16px;
   border-top: 1px solid var(--border-subtle);
+  min-width: 0;
 }
 
 .effects-head h2 {
   margin: 0;
   color: var(--text-primary);
-  font-size: 28px;
+  font-size: clamp(22px, 2.4vw, 28px);
   letter-spacing: 0;
 }
 
@@ -149,18 +164,45 @@ function applyEffect(name: string) {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 10px;
+  min-width: 0;
+}
+
+@media (max-width: 1200px) {
+  .band-guide {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    row-gap: 8px;
+  }
+
+  .band-guide span {
+    white-space: normal;
+  }
 }
 
 @media (max-width: 1040px) {
   .eq-view {
-    padding: 24px 28px 148px;
+    padding: 0 0 24px;
   }
 
-  .band-guide {
-    grid-template-columns: repeat(5, minmax(0, 1fr));
+  .eq-health {
+    max-width: 100%;
+    text-align: left;
   }
 
   .sound-effects {
+    grid-template-columns: 1fr;
+  }
+
+  .effect-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 720px) {
+  .band-guide {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .effect-grid {
     grid-template-columns: 1fr;
   }
 }

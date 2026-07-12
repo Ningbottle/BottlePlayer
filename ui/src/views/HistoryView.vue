@@ -132,6 +132,15 @@ const isCurrentTrack = (song: RecentPlayedEntry) => {
 </template>
 
 <style scoped>
+.list-view {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding-bottom: 24px;
+  overflow-x: hidden;
+}
+
 .sync-hint {
   font-family: var(--font-serif);
   font-style: italic;

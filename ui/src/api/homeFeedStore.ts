@@ -128,7 +128,56 @@ function startLoad(sections: HomeSection[], refreshing: boolean): Promise<void> 
   return inFlight;
 }
 
+/** Dev-only seed for layout screenshots (?layoutDemo=1). Not used in production. */
+function isLayoutDemo(): boolean {
+  if (!import.meta.env.DEV || typeof window === 'undefined') return false;
+  return new URLSearchParams(window.location.search).has('layoutDemo');
+}
+
+function seedLayoutDemo(): void {
+  const mkTrack = (i: number) =>
+    normalizeTrack({
+      FileHash: `demo-track-${i}`,
+      SongName: `推荐曲目 ${i}`,
+      SingerName: `艺人 ${((i - 1) % 6) + 1}`,
+      Duration: 180 + i * 7,
+      Image: '',
+      AlbumName: `合集 ${i}`,
+    });
+
+  const mkPl = (i: number, prefix: string) =>
+    normalizePlaylist({
+      specialid: 9000 + i,
+      specialname: `${prefix} ${i}`,
+      imgurl: '',
+      nickname: `编辑 ${i}`,
+      playcount: 1000 * i,
+    });
+
+  daily.items = Array.from({ length: 12 }, (_, i) => mkTrack(i + 1));
+  daily.loading = false;
+  daily.refreshing = false;
+  daily.error = null;
+  daily.loaded = true;
+
+  playlists.items = Array.from({ length: 10 }, (_, i) => mkPl(i + 1, '精选歌单'));
+  playlists.loading = false;
+  playlists.refreshing = false;
+  playlists.error = null;
+  playlists.loaded = true;
+
+  albums.items = Array.from({ length: 10 }, (_, i) => mkPl(i + 1, '最新歌单'));
+  albums.loading = false;
+  albums.refreshing = false;
+  albums.error = null;
+  albums.loaded = true;
+}
+
 function ensureLoaded(): Promise<void> {
+  if (isLayoutDemo()) {
+    seedLayoutDemo();
+    return Promise.resolve();
+  }
   if (inFlight) return inFlight;
 
   const unloaded = (['daily', 'playlists', 'albums'] as HomeSection[])
@@ -137,6 +186,10 @@ function ensureLoaded(): Promise<void> {
 }
 
 function refresh(): Promise<void> {
+  if (isLayoutDemo()) {
+    seedLayoutDemo();
+    return Promise.resolve();
+  }
   if (inFlight) return inFlight;
   return startLoad(['daily', 'playlists', 'albums'], true);
 }

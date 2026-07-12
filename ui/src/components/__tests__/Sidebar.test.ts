@@ -73,13 +73,13 @@ describe('Sidebar skin chrome', () => {
     expect(wrapper.find('[data-test="aurora-nav-label"]').exists()).toBe(true);
   });
 
-  it('marks chrome for newsprint with numbered nav and stamp footer, no aurora pill', async () => {
+  it('keeps the original Newsprint icon navigation and stamp footer, without Aurora chrome', async () => {
     useThemeStore().setSkin('newsprint');
     const wrapper = mount(Sidebar, { props: { activeView: 'home' } });
     await nextTick();
     const root = wrapper.get('[data-test="sidebar-chrome"]');
     expect(root.attributes('data-skin-chrome')).toBe('newsprint');
-    expect(wrapper.find('[data-test="sidebar-nav-index"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="sidebar-nav-index"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="newsprint-stamp"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="sidebar-nav-active-pill"]').exists()).toBe(false);
   });

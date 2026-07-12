@@ -9,7 +9,7 @@
   z-index: 2;
   display: grid;
   grid-template-columns: 240px 1fr;
-  grid-template-rows: 32px auto 1fr 88px;
+  grid-template-rows: 32px auto minmax(0, 1fr) 76px;
   height: 100vh;
   min-height: 720px;
 }

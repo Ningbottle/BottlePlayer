@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue';
+import { computed } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../api/normalizer';
 import type { PlaylistInfo } from '../../api/homeFeedStore';
@@ -12,14 +12,7 @@ const emit = defineEmits<{
   (e: 'navigate', view: string, params?: any): void;
 }>();
 
-const coverError = ref(false);
-
-watch(() => props.model.heroTrack, () => { coverError.value = false; });
-
-const heroCover = computed(() => {
-  if (coverError.value) return '';
-  return props.model.heroTrack?.Image || '';
-});
+/** Classic late-edition Home layout (pre dual-skin) restored as Newsprint. */
 
 const timeOfDayPhrase = computed(() => {
   const h = new Date().getHours();
@@ -32,12 +25,10 @@ const timeOfDayPhrase = computed(() => {
   return '深夜的安眠曲';
 });
 
-const recommendations = computed(() => {
-  return props.model.dailyTracks.slice(0, 10);
-});
+const recommendations = computed(() => props.model.dailyTracks.slice(0, 10));
 
 function onHeroPlay() {
-  const t = props.model.heroTrack;
+  const t = props.model.heroTrack ?? props.model.dailyTracks[0];
   if (t) emit('play-track', t);
 }
 
@@ -49,14 +40,16 @@ function onPlaylistClick(pl: PlaylistInfo) {
   emit('navigate', 'playlist', { id: pl.specialid, name: pl.specialname });
 }
 
-function onCoverError() {
-  coverError.value = true;
-}
-
 function formatDuration(sec: number): string {
   const m = Math.floor(sec / 60);
-  const s = sec % 60;
+  const s = Math.floor(sec % 60);
   return `${m}:${String(s).padStart(2, '0')}`;
+}
+
+function formatPlays(n: number): string {
+  if (!n) return '—';
+  if (n >= 10000) return `${Math.floor(n / 10000)}万`;
+  return String(n);
 }
 
 function formatDate(): string {
@@ -66,136 +59,183 @@ function formatDate(): string {
 </script>
 
 <template>
-  <div class="np-home" ref="rootEl">
-    <div class="np-masthead">
-      <div class="np-headline-area">
-        <div class="np-kicker">Late Edition · 晚刊</div>
-        <h1 class="np-headline-title">为你精选<i>For You</i></h1>
-        <p class="np-editorial-phrase">{{ timeOfDayPhrase }}</p>
-        <div class="np-date">{{ formatDate() }}</div>
+  <!-- np-home root kept for skin structure tests; body uses classic newspaper classes from style.css -->
+  <div class="np-home list-view" data-test="newsprint-home">
+    <div class="page-head np-masthead">
+      <div>
+        <div class="kicker">Late Edition · 晚刊</div>
+        <h1>为你精选<i>For You</i></h1>
+      </div>
+      <div class="date">
+        <b>{{ formatDate() }}</b>
+        {{ timeOfDayPhrase }}
+      </div>
+    </div>
+
+    <div
+      v-if="model.errors.length"
+      class="np-error-summary"
+      data-test="home-error-summary"
+      role="alert"
+    >
+      <p>{{ model.errorSummary || '部分内容加载失败' }}</p>
+      <button type="button" class="more" data-test="home-error-retry-all" @click="emit('refresh')">
+        全部重试
+      </button>
+    </div>
+
+    <div class="feature">
+      <div class="hero">
+        <div>
+          <div class="label">Daily Picks · 私荐</div>
+          <h2>今日适合这几首</h2>
+          <p>
+            {{
+              model.heroTrack
+                ? `根据每日推荐为你排好一组歌。想少一点选择困难，就从「${model.heroTrack.SongName}」开始慢慢听。`
+                : '根据每日推荐为你排好一组歌。想少一点选择困难，就从第一首开始慢慢听。'
+            }}
+          </p>
+        </div>
         <button
-          class="np-play play-cta"
+          type="button"
+          class="play-cta"
           data-test="hero-play"
+          :disabled="!model.heroTrack && !model.dailyTracks.length"
           @click="onHeroPlay"
         >
-          <span class="np-play-icon">
+          <span class="pp">
             <svg viewBox="0 0 24 24" fill="currentColor" width="10" height="10">
               <polygon points="6,4 20,12 6,20" />
             </svg>
           </span>
-          立即收听 · 每日推荐
+          {{ model.heroTrack || model.dailyTracks.length ? '立即收听 · 每日推荐' : '暂无推荐可播放' }}
         </button>
+        <svg class="hero-art" viewBox="0 0 200 200" fill="none" aria-hidden="true">
+          <defs>
+            <pattern id="np-ht" width="3" height="3" patternUnits="userSpaceOnUse">
+              <circle cx="1" cy="1" r="0.6" fill="rgba(34,27,18,0.45)" />
+            </pattern>
+          </defs>
+          <circle cx="100" cy="100" r="78" fill="rgba(34,27,18,0.06)" />
+          <circle cx="100" cy="100" r="78" fill="url(#np-ht)" opacity="0.6" />
+          <circle cx="100" cy="100" r="20" fill="var(--accent)" />
+          <circle cx="100" cy="100" r="3" fill="var(--paper)" />
+          <circle cx="100" cy="100" r="55" fill="none" stroke="rgba(34,27,18,0.25)" stroke-width="0.6" />
+          <circle cx="100" cy="100" r="42" fill="none" stroke="rgba(34,27,18,0.25)" stroke-width="0.6" />
+          <circle cx="100" cy="100" r="68" fill="none" stroke="rgba(34,27,18,0.25)" stroke-width="0.6" />
+        </svg>
       </div>
 
-      <div class="np-hero-cover">
-        <img
-          v-if="heroCover"
-          :src="heroCover"
-          alt="cover"
-          @error="onCoverError"
-        />
-        <div v-else class="np-cover-placeholder">
-          <svg viewBox="0 0 200 200" fill="none">
-            <rect width="200" height="200" fill="var(--surface-1)" />
-            <circle cx="100" cy="100" r="60" fill="none" stroke="currentColor" opacity="0.2" stroke-width="0.6" />
-            <circle cx="100" cy="100" r="40" fill="none" stroke="currentColor" opacity="0.2" stroke-width="0.6" />
-            <circle cx="100" cy="100" r="8" fill="currentColor" opacity="0.3" />
-          </svg>
-        </div>
-        <div class="np-cover-overlay"></div>
-        <div class="np-cover-meta">
-          <b>{{ model.heroTrack?.SongName || '—' }}</b>
-          <span>{{ model.heroTrack?.SingerName || '—' }}</span>
-        </div>
-      </div>
-    </div>
-
-    <div class="np-rec-section">
-      <div class="np-rec-head">
-        <h3>每日推荐 <i>Daily Picks</i></h3>
-        <button
-          class="np-refresh"
-          data-test="refresh"
-          :disabled="model.isRefreshing"
-          @click="emit('refresh')"
-        >
-          {{ model.isRefreshing ? '刷新中…' : '刷新推荐 ↻' }}
-        </button>
-      </div>
-
-      <div
-        v-for="err in model.errors"
-        :key="err.section"
-        class="np-error"
-      >
-        {{ err.message }}
-        <button class="np-retry" @click="emit('refresh')">重试</button>
-      </div>
-
-      <ol class="np-rec-list">
-        <li
-          v-for="(track, idx) in recommendations"
-          :key="track.FileHash"
-          class="np-rec-item"
-          :style="{ '--rec-delay': `${idx * 0.025}s` }"
-          @click="onRecPlay(track)"
-        >
-          <span class="np-num">{{ String(idx + 1).padStart(2, '0') }}</span>
-          <span class="np-rec-title">
-            <b>{{ track.SongName }}</b>
-            <span>{{ track.SingerName }}</span>
+      <div class="side-list">
+        <div class="sl-head">
+          <h3>
+            每日推荐
+            <i style="font-style: italic; font-family: 'EB Garamond', serif; font-weight: 400; color: var(--ink-mute); font-size: 0.7em">
+              Daily Picks
+            </i>
+          </h3>
+          <span
+            class="more"
+            data-test="refresh"
+            role="button"
+            tabindex="0"
+            @click="emit('refresh')"
+            @keydown.enter="emit('refresh')"
+          >
+            {{ model.isRefreshing ? '刷新中…' : '刷新推荐 ↻' }}
           </span>
-          <span class="np-rec-dur">{{ formatDuration(track.Duration) }}</span>
-        </li>
-      </ol>
-    </div>
+        </div>
 
-    <div v-if="model.playlists.length > 0" class="np-section">
-      <div class="np-section-bar">
-        <h2>编辑推荐<i>Editor's Picks</i></h2>
-      </div>
-      <div class="np-grid">
-        <article
-          v-for="pl in model.playlists"
-          :key="pl.specialid"
-          class="np-card"
-          :data-test="`playlist-${pl.specialid}`"
-          @click="onPlaylistClick(pl)"
-        >
-          <div class="np-card-cover">
-            <img v-if="pl.imgurl" :src="pl.imgurl" alt="cover" />
-            <div v-else class="np-card-placeholder">歌单</div>
-          </div>
-          <div class="np-card-meta">
-            <div class="np-card-title">{{ pl.specialname }}</div>
-            <div class="np-card-sub">By {{ pl.nickname }}</div>
-          </div>
-        </article>
+        <ol class="np-rec-list">
+          <li
+            v-for="(song, idx) in recommendations"
+            :key="song.FileHash"
+            class="np-rec-item"
+            @click="onRecPlay(song)"
+          >
+            <span class="n np-num">{{ String(idx + 1).padStart(2, '0') }}</span>
+            <span class="t">
+              <b>{{ song.SongName }}</b>
+              <span>{{ song.SingerName }}</span>
+            </span>
+            <span class="dur">{{ formatDuration(song.Duration) }}</span>
+          </li>
+          <li v-if="!recommendations.length" style="padding: 10px; font-style: italic; color: var(--ink-mute); cursor: default">
+            暂时没有推荐歌曲
+          </li>
+        </ol>
       </div>
     </div>
 
-    <div v-if="model.albums.length > 0" class="np-section">
-      <div class="np-section-bar">
-        <h2>最新歌单<i>Newly Pressed</i></h2>
-      </div>
-      <div class="np-grid">
-        <article
-          v-for="pl in model.albums"
-          :key="pl.specialid"
-          class="np-card"
-          :data-test="`playlist-${pl.specialid}`"
-          @click="onPlaylistClick(pl)"
-        >
-          <div class="np-card-cover">
-            <img v-if="pl.imgurl" :src="pl.imgurl" alt="cover" />
-            <div v-else class="np-card-placeholder">新碟</div>
+    <div v-if="model.playlists.length" class="section-bar">
+      <h2>编辑推荐<i>Editor's Picks</i></h2>
+      <span class="more">{{ model.isRefreshing ? '刷新中…' : '本周精选' }}</span>
+    </div>
+    <div v-if="model.playlists.length" class="grid">
+      <article
+        v-for="pl in model.playlists"
+        :key="pl.specialid"
+        class="card"
+        :data-test="`playlist-${pl.specialid}`"
+        @click="onPlaylistClick(pl)"
+      >
+        <div class="cover">
+          <img v-if="pl.imgurl" :src="pl.imgurl" alt="cover" />
+          <svg v-else viewBox="0 0 200 200">
+            <rect width="200" height="200" fill="#ecdfbe" />
+            <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="24" fill="#221b12">歌单</text>
+          </svg>
+          <div class="corner">精品</div>
+          <button type="button" class="play" aria-label="play" @click.stop="onPlaylistClick(pl)">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+              <polygon points="6,4 20,12 6,20" />
+            </svg>
+          </button>
+        </div>
+        <div class="meta-row">
+          <div>
+            <div class="title">{{ pl.specialname }}</div>
+            <div class="sub">By {{ pl.nickname }}</div>
           </div>
-          <div class="np-card-meta">
-            <div class="np-card-title">{{ pl.specialname }}</div>
-            <div class="np-card-sub">{{ pl.nickname }}</div>
+          <div class="plays">{{ formatPlays(pl.playcount) }}</div>
+        </div>
+      </article>
+    </div>
+
+    <div v-if="model.albums.length" class="section-bar" style="margin-top: 34px">
+      <h2>最新歌单<i>Newly Pressed</i></h2>
+      <span class="more">{{ model.isRefreshing ? '刷新中…' : '全部歌单' }}</span>
+    </div>
+    <div v-if="model.albums.length" class="grid">
+      <article
+        v-for="pl in model.albums"
+        :key="`a-${pl.specialid}`"
+        class="card"
+        :data-test="`playlist-${pl.specialid}`"
+        @click="onPlaylistClick(pl)"
+      >
+        <div class="cover">
+          <img v-if="pl.imgurl" :src="pl.imgurl" alt="cover" />
+          <svg v-else viewBox="0 0 200 200">
+            <rect width="200" height="200" fill="#dee6d4" />
+            <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="24" fill="#3b5a3a">新碟</text>
+          </svg>
+          <div class="corner">NEW</div>
+          <button type="button" class="play" aria-label="play" @click.stop="onPlaylistClick(pl)">
+            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
+              <polygon points="6,4 20,12 6,20" />
+            </svg>
+          </button>
+        </div>
+        <div class="meta-row">
+          <div>
+            <div class="title">{{ pl.specialname }}</div>
+            <div class="sub">{{ pl.nickname }}</div>
           </div>
-        </article>
-      </div>
+          <div class="plays">NEW</div>
+        </div>
+      </article>
     </div>
   </div>
 </template>
@@ -206,372 +246,64 @@ export default { name: 'NewsprintHome' };
 
 <style scoped>
 .np-home {
-  padding: 28px 32px;
-  min-height: 100%;
-}
-
-.np-masthead {
-  display: grid;
-  grid-template-columns: 1fr auto;
-  gap: 32px;
-  align-items: end;
-  margin-bottom: 28px;
-  border-bottom: 2px solid var(--ink, var(--text-primary));
-  padding-bottom: 20px;
-}
-
-.np-headline-area {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-}
-
-.np-kicker {
-  font-size: 12px;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  color: var(--text-secondary);
-  font-family: var(--font-serif, serif);
-}
-
-.np-headline-title {
-  font-size: 32px;
-  font-weight: 800;
-  margin: 0;
-  line-height: 1.1;
-  font-family: var(--font-serif, serif);
-}
-
-.np-headline-title i {
-  font-style: italic;
-  font-weight: 400;
-  font-size: 0.6em;
-  margin-left: 8px;
-  color: var(--text-secondary);
-}
-
-.np-editorial-phrase {
-  font-size: 14px;
-  color: var(--text-secondary);
-  margin: 0;
-  font-style: italic;
-}
-
-.np-date {
-  font-size: 13px;
-  color: var(--text-secondary);
-  font-weight: 600;
-}
-
-.np-play {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 20px;
-  border: 2px solid var(--ink, var(--text-primary));
-  background: transparent;
-  color: var(--ink, var(--text-primary));
-  font-size: 14px;
-  font-weight: 700;
-  cursor: pointer;
-  transition: transform 0.1s ease-out, background 0.2s ease, color 0.2s ease;
-  margin-top: 8px;
-  align-self: flex-start;
-  font-family: var(--font-serif, serif);
-}
-
-.np-play:hover {
-  background: var(--ink, var(--text-primary));
-  color: var(--paper, var(--bg));
-}
-
-.np-play:active {
-  transform: scale(0.96);
-}
-
-.np-play-icon {
-  display: inline-flex;
-}
-
-.np-hero-cover {
-  position: relative;
-  width: 200px;
-  height: 200px;
-  flex-shrink: 0;
-  overflow: hidden;
-  border-radius: 4px;
-}
-
-.np-hero-cover img {
+  box-sizing: border-box;
   width: 100%;
-  height: 100%;
-  object-fit: cover;
-  filter: saturate(0.7);
-  transition: filter 0.4s ease;
-}
-
-.np-hero-cover:hover img {
-  filter: saturate(1);
-}
-
-.np-cover-overlay {
-  position: absolute;
-  inset: 0;
-  background: rgba(0, 0, 0, 0.06);
-  transition: opacity 0.4s ease;
-  pointer-events: none;
-}
-
-.np-hero-cover:hover .np-cover-overlay {
-  opacity: 0;
-}
-
-.np-cover-placeholder {
-  width: 100%;
-  height: 100%;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-secondary);
-  background: var(--surface-1);
-}
-
-.np-cover-meta {
-  position: absolute;
-  bottom: 0;
-  left: 0;
-  right: 0;
-  padding: 8px 10px;
-  background: linear-gradient(transparent, rgba(0, 0, 0, 0.6));
-  color: #fff;
-  display: flex;
-  flex-direction: column;
-  font-size: 12px;
-}
-
-.np-cover-meta b {
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.np-cover-meta span {
-  opacity: 0.8;
-  font-size: 11px;
-}
-
-.np-rec-section {
-  margin-bottom: 28px;
-}
-
-.np-rec-head {
-  display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  margin-bottom: 12px;
-}
-
-.np-rec-head h3 {
-  font-size: 18px;
-  font-weight: 700;
-  margin: 0;
-  font-family: var(--font-serif, serif);
-}
-
-.np-rec-head h3 i {
-  font-style: italic;
-  font-weight: 400;
-  font-size: 0.7em;
-  color: var(--text-secondary);
-}
-
-.np-refresh {
-  background: none;
-  border: none;
-  color: var(--text-secondary);
-  cursor: pointer;
-  font-size: 13px;
-  font-family: var(--font-serif, serif);
-}
-
-.np-refresh:hover {
-  color: var(--accent);
-}
-
-.np-refresh:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
-
-.np-error {
-  padding: 8px 12px;
-  margin-bottom: 8px;
-  font-style: italic;
-  color: var(--accent);
-  font-size: 13px;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-
-.np-retry {
-  background: none;
-  border: none;
-  color: var(--accent);
-  cursor: pointer;
-  font-size: 13px;
-  text-decoration: underline;
-}
-
-.np-rec-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-}
-
-.np-rec-item {
-  display: grid;
-  grid-template-columns: 32px 1fr auto;
-  align-items: center;
-  gap: 12px;
-  padding: 8px 4px;
-  border-bottom: 1px solid var(--border-subtle);
-  cursor: pointer;
-  transition: background 0.15s ease;
-  animation: np-rec-enter 0.3s ease both;
-  animation-delay: var(--rec-delay, 0s);
-}
-
-.np-rec-item:hover {
-  background: var(--surface-1);
-}
-
-@keyframes np-rec-enter {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.np-num {
-  font-size: 16px;
-  font-weight: 700;
-  color: var(--text-secondary);
-  font-family: var(--font-serif, serif);
-  text-align: right;
-}
-
-.np-rec-title {
-  display: flex;
-  flex-direction: column;
+  max-width: 100%;
+  margin-inline: 0;
+  padding-bottom: 28px;
   min-width: 0;
 }
 
-.np-rec-title b {
-  font-size: 14px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.np-rec-title span {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.np-rec-dur {
-  font-size: 12px;
-  color: var(--text-secondary);
-}
-
-.np-section {
-  margin-bottom: 28px;
-}
-
-.np-section-bar {
-  margin-bottom: 14px;
-}
-
-.np-section-bar h2 {
-  font-size: 22px;
-  font-weight: 800;
-  margin: 0;
-  font-family: var(--font-serif, serif);
-}
-
-.np-section-bar h2 i {
-  font-style: italic;
-  font-weight: 400;
-  font-size: 0.6em;
-  color: var(--text-secondary);
-}
-
-.np-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 16px;
-}
-
-.np-card {
-  cursor: pointer;
-  transition: transform 0.15s ease;
-}
-
-.np-card:hover {
-  transform: translateY(-2px);
-}
-
-.np-card-cover {
-  aspect-ratio: 1;
-  border-radius: 4px;
-  overflow: hidden;
-  background: var(--surface-1);
-  margin-bottom: 6px;
-}
-
-.np-card-cover img {
+:deep(.grid) {
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   width: 100%;
-  height: 100%;
-  object-fit: cover;
 }
 
-.np-card-placeholder {
-  width: 100%;
-  height: 100%;
+.np-error-summary {
   display: flex;
   align-items: center;
-  justify-content: center;
-  font-size: 14px;
-  color: var(--text-secondary);
-}
-
-.np-card-title {
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  margin-bottom: 16px;
+  border: 1px solid var(--rule);
+  color: var(--accent);
   font-size: 13px;
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-style: italic;
 }
 
-.np-card-sub {
-  font-size: 12px;
-  color: var(--text-secondary);
+.np-error-summary p {
+  margin: 0;
 }
 
-@media (max-width: 700px) {
-  .np-masthead {
+.play-cta:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+/* Dark mode still uses paper-ink variables via tokens */
+:global(:root[data-mode='dark']) .feature .side-list {
+  background: rgba(255, 252, 243, 0.04);
+}
+
+@media (max-width: 960px) {
+  :deep(.feature) {
     grid-template-columns: 1fr;
   }
+  :deep(.grid) {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
 
-  .np-hero-cover {
-    width: 100%;
-    max-width: 240px;
+@media (max-width: 640px) {
+  :deep(.grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1600px) {
+  .np-home {
+    max-width: 1440px;
   }
 }
 </style>

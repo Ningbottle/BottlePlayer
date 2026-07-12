@@ -91,8 +91,12 @@ function onRelease(e: MouseEvent) {
       </button>
     </div>
 
-    <!-- Transport: block-style buttons, no capsules -->
-    <div class="np-pb-transport">
+    <!-- Transport: block-style buttons, no capsules — hidden when no track -->
+    <div
+      v-if="c.currentTrack"
+      class="np-pb-transport"
+      data-test="newsprint-player-transport"
+    >
       <button
         class="np-pb-btn"
         :class="{ active: c.loopMode === 'random' }"
@@ -157,9 +161,16 @@ function onRelease(e: MouseEvent) {
         <span class="np-pb-btn-label">{{ c.loopMode === 'single' ? '1×' : 'RPT' }}</span>
       </button>
     </div>
+    <div
+      v-else
+      class="np-pb-empty-console"
+      data-test="newsprint-player-empty-console"
+    >
+      选择曲目后显示播放控制
+    </div>
 
     <!-- Progress: straight line, no thumb rounding -->
-    <div class="np-pb-progress">
+    <div v-if="c.currentTrack" class="np-pb-progress">
       <PlayerProgress
         :current-time="c.currentTime"
         :duration="c.duration"
@@ -169,7 +180,7 @@ function onRelease(e: MouseEvent) {
 
     <!-- Auxiliary: quality, queue, lyric, volume -->
     <div class="np-pb-aux">
-      <div class="np-pb-quality" @click.stop>
+      <div v-if="c.currentTrack" class="np-pb-quality" data-test="newsprint-player-quality" @click.stop>
         <button
           class="np-pb-q-btn"
           :class="{ active: c.showQualityMenu }"
@@ -229,8 +240,8 @@ function onRelease(e: MouseEvent) {
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 10px 20px;
-  height: 88px;
+  padding: 6px 16px;
+  height: 72px;
   box-sizing: border-box;
   font-family: 'Noto Serif SC', serif;
 }
@@ -324,6 +335,17 @@ function onRelease(e: MouseEvent) {
   align-items: center;
   gap: 4px;
   flex: none;
+}
+
+.np-pb-empty-console {
+  flex: none;
+  min-width: 160px;
+  padding: 6px 10px;
+  border: 1px dashed var(--border-subtle, #ccc);
+  color: var(--ink-mute, #8a7e6a);
+  font-size: 11px;
+  font-family: 'Noto Serif SC', Georgia, serif;
+  letter-spacing: 0.04em;
 }
 
 .np-pb-btn {

@@ -200,7 +200,7 @@ watch(range, loadStats);
 </script>
 
 <template>
-  <div class="list-view">
+  <div class="list-view stats-page">
     <SkinPageHeader title="我的统计" kicker="LISTENING STATS · 听歌统计" subtitle="Statistics">
       <template #actions>
         <div class="range-tabs">
@@ -331,9 +331,19 @@ watch(range, loadStats);
 </template>
 
 <style scoped>
+.stats-page {
+  box-sizing: border-box;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding-bottom: 24px;
+  overflow-x: hidden;
+}
+
 .range-tabs {
   display: flex;
   gap: 4px;
+  flex-wrap: wrap;
 }
 .range-tabs button {
   background: var(--paper-2);
@@ -360,9 +370,10 @@ watch(range, loadStats);
 }
 .stats-overview {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 14px;
   margin-bottom: 28px;
+  min-width: 0;
 }
 .stat-card {
   background: var(--paper-2);
@@ -387,8 +398,18 @@ watch(range, loadStats);
 }
 .stats-tops {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 20px;
+  min-width: 0;
+}
+
+@media (max-width: 1100px) {
+  .stats-overview {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .stats-tops {
+    grid-template-columns: 1fr;
+  }
 }
 .top-section h3 {
   font-family: var(--font-serif);
