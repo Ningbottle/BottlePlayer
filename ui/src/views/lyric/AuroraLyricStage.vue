@@ -319,11 +319,11 @@ export default { name: 'AuroraLyricStage' };
 
 .aurora-cover {
   position: relative;
-  /* Explicit large square — not % of a skinny left rail */
-  width: min(48vw, 62vh, 560px);
+  /* Explicit size — unlocked from global 240px lock, moderated after overshoot */
+  width: min(34vw, 46vh, 380px);
   height: auto;
   aspect-ratio: 1;
-  border-radius: 22px;
+  border-radius: 18px;
   overflow: hidden;
   box-shadow:
     0 28px 70px rgba(0, 0, 0, 0.42),
@@ -344,7 +344,7 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .aurora-lyric-fullscreen .aurora-cover {
-  width: min(46vw, 68vh, 620px);
+  width: min(36vw, 50vh, 420px);
 }
 
 .aurora-cover img {
@@ -488,7 +488,7 @@ export default { name: 'AuroraLyricStage' };
 
   .aurora-cover,
   .aurora-lyric-fullscreen .aurora-cover {
-    width: min(72vw, 420px, 48vh);
+    width: min(56vw, 300px, 36vh);
   }
 
   .lyric-scroll,
