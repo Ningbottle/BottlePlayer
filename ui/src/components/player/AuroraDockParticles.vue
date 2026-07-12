@@ -42,6 +42,32 @@ let cssW = 1;
 let cssH = 1;
 let lastTs = 0;
 let alive = true;
+let cachedAccent: [number, number, number] = [94, 226, 165];
+let accentCheckFrame = 0;
+
+function readAccentRGB(): [number, number, number] {
+  if (accentCheckFrame++ % 30 !== 0) return cachedAccent;
+  const raw = getComputedStyle(document.documentElement).getPropertyValue('--accent').trim();
+  if (raw.startsWith('#') && raw.length >= 7) {
+    const r = parseInt(raw.slice(1, 3), 16);
+    const g = parseInt(raw.slice(3, 5), 16);
+    const b = parseInt(raw.slice(5, 7), 16);
+    if (Number.isFinite(r) && Number.isFinite(g) && Number.isFinite(b)) {
+      cachedAccent = [r, g, b];
+    }
+  }
+  return cachedAccent;
+}
+
+function accentRGBA(a: number): string {
+  const [r, g, b] = readAccentRGB();
+  return `rgba(${r}, ${g}, ${b}, ${a})`;
+}
+
+function accentLightRGBA(a: number): string {
+  const [r, g, b] = readAccentRGB();
+  return `rgba(${Math.min(255, r + 80)}, ${Math.min(255, g + 80)}, ${Math.min(255, b + 80)}, ${a})`;
+}
 
 function clamp01(n: number): number {
   if (!Number.isFinite(n)) return 0;
@@ -125,20 +151,20 @@ function paint(ts?: number): void {
     cssH * 0.55,
     Math.max(cssW * 0.28, 80),
   );
-  g.addColorStop(0, `rgba(94, 226, 165, ${a})`);
-  g.addColorStop(0.45, `rgba(120, 200, 255, ${a * 0.4})`);
-  g.addColorStop(1, 'rgba(94, 226, 165, 0)');
+  g.addColorStop(0, accentRGBA(a));
+  g.addColorStop(0.45, accentRGBA(a * 0.4));
+  g.addColorStop(1, accentRGBA(0));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, cssW, cssH);
 
   // Soft floor strip intensity scales with progress (song further = wider breath)
   const band = ctx.createLinearGradient(0, 0, cssW, 0);
   const edge = Math.max(0.02, prog);
-  band.addColorStop(0, 'rgba(94, 226, 165, 0)');
-  band.addColorStop(Math.max(0, edge - 0.08), 'rgba(94, 226, 165, 0)');
-  band.addColorStop(edge, `rgba(94, 226, 165, ${props.isPlaying ? 0.1 : 0.04})`);
-  band.addColorStop(Math.min(1, edge + 0.06), 'rgba(94, 226, 165, 0)');
-  band.addColorStop(1, 'rgba(94, 226, 165, 0)');
+  band.addColorStop(0, accentRGBA(0));
+  band.addColorStop(Math.max(0, edge - 0.08), accentRGBA(0));
+  band.addColorStop(edge, accentRGBA(props.isPlaying ? 0.1 : 0.04));
+  band.addColorStop(Math.min(1, edge + 0.06), accentRGBA(0));
+  band.addColorStop(1, accentRGBA(0));
   ctx.fillStyle = band;
   ctx.fillRect(0, cssH * 0.35, cssW, cssH * 0.45);
 
@@ -175,9 +201,9 @@ function paint(ts?: number): void {
     const radius = p.r * (props.isPlaying ? 1.2 : 1) * (0.85 + 0.3 * pulse) * (0.85 + near * 0.35);
 
     const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius * 3.4);
-    grad.addColorStop(0, `rgba(210, 255, 235, ${alpha})`);
-    grad.addColorStop(0.4, `rgba(94, 226, 165, ${alpha * 0.55})`);
-    grad.addColorStop(1, 'rgba(94, 226, 165, 0)');
+    grad.addColorStop(0, accentLightRGBA(alpha));
+    grad.addColorStop(0.4, accentRGBA(alpha * 0.55));
+    grad.addColorStop(1, accentRGBA(0));
     ctx.fillStyle = grad;
     ctx.beginPath();
     ctx.arc(p.x, p.y, radius * 3.4, 0, Math.PI * 2);
