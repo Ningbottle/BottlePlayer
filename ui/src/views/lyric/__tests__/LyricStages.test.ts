@@ -480,16 +480,16 @@ describe('Aurora lyric focus modes', () => {
     isReducedMotionMock.mockReturnValue(false);
   });
 
-  it('fullscreen exposes a dedicated high-contrast readability layer', () => {
+  it('fullscreen keeps the stage controls-free for an unobstructed lyric view', () => {
     const fullscreen = mount(AuroraLyricStage, {
-      props: { model: createModel({ fullscreen: true }) },
+      props: { model: createModel({ fullscreen: true, duration: 240 }) },
     });
     const readability = fullscreen.find('[data-test="aurora-fs-readability"]');
     const controls = fullscreen.find('[data-test="aurora-fs-controls"]');
 
     expect(readability.exists()).toBe(true);
     expect(readability.attributes('data-contrast')).toBe('high');
-    expect(controls.attributes('data-contrast')).toBe('high');
+    expect(controls.exists()).toBe(false);
   });
 
   it('clicking a lyric line emits seek-line with that line timestamp', async () => {

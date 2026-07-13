@@ -3,12 +3,11 @@ import { ref, watch, onMounted, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
 import { isReducedMotion } from '../../api/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
-import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api/playerStore';
+import { playerStore, playTrack } from '../../api/playerStore';
 import type { Track } from '../../api/normalizer';
 import type { LyricStageModel } from './useLyricStage';
 import CoverWebGLParticles from './CoverWebGLParticles.vue';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
-import PlayerProgress from '../../components/player/PlayerProgress.vue';
 
 const props = defineProps<{ model: LyricStageModel }>();
 
@@ -329,28 +328,6 @@ watch(() => props.model.coverUrl, () => {
       </button>
     </div>
 
-    <div
-      v-if="model.fullscreen && model.duration > 0"
-      class="aurora-fs-controls"
-      data-test="aurora-fs-controls"
-      data-contrast="high"
-    >
-      <button
-        type="button"
-        class="aurora-fs-play"
-        :data-test="model.isPlaying ? 'aurora-fs-pause' : 'aurora-fs-play'"
-        :aria-label="model.isPlaying ? '暂停' : '播放'"
-        @click="storeTogglePlay"
-      >
-        <svg v-if="model.isPlaying" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
-        <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      </button>
-      <PlayerProgress
-        :current-time="model.currentTime"
-        :duration="model.duration"
-        @seek="(s: number) => emit('seek', s)"
-      />
-    </div>
   </div>
 </template>
 
@@ -641,65 +618,4 @@ export default { name: 'AuroraLyricStage' };
   }
 }
 
-.aurora-fs-controls {
-  position: absolute;
-  bottom: clamp(12px, 2.5vh, 24px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(620px, 72%);
-  padding: 8px 12px;
-  box-sizing: border-box;
-  z-index: 2;
-  display: flex;
-  align-items: center;
-  gap: 14px;
-  opacity: 1;
-  border: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--surface-elevated) 78%, transparent);
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24), 0 1px 0 rgba(255, 255, 255, 0.08) inset;
-  backdrop-filter: blur(16px) saturate(1.2);
-  transition: box-shadow 0.3s ease;
-}
-.aurora-fs-controls:hover {
-  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.3), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
-}
-
-.aurora-fs-controls :deep(.progress-time) {
-  color: var(--text-secondary);
-  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
-}
-
-.aurora-fs-controls :deep(.progress-track)::before {
-  height: 4px;
-  background: color-mix(in srgb, var(--text-primary) 28%, var(--progress-track));
-}
-
-.aurora-fs-play {
-  flex: 0 0 auto;
-  width: 38px;
-  height: 38px;
-  border: 0;
-  border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 24%, var(--surface-elevated));
-  color: var(--text-primary);
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: background 0.2s ease, transform 0.15s ease;
-}
-.aurora-fs-play:hover {
-  background: color-mix(in srgb, var(--accent) 42%, var(--surface-elevated));
-  color: var(--on-accent, #07100c);
-  transform: scale(1.08);
-}
-.aurora-fs-play:active {
-  transform: scale(0.94);
-}
-.aurora-fs-play svg {
-  width: 18px;
-  height: 18px;
-}
 </style>
