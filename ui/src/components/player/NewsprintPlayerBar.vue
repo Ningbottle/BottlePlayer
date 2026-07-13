@@ -51,22 +51,45 @@ function onRelease(e: MouseEvent) {
     </transition>
 
     <!-- Left: cover + show name with numbering -->
-    <div class="np-pb-meta" @click="c.toggleLyricView" style="cursor: pointer;" title="点击查看歌词">
-      <div class="np-pb-cover">
-        <img :src="c.coverUrl" alt="cover" />
+    <div class="np-pb-meta">
+      <div class="np-pb-cover-stack">
+        <button
+          type="button"
+          class="np-pb-cover-btn"
+          data-test="np-pb-cover-immersion"
+          title="双击打开全屏歌词"
+          :disabled="!c.currentTrack"
+          @dblclick.stop="c.openLyricImmersion"
+        >
+          <div class="np-pb-cover">
+            <img :src="c.coverUrl" alt="cover" />
+          </div>
+        </button>
+        <button
+          type="button"
+          class="np-pb-enter-fullscreen"
+          data-test="np-pb-enter-fullscreen"
+          aria-label="进入全屏歌词"
+          :disabled="!c.currentTrack"
+          @click.stop="c.openLyricImmersion"
+        >
+          进入全屏
+        </button>
       </div>
 
-      <div class="np-pb-info">
-        <span class="np-pb-num">No. {{ String(c.currentTime > 0 ? 1 : 0).padStart(2, '0') }}</span>
-        <template v-if="c.currentTrack">
-          <b>{{ c.currentTrack.SongName }}</b>
-          <span>{{ c.currentTrack.SingerName }}</span>
-        </template>
-        <template v-else>
-          <b>未播放歌曲</b>
-          <span>- -</span>
-        </template>
-      </div>
+      <button class="np-pb-info-btn" type="button" @click="c.toggleLyricView" title="点击查看歌词">
+        <div class="np-pb-info">
+          <span class="np-pb-num">No. {{ String(c.currentTime > 0 ? 1 : 0).padStart(2, '0') }}</span>
+          <template v-if="c.currentTrack">
+            <b>{{ c.currentTrack.SongName }}</b>
+            <span>{{ c.currentTrack.SingerName }}</span>
+          </template>
+          <template v-else>
+            <b>未播放歌曲</b>
+            <span>- -</span>
+          </template>
+        </div>
+      </button>
 
       <span v-if="c.errorMsg" class="np-pb-status" style="color: var(--accent);">
         {{ c.errorMsg }}
@@ -265,6 +288,40 @@ function onRelease(e: MouseEvent) {
   background: var(--surface-1, #f1ead8);
 }
 
+.np-pb-cover-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
+.np-pb-cover-btn,
+.np-pb-info-btn,
+.np-pb-enter-fullscreen {
+  appearance: none;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  color: inherit;
+  background: transparent;
+  cursor: pointer;
+  text-align: left;
+}
+
+.np-pb-cover-btn:focus-visible,
+.np-pb-info-btn:focus-visible,
+.np-pb-enter-fullscreen:focus-visible {
+  outline: 1px solid var(--accent, #a8311b);
+  outline-offset: 2px;
+}
+
+.np-pb-cover-btn:disabled,
+.np-pb-enter-fullscreen:disabled {
+  cursor: default;
+  opacity: 0.45;
+}
+
 .np-pb-cover img {
   width: 100%;
   height: 100%;
@@ -277,6 +334,25 @@ function onRelease(e: MouseEvent) {
   flex-direction: column;
   min-width: 0;
   gap: 1px;
+}
+
+.np-pb-info-btn {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.np-pb-enter-fullscreen {
+  color: var(--ink-mute, #8a7e6a);
+  font-family: 'EB Garamond', serif;
+  font-size: 10px;
+  line-height: 1.2;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+}
+
+.np-pb-enter-fullscreen:hover:not(:disabled),
+.np-pb-enter-fullscreen:focus-visible {
+  color: var(--ink, #2a2520);
 }
 
 .np-pb-num {

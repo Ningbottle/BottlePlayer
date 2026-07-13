@@ -98,7 +98,7 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
   });
 
-  it('cover click calls openLyricImmersion for fullscreen lyric entry', async () => {
+  it('cover click does not open fullscreen lyrics', async () => {
     const openLyricImmersion = vi.fn();
     const ctrl = createStubController({
       currentTrack: mkTrack(),
@@ -111,7 +111,39 @@ describe('AuroraPlayerBar', () => {
     });
 
     await wrapper.get('[data-test="aurora-pb-cover-immersion"]').trigger('click');
+    expect(openLyricImmersion).not.toHaveBeenCalled();
+  });
+
+  it('cover double click opens fullscreen lyrics once', async () => {
+    const openLyricImmersion = vi.fn();
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack(), openLyricImmersion }) },
+    });
+
+    await wrapper.get('[data-test="aurora-pb-cover-immersion"]').trigger('dblclick');
     expect(openLyricImmersion).toHaveBeenCalledOnce();
+  });
+
+  it('renders a fullscreen text entry button and opens lyrics when clicked', async () => {
+    const openLyricImmersion = vi.fn();
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack(), openLyricImmersion }) },
+    });
+
+    const entry = wrapper.get('[data-test="aurora-pb-enter-fullscreen"]');
+    expect(entry.text()).toBe('进入全屏');
+    expect(entry.attributes('aria-label')).toBe('进入全屏歌词');
+    await entry.trigger('click');
+    expect(openLyricImmersion).toHaveBeenCalledOnce();
+  });
+
+  it('disables cover and fullscreen text entry without a current track', () => {
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: createStubController() },
+    });
+
+    expect(wrapper.get('[data-test="aurora-pb-cover-immersion"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[data-test="aurora-pb-enter-fullscreen"]').attributes('disabled')).toBeDefined();
   });
 
   it('renders shuffle, prev, play/pause, next, repeat controls', () => {

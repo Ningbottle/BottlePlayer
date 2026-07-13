@@ -67,18 +67,30 @@ function onRelease(e: MouseEvent) {
 
     <!-- Left: cover + title/artist + star -->
     <div class="aurora-pb-left">
-      <button
-        type="button"
-        class="aurora-pb-cover-btn"
-        data-test="aurora-pb-cover-immersion"
-        title="打开全屏歌词"
-        :disabled="!c.currentTrack"
-        @click.stop="c.openLyricImmersion"
-      >
-        <div class="aurora-pb-cover">
-          <img :src="c.coverUrl" alt="cover" />
-        </div>
-      </button>
+      <div class="aurora-pb-cover-stack">
+        <button
+          type="button"
+          class="aurora-pb-cover-btn"
+          data-test="aurora-pb-cover-immersion"
+          title="双击打开全屏歌词"
+          :disabled="!c.currentTrack"
+          @dblclick.stop="c.openLyricImmersion"
+        >
+          <div class="aurora-pb-cover">
+            <img :src="c.coverUrl" alt="cover" />
+          </div>
+        </button>
+        <button
+          type="button"
+          class="aurora-pb-enter-fullscreen"
+          data-test="aurora-pb-enter-fullscreen"
+          aria-label="进入全屏歌词"
+          :disabled="!c.currentTrack"
+          @click.stop="c.openLyricImmersion"
+        >
+          进入全屏
+        </button>
+      </div>
 
       <button
         type="button"
@@ -356,6 +368,14 @@ function onRelease(e: MouseEvent) {
   z-index: 1;
 }
 
+.aurora-pb-cover-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+}
+
 .aurora-pb-cover-btn,
 .aurora-pb-info-btn {
   appearance: none;
@@ -367,6 +387,29 @@ function onRelease(e: MouseEvent) {
   cursor: pointer;
   text-align: left;
   min-width: 0;
+}
+
+.aurora-pb-enter-fullscreen {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  margin: 0;
+  color: var(--text-muted, #8b9098);
+  cursor: pointer;
+  font-size: 10px;
+  line-height: 1.2;
+  transition: color 0.15s ease;
+}
+
+.aurora-pb-enter-fullscreen:hover:not(:disabled),
+.aurora-pb-enter-fullscreen:focus-visible {
+  color: var(--text-primary);
+}
+
+.aurora-pb-enter-fullscreen:disabled {
+  cursor: default;
+  opacity: 0.45;
 }
 
 .aurora-pb-cover {
@@ -529,7 +572,8 @@ function onRelease(e: MouseEvent) {
 .aurora-pb-lyric:focus-visible,
 .aurora-pb-q-btn:focus-visible,
 .aurora-pb-cover-btn:focus-visible,
-.aurora-pb-info-btn:focus-visible {
+.aurora-pb-info-btn:focus-visible,
+.aurora-pb-enter-fullscreen:focus-visible {
   outline: 2px solid var(--focus-ring);
   outline-offset: 3px;
 }

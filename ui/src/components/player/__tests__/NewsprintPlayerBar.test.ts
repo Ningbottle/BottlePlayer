@@ -98,6 +98,58 @@ describe('NewsprintPlayerBar', () => {
     expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
   });
 
+  it('cover click does not open fullscreen lyrics', async () => {
+    const openLyricImmersion = vi.fn();
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack(), openLyricImmersion }) },
+    });
+
+    await wrapper.get('[data-test="np-pb-cover-immersion"]').trigger('click');
+    expect(openLyricImmersion).not.toHaveBeenCalled();
+  });
+
+  it('cover double click opens fullscreen lyrics once', async () => {
+    const openLyricImmersion = vi.fn();
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack(), openLyricImmersion }) },
+    });
+
+    await wrapper.get('[data-test="np-pb-cover-immersion"]').trigger('dblclick');
+    expect(openLyricImmersion).toHaveBeenCalledOnce();
+  });
+
+  it('renders a fullscreen text entry button and opens lyrics when clicked', async () => {
+    const openLyricImmersion = vi.fn();
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack(), openLyricImmersion }) },
+    });
+
+    const entry = wrapper.get('[data-test="np-pb-enter-fullscreen"]');
+    expect(entry.text()).toBe('进入全屏');
+    expect(entry.attributes('aria-label')).toBe('进入全屏歌词');
+    await entry.trigger('click');
+    expect(openLyricImmersion).toHaveBeenCalledOnce();
+  });
+
+  it('disables cover and fullscreen text entry without a current track', () => {
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: { controller: createStubController() },
+    });
+
+    expect(wrapper.get('[data-test="np-pb-cover-immersion"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('[data-test="np-pb-enter-fullscreen"]').attributes('disabled')).toBeDefined();
+  });
+
+  it('keeps song information click bound to lyric view', async () => {
+    const toggleLyricView = vi.fn();
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack(), toggleLyricView }) },
+    });
+
+    await wrapper.get('.np-pb-info-btn').trigger('click');
+    expect(toggleLyricView).toHaveBeenCalledOnce();
+  });
+
   it('hides transport and quality when no track is loaded', () => {
     const ctrl = createStubController();
     const wrapper = mount(NewsprintPlayerBar, {
