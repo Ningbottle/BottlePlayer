@@ -81,7 +81,7 @@ function onRelease(e: MouseEvent) {
       <button
         v-if="c.currentTrack"
         class="np-pb-fav"
-        aria-label="favorite"
+        aria-label="收藏"
         title="收藏"
         @click.stop="c.handleFavorite"
       >
@@ -100,19 +100,19 @@ function onRelease(e: MouseEvent) {
       <button
         class="np-pb-btn"
         :class="{ active: c.loopMode === 'random' }"
-        aria-label="shuffle"
+        aria-label="随机"
         title="随机播放"
         @click="c.toggleShuffle"
         @mousedown="onPress"
         @mouseup="onRelease"
         @mouseleave="onRelease"
       >
-        <span class="np-pb-btn-label">SHF</span>
+        <span class="np-pb-btn-label">随机</span>
       </button>
 
       <button
         class="np-pb-btn"
-        aria-label="prev"
+        aria-label="上一首"
         @click="c.prev"
         @mousedown="onPress"
         @mouseup="onRelease"
@@ -125,19 +125,19 @@ function onRelease(e: MouseEvent) {
 
       <button
         class="np-pb-btn np-pb-play"
-        :aria-label="c.showPauseIcon ? 'pause' : 'play'"
+        :aria-label="c.showPauseIcon ? '暂停' : '播放'"
         :title="c.isLoading ? '取消加载' : (c.isPlaying ? '暂停' : '播放')"
         @click="c.togglePlay"
         @mousedown="onPress"
         @mouseup="onRelease"
         @mouseleave="onRelease"
       >
-        <span class="np-pb-btn-label">{{ c.showPauseIcon ? 'PAUSE' : 'PLAY' }}</span>
+        <span class="np-pb-btn-label">{{ c.showPauseIcon ? '暂停' : '播放' }}</span>
       </button>
 
       <button
         class="np-pb-btn"
-        aria-label="next"
+        aria-label="下一首"
         @click="c.next"
         @mousedown="onPress"
         @mouseup="onRelease"
@@ -151,14 +151,14 @@ function onRelease(e: MouseEvent) {
       <button
         class="np-pb-btn"
         :class="{ active: c.loopMode === 'single' }"
-        aria-label="repeat"
+        aria-label="循环"
         title="单曲循环"
         @click="c.toggleRepeat"
         @mousedown="onPress"
         @mouseup="onRelease"
         @mouseleave="onRelease"
       >
-        <span class="np-pb-btn-label">{{ c.loopMode === 'single' ? '1×' : 'RPT' }}</span>
+        <span class="np-pb-btn-label">{{ c.loopMode === 'single' ? '1×' : '循环' }}</span>
       </button>
     </div>
     <div
@@ -208,24 +208,24 @@ function onRelease(e: MouseEvent) {
 
       <button
         class="np-pb-icon"
-        aria-label="queue"
+        aria-label="队列"
         @click="emit('toggle-queue')"
         title="播放队列"
       >
-        <span class="np-pb-btn-label">Q</span>
+        <span class="np-pb-btn-label">队列</span>
       </button>
 
       <button
         class="np-pb-icon np-pb-lyric"
         :class="{ active: c.isLyricView }"
-        aria-label="lyric"
+        aria-label="歌词"
         @click="c.toggleLyricView"
       >
         词
       </button>
 
       <div class="np-pb-volume">
-        <span class="np-pb-vol-label">VOL</span>
+        <span class="np-pb-vol-label">音量</span>
         <div class="np-pb-vol-bar" @click="handleVolumeClick">
           <div class="np-pb-vol-fill" :style="{ width: c.volumePercent + '%' }"></div>
         </div>
@@ -367,6 +367,15 @@ function onRelease(e: MouseEvent) {
   color: var(--ink, #2a2520);
 }
 
+.np-pb-btn:focus-visible,
+.np-pb-fav:focus-visible,
+.np-pb-icon:focus-visible,
+.np-pb-lyric:focus-visible,
+.np-pb-q-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
 .np-pb-btn.active {
   color: var(--accent, #a8311b);
   border-color: var(--accent, #a8311b);
@@ -481,6 +490,10 @@ function onRelease(e: MouseEvent) {
   font-family: 'Noto Serif SC', serif;
 }
 
+.np-pb-icon:not(.np-pb-lyric) {
+  min-width: 44px;
+}
+
 .np-pb-icon:hover {
   color: var(--ink, #2a2520);
 }
@@ -498,9 +511,9 @@ function onRelease(e: MouseEvent) {
 }
 
 .np-pb-vol-label {
-  font-family: 'EB Garamond', serif;
-  font-size: 10px;
-  letter-spacing: 0.1em;
+  font-family: 'Noto Serif SC', Georgia, serif;
+  font-size: 11px;
+  letter-spacing: 0.04em;
   color: var(--ink-mute, #8a7e6a);
 }
 

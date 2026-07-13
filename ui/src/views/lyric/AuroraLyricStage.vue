@@ -271,6 +271,14 @@ watch(() => props.model.coverUrl, () => {
       :style="{ backgroundImage: `url(${model.coverUrl})` }"
     />
 
+    <div
+      v-if="model.fullscreen"
+      class="aurora-fs-readability"
+      data-test="aurora-fs-readability"
+      data-contrast="high"
+      aria-hidden="true"
+    />
+
     <!-- Cover only — no title/artist/hints/buttons. Dblclick → fullscreen; fs click → shelf. -->
     <div
       class="lyric-meta"
@@ -325,6 +333,7 @@ watch(() => props.model.coverUrl, () => {
       v-if="model.fullscreen && model.duration > 0"
       class="aurora-fs-controls"
       data-test="aurora-fs-controls"
+      data-contrast="high"
     >
       <button
         type="button"
@@ -385,7 +394,7 @@ export default { name: 'AuroraLyricStage' };
 }
 
 [data-mode='dark'] .lyric-cover-wash {
-  filter: blur(56px) brightness(0.4) saturate(1.3);
+  filter: blur(56px) brightness(0.55) saturate(1.3);
 }
 
 [data-mode='light'] .lyric-cover-wash {
@@ -408,6 +417,42 @@ export default { name: 'AuroraLyricStage' };
 .aurora-lyric-fullscreen .lyric-scroll {
   position: relative;
   z-index: 1;
+}
+
+.aurora-fs-readability {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    linear-gradient(180deg, rgba(2, 5, 6, 0.2), rgba(2, 5, 6, 0.08) 42%, rgba(2, 5, 6, 0.48)),
+    radial-gradient(ellipse 78% 58% at 50% 42%, transparent 0%, rgba(2, 5, 6, 0.18) 100%);
+}
+
+[data-mode='light'] .aurora-fs-readability {
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04) 42%, rgba(255, 255, 255, 0.22)),
+    radial-gradient(ellipse 78% 58% at 50% 42%, transparent 0%, rgba(255, 255, 255, 0.12) 100%);
+}
+
+[data-mode='dark'] .aurora-lyric-fullscreen {
+  background:
+    radial-gradient(ellipse 80% 60% at 20% 40%, color-mix(in srgb, var(--accent) 30%, transparent), transparent 65%),
+    radial-gradient(ellipse 60% 50% at 80% 70%, color-mix(in srgb, var(--accent) 20%, transparent), transparent 55%),
+    var(--app-bg, #040607);
+}
+
+.aurora-lyric-fullscreen .lyric-line {
+  color: var(--text-secondary, #929c98);
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.32);
+}
+
+.aurora-lyric-fullscreen .lyric-line.near { opacity: 0.86; }
+.aurora-lyric-fullscreen .lyric-line.mid { opacity: 0.74; }
+.aurora-lyric-fullscreen .lyric-line.far { opacity: 0.66; }
+
+[data-mode='dark'] .aurora-lyric-fullscreen .lyric-line {
+  color: color-mix(in srgb, var(--text-primary) 78%, var(--accent) 22%);
 }
 
 .lyric-meta {
@@ -601,16 +646,33 @@ export default { name: 'AuroraLyricStage' };
   bottom: clamp(12px, 2.5vh, 24px);
   left: 50%;
   transform: translateX(-50%);
-  width: min(580px, 66%);
+  width: min(620px, 72%);
+  padding: 8px 12px;
+  box-sizing: border-box;
   z-index: 2;
   display: flex;
   align-items: center;
   gap: 14px;
-  opacity: 0.5;
-  transition: opacity 0.3s ease;
+  opacity: 1;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 18%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-elevated) 78%, transparent);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.24), 0 1px 0 rgba(255, 255, 255, 0.08) inset;
+  backdrop-filter: blur(16px) saturate(1.2);
+  transition: box-shadow 0.3s ease;
 }
 .aurora-fs-controls:hover {
-  opacity: 1;
+  box-shadow: 0 16px 42px rgba(0, 0, 0, 0.3), 0 1px 0 rgba(255, 255, 255, 0.12) inset;
+}
+
+.aurora-fs-controls :deep(.progress-time) {
+  color: var(--text-secondary);
+  text-shadow: 0 1px 8px rgba(0, 0, 0, 0.35);
+}
+
+.aurora-fs-controls :deep(.progress-track)::before {
+  height: 4px;
+  background: color-mix(in srgb, var(--text-primary) 28%, var(--progress-track));
 }
 
 .aurora-fs-play {
@@ -619,8 +681,9 @@ export default { name: 'AuroraLyricStage' };
   height: 38px;
   border: 0;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 22%, transparent);
-  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 24%, var(--surface-elevated));
+  color: var(--text-primary);
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 30%, transparent);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -628,7 +691,8 @@ export default { name: 'AuroraLyricStage' };
   transition: background 0.2s ease, transform 0.15s ease;
 }
 .aurora-fs-play:hover {
-  background: color-mix(in srgb, var(--accent) 38%, transparent);
+  background: color-mix(in srgb, var(--accent) 42%, var(--surface-elevated));
+  color: var(--on-accent, #07100c);
   transform: scale(1.08);
 }
 .aurora-fs-play:active {

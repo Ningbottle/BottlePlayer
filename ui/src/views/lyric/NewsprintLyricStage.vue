@@ -61,7 +61,7 @@ watch(() => props.model.fullscreen, (fs) => {
         <img :src="model.coverUrl" alt="cover" />
       </div>
       <div class="np-meta-block">
-        <div class="np-meta-kicker">NOW PLAYING</div>
+        <div class="np-meta-kicker">正在播放</div>
         <h2 class="np-song-title">{{ model.currentTrack?.SongName }}</h2>
         <p class="np-artist">{{ model.currentTrack?.SingerName }}</p>
       </div>

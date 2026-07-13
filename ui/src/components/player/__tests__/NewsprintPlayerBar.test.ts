@@ -95,7 +95,7 @@ describe('NewsprintPlayerBar', () => {
     expect(wrapper.text()).toContain('我的歌');
     expect(wrapper.text()).toContain('歌手名');
     expect(wrapper.find('.progress-root').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="play"], [aria-label="pause"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
   });
 
   it('hides transport and quality when no track is loaded', () => {
@@ -115,11 +115,21 @@ describe('NewsprintPlayerBar', () => {
       props: { controller: ctrl },
     });
 
-    expect(wrapper.find('[aria-label="shuffle"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="prev"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="play"], [aria-label="pause"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="next"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="repeat"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="随机"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="上一首"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="下一首"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="循环"]').exists()).toBe(true);
+  });
+
+  it('uses Chinese visible labels for the playback controls', () => {
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack() }) },
+    });
+
+    const labels = wrapper.findAll('.np-pb-btn-label').map((node) => node.text());
+    expect(labels).toEqual(expect.arrayContaining(['随机', '播放', '循环', '队列']));
+    expect(wrapper.find('.np-pb-vol-label').text()).toBe('音量');
   });
 
   // ── Calls controller commands ──
@@ -130,7 +140,7 @@ describe('NewsprintPlayerBar', () => {
       props: { controller: ctrl },
     });
 
-    await wrapper.find('[aria-label="play"], [aria-label="pause"]').trigger('click');
+    await wrapper.find('[aria-label="播放"], [aria-label="暂停"]').trigger('click');
     expect(ctrl.togglePlay).toHaveBeenCalledOnce();
   });
 
@@ -140,7 +150,7 @@ describe('NewsprintPlayerBar', () => {
       props: { controller: ctrl },
     });
 
-    await wrapper.find('[aria-label="next"]').trigger('click');
+    await wrapper.find('[aria-label="下一首"]').trigger('click');
     expect(ctrl.next).toHaveBeenCalledOnce();
   });
 
@@ -150,7 +160,7 @@ describe('NewsprintPlayerBar', () => {
       props: { controller: ctrl },
     });
 
-    await wrapper.find('[aria-label="queue"]').trigger('click');
+    await wrapper.find('[aria-label="队列"]').trigger('click');
     expect(wrapper.emitted('toggle-queue')).toBeTruthy();
   });
 
@@ -177,7 +187,7 @@ describe('NewsprintPlayerBar', () => {
       props: { controller: ctrl },
     });
 
-    expect(wrapper.find('[aria-label="pause"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="暂停"]').exists()).toBe(true);
   });
 
   it('long song name does not overflow (has truncation)', () => {

@@ -251,3 +251,26 @@
   font-family: var(--font-serif, Georgia, serif);
 }
 
+/* Newsprint chrome: keep the rule-and-paper character without losing focus. */
+[data-skin-chrome='newsprint'].topbar .icon-btn {
+  width: 34px;
+  height: 34px;
+  border-radius: 2px;
+  background: color-mix(in srgb, var(--surface-elevated) 72%, transparent);
+  color: var(--text-secondary);
+  box-shadow: 2px 2px 0 color-mix(in srgb, var(--text-primary) 12%, transparent);
+}
+
+[data-skin-chrome='newsprint'].topbar .icon-btn:hover,
+[data-skin-chrome='newsprint'].topbar .icon-btn:focus-visible {
+  border-color: var(--accent);
+  background: var(--surface-elevated);
+  color: var(--text-primary);
+}
+
+[data-skin-chrome='newsprint'].topbar .icon-btn:focus-visible,
+[data-skin-chrome='newsprint'].topbar .free-badge:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+

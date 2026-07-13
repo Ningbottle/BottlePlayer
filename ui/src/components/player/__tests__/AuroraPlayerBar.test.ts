@@ -95,7 +95,7 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.text()).toContain('我的歌');
     expect(wrapper.text()).toContain('歌手名');
     expect(wrapper.find('.progress-root').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="play"], [aria-label="pause"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
   });
 
   it('cover click calls openLyricImmersion for fullscreen lyric entry', async () => {
@@ -120,11 +120,11 @@ describe('AuroraPlayerBar', () => {
       props: { controller: ctrl },
     });
 
-    expect(wrapper.find('[aria-label="shuffle"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="prev"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="play"], [aria-label="pause"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="next"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="repeat"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="随机"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="上一首"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="下一首"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="循环"]').exists()).toBe(true);
   });
 
   // ── Calls controller commands ──
@@ -135,7 +135,7 @@ describe('AuroraPlayerBar', () => {
       props: { controller: ctrl },
     });
 
-    await wrapper.find('[aria-label="play"], [aria-label="pause"]').trigger('click');
+    await wrapper.find('[aria-label="播放"], [aria-label="暂停"]').trigger('click');
     expect(ctrl.togglePlay).toHaveBeenCalledOnce();
   });
 
@@ -145,7 +145,7 @@ describe('AuroraPlayerBar', () => {
       props: { controller: ctrl },
     });
 
-    await wrapper.find('[aria-label="next"]').trigger('click');
+    await wrapper.find('[aria-label="下一首"]').trigger('click');
     expect(ctrl.next).toHaveBeenCalledOnce();
   });
 
@@ -155,7 +155,7 @@ describe('AuroraPlayerBar', () => {
       props: { controller: ctrl },
     });
 
-    await wrapper.find('[aria-label="queue"]').trigger('click');
+    await wrapper.find('[aria-label="队列"]').trigger('click');
     expect(wrapper.emitted('toggle-queue')).toBeTruthy();
   });
 
@@ -185,7 +185,7 @@ describe('AuroraPlayerBar', () => {
       props: { controller: ctrl },
     });
 
-    expect(wrapper.find('[aria-label="pause"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="暂停"]').exists()).toBe(true);
   });
 
   it('long song name does not overflow (has truncation)', () => {
@@ -268,19 +268,19 @@ describe('AuroraPlayerBar', () => {
     const console = wrapper.get('[data-test="aurora-player-console"]');
     expect(console.find('.aurora-pb-transport').exists()).toBe(true);
     expect(console.find('[data-test="aurora-player-progress"] .progress-root').exists()).toBe(true);
-    expect(console.find('[aria-label="play"]').exists()).toBe(true);
+    expect(console.find('[aria-label="播放"]').exists()).toBe(true);
   });
 
   it('keeps labelled queue, lyric, and volume controls outside the main play button', () => {
     const wrapper = mount(AuroraPlayerBar, { props: { controller: createStubController({ currentTrack: mkTrack() }) } });
-    expect(wrapper.find('[aria-label="queue"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="lyric"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="队列"]').exists()).toBe(true);
+    expect(wrapper.find('[aria-label="歌词"]').exists()).toBe(true);
     expect(wrapper.find('.aurora-pb-volume').exists()).toBe(true);
   });
 
   it('keeps the primary player commands named for assistive technology', () => {
     const wrapper = mount(AuroraPlayerBar, { props: { controller: createStubController({ currentTrack: mkTrack() }) } });
-    for (const label of ['shuffle', 'prev', 'play', 'next', 'repeat', 'queue', 'lyric']) {
+    for (const label of ['随机', '上一首', '播放', '下一首', '循环', '队列', '歌词']) {
       expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
     }
   });

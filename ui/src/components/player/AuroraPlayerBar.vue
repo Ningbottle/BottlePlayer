@@ -104,7 +104,7 @@ function onRelease(e: MouseEvent) {
         type="button"
         class="aurora-pb-fav"
         :class="{ 'is-disabled': !c.currentTrack }"
-        aria-label="favorite"
+        aria-label="收藏"
         title="收藏"
         :disabled="!c.currentTrack"
         @click.stop="c.handleFavorite"
@@ -130,7 +130,7 @@ function onRelease(e: MouseEvent) {
           type="button"
           class="aurora-pb-btn"
           :class="{ 'is-active': c.loopMode === 'random' }"
-          aria-label="shuffle"
+          aria-label="随机"
           title="随机播放"
           @click="c.toggleShuffle"
           @mousedown="onPress"
@@ -145,7 +145,7 @@ function onRelease(e: MouseEvent) {
         <button
           type="button"
           class="aurora-pb-btn"
-          aria-label="prev"
+          aria-label="上一首"
           title="上一首"
           @click="c.prev"
           @mousedown="onPress"
@@ -160,7 +160,7 @@ function onRelease(e: MouseEvent) {
         <button
           type="button"
           class="aurora-pb-btn aurora-pb-play"
-          :aria-label="c.showPauseIcon ? 'pause' : 'play'"
+          :aria-label="c.showPauseIcon ? '暂停' : '播放'"
           :title="c.isLoading ? '取消加载' : (c.isPlaying ? '暂停' : '播放')"
           @click="c.togglePlay"
           @mousedown="onPress"
@@ -179,7 +179,7 @@ function onRelease(e: MouseEvent) {
         <button
           type="button"
           class="aurora-pb-btn"
-          aria-label="next"
+          aria-label="下一首"
           title="下一首"
           @click="c.next"
           @mousedown="onPress"
@@ -196,7 +196,7 @@ function onRelease(e: MouseEvent) {
           type="button"
           class="aurora-pb-btn"
           :class="{ 'is-active': c.loopMode === 'single' }"
-          aria-label="repeat"
+          aria-label="循环"
           title="单曲循环"
           @click="c.toggleRepeat"
           @mousedown="onPress"
@@ -262,7 +262,7 @@ function onRelease(e: MouseEvent) {
       <button
         type="button"
         class="aurora-pb-icon aurora-pb-queue"
-        aria-label="queue"
+        aria-label="队列"
         title="播放队列"
         @click="emit('toggle-queue')"
       >
@@ -275,7 +275,7 @@ function onRelease(e: MouseEvent) {
         type="button"
         class="aurora-pb-lyric"
         :class="{ active: c.isLyricView }"
-        aria-label="lyric"
+        aria-label="歌词"
         title="歌词"
         @click="c.toggleLyricView"
       >
@@ -521,6 +521,17 @@ function onRelease(e: MouseEvent) {
   color: var(--text-primary);
   background: color-mix(in srgb, var(--text-primary) 7%, transparent);
   border-color: color-mix(in srgb, var(--text-primary) 10%, transparent);
+}
+
+.aurora-pb-btn:focus-visible,
+.aurora-pb-fav:focus-visible,
+.aurora-pb-icon:focus-visible,
+.aurora-pb-lyric:focus-visible,
+.aurora-pb-q-btn:focus-visible,
+.aurora-pb-cover-btn:focus-visible,
+.aurora-pb-info-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
 }
 
 .aurora-pb-btn:active {

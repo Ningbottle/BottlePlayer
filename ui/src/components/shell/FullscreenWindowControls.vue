@@ -15,6 +15,7 @@ function exitFullscreen(): void {
   <div
     class="titlebar-controls fs-controls"
     data-test="fs-controls"
+    data-contrast="high"
     data-tauri-drag-region
   >
     <button
@@ -43,3 +44,35 @@ function exitFullscreen(): void {
     </button>
   </div>
 </template>
+
+<style scoped>
+.fs-controls {
+  padding: 6px 12px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 22%, transparent);
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--surface-elevated) 82%, transparent);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.28), 0 1px 0 rgba(255, 255, 255, 0.1) inset;
+  backdrop-filter: blur(14px) saturate(1.25);
+}
+
+.fs-controls .control-btn {
+  width: 26px;
+  height: 26px;
+  border-color: color-mix(in srgb, var(--text-primary) 28%, transparent);
+  background: color-mix(in srgb, var(--surface-elevated) 72%, transparent);
+  color: var(--text-primary);
+  box-shadow: none;
+}
+
+.fs-controls .control-btn:hover,
+.fs-controls .control-btn:focus-visible {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 22%, var(--surface-elevated));
+  color: var(--text-primary);
+}
+
+.fs-controls .control-btn:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+</style>

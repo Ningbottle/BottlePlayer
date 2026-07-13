@@ -430,3 +430,35 @@
   font-family: var(--font-sans, system-ui, sans-serif);
 }
 
+/* Aurora chrome: soft glass controls with a clear keyboard state. */
+[data-skin-chrome='aurora'].topbar {
+  gap: 12px;
+  padding: 12px clamp(18px, 2.6vw, 32px);
+}
+
+[data-skin-chrome='aurora'].topbar .icon-btn {
+  width: 36px;
+  height: 36px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent);
+  background: color-mix(in srgb, var(--surface-elevated) 72%, transparent);
+  color: var(--text-secondary);
+  box-shadow: 0 4px 14px color-mix(in srgb, #000 12%, transparent);
+}
+
+[data-skin-chrome='aurora'].topbar .icon-btn:hover,
+[data-skin-chrome='aurora'].topbar .icon-btn:focus-visible {
+  border-color: color-mix(in srgb, var(--accent) 50%, transparent);
+  background: color-mix(in srgb, var(--accent) 14%, var(--surface-elevated));
+  color: var(--text-primary);
+}
+
+[data-skin-chrome='aurora'].topbar .icon-btn:focus-visible,
+[data-skin-chrome='aurora'].topbar .free-badge:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+[data-skin-chrome='aurora'] .search[data-variant='command'] {
+  box-shadow: 0 6px 22px color-mix(in srgb, #000 12%, transparent);
+}
+

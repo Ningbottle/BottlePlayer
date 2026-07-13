@@ -173,7 +173,7 @@ function handlePlaylist(playlist: { id: string; name: string }) {
     </nav>
 
     <!-- Playlists section -->
-    <div class="section-label">我的歌单 · Playlists</div>
+    <div class="section-label">我的歌单</div>
     <nav class="playlists">
       <template v-if="userStore.isLoggedIn">
         <template v-if="playlists.length > 0">
