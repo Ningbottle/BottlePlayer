@@ -334,6 +334,7 @@ watch(() => props.model.coverUrl, () => {
       class="aurora-fs-controls"
       data-test="aurora-fs-controls"
       data-contrast="high"
+      data-visual-weight="quiet"
     >
       <button
         type="button"
@@ -647,25 +648,22 @@ export default { name: 'AuroraLyricStage' };
   bottom: clamp(12px, 2.5vh, 24px);
   left: 50%;
   transform: translateX(-50%);
-  width: min(560px, 68%);
-  padding: 4px 8px;
+  width: min(520px, 62%);
+  padding: 2px 0;
   box-sizing: border-box;
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 10px;
-  border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
-  border-radius: 8px;
-  background: color-mix(in srgb, var(--surface-elevated) 34%, transparent);
-  backdrop-filter: blur(8px);
-  opacity: 0.82;
-  transition: opacity 0.2s ease, border-color 0.2s ease;
+  gap: 8px;
+  border: 0;
+  background: transparent;
+  opacity: 0.68;
+  transition: opacity 0.2s ease;
 }
 
 .aurora-fs-controls:hover,
 .aurora-fs-controls:focus-within {
   opacity: 1;
-  border-color: color-mix(in srgb, var(--accent) 26%, transparent);
 }
 
 .aurora-fs-controls :deep(.progress-time) {
@@ -674,18 +672,18 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .aurora-fs-controls :deep(.progress-track)::before {
-  height: 3px;
-  background: color-mix(in srgb, var(--text-primary) 22%, var(--progress-track));
+  height: 2px;
+  background: color-mix(in srgb, var(--text-primary) 26%, var(--progress-track));
 }
 
 .aurora-fs-play {
   flex: 0 0 auto;
-  width: 32px;
-  height: 32px;
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  width: 28px;
+  height: 28px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 24%, transparent);
   border-radius: 50%;
-  background: color-mix(in srgb, var(--accent) 16%, transparent);
-  color: var(--text-primary);
+  background: transparent;
+  color: var(--text-secondary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -694,7 +692,9 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .aurora-fs-play:hover {
-  background: color-mix(in srgb, var(--accent) 28%, transparent);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 42%, transparent);
+  color: var(--text-primary);
   transform: scale(1.04);
 }
 
