@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import { defineComponent, h, nextTick, reactive } from 'vue';
 
 const gsapSetMock = vi.hoisted(() => vi.fn());
 const gsapToMock = vi.hoisted(() => vi.fn((_: any, opts: any) => {
@@ -30,22 +30,36 @@ vi.mock('../../../api/motion', () => ({
 }));
 
 const playTrackMock = vi.hoisted(() => vi.fn());
-const queueTracks = vi.hoisted(() => [
-  { FileHash: 'q1', SongName: 'Queue One', SingerName: 'A', Duration: 100, Image: '' },
-  { FileHash: 'q2', SongName: 'Queue Two', SingerName: 'B', Duration: 120, Image: '' },
-]);
+const lyricApiGetMock = vi.hoisted(() => vi.fn());
+const mockPlayerStoreState = vi.hoisted(() => ({
+  queue: [
+    { FileHash: 'q1', SongName: 'Queue One', SingerName: 'A', Duration: 100, Image: '' },
+    { FileHash: 'q2', SongName: 'Queue Two', SingerName: 'B', Duration: 120, Image: '' },
+  ],
+  currentTrack: null as any,
+  currentTime: 0,
+  duration: 0,
+  isPlaying: false,
+}));
+const queueTracks = mockPlayerStoreState.queue;
+const mockPlayerStoreHolder = vi.hoisted(() => ({ value: null as any }));
 vi.mock('../../../api/playerStore', () => ({
-  playerStore: {
-    queue: queueTracks,
-  },
+  playerStore: (() => {
+    mockPlayerStoreHolder.value = reactive(mockPlayerStoreState);
+    return mockPlayerStoreHolder.value;
+  })(),
   playTrack: playTrackMock,
   seek: vi.fn(),
+}));
+vi.mock('../../../api/backend', () => ({
+  apiGet: (...args: unknown[]) => lyricApiGetMock(...args),
 }));
 
 import AuroraLyricStage from '../AuroraLyricStage.vue';
 import AuroraPlaylistShelf from '../AuroraPlaylistShelf.vue';
 import NewsprintLyricStage from '../NewsprintLyricStage.vue';
 import type { LyricStageModel } from '../useLyricStage';
+import { useLyricStage } from '../useLyricStage';
 import {
   useLyricFocusStore,
   __resetLyricFocusForTest,
@@ -127,6 +141,151 @@ function clearGsapMocks() {
   isReducedMotionMock.mockReset();
   isReducedMotionMock.mockReturnValue(false);
 }
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+describe('Lyric request race boundaries', () => {
+  it('keeps B lyrics/loading and ignores A follow work after A resolves late', async () => {
+    vi.useFakeTimers();
+    const aDetail = deferred<{ status: number; lyric: string }>();
+    const bDetail = deferred<{ status: number; lyric: string }>();
+    lyricApiGetMock.mockReset();
+    lyricApiGetMock.mockImplementation((path: string, query: { hash?: string; id?: string }) => {
+      if (path === '/search/lyric') {
+        return Promise.resolve({
+          status: 1,
+          candidates: [{ id: query.hash, accesskey: 'key' }],
+        });
+      }
+      if (query.id === 'a') return aDetail.promise;
+      if (query.id === 'b') return bDetail.promise;
+      throw new Error(`unexpected lyric id ${query.id}`);
+    });
+
+    mockPlayerStoreHolder.value.currentTrack = {
+      FileHash: 'a', SongName: 'A', SingerName: 'Artist', Duration: 100, Image: '',
+    };
+    const Harness = defineComponent({
+      setup() {
+        return useLyricStage();
+      },
+      render() {
+        return h('div', this.model.parsedLyrics.map((_, index) =>
+          h('div', { id: `lyric-line-${index}` }),
+        ));
+      },
+    });
+    const wrapper = mount(Harness);
+    const scrollIntoView = vi.fn();
+    const getElementById = vi.spyOn(document, 'getElementById').mockImplementation(() => ({
+      scrollIntoView,
+    } as any));
+    try {
+      await flushPromises();
+
+      mockPlayerStoreHolder.value.currentTrack = {
+        FileHash: 'b', SongName: 'B', SingerName: 'Artist', Duration: 100, Image: '',
+      };
+      await nextTick();
+      await flushPromises();
+
+      aDetail.resolve({ status: 1, lyric: '[00:00.00]A line\n[00:05.00]A second' });
+      await flushPromises();
+
+      expect.soft(wrapper.vm.model.parsedLyrics.map((line: { text: string }) => line.text)).not.toContain('A line');
+      expect.soft(wrapper.vm.model.currentTrack?.FileHash).toBe('b');
+      expect.soft(wrapper.vm.model.loading).toBe(true);
+
+      bDetail.resolve({ status: 1, lyric: '[00:00.00]B line' });
+      await flushPromises();
+      await nextTick();
+      scrollIntoView.mockClear();
+
+      vi.advanceTimersByTime(480);
+      await nextTick();
+      await flushPromises();
+      expect.soft(wrapper.vm.model.parsedLyrics.map((line: { text: string }) => line.text)).toEqual(['B line']);
+      expect.soft(wrapper.vm.model.loading).toBe(false);
+      expect.soft(scrollIntoView).toHaveBeenCalledTimes(1);
+    } finally {
+      getElementById.mockRestore();
+      wrapper.unmount();
+      mockPlayerStoreHolder.value.currentTrack = null;
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not let an old lyric follow timer scroll after switching to B', async () => {
+    vi.useFakeTimers();
+    const aDetail = deferred<{ status: number; lyric: string }>();
+    const bDetail = deferred<{ status: number; lyric: string }>();
+    lyricApiGetMock.mockReset();
+    lyricApiGetMock.mockImplementation((path: string, query: { hash?: string; id?: string }) => {
+      if (path === '/search/lyric') {
+        return Promise.resolve({ status: 1, candidates: [{ id: query.hash, accesskey: 'key' }] });
+      }
+      return query.id === 'a' ? aDetail.promise : bDetail.promise;
+    });
+    mockPlayerStoreHolder.value.currentTrack = {
+      FileHash: 'a', SongName: 'A', SingerName: 'Artist', Duration: 100, Image: '',
+    };
+    const Harness = defineComponent({
+      setup() { return useLyricStage(); },
+      render() { return h('div'); },
+    });
+    const wrapper = mount(Harness);
+    const scrollIntoView = vi.fn();
+    const getElementById = vi.spyOn(document, 'getElementById').mockImplementation(() => ({ scrollIntoView } as any));
+    try {
+      await flushPromises();
+      aDetail.resolve({ status: 1, lyric: '[00:00.00]A line' });
+      await flushPromises();
+      scrollIntoView.mockClear();
+      vi.advanceTimersByTime(200);
+
+      mockPlayerStoreHolder.value.currentTrack = {
+        FileHash: 'b', SongName: 'B', SingerName: 'Artist', Duration: 100, Image: '',
+      };
+      await nextTick();
+      await flushPromises();
+      bDetail.resolve({ status: 1, lyric: '[00:00.00]B line' });
+      await flushPromises();
+      await nextTick();
+      await flushPromises();
+      const baselineScrolls = scrollIntoView.mock.calls.length;
+
+      vi.advanceTimersByTime(279);
+      await nextTick();
+      await flushPromises();
+      expect.soft(scrollIntoView).toHaveBeenCalledTimes(baselineScrolls);
+
+      vi.advanceTimersByTime(1);
+      await nextTick();
+      await flushPromises();
+      expect.soft(scrollIntoView).toHaveBeenCalledTimes(baselineScrolls);
+
+      vi.advanceTimersByTime(200);
+      await nextTick();
+      await flushPromises();
+
+      expect.soft(wrapper.vm.model.parsedLyrics.map((line: { text: string }) => line.text)).toEqual(['B line']);
+      expect.soft(scrollIntoView).toHaveBeenCalledTimes(baselineScrolls + 1);
+    } finally {
+      getElementById.mockRestore();
+      wrapper.unmount();
+      mockPlayerStoreHolder.value.currentTrack = null;
+      vi.useRealTimers();
+    }
+  });
+});
 
 describe('Lyric stage structure differences', () => {
   beforeEach(() => {

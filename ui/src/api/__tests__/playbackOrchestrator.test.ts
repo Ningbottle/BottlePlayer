@@ -5,6 +5,7 @@ import {
   type PlaybackStateSlice,
   type ResolveTrackResult,
 } from '../playbackOrchestrator';
+import { Html5AudioBackend } from '../html5Backend';
 import type { DiagEvent } from '../playbackDiagnostics';
 
 function mkTrack(hash: string, name = hash): Track {
@@ -307,6 +308,56 @@ describe('PlaybackOrchestrator', () => {
 
     expect(b).toEqual({ status: 'played' });
     expect(h.state.currentTrack?.FileHash).toBe('b');
+  });
+
+  it('preserves B audio/state/history when A source preparation resolves late', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    const aPrepared = deferred<{ url: string; crossOriginSafe: boolean }>();
+    const prepareSourceUrl = vi.fn((url: string) =>
+      url.endsWith('/a')
+        ? aPrepared.promise
+        : Promise.resolve({ url: 'http://127.0.0.1/b', crossOriginSafe: true }),
+    );
+    const backend = new Html5AudioBackend(audio, { prepareSourceUrl });
+    const state = makeState();
+    const uploadPlayHistory = vi.fn();
+    const recordRecentPlayed = vi.fn();
+    const orchestrator = new PlaybackOrchestrator({
+      backend: () => backend,
+      playSession: { skip: vi.fn(), intend: vi.fn() },
+      resolveTrack: vi.fn(async (track: Track) => resolvedTrack(`https://cdn.example/${track.FileHash}`)),
+      fetchCover: vi.fn(async () => null),
+      uploadPlayHistory,
+      recordRecentPlayed,
+      recordDiagnostic: vi.fn(),
+      getState: () => state,
+      patchState: (patch) => Object.assign(state, patch),
+      saveQueue: vi.fn(),
+    });
+
+    const playA = orchestrator.switchTrack(mkTrack('a'));
+    await vi.waitFor(() => expect(prepareSourceUrl).toHaveBeenCalledWith('https://cdn.example/a'));
+
+    const playB = orchestrator.switchTrack(mkTrack('b'));
+    await expect(playB).resolves.toEqual({ status: 'played' });
+    expect(state.currentTrack?.FileHash).toBe('b');
+    expect(state.currentIndex).toBe(1);
+    expect(state.isLoading).toBe(false);
+
+    aPrepared.resolve({ url: 'http://127.0.0.1/a', crossOriginSafe: true });
+    const resultA = await playA;
+    expect.soft(resultA).toEqual({ status: 'superseded' });
+
+    expect.soft(audio.src).toContain('/b');
+    expect.soft(state.currentTrack?.FileHash).toBe('b');
+    expect.soft(state.currentIndex).toBe(1);
+    expect.soft(state.isLoading).toBe(false);
+    expect.soft(uploadPlayHistory).toHaveBeenCalledTimes(1);
+    expect.soft(uploadPlayHistory).toHaveBeenCalledWith(expect.objectContaining({ FileHash: 'b' }));
+    expect.soft(uploadPlayHistory).not.toHaveBeenCalledWith(expect.objectContaining({ FileHash: 'a' }));
+    expect.soft(recordRecentPlayed).toHaveBeenCalledTimes(1);
+    expect.soft(recordRecentPlayed).toHaveBeenCalledWith(expect.objectContaining({ FileHash: 'b' }));
   });
 
   it('does not rollback or skip the active session when a stale request fails', async () => {

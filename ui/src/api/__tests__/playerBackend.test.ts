@@ -90,6 +90,32 @@ describe('Html5AudioBackend', () => {
     expect(audio.src).toBe('https://example.com/song.mp3');
   });
 
+  it('keeps the newest audio source when an older preparation resolves late', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    let resolveA!: (source: { url: string; crossOriginSafe: boolean }) => void;
+    const prepareA = new Promise<{ url: string; crossOriginSafe: boolean }>((resolve) => {
+      resolveA = resolve;
+    });
+    const prepareSourceUrl = vi.fn((url: string) =>
+      url.endsWith('/a')
+        ? prepareA
+        : Promise.resolve({ url: 'http://127.0.0.1/b', crossOriginSafe: true }),
+    );
+    const backend = new Html5AudioBackend(audio, { prepareSourceUrl });
+
+    const playA = backend.playUrl('https://cdn.example/a');
+    const playB = backend.playUrl('https://cdn.example/b');
+    await playB;
+
+    resolveA({ url: 'http://127.0.0.1/a', crossOriginSafe: true });
+    await playA;
+
+    expect(audio.src).toContain('/b');
+    expect(prepareSourceUrl).toHaveBeenCalledWith('https://cdn.example/a');
+    expect(prepareSourceUrl).toHaveBeenCalledWith('https://cdn.example/b');
+  });
+
   it('reports HTML5 media event diagnostics for error and stall-like events', () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
     Object.defineProperty(audio, 'readyState', { value: 3, configurable: true });
