@@ -1,97 +1,131 @@
 # BottleMusic
 
-BottleMusic 是面向 Windows 10/11 x64 的 **酷狗概念版 PC 非官方客户端**，主打 Newsprint 报纸风视觉与 ≤ 220 MB 内存预算。
+> Windows 上的酷狗概念版非官方客户端
 
-酷狗概念版没有官网、没有官方 PC 端；本项目目标是在 PC 上提供非官方的酷狗概念版体验。
+[English](./README.en.md) | 中文
 
-- **前端**：Tauri 2.0（Rust + WRY WebView2）+ Vue 3 + Vanilla CSS（无 CSS 框架）
-- **后端**：C++ EchoCAPI.dll（FFI 直注）+ EchoCore / EchoStorage / EchoDiagnostics
-- **构建**：Vite 6 + pnpm 11 + CMake + MSVC C++20 + Cargo
+<!-- logo -->
 
-## 目录结构
+![CI](https://img.shields.io/github/actions/workflow/status/Ningbottle/BottlePlayer/ci.yml?label=CI)
+![Version](https://img.shields.io/github/v/release/Ningbottle/BottlePlayer)
+![License](https://img.shields.io/github/license/Ningbottle/BottlePlayer)
+![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-blue)
+
+酷狗概念版没有官网、没有官方 PC 端。BottleMusic 致力于在 PC 上提供非官方的酷狗概念版体验，主打双皮肤视觉（Aurora 沉浸式 + Newsprint 报纸风）与完整的播放/均衡器/统计功能。
+
+## 截图
+
+> 截图即将补充
+
+<!-- screenshot: Aurora 主界面 -->
+<!-- screenshot: Aurora 全屏歌词 -->
+<!-- screenshot: Newsprint 主界面 -->
+<!-- screenshot: 统计仪表盘 -->
+<!-- screenshot: 均衡器面板 -->
+
+## 功能特性
+
+### 播放
+- HTML5 Audio 播放引擎，支持播放队列、单曲循环 / 列表循环 / 随机播放
+- 拖拽进度条跳转、音质切换、切歌立即停旧曲
+
+### 均衡器
+- 10 频段 Web Audio API 均衡器（31Hz / 62Hz / 125Hz / 250Hz / 500Hz / 1kHz / 2kHz / 4kHz / 8kHz / 16kHz）
+- 6 种内置预设，本地音频代理自动处理跨域 CDN 媒体
+- 代理不可用时显示降级提示
+
+### 双皮肤
+- **Aurora**：沉浸式粒子动效、渐变光晕、全屏歌词沉浸模式
+- **Newsprint**：报纸风排版、极简编辑风格、暗色模式支持
+
+### 歌词
+- 自动跟随播放进度（3 秒空闲后自动恢复跟随）
+- 全屏沉浸模式、点击歌词行跳转播放进度
+
+### 统计
+- 播放历史仪表盘：总播放次数、实际听歌时长、完成率、独立歌曲/歌手数
+- Top 榜单：最常听的歌曲 / 歌手 / 专辑（按 album_id 分组）
+- 时间线图表：每日播放次数
+- DeepSeek AI 听歌分析：基于本地听歌数据的个性化分析报告
+
+### 搜索
+- 歌曲 / 歌手 / 专辑搜索，搜索结果直接播放或加入队列
+
+### 歌单
+- 加载用户歌单（收藏 / 自建），点击即以整列表为播放队列
+
+### 登录
+- 扫码登录、用户信息 / VIP 状态显示
+- 每日免费 VIP 领取（听歌 / 广告）
+
+### 自动更新
+- 内置 Tauri 更新器，启动时自动检查 GitHub Releases 新版本
+
+## 下载安装
+
+前往 [Releases 页面](https://github.com/Ningbottle/BottlePlayer/releases) 下载最新版本。
+
+**系统要求**：Windows 10/11 x64
+
+安装方式：NSIS 安装程序（支持当前用户 / 所有用户安装）。安装后启动即可使用，后续版本更新将自动检测并提示安装。
+
+## 皮肤展示
+
+### Aurora
+沉浸式设计，配有粒子动效和渐变光晕。全屏歌词模式下支持封面展示、进度条、3D 队列货架。
+
+<!-- screenshot: Aurora 皮肤展示 -->
+
+### Newsprint
+报纸风排版，极简编辑风格。支持暗色模式切换。
+
+<!-- screenshot: Newsprint 皮肤展示 -->
+
+## 架构概览
 
 ```
-BottleMusic/
-├── ui/         ← Tauri 2.0 + Vue 3 前端（src-tauri/ 含 Rust FFI 层）
-├── native/     ← C++ EchoCAPI.dll 后端（EchoCore / EchoStorage / EchoDiagnostics）
-├── server/     ← KuGouMusicApi 参考实现（接口对照来源，submodule）
-└── docs/       ← 本地项目文档（不进 Git）
+Vue 3 前端 (ui/src/)
+    │  Tauri IPC
+Rust FFI 层 (ui/src-tauri/src/)
+    │  extern "C" FFI
+C++ 核心 (native/) -> EchoCAPI.dll
 ```
 
-## 环境前置
+BottleMusic 采用三层架构：Vue 3 前端负责 UI 与播放控制，Rust FFI 层桥接 Tauri 命令，C++ 核心处理 KuGou API 请求调度、SQLite 统计存储与 Media Foundation 接口。播放使用 HTML5 Audio + Web Audio API 均衡器。
 
-| 工具 | 版本 | 用途 |
-|---|---|---|
-| Node.js | ≥ 20（建议 22） | 前端运行时 |
-| pnpm | 11（`npm i -g pnpm`） | 前端包管理 |
-| Rust | stable（含 cargo/rustc） | Tauri 壳 + FFI 加载层（`ui/src-tauri/`） |
-| CMake | ≥ 3.24 | C++ DLL 构建配置 |
-| Visual Studio | 2022 或更高（含 MSVC C++20） | C++ 编译器（Win SDK / vcpkg 依赖） |
+完整架构文档请参考 [CONTEXT.md](./CONTEXT.md)。
 
-> 国内网络环境下，建议给 pnpm/cargo 配置镜像（如 `pnpm config set registry https://registry.npmmirror.com`），并设置 `COREPACK_NPM_REGISTRY` 环境变量以避免 corepack 激活失败。
+## 开发
 
-## 快速开始
+| 工具 | 版本 |
+|---|---|
+| Node.js | ≥ 22 |
+| pnpm | 11 |
+| Rust | stable |
+| CMake + MSVC | C++20 |
 
 ```powershell
-# 0. 克隆（含 server 子模块）
 git clone --recurse-submodules https://github.com/Ningbottle/BottlePlayer.git
-#   # 若已克隆但未带子模块：
-#   git submodule update --init --recursive
-
-# 1. 先编译 C++ DLL（VS Developer PowerShell，仅首次或改 native/ 后需要）
 cd ui
-pnpm backend:build         # = cmake configure + build EchoCAPI + 同步 DLL
-#   或手动：
-#   cmake -S ../native --preset bottlemusic-check
-#   cmake --build ../native/out/bottlemusic-check --config Debug --target EchoCAPI
-
-# 2. 前端开发（DLL 会由 build.rs 自动拷入 target/debug/）
 pnpm install
-pnpm tauri dev             # 首跑 5-10 分钟，之后 < 30s
+pnpm tauri dev
 ```
 
-> **纯前端开发**（不依赖 C++/Rust，只调 Vue 界面）：`cd ui && pnpm install && pnpm dev`，浏览器访问 `http://localhost:1420`。Tauri 原生调用（`native_request` 等）会因 DLL 缺失而失败，但 UI 可正常预览。
+完整开发文档请参考 [CONTEXT.md](./CONTEXT.md)。
 
-> **注**：`pnpm tauri dev` 的终端窗口即日志来源，C++ 诊断输出格式为 `[C++ debug][Tag] message`。
+## 技术栈
 
-## 当前状态
-
-**已打通的核心链路**：
-- 扫码登录 → 用户信息 / VIP 状态 / 头像昵称
-- 搜索 → 歌曲列表 → 解析播放 URL → 播放（含 VIP 歌曲）
-- 用户歌单加载（收藏 / 自建歌单）
-- 歌词获取与同步高亮
-- 每日免费 VIP 领取（听歌/广告）→ 到期时间正确显示
-- 播放队列与歌词防遮挡
-
-**架构演进（已合并）**：
-
-| 阶段 | 内容 |
+| 层 | 技术 |
 |---|---|
-| P1-P6 | 接口契约、诊断、内存预算、请求调度、日志脱敏 |
-| M1 构建固化 | 删硬编码路径、清 sidecar 死代码、build.rs 确定性 DLL 拷贝（debug/release 分离） |
-| M2 接缝固化 | `EchoInitializeWithPaths` 路径可控、`EchoSetLogCallback` 日志回调、`EchoSetEventCallback` ABI 预留、异常隔离 |
-| M3 真并行 | `Database` 内置 mutex + `C_API` 换 `std::shared_mutex`（读并发/写独占）+ Rust `RwLock`；并发测试实测：20 线程 × 50 轮 × 2 请求（含 SQLite）全通过，无死锁 |
-| M4 VIP | 设备指纹注入（`ResolveAndroidMid`）、`error_code` 130012 友好提示、前端成功判定修复、到期时间取最晚未过期的 `busi_vip[svip]`|
-| S1-S5 结构加固 | `RequestScheduler` 可在干净 shutdown 后重启、`EchoShutdown` 生命周期加锁、CTest 环境覆盖全部 native 测试、CI 补跑 Rust 单测 |
+| 前端 | Vue 3, Vite 6, Vanilla CSS, GSAP, Web Audio API |
+| Rust FFI | Tauri 2.0, reqwest, tokio |
+| C++ 核心 | MSVC C++20, WinHTTP, Media Foundation, SQLite |
+| CI/CD | GitHub Actions, CMake, vcpkg, CTest, Vitest, Cargo |
 
-**已解决**（原"已知问题"）：
-- ✅ VIP 领取链路：服务端本就正常发放，根因在前端把成功挂在响应里不存在的 `ad_vip_end_time` 上，已修正。
-- ✅ 设备指纹：mid 经 `ResolveAndroidMid` 派生为 38–39 位 Android decimal，dfid 通过 `/register/dev` 正式注册。
-- ✅ 播放体验：点列表即以整列表为播放队列（"下一首"随列表走）、随机/循环改为独立开关、切歌立即停旧曲、修复 HMR 累积的僵尸音频（全局单例 audio）。
-- ✅ 诊断：补全 `/diagnostics/memory` 路由，设置页内存自检可用。
-- ✅ 播放失败收尾：HTML5 stop 会卸载旧 `src`，避免下一次 resume 复播上一首的陈旧 URL。
-- ✅ 登录态刷新：`/user/detail` 成功但 `/user/vip/detail` 超时/失败时保留已登录状态，仅降级 VIP 字段。
+## 致谢
 
-**当前已知问题**：
-- 播放核心仍在 WebView（HTML5 Audio）；C++ `PlaybackController`（Media Foundation）仅预留 ABI、尚未接线。
-- 图片缓存 `EchoImage`：内存有 16MB 预算（`MemoryImageCache`），但磁盘缓存未加容量上限。
-- 部分歌曲（Demo / 受限版）KuGou 返回 `status:3` 无法播放——属歌曲版权限制，非客户端问题（已做"该歌曲不可播放"提示 + 切歌即停）。
-
-## 技术参考
-
-后端接口实现参照 [MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMusicApi)。
-项目基线是酷狗概念版（appid=3116，Lite 盐），不把标准版参数作为默认事实。
+- 后端接口实现参照 [MakcRe/KuGouMusicApi](https://github.com/MakcRe/KuGouMusicApi)
+- 项目基线为酷狗概念版（appid=3116，Lite 盐）
 
 ## 免责声明
 
