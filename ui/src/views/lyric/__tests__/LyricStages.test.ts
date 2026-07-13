@@ -480,7 +480,7 @@ describe('Aurora lyric focus modes', () => {
     isReducedMotionMock.mockReturnValue(false);
   });
 
-  it('fullscreen keeps the stage controls-free for an unobstructed lyric view', () => {
+  it('fullscreen keeps lightweight playback controls available', () => {
     const fullscreen = mount(AuroraLyricStage, {
       props: { model: createModel({ fullscreen: true, duration: 240 }) },
     });
@@ -489,7 +489,10 @@ describe('Aurora lyric focus modes', () => {
 
     expect(readability.exists()).toBe(true);
     expect(readability.attributes('data-contrast')).toBe('high');
-    expect(controls.exists()).toBe(false);
+    expect(controls.exists()).toBe(true);
+    expect(controls.attributes('data-contrast')).toBe('high');
+    expect(controls.find('[data-test="aurora-fs-play"], [data-test="aurora-fs-pause"]').exists()).toBe(true);
+    expect(controls.findComponent({ name: 'PlayerProgress' }).exists()).toBe(true);
   });
 
   it('clicking a lyric line emits seek-line with that line timestamp', async () => {
