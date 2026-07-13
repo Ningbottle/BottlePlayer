@@ -44,12 +44,14 @@ function createPlaylist(overrides: Partial<PlaylistInfo> = {}): PlaylistInfo {
 }
 
 function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel {
+  const { queueWindowStart = 0, ...rest } = overrides;
   return {
     heroTrack: createTrack(),
     dailyTracks: [createTrack()],
     playlists: [],
     albums: [],
     queuePreview: [],
+    queueWindowStart,
     queueTotal: 0,
     activeQueueHash: null,
     isPlaying: false,
@@ -58,7 +60,7 @@ function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel 
     errors: [] as readonly HomeSectionError[],
     errorSummary: '',
     heroQualityChips: [],
-    ...overrides,
+    ...rest,
   };
 }
 
@@ -240,7 +242,21 @@ describe('AuroraHome', () => {
     expect(wrapper.findAll('[data-test^="queue-track-"]').length).toBeGreaterThan(0);
   });
 
-  it('emits play-track when a queue row or daily card is selected', async () => {
+  it('keeps queue ordinals aligned with the moving queue window', () => {
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          queuePreview: [createTrack({ FileHash: 'queue-8' })],
+          queueTotal: 20,
+          queueWindowStart: 7,
+        }),
+      },
+    });
+
+    expect(wrapper.get('[data-test="queue-track-queue-8"]').text()).toContain('08');
+  });
+
+  it('emits a dedicated queue event without changing the daily-card event', async () => {
     const queued = createTrack({ FileHash: 'queue-play', SongName: 'Queue Play' });
     const daily = createTrack({ FileHash: 'daily-play', SongName: 'Daily Play' });
     const wrapper = mount(AuroraHome, {
@@ -250,7 +266,8 @@ describe('AuroraHome', () => {
     await wrapper.get('[data-test="queue-track-queue-play"]').trigger('click');
     await wrapper.get('[data-test="daily-track-daily-play"]').trigger('click');
 
-    expect(wrapper.emitted('play-track')).toEqual([[queued], [daily]]);
+    expect(wrapper.emitted('play-queue-track')).toEqual([[queued]]);
+    expect(wrapper.emitted('play-track')).toEqual([[daily]]);
   });
 
   it('handles long song name without squeezing play button', () => {

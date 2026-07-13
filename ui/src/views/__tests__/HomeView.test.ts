@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import HomeView from '../HomeView.vue';
-import { playPersonalFm } from '../../api/playerStore';
+import { playPersonalFm, playTrack, playerStore } from '../../api/playerStore';
 import { __resetHomeFeedForTest } from '../../api/homeFeedStore';
 
 const mockApiGet = vi.fn();
@@ -27,7 +27,12 @@ vi.mock('../../api/playerStore', () => ({
 describe('HomeView sections', () => {
   beforeEach(() => {
     __resetHomeFeedForTest();
+    vi.clearAllMocks();
     mockApiGet.mockReset();
+    playerStore.currentTrack = null;
+    playerStore.isPlaying = false;
+    playerStore.queue = [];
+    playerStore.currentIndex = -1;
   });
 
   it('renders a section even when another section fails', async () => {
@@ -97,6 +102,36 @@ describe('HomeView sections', () => {
       ]),
       0,
     );
+  });
+
+  it('plays a queue row without rebuilding the daily recommendation queue', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/everyday/recommend') {
+        return Promise.resolve({
+          status: 1,
+          data: {
+            data: {
+              song_list: [
+                { FileHash: 'daily-1', SongName: '不只是场梦', SingerName: '李玖哲', Duration: 212 },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ status: 1, data: { data: { info: [] } } });
+    });
+    playerStore.queue = [
+      { FileHash: 'daily-1', SongName: '不只是场梦', SingerName: '李玖哲', Duration: 212 },
+      { FileHash: 'queued-extra', SongName: '队列追加', SingerName: '测试', Duration: 180 },
+    ];
+
+    const wrapper = mount(HomeView);
+    await flushPromises();
+
+    await wrapper.get('[data-test="queue-track-daily-1"]').trigger('click');
+
+    expect(playTrack).toHaveBeenCalledWith(expect.objectContaining({ FileHash: 'daily-1' }));
+    expect(playPersonalFm).not.toHaveBeenCalled();
   });
 
   it('does not request the home feed again after remounting', async () => {

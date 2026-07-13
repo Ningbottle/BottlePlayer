@@ -7,6 +7,7 @@ vi.mock('../../../api/playerStore', async () => {
   return {
     playerStore: reactive({
       currentTrack: null as Track | null,
+      currentIndex: -1,
       isPlaying: false,
       queue: [] as Track[],
       quality: '128',
@@ -42,16 +43,22 @@ function makeTrack(FileHash: string): Track {
 }
 
 describe('useHomeViewModel', () => {
-  it('exposes twelve queue rows, total count, active hash, and playback state', () => {
-    playerStoreMock.currentTrack = makeTrack('hash-8');
+  it('centers the twelve-row queue window around the active track', () => {
+    playerStoreMock.currentTrack = makeTrack('hash-14');
+    playerStoreMock.currentIndex = 13;
     playerStoreMock.isPlaying = true;
-    playerStoreMock.queue = Array.from({ length: 15 }, (_, index) => makeTrack(`hash-${index + 1}`));
+    playerStoreMock.queue = Array.from({ length: 20 }, (_, index) => makeTrack(`hash-${index + 1}`));
 
     const model = useHomeViewModel().value;
 
     expect(model.queuePreview).toHaveLength(12);
-    expect(model.queueTotal).toBe(15);
-    expect(model.activeQueueHash).toBe('hash-8');
+    expect(model.queuePreview.map((track) => track.FileHash)).toEqual([
+      'hash-8', 'hash-9', 'hash-10', 'hash-11', 'hash-12', 'hash-13',
+      'hash-14', 'hash-15', 'hash-16', 'hash-17', 'hash-18', 'hash-19',
+    ]);
+    expect(model.queueWindowStart).toBe(7);
+    expect(model.queueTotal).toBe(20);
+    expect(model.activeQueueHash).toBe('hash-14');
     expect(model.isPlaying).toBe(true);
   });
 

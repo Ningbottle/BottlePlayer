@@ -78,6 +78,10 @@ function onPlayTrack(track: Track) {
   }
 }
 
+function onPlayQueueTrack(track: Track) {
+  playTrack(track);
+}
+
 function onRefresh() {
   homeFeed.refresh();
 }
@@ -100,6 +104,7 @@ function onClearQueue() {
         :enter-mode="enterMode"
         :enter-nonce="enterNonce"
         @play-track="onPlayTrack"
+        @play-queue-track="onPlayQueueTrack"
         @refresh="onRefresh"
         @navigate="onNavigate"
         @clear-queue="onClearQueue"

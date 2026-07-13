@@ -280,6 +280,7 @@ describe('AuroraPlayerBar', () => {
     expect(canvas.exists()).toBe(true);
     expect(canvas.attributes('data-playing')).toBe('true');
     expect(canvas.attributes('data-progress')).toBe('0.420');
+    expect(canvas.attributes('data-particle-cap')).toBe('44');
   });
 
   it('has Aurora-specific transport section', () => {

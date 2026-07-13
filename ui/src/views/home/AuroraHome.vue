@@ -22,6 +22,7 @@ const props = withDefaults(
 
 const emit = defineEmits<{
   (e: 'play-track', track: Track): void;
+  (e: 'play-queue-track', track: Track): void;
   (e: 'refresh'): void;
   (e: 'navigate', view: string, params?: any): void;
   (e: 'clear-queue'): void;
@@ -153,6 +154,10 @@ function onTrackPlay(track: Track): void {
   emit('play-track', track);
 }
 
+function onQueueTrackPlay(track: Track): void {
+  emit('play-queue-track', track);
+}
+
 function onOpenLyrics(): void {
   emit('navigate', 'lyric');
 }
@@ -275,9 +280,9 @@ function formatDuration(sec: number): string {
                 :data-test="`queue-track-${track.FileHash}`"
                 :class="{ 'is-active': isActiveQueueTrack(track) }"
                 :aria-current="isActiveQueueTrack(track) ? 'true' : undefined"
-                @click="onTrackPlay(track)"
+                @click="onQueueTrackPlay(track)"
               >
-                <span class="aurora-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
+                <span class="aurora-queue-index">{{ String(model.queueWindowStart + index + 1).padStart(2, '0') }}</span>
                 <span class="aurora-queue-copy"><b>{{ track.SongName }}</b><small>{{ track.SingerName }}</small></span>
                 <span class="aurora-queue-duration">{{ formatDuration(track.Duration) }}</span>
               </button>

@@ -147,12 +147,12 @@ describe('AuroraAtmosphere', () => {
     expect(Number(canvas.attributes('data-particle-cap'))).toBe(100);
   });
 
-  it('uses a higher particle cap while playing', async () => {
+  it('uses a calmer particle cap while playing', async () => {
     const wrapper = track(mount(AuroraAtmosphere, { props: { isPlaying: false } }));
     expect(wrapper.get('[data-test="aurora-atmosphere"]').attributes('data-particle-cap')).toBe('100');
 
     await wrapper.setProps({ isPlaying: true });
-    expect(wrapper.get('[data-test="aurora-atmosphere"]').attributes('data-particle-cap')).toBe('180');
+    expect(wrapper.get('[data-test="aurora-atmosphere"]').attributes('data-particle-cap')).toBe('140');
   });
 
   it('schedules a single rAF loop when motion is allowed', () => {

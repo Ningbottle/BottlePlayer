@@ -34,12 +34,14 @@ function createPlaylist(overrides: Partial<PlaylistInfo> = {}): PlaylistInfo {
 }
 
 function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel {
+  const { queueWindowStart = 0, ...rest } = overrides;
   return {
     heroTrack: createTrack(),
     dailyTracks: [createTrack()],
     playlists: [],
     albums: [],
     queuePreview: [],
+    queueWindowStart,
     queueTotal: 0,
     activeQueueHash: null,
     isPlaying: false,
@@ -48,7 +50,7 @@ function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel 
     errors: [] as readonly HomeSectionError[],
     errorSummary: '',
     heroQualityChips: [],
-    ...overrides,
+    ...rest,
   };
 }
 

@@ -18,7 +18,7 @@ const props = defineProps<{ isPlaying: boolean }>();
 
 /** Higher caps = more visible motes when playing (still capped for cost). */
 const CAP_PAUSED = 100;
-const CAP_PLAYING = 180;
+const CAP_PLAYING = 140;
 const DPR_CAP = 2;
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
@@ -119,12 +119,12 @@ function makeParticle(): Particle {
   return {
     x: Math.random() * cssW,
     y: Math.random() * cssH,
-    vx: (Math.random() - 0.5) * (playing ? 0.32 : 0.14),
-    vy: (Math.random() - 0.5) * (playing ? 0.26 : 0.1) - (playing ? 0.07 : 0.025),
+    vx: (Math.random() - 0.5) * (playing ? 0.24 : 0.14),
+    vy: (Math.random() - 0.5) * (playing ? 0.2 : 0.1) - (playing ? 0.05 : 0.025),
     r: 0.7 + Math.random() * (playing ? 3.2 : 2.0),
     baseAlpha: playing ? 0.18 + Math.random() * 0.28 : 0.08 + Math.random() * 0.16,
     phase: Math.random() * Math.PI * 2,
-    speed: 0.5 + Math.random() * (playing ? 1.15 : 0.85),
+    speed: 0.5 + Math.random() * (playing ? 0.85 : 0.85),
   };
 }
 
@@ -170,8 +170,8 @@ function paintWash(ctx: CanvasRenderingContext2D): void {
 
 function paintParticles(ctx: CanvasRenderingContext2D, dt: number): void {
   ensureParticleBudget();
-  const alphaBoost = props.isPlaying ? 1.2 : 1;
-  const sizeBoost = props.isPlaying ? 1.1 : 1;
+  const alphaBoost = props.isPlaying ? 1.08 : 1;
+  const sizeBoost = props.isPlaying ? 1.04 : 1;
   for (const p of particles) {
     p.phase += dt * 0.0014 * p.speed;
     p.x += p.vx * p.speed * (dt * 0.07);
@@ -337,8 +337,8 @@ watch(
       if (props.isPlaying) {
         p.baseAlpha = Math.min(0.72, p.baseAlpha * 1.35 + 0.06);
         p.r = Math.min(4.2, p.r * 1.12);
-        p.vx *= 1.25;
-        p.vy *= 1.18;
+        p.vx *= 1.08;
+        p.vy *= 1.06;
       } else {
         p.baseAlpha = Math.max(0.08, p.baseAlpha * 0.8);
         p.vx *= 0.88;

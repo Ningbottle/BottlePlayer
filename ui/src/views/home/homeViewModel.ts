@@ -14,6 +14,8 @@ export interface HomeViewModel {
   playlists: readonly PlaylistInfo[];
   albums: readonly PlaylistInfo[];
   queuePreview: readonly Track[];
+  /** Zero-based offset of queuePreview within the full playback queue. */
+  queueWindowStart: number;
   queueTotal: number;
   activeQueueHash: string | null;
   isPlaying: boolean;
@@ -29,7 +31,7 @@ export interface HomeViewModel {
   heroQualityChips: readonly string[];
 }
 
-const QUEUE_PREVIEW_COUNT = 12;
+const QUEUE_WINDOW_SIZE = 12;
 
 export const HOME_SECTION_LABELS: Record<string, string> = {
   daily: '每日推荐',
@@ -79,18 +81,40 @@ export function buildHeroQualityChips(
   return chips;
 }
 
+function getQueueWindowStart(queue: readonly Track[], currentIndex: number, currentTrack: Track | null): number {
+  if (!queue.length) return 0;
+
+  let activeIndex = currentIndex;
+  const indexedTrack = queue[activeIndex];
+  if (!indexedTrack || indexedTrack.FileHash !== currentTrack?.FileHash) {
+    activeIndex = currentTrack
+      ? queue.findIndex((track) => track.FileHash === currentTrack.FileHash)
+      : -1;
+  }
+
+  if (activeIndex < 0) activeIndex = 0;
+  const maxStart = Math.max(0, queue.length - QUEUE_WINDOW_SIZE);
+  return Math.min(Math.max(activeIndex - Math.floor(QUEUE_WINDOW_SIZE / 2), 0), maxStart);
+}
+
 export function useHomeViewModel(): ComputedRef<HomeViewModel> {
   const homeFeed = useHomeFeedStore();
 
   return computed<HomeViewModel>(() => {
     const heroTrack = playerStore.currentTrack ?? homeFeed.daily.items[0] ?? null;
     const errors = collectErrors(homeFeed);
+    const queueWindowStart = getQueueWindowStart(
+      playerStore.queue,
+      playerStore.currentIndex,
+      playerStore.currentTrack,
+    );
     return {
       heroTrack,
       dailyTracks: homeFeed.daily.items,
       playlists: homeFeed.playlists.items,
       albums: homeFeed.albums.items,
-      queuePreview: playerStore.queue.slice(0, QUEUE_PREVIEW_COUNT),
+      queuePreview: playerStore.queue.slice(queueWindowStart, queueWindowStart + QUEUE_WINDOW_SIZE),
+      queueWindowStart,
       queueTotal: playerStore.queue.length,
       activeQueueHash: playerStore.currentTrack?.FileHash ?? null,
       isPlaying: playerStore.isPlaying,
