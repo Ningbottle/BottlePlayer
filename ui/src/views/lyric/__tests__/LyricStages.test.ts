@@ -491,7 +491,7 @@ describe('Aurora lyric focus modes', () => {
     expect(readability.attributes('data-contrast')).toBe('high');
     expect(controls.exists()).toBe(true);
     expect(controls.attributes('data-contrast')).toBe('high');
-    expect(controls.attributes('data-visual-weight')).toBe('quiet');
+    expect(controls.attributes('data-visual-weight')).toBe('balanced');
     expect(controls.find('[data-test="aurora-fs-play"], [data-test="aurora-fs-pause"]').exists()).toBe(true);
     expect(controls.findComponent({ name: 'PlayerProgress' }).exists()).toBe(true);
   });

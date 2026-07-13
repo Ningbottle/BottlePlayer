@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted, nextTick, computed } from 'vue';
+import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
 import { isReducedMotion } from '../../api/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
@@ -64,10 +64,32 @@ const showCoverWash = computed(
   () => props.model.fullscreen && !!props.model.coverUrl && !reducedMotion.value,
 );
 
+function clearFullscreenTransientStyles(): void {
+  const root = rootRef.value;
+  const cover = coverRef.value;
+  const wash = washRef.value;
+
+  if (root) {
+    gsap.killTweensOf(root);
+    gsap.set(root, { clearProps: 'filter,opacity,transform' });
+  }
+  if (cover) {
+    gsap.killTweensOf(cover);
+    gsap.set(cover, { clearProps: 'width,height,opacity,transform' });
+  }
+  if (wash) {
+    gsap.killTweensOf(wash);
+    gsap.set(wash, { clearProps: 'opacity' });
+  }
+}
+
 watch(
   () => props.model.fullscreen,
   (fs) => {
-    if (!fs) shelfOpen.value = false;
+    if (!fs) {
+      shelfOpen.value = false;
+      clearFullscreenTransientStyles();
+    }
   },
 );
 
@@ -217,6 +239,7 @@ watch(
 watch(() => props.model.fullscreen, (fs) => {
   const cover = coverRef.value;
   if (!cover) return;
+  if (!fs) return;
   if (isReducedMotion()) {
     gsap.set(cover, { clearProps: 'width,height' });
     return;
@@ -249,6 +272,8 @@ watch(() => props.model.coverUrl, () => {
   if (!wash || !showCoverWash.value || isReducedMotion()) return;
   gsap.fromTo(wash, { opacity: 0 }, { opacity: 0.9, duration: 0.6, ease: 'power2.out' });
 }, { flush: 'post' });
+
+onBeforeUnmount(clearFullscreenTransientStyles);
 </script>
 
 <template>
@@ -334,7 +359,7 @@ watch(() => props.model.coverUrl, () => {
       class="aurora-fs-controls"
       data-test="aurora-fs-controls"
       data-contrast="high"
-      data-visual-weight="quiet"
+      data-visual-weight="balanced"
     >
       <button
         type="button"
@@ -648,22 +673,25 @@ export default { name: 'AuroraLyricStage' };
   bottom: clamp(12px, 2.5vh, 24px);
   left: 50%;
   transform: translateX(-50%);
-  width: min(520px, 62%);
-  padding: 2px 0;
+  width: min(540px, 65%);
+  padding: 3px 6px;
   box-sizing: border-box;
   z-index: 2;
   display: flex;
   align-items: center;
-  gap: 8px;
-  border: 0;
-  background: transparent;
-  opacity: 0.68;
-  transition: opacity 0.2s ease;
+  gap: 9px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 14%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-elevated, var(--app-bg)) 20%, transparent);
+  backdrop-filter: blur(6px);
+  opacity: 0.78;
+  transition: opacity 0.2s ease, border-color 0.2s ease;
 }
 
 .aurora-fs-controls:hover,
 .aurora-fs-controls:focus-within {
   opacity: 1;
+  border-color: color-mix(in srgb, var(--text-primary) 26%, transparent);
 }
 
 .aurora-fs-controls :deep(.progress-time) {
@@ -672,18 +700,18 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .aurora-fs-controls :deep(.progress-track)::before {
-  height: 2px;
-  background: color-mix(in srgb, var(--text-primary) 26%, var(--progress-track));
+  height: 3px;
+  background: color-mix(in srgb, var(--text-primary) 30%, var(--progress-track));
 }
 
 .aurora-fs-play {
   flex: 0 0 auto;
-  width: 28px;
-  height: 28px;
-  border: 1px solid color-mix(in srgb, var(--text-primary) 24%, transparent);
+  width: 30px;
+  height: 30px;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 28%, transparent);
   border-radius: 50%;
-  background: transparent;
-  color: var(--text-secondary);
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -692,9 +720,8 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .aurora-fs-play:hover {
-  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
-  border-color: color-mix(in srgb, var(--text-primary) 42%, transparent);
-  color: var(--text-primary);
+  background: color-mix(in srgb, var(--text-primary) 15%, transparent);
+  border-color: color-mix(in srgb, var(--text-primary) 46%, transparent);
   transform: scale(1.04);
 }
 

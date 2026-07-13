@@ -60,10 +60,13 @@ describe('FullscreenWindowControls', () => {
     expect(lyricFullscreen.value).toBe(false);
   });
 
-  it('preserves drag region for window movement', () => {
+  it('keeps the button-only overlay out of the native drag region', () => {
     const wrapper = mount(FullscreenWindowControls);
     const container = wrapper.find('[data-test="fs-controls"]');
     expect(container.exists()).toBe(true);
-    expect(container.attributes('data-tauri-drag-region')).toBeDefined();
+    expect(container.attributes('data-tauri-drag-region')).toBeUndefined();
+    expect(wrapper.findAll('button').every((button) => (
+      button.attributes('data-tauri-drag-region') === 'false'
+    ))).toBe(true);
   });
 });

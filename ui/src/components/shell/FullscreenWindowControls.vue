@@ -16,12 +16,14 @@ function exitFullscreen(): void {
     class="titlebar-controls fs-controls"
     data-test="fs-controls"
     data-contrast="high"
-    data-tauri-drag-region
   >
     <button
       class="control-btn min"
       data-test="fs-minimize"
+      data-tauri-drag-region="false"
+      @pointerdown.stop
       @mousedown.stop
+      @dblclick.stop
       @click.stop="minimize"
       title="最小化"
       aria-label="最小化"
@@ -33,7 +35,10 @@ function exitFullscreen(): void {
     <button
       class="control-btn exit-fs"
       data-test="fs-exit-fullscreen"
+      data-tauri-drag-region="false"
+      @pointerdown.stop
       @mousedown.stop
+      @dblclick.stop
       @click.stop="exitFullscreen"
       title="退出全屏"
       aria-label="退出全屏"

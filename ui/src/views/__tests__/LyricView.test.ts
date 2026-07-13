@@ -360,9 +360,36 @@ describe('LyricView fullscreen', () => {
     await nextTick();
     await nextTick();
 
-    expect(gsapToMock).toHaveBeenCalledWith(
+    expect(gsapSetMock).toHaveBeenCalledWith(
       w.find('[data-test="lyric-cover"]').element,
-      expect.objectContaining({ clearProps: 'width,height' }),
+      expect.objectContaining({ clearProps: 'width,height,opacity,transform' }),
+    );
+  });
+
+  it('clears interrupted fullscreen animation styles when exiting', async () => {
+    const w = mountLyric();
+    await flushPromises();
+    const stage = w.get('[data-test="aurora-lyric-stage"]').element;
+    const cover = w.get('[data-test="lyric-cover"]').element;
+    const wash = w.get('[data-test="lyric-cover-wash"]').element;
+    gsapKillTweensOfMock.mockClear();
+    gsapSetMock.mockClear();
+
+    setLyricFullscreen(true);
+    await nextTick();
+    setLyricFullscreen(false);
+    await nextTick();
+
+    expect(gsapKillTweensOfMock).toHaveBeenCalledWith(stage);
+    expect(gsapKillTweensOfMock).toHaveBeenCalledWith(cover);
+    expect(gsapKillTweensOfMock).toHaveBeenCalledWith(wash);
+    expect(gsapSetMock).toHaveBeenCalledWith(
+      stage,
+      expect.objectContaining({ clearProps: 'filter,opacity,transform' }),
+    );
+    expect(gsapSetMock).toHaveBeenCalledWith(
+      wash,
+      expect.objectContaining({ clearProps: 'opacity' }),
     );
   });
 });
