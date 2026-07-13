@@ -30,18 +30,20 @@ vi.mock('../../../api/motion', () => ({
 }));
 
 const playTrackMock = vi.hoisted(() => vi.fn());
+const queueTracks = vi.hoisted(() => [
+  { FileHash: 'q1', SongName: 'Queue One', SingerName: 'A', Duration: 100, Image: '' },
+  { FileHash: 'q2', SongName: 'Queue Two', SingerName: 'B', Duration: 120, Image: '' },
+]);
 vi.mock('../../../api/playerStore', () => ({
   playerStore: {
-    queue: [
-      { FileHash: 'q1', SongName: 'Queue One', SingerName: 'A', Duration: 100, Image: '' },
-      { FileHash: 'q2', SongName: 'Queue Two', SingerName: 'B', Duration: 120, Image: '' },
-    ],
+    queue: queueTracks,
   },
   playTrack: playTrackMock,
   seek: vi.fn(),
 }));
 
 import AuroraLyricStage from '../AuroraLyricStage.vue';
+import AuroraPlaylistShelf from '../AuroraPlaylistShelf.vue';
 import NewsprintLyricStage from '../NewsprintLyricStage.vue';
 import type { LyricStageModel } from '../useLyricStage';
 import {
@@ -345,6 +347,7 @@ describe('Aurora lyric focus modes', () => {
     localStorage.clear();
     __resetLyricFocusForTest();
     clearGsapMocks();
+    playTrackMock.mockClear();
   });
 
 
@@ -416,6 +419,30 @@ describe('Aurora lyric focus modes', () => {
     (document.querySelector('[data-test="shelf-backdrop"]') as HTMLElement).click();
     await nextTick();
     expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeNull();
+
+    wrapper.unmount();
+  });
+
+  it('selects a shelf card through playTrack while keeping fullscreen mounted', async () => {
+    const wrapper = mount(AuroraLyricStage, {
+      props: {
+        model: createModel({
+          fullscreen: true,
+          currentTrack: queueTracks[0] as any,
+        }),
+      },
+      attachTo: document.body,
+    });
+
+    await wrapper.get('[data-test="lyric-cover"]').trigger('click');
+    await nextTick();
+
+    (document.querySelector('[data-test="shelf-card-1"]') as HTMLButtonElement).click();
+    await nextTick();
+
+    expect(playTrackMock).toHaveBeenCalledWith(queueTracks[1]);
+    expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeNull();
+    expect(wrapper.find('.aurora-lyric-fullscreen').exists()).toBe(true);
 
     wrapper.unmount();
   });
@@ -524,5 +551,28 @@ describe('Aurora lyric focus modes', () => {
     const scroll = wrapper.find('[data-test="lyric-scroll"]');
     expect(scroll.exists()).toBe(true);
     expect(scroll.classes()).not.toContain('with-scrollbar');
+  });
+});
+
+describe('Aurora playlist shelf selection', () => {
+  it('does not select after a drag produces a synthetic card click', async () => {
+    const wrapper = mount(AuroraPlaylistShelf, {
+      props: {
+        open: true,
+        tracks: queueTracks as any,
+        activeHash: queueTracks[0].FileHash,
+      },
+      attachTo: document.body,
+    });
+
+    const stage = document.querySelector('[data-test="shelf-stage"]') as HTMLElement;
+    stage.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 20 }));
+    stage.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 29 }));
+    (document.querySelector('[data-test="shelf-card-1"]') as HTMLButtonElement).click();
+    await nextTick();
+
+    expect(wrapper.emitted('select')).toBeUndefined();
+
+    wrapper.unmount();
   });
 });

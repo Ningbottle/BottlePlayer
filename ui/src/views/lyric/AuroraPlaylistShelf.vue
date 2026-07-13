@@ -165,12 +165,8 @@ onBeforeUnmount(() => {
   window.removeEventListener('keydown', onKey);
 });
 
-function onSelect(t: Track, i: number): void {
+function onSelect(t: Track): void {
   if (dragging.value) return;
-  if (i !== focusIndex.value) {
-    spinTo(i);
-    return;
-  }
   emit('select', t);
 }
 </script>
@@ -219,7 +215,7 @@ function onSelect(t: Track, i: number): void {
             :data-test="`shelf-card-${i}`"
             :aria-label="t.SongName || '曲目'"
             :tabindex="i === focusIndex ? 0 : -1"
-            @click="onSelect(t, i)"
+            @click="onSelect(t)"
           >
             <div class="shelf-card-face">
               <img v-if="coverOf(t)" :src="coverOf(t)" alt="" />
