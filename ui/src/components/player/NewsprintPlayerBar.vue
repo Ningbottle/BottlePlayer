@@ -57,9 +57,9 @@ function onRelease(e: MouseEvent) {
           type="button"
           class="np-pb-cover-btn"
           data-test="np-pb-cover-immersion"
-          title="双击打开全屏歌词"
+          title="打开歌词"
           :disabled="!c.currentTrack"
-          @dblclick.stop="c.openLyricImmersion"
+          @click.stop="c.openLyricView"
         >
           <div class="np-pb-cover">
             <img :src="c.coverUrl" alt="cover" />
@@ -77,7 +77,13 @@ function onRelease(e: MouseEvent) {
         </button>
       </div>
 
-      <button class="np-pb-info-btn" type="button" @click="c.toggleLyricView" title="点击查看歌词">
+      <button
+        class="np-pb-info-btn"
+        type="button"
+        title="点击查看歌词"
+        :disabled="!c.currentTrack"
+        @click.stop="c.openLyricView"
+      >
         <div class="np-pb-info">
           <span class="np-pb-num">No. {{ String(c.currentTime > 0 ? 1 : 0).padStart(2, '0') }}</span>
           <template v-if="c.currentTrack">

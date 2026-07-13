@@ -45,7 +45,9 @@ export interface PlayerController {
   toggleShuffle: () => void;
   toggleRepeat: () => void;
   toggleLyricView: () => void;
-  /** Open lyric view + fullscreen immersion (dock cover entry). */
+  /** Open the regular lyric page and leave fullscreen mode. */
+  openLyricView: () => void;
+  /** Open lyric view + fullscreen immersion (explicit fullscreen entry). */
   openLyricImmersion: () => void;
   handleFavorite: () => void;
   handleSelectQuality: (q: string) => void;
@@ -165,10 +167,16 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     }
   }
 
-  /**
-   * Dock cover: go to lyric view (user chooses fullscreen via dblclick).
-   * No-op when nothing is loaded (cover is decorative only).
-   */
+  /** Open the regular lyric page. No-op when no track is loaded. */
+  function openLyricView() {
+    if (!currentTrack.value) return;
+    if (options.activeView() !== 'lyric') {
+      options.onNavigate('lyric');
+    }
+    setLyricFullscreen(false);
+  }
+
+  /** Explicit fullscreen entry. No-op when nothing is loaded. */
   function openLyricImmersion() {
     if (!currentTrack.value) return;
     if (options.activeView() !== 'lyric') {
@@ -247,6 +255,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     toggleShuffle,
     toggleRepeat,
     toggleLyricView,
+    openLyricView,
     openLyricImmersion,
     handleFavorite,
     handleSelectQuality,

@@ -138,7 +138,39 @@ const queueCount = computed(() => {
   return props.model.queueTotal ?? props.model.queuePreview.length;
 });
 
-const displayedQueuePreview = computed(() => props.model.queuePreview.slice(0, 12));
+const isQueueHovered = ref(false);
+const queueSnapshot = ref<readonly Track[]>(props.model.queuePreview.slice(0, 12));
+const queueSnapshotStart = ref(props.model.queueWindowStart);
+const queueSnapshotActiveHash = ref(props.model.activeQueueHash);
+
+function syncQueueSnapshot(): void {
+  queueSnapshot.value = props.model.queuePreview.slice(0, 12);
+  queueSnapshotStart.value = props.model.queueWindowStart;
+  queueSnapshotActiveHash.value = props.model.activeQueueHash;
+}
+
+watch(
+  [
+    () => props.model.queuePreview,
+    () => props.model.queueWindowStart,
+    () => props.model.activeQueueHash,
+  ],
+  () => {
+    if (!isQueueHovered.value) syncQueueSnapshot();
+  },
+  { immediate: true },
+);
+
+function freezeQueueFollow(): void {
+  isQueueHovered.value = true;
+}
+
+function resumeQueueFollow(): void {
+  isQueueHovered.value = false;
+  syncQueueSnapshot();
+}
+
+const displayedQueuePreview = computed(() => queueSnapshot.value);
 
 const emptyQueueSuggestions = computed(() => {
   const daily = props.model.dailyTracks ?? [];
@@ -163,7 +195,7 @@ function onOpenLyrics(): void {
 }
 
 function isActiveQueueTrack(track: Track): boolean {
-  return track.FileHash === props.model.activeQueueHash;
+  return track.FileHash === queueSnapshotActiveHash.value;
 }
 
 function onPlaylistClick(pl: PlaylistInfo) {
@@ -246,6 +278,21 @@ function formatDuration(sec: number): string {
           </div>
         </div>
 
+        <div
+          v-else-if="model.isInitialLoading"
+          class="aurora-stage-main aurora-stage-loading"
+          data-test="aurora-stage-loading"
+          aria-busy="true"
+          aria-live="polite"
+        >
+          <div class="aurora-cover aurora-cover-skeleton" aria-hidden="true" />
+          <div class="aurora-info aurora-info-skeleton">
+            <p class="aurora-label"><span class="aurora-label-dot" aria-hidden="true" />正在加载推荐</p>
+            <span class="aurora-skeleton-line aurora-skeleton-title" aria-hidden="true" />
+            <span class="aurora-skeleton-line aurora-skeleton-copy" aria-hidden="true" />
+          </div>
+        </div>
+
         <div v-else class="aurora-stage-empty" data-test="aurora-stage-empty">
           <p class="aurora-label"><span class="aurora-label-dot" aria-hidden="true" />还没有开始播放</p>
           <h1>选择一首歌，开始沉浸聆听</h1>
@@ -273,7 +320,12 @@ function formatDuration(sec: number): string {
               @click="emit('clear-queue')"
             >清空</button>
           </header>
-          <ol v-if="displayedQueuePreview.length" class="aurora-queue-list">
+          <ol
+            v-if="displayedQueuePreview.length"
+            class="aurora-queue-list"
+            @mouseenter="freezeQueueFollow"
+            @mouseleave="resumeQueueFollow"
+          >
             <li v-for="(track, index) in displayedQueuePreview" :key="track.FileHash" class="aurora-queue-row">
               <button
                 type="button"
@@ -282,7 +334,7 @@ function formatDuration(sec: number): string {
                 :aria-current="isActiveQueueTrack(track) ? 'true' : undefined"
                 @click="onQueueTrackPlay(track)"
               >
-                <span class="aurora-queue-index">{{ String(model.queueWindowStart + index + 1).padStart(2, '0') }}</span>
+                <span class="aurora-queue-index">{{ String(queueSnapshotStart + index + 1).padStart(2, '0') }}</span>
                 <span class="aurora-queue-copy"><b>{{ track.SongName }}</b><small>{{ track.SingerName }}</small></span>
                 <span class="aurora-queue-duration">{{ formatDuration(track.Duration) }}</span>
               </button>
@@ -489,6 +541,49 @@ export default { name: 'AuroraHome' };
   background: color-mix(in srgb, var(--surface-2) 78%, transparent);
   box-shadow: 0 20px 54px color-mix(in srgb, var(--accent) 10%, transparent);
   min-width: 0;
+}
+
+.aurora-stage-loading {
+  min-height: 320px;
+  pointer-events: none;
+}
+
+.aurora-cover-skeleton,
+.aurora-skeleton-line {
+  background: linear-gradient(
+    112deg,
+    color-mix(in srgb, var(--surface-2) 94%, var(--text-primary) 6%),
+    color-mix(in srgb, var(--surface-2) 82%, var(--text-primary) 18%),
+    color-mix(in srgb, var(--surface-2) 94%, var(--text-primary) 6%)
+  );
+}
+
+.aurora-info-skeleton {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 16px;
+}
+
+.aurora-info-skeleton .aurora-label {
+  margin: 0;
+}
+
+.aurora-skeleton-line {
+  display: block;
+  height: 14px;
+  border-radius: 999px;
+}
+
+.aurora-skeleton-title {
+  width: min(62%, 310px);
+  height: 42px;
+}
+
+.aurora-skeleton-copy {
+  width: min(42%, 220px);
 }
 
 .aurora-stage-empty h1,

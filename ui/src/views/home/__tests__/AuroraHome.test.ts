@@ -256,6 +256,40 @@ describe('AuroraHome', () => {
     expect(wrapper.get('[data-test="queue-track-queue-8"]').text()).toContain('08');
   });
 
+  it('pauses queue follow while hovered and resumes at the current track on mouseleave', async () => {
+    const initial = createTrack({ FileHash: 'queue-1', SongName: 'Queue 1' });
+    const current = createTrack({ FileHash: 'queue-8', SongName: 'Queue 8' });
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          queuePreview: [initial],
+          queueTotal: 20,
+          activeQueueHash: initial.FileHash,
+        }),
+      },
+    });
+
+    const list = wrapper.get('.aurora-queue-list');
+    await list.trigger('mouseenter');
+    await wrapper.setProps({
+      model: createViewModel({
+        queuePreview: [current],
+        queueWindowStart: 7,
+        queueTotal: 20,
+        activeQueueHash: current.FileHash,
+      }),
+    });
+
+    expect(wrapper.find('[data-test="queue-track-queue-1"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="queue-track-queue-8"]').exists()).toBe(false);
+
+    await list.trigger('mouseleave');
+
+    const resumed = wrapper.get('[data-test="queue-track-queue-8"]');
+    expect(resumed.attributes('aria-current')).toBe('true');
+    expect(resumed.text()).toContain('08');
+  });
+
   it('emits a dedicated queue event without changing the daily-card event', async () => {
     const queued = createTrack({ FileHash: 'queue-play', SongName: 'Queue Play' });
     const daily = createTrack({ FileHash: 'daily-play', SongName: 'Daily Play' });
@@ -430,7 +464,10 @@ describe('AuroraHome', () => {
       props: { model: vm },
     });
 
-    expect(wrapper.text()).toBeTruthy();
+    expect(wrapper.get('[data-test="aurora-stage-loading"]').text()).toContain('正在加载推荐');
+    expect(wrapper.find('[data-test="hero-play"]').exists()).toBe(false);
+    expect(wrapper.text()).not.toContain('正在播放');
+    expect(wrapper.text()).not.toContain('96kHz');
   });
 
   describe('home enter cold / return budgets', () => {

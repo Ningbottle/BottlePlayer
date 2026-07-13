@@ -53,6 +53,7 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     toggleShuffle: vi.fn(),
     toggleRepeat: vi.fn(),
     toggleLyricView: vi.fn(),
+    openLyricView: vi.fn(),
     openLyricImmersion: vi.fn(),
     handleFavorite: vi.fn(),
     handleSelectQuality: vi.fn(),
@@ -98,11 +99,13 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
   });
 
-  it('cover click does not open fullscreen lyrics', async () => {
+  it('cover click opens the normal lyric page without entering fullscreen', async () => {
+    const openLyricView = vi.fn();
     const openLyricImmersion = vi.fn();
     const ctrl = createStubController({
       currentTrack: mkTrack(),
       coverUrl: 'http://example.com/cover.jpg',
+      openLyricView,
       openLyricImmersion,
     });
 
@@ -111,17 +114,18 @@ describe('AuroraPlayerBar', () => {
     });
 
     await wrapper.get('[data-test="aurora-pb-cover-immersion"]').trigger('click');
+    expect(openLyricView).toHaveBeenCalledOnce();
     expect(openLyricImmersion).not.toHaveBeenCalled();
   });
 
-  it('cover double click opens fullscreen lyrics once', async () => {
-    const openLyricImmersion = vi.fn();
+  it('song information opens the normal lyric page', async () => {
+    const openLyricView = vi.fn();
     const wrapper = mount(AuroraPlayerBar, {
-      props: { controller: createStubController({ currentTrack: mkTrack(), openLyricImmersion }) },
+      props: { controller: createStubController({ currentTrack: mkTrack(), openLyricView }) },
     });
 
-    await wrapper.get('[data-test="aurora-pb-cover-immersion"]').trigger('dblclick');
-    expect(openLyricImmersion).toHaveBeenCalledOnce();
+    await wrapper.get('.aurora-pb-info-btn').trigger('click');
+    expect(openLyricView).toHaveBeenCalledOnce();
   });
 
   it('renders a fullscreen text entry button and opens lyrics when clicked', async () => {
@@ -137,13 +141,14 @@ describe('AuroraPlayerBar', () => {
     expect(openLyricImmersion).toHaveBeenCalledOnce();
   });
 
-  it('disables cover and fullscreen text entry without a current track', () => {
+  it('disables lyric entry controls without a current track', () => {
     const wrapper = mount(AuroraPlayerBar, {
       props: { controller: createStubController() },
     });
 
     expect(wrapper.get('[data-test="aurora-pb-cover-immersion"]').attributes('disabled')).toBeDefined();
     expect(wrapper.get('[data-test="aurora-pb-enter-fullscreen"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('.aurora-pb-info-btn').attributes('disabled')).toBeDefined();
   });
 
   it('renders shuffle, prev, play/pause, next, repeat controls', () => {

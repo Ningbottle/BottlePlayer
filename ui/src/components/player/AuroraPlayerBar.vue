@@ -72,9 +72,9 @@ function onRelease(e: MouseEvent) {
           type="button"
           class="aurora-pb-cover-btn"
           data-test="aurora-pb-cover-immersion"
-          title="双击打开全屏歌词"
+          title="打开歌词"
           :disabled="!c.currentTrack"
-          @dblclick.stop="c.openLyricImmersion"
+          @click.stop="c.openLyricView"
         >
           <div class="aurora-pb-cover">
             <img :src="c.coverUrl" alt="cover" />
@@ -96,7 +96,8 @@ function onRelease(e: MouseEvent) {
         type="button"
         class="aurora-pb-info-btn"
         title="点击查看歌词"
-        @click="c.toggleLyricView"
+        :disabled="!c.currentTrack"
+        @click.stop="c.openLyricView"
       >
         <template v-if="c.currentTrack">
           <b>{{ c.currentTrack.SongName }}</b>

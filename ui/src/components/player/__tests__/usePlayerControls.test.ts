@@ -178,6 +178,38 @@ describe('usePlayerControls', () => {
     expect(onNavigate).toHaveBeenCalledWith('home');
   });
 
+  it('openLyricView opens the normal lyric page and exits fullscreen', () => {
+    mocks.store.currentTrack = mkTrack();
+    const onNavigate = vi.fn();
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate });
+
+    ctrl.openLyricView();
+
+    expect(onNavigate).toHaveBeenCalledWith('lyric');
+    expect(mocks.setLyricFullscreen).toHaveBeenCalledWith(false);
+  });
+
+  it('openLyricView keeps the lyric page open while leaving fullscreen', () => {
+    mocks.store.currentTrack = mkTrack();
+    const onNavigate = vi.fn();
+    const ctrl = usePlayerControls({ activeView: () => 'lyric', onNavigate });
+
+    ctrl.openLyricView();
+
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(mocks.setLyricFullscreen).toHaveBeenCalledWith(false);
+  });
+
+  it('openLyricView is a no-op without a current track', () => {
+    const onNavigate = vi.fn();
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate });
+
+    ctrl.openLyricView();
+
+    expect(onNavigate).not.toHaveBeenCalled();
+    expect(mocks.setLyricFullscreen).not.toHaveBeenCalled();
+  });
+
   it('openLyricImmersion navigates to lyric and enters fullscreen when not on lyric', () => {
     mocks.store.currentTrack = mkTrack();
     const onNavigate = vi.fn();
