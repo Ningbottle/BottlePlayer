@@ -566,12 +566,21 @@ describe('Aurora playlist shelf selection', () => {
     });
 
     const stage = document.querySelector('[data-test="shelf-stage"]') as HTMLElement;
-    stage.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, button: 0, clientX: 20 }));
-    stage.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 29 }));
-    (document.querySelector('[data-test="shelf-card-1"]') as HTMLButtonElement).click();
+    const pointerId = 7;
+    stage.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, button: 0, clientX: 20, pointerId }));
+    stage.dispatchEvent(new PointerEvent('pointermove', { bubbles: true, clientX: 29, pointerId }));
+    stage.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, button: 0, clientX: 29, pointerId }));
+    const card = document.querySelector('[data-test="shelf-card-1"]') as HTMLButtonElement;
+    card.click();
     await nextTick();
 
     expect(wrapper.emitted('select')).toBeUndefined();
+
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    card.click();
+    await nextTick();
+
+    expect(wrapper.emitted('select')).toEqual([[queueTracks[1]]]);
 
     wrapper.unmount();
   });
