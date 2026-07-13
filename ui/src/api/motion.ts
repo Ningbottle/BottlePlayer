@@ -113,13 +113,26 @@ export function animateElement(
   return { kill: () => { tween.kill(); gsap.killTweensOf(el); } };
 }
 
+/** Optional overrides for home cold/return (and other) stagger budgets. */
+export interface StaggerOverrides {
+  duration?: number;
+  stagger?: number;
+  maxItems?: number;
+  fromY?: number;
+}
+
 /** Animate a list of elements with stagger using the cardEnter profile. Returns a cancellable handle. */
 export function animateStagger(
   elements: Element[],
   profileKey: 'cardEnter',
+  overrides?: StaggerOverrides,
 ): MotionHandle {
   const spec = currentProfile()[profileKey];
-  const capped = elements.slice(0, spec.maxItems);
+  const maxItems = overrides?.maxItems ?? spec.maxItems;
+  const duration = overrides?.duration ?? spec.duration;
+  const stagger = overrides?.stagger ?? spec.stagger;
+  const fromY = overrides?.fromY ?? 20;
+  const capped = elements.slice(0, maxItems);
 
   capped.forEach((el) => gsap.killTweensOf(el));
 
@@ -128,12 +141,12 @@ export function animateStagger(
     return { kill: () => {} };
   }
 
-  const tween = gsap.fromTo(capped, { opacity: 0, y: 20 }, {
+  const tween = gsap.fromTo(capped, { opacity: 0, y: fromY }, {
     opacity: 1, y: 0,
-    duration: spec.duration,
+    duration,
     ease: spec.ease,
     delay: spec.delay ?? 0,
-    stagger: spec.stagger,
+    stagger,
   });
   return { kill: () => { tween.kill(); capped.forEach((el) => gsap.killTweensOf(el)); } };
 }

@@ -239,6 +239,45 @@ describe('motion.ts', () => {
     expect(gsap.fromTo).not.toHaveBeenCalled();
   });
 
+  it('animateStagger merges overrides for duration, stagger, maxItems, and fromY', async () => {
+    const { gsap } = await import('gsap');
+    const els = Array.from({ length: 10 }, () => document.createElement('div'));
+
+    animateStagger(els, 'cardEnter', {
+      duration: 0.24,
+      stagger: 0.025,
+      maxItems: 6,
+      fromY: 10,
+    });
+
+    expect(gsap.fromTo).toHaveBeenCalledWith(
+      els.slice(0, 6),
+      { opacity: 0, y: 10 },
+      expect.objectContaining({
+        duration: 0.24,
+        stagger: 0.025,
+      }),
+    );
+    // Only the capped set is killed / animated
+    expect(gsap.killTweensOf).toHaveBeenCalledTimes(6);
+  });
+
+  it('animateStagger without overrides keeps profile cardEnter defaults', async () => {
+    const { gsap } = await import('gsap');
+    const els = Array.from({ length: 15 }, () => document.createElement('div'));
+
+    animateStagger(els, 'cardEnter');
+
+    expect(gsap.fromTo).toHaveBeenCalledWith(
+      els.slice(0, 12),
+      { opacity: 0, y: 20 },
+      expect.objectContaining({
+        duration: 0.36,
+        stagger: 0.04,
+      }),
+    );
+  });
+
   // --- startAmbientMotion tests ---
 
   it('startAmbientMotion returns handle with kill()', () => {

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { onMounted, onActivated, onDeactivated, nextTick, ref, computed } from 'vue';
-import { playTrack, playPersonalFm } from '../api/playerStore';
+import { playTrack, playPersonalFm, clearQueue } from '../api/playerStore';
 import type { Track } from '../api/normalizer';
 import { useHomeFeedStore } from '../api/homeFeedStore';
 import { useThemeStore } from '../api/themeStore';
+import { nextHomeEnterMode, type HomeEnterMode } from '../api/homeEnterSession';
 import { useHomeViewModel } from './home/homeViewModel';
 import AuroraHome from './home/AuroraHome.vue';
 import NewsprintHome from './home/NewsprintHome.vue';
@@ -13,6 +14,10 @@ defineOptions({ name: 'HomeView' });
 const scrollPositions: Record<string, number> = {};
 const themeStore = useThemeStore();
 const rootEl = ref<HTMLElement | null>(null);
+
+/** Aurora home enter: only advanced in onActivated (KeepAlive-safe). */
+const enterMode = ref<HomeEnterMode | 'none'>('none');
+const enterNonce = ref(0);
 
 const emit = defineEmits<{
   (e: 'navigate', view: string, params?: any): void;
@@ -40,6 +45,8 @@ function findScrollContainer(): HTMLElement | null {
 
 let scrollContainer: HTMLElement | null = null;
 
+// Use ONLY onActivated for KeepAlive children (fires on first insert AND later activates).
+// Do NOT also set cold in onMounted and return in onActivated.
 onActivated(() => {
   scrollContainer = findScrollContainer();
   const skinKey = `home:${themeStore.skinId.value}`;
@@ -48,6 +55,11 @@ onActivated(() => {
     nextTick(() => {
       if (scrollContainer) scrollContainer.scrollTop = saved;
     });
+  }
+
+  if (themeStore.skinId.value === 'aurora') {
+    enterMode.value = nextHomeEnterMode();
+    enterNonce.value += 1;
   }
 });
 
@@ -73,17 +85,24 @@ function onRefresh() {
 function onNavigate(view: string, params?: any) {
   emit('navigate', view, params);
 }
+
+function onClearQueue() {
+  clearQueue();
+}
 </script>
 
 <template>
-  <div ref="rootEl" class="list-view">
+  <div ref="rootEl" class="list-view home-view-root">
     <Transition name="skin-crossfade" mode="out-in">
       <component
         :is="homeComponent"
         :model="viewModel"
+        :enter-mode="enterMode"
+        :enter-nonce="enterNonce"
         @play-track="onPlayTrack"
         @refresh="onRefresh"
         @navigate="onNavigate"
+        @clear-queue="onClearQueue"
       />
     </Transition>
   </div>

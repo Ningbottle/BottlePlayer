@@ -1,22 +1,39 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUpdate, onUnmounted } from 'vue';
+import { ref, computed, watch, onMounted, onBeforeUpdate, onUnmounted, nextTick } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../api/normalizer';
 import type { PlaylistInfo } from '../../api/homeFeedStore';
-import { animateElement, animateStagger, startAmbientMotion } from '../../api/motion';
+import { gsap } from 'gsap';
+import type { HomeEnterMode } from '../../api/homeEnterSession';
+import { animateStagger, startAmbientMotion, isReducedMotion } from '../../api/motion';
+import AuroraAtmosphere from './AuroraAtmosphere.vue';
 
-const props = defineProps<{ model: HomeViewModel }>();
+const props = withDefaults(
+  defineProps<{
+    model: HomeViewModel;
+    enterMode?: HomeEnterMode | 'none';
+    enterNonce?: number;
+  }>(),
+  {
+    enterMode: 'none',
+    enterNonce: 0,
+  },
+);
 
 const emit = defineEmits<{
   (e: 'play-track', track: Track): void;
   (e: 'refresh'): void;
   (e: 'navigate', view: string, params?: any): void;
+  (e: 'clear-queue'): void;
 }>();
 
 const coverError = ref(false);
 const stageEl = ref<HTMLElement | null>(null);
 const recommendationEls = ref<HTMLElement[]>([]);
-const motionHandles: Array<{ kill(): void }> = [];
+/** Stage + stagger enter handles (killed on re-enter). */
+const enterHandles: Array<{ kill(): void }> = [];
+/** Ambient only — started once, not replayed on return. */
+const ambientHandles: Array<{ kill(): void }> = [];
 
 watch(() => props.model.heroTrack, () => { coverError.value = false; });
 
@@ -28,20 +45,77 @@ onBeforeUpdate(() => {
   recommendationEls.value = [];
 });
 
+function killEnterHandles(): void {
+  enterHandles.splice(0).forEach((handle) => handle.kill());
+}
+
+/**
+ * Cold vs return home enter. Budgets:
+ * - cold: stage ~0.55s expo.out, stagger max 12
+ * - return: stage ~0.28s, stagger max 6
+ * - reduced: set only (via motion helpers)
+ *
+ * Deferred to nextTick so stage/recommendation refs exist after mount / KeepAlive activate.
+ */
+function playHomeEnter(): void {
+  const mode = props.enterMode;
+  if (mode === 'none') return;
+
+  killEnterHandles();
+
+  const isCold = mode === 'cold';
+  const stageFromY = isCold ? 20 : 10;
+  const stageDuration = isCold ? 0.55 : 0.28;
+  const staggerOptions = isCold
+    ? { duration: 0.42, stagger: 0.04, maxItems: 12, fromY: 20 }
+    : { duration: 0.24, stagger: 0.025, maxItems: 6, fromY: 10 };
+  const nonceAtSchedule = props.enterNonce;
+
+  void nextTick(() => {
+    // Drop if a newer enter superseded this schedule, or mode cleared.
+    if (props.enterMode === 'none' || props.enterNonce !== nonceAtSchedule) return;
+
+    if (stageEl.value) {
+      const el = stageEl.value;
+      gsap.killTweensOf(el);
+      if (isReducedMotion()) {
+        gsap.set(el, { opacity: 1, y: 0 });
+      } else {
+        const tween = gsap.fromTo(
+          el,
+          { opacity: 0, y: stageFromY },
+          { opacity: 1, y: 0, duration: stageDuration, ease: 'expo.out' },
+        );
+        enterHandles.push({
+          kill: () => {
+            tween.kill();
+            gsap.killTweensOf(el);
+          },
+        });
+      }
+    }
+
+    enterHandles.push(animateStagger(recommendationEls.value, 'cardEnter', staggerOptions));
+  });
+}
+
+watch(
+  [() => props.enterMode, () => props.enterNonce],
+  () => {
+    playHomeEnter();
+  },
+  { immediate: true, flush: 'post' },
+);
+
 onMounted(() => {
   if (stageEl.value) {
-    motionHandles.push(
-      animateElement(stageEl.value, { opacity: 0, y: 20 }, { opacity: 1, y: 0 }, 'pageEnter'),
-    );
-  }
-  motionHandles.push(animateStagger(recommendationEls.value, 'cardEnter'));
-  if (stageEl.value) {
-    motionHandles.push(startAmbientMotion(stageEl.value, () => props.model.isPlaying));
+    ambientHandles.push(startAmbientMotion(stageEl.value, () => props.model.isPlaying));
   }
 });
 
 onUnmounted(() => {
-  motionHandles.splice(0).forEach((handle) => handle.kill());
+  killEnterHandles();
+  ambientHandles.splice(0).forEach((handle) => handle.kill());
 });
 
 const heroCover = computed(() => {
@@ -54,6 +128,16 @@ const heroSource = computed(() => {
   if (!t) return '';
   if (t.AlbumName) return t.AlbumName;
   return '每日推荐';
+});
+
+/** Album line only when it adds info beyond the song title (avoid triple-repeat clutter). */
+const heroAlbumLine = computed(() => {
+  const t = props.model.heroTrack;
+  if (!t?.AlbumName) return '';
+  const album = t.AlbumName.trim();
+  const song = (t.SongName || '').trim();
+  if (!album || album === song) return '';
+  return album;
 });
 
 const queueCount = computed(() => {
@@ -102,9 +186,9 @@ function formatDuration(sec: number): string {
 <template>
   <div class="aurora-home">
     <!--
-      Design composition (Codex 1586×1024):
-      LEFT column defines height: cover+info → daily banner → DAILY PICKS
-      RIGHT queue is a tall vertical panel matching LEFT height exactly (top→bottom of stage)
+      Layout:
+      1) Stage hero row = cover/info | queue (grid, not absolute) — no dead gutter under rail
+      2) Full-width DAILY PICKS / 编辑推荐 / 最新歌单 below — fill content width
     -->
     <section
       ref="stageEl"
@@ -112,8 +196,9 @@ function formatDuration(sec: number): string {
       data-test="aurora-stage"
       :data-playing="model.isPlaying"
     >
-      <div class="aurora-stage-left">
-        <div class="aurora-stage-main">
+      <AuroraAtmosphere :is-playing="model.isPlaying" />
+      <div class="aurora-stage-hero">
+        <div v-if="model.heroTrack" class="aurora-stage-main">
           <div class="aurora-cover">
             <img
               v-if="heroCover"
@@ -129,24 +214,22 @@ function formatDuration(sec: number): string {
               <span class="aurora-label-dot" aria-hidden="true" />
               {{ model.isPlaying ? '正在播放' : '每日推荐' }}
             </div>
-            <h1 class="aurora-song-name">{{ model.heroTrack?.SongName || '未在播放' }}</h1>
+            <h1 class="aurora-song-name">{{ model.heroTrack.SongName }}</h1>
             <p class="aurora-artist">
-              {{ model.heroTrack?.SingerName || '—' }}
-              <span v-if="model.heroTrack" class="aurora-artist-chevron" aria-hidden="true">›</span>
+              {{ model.heroTrack.SingerName }}
+              <span class="aurora-artist-chevron" aria-hidden="true">›</span>
             </p>
-            <div class="aurora-quality-row" aria-label="音频信息">
-              <span>无损</span>
-              <span>96kHz / 24bit</span>
-              <span>VIP</span>
+            <div
+              v-if="model.heroQualityChips.length"
+              class="aurora-quality-row"
+              data-test="hero-quality-chips"
+              aria-label="音频信息"
+            >
+              <span v-for="chip in model.heroQualityChips" :key="chip">{{ chip }}</span>
             </div>
-            <blockquote class="aurora-quote" v-if="model.heroTrack">
-              <p>{{ model.heroTrack.AlbumName || heroSource || '用音乐填满此刻' }}</p>
-              <p class="aurora-quote-accent">{{ model.heroTrack.SingerName }}</p>
-              <p>{{ model.heroTrack.SongName }}</p>
-            </blockquote>
-            <div v-else class="aurora-quote aurora-quote-empty">
-              <p>选择一首歌，开始沉浸聆听</p>
-            </div>
+            <p v-if="heroAlbumLine" class="aurora-album-line" data-test="hero-album-line">
+              {{ heroAlbumLine }}
+            </p>
             <div class="aurora-meta-row">
               <button class="aurora-play play-cta" data-test="hero-play" @click="onHeroPlay">
                 <span aria-hidden="true">播放</span>
@@ -165,97 +248,127 @@ function formatDuration(sec: number): string {
           </div>
         </div>
 
-        <div class="aurora-daily-banner" v-if="model.dailyTracks.length || model.heroTrack">
-          <span class="aurora-daily-pill">每日推荐</span>
-          <p>根据你与「{{ model.heroTrack?.SingerName || '收藏' }}」的收听偏好，为你精选 · 每日合集</p>
+        <div v-else class="aurora-stage-empty" data-test="aurora-stage-empty">
+          <p class="aurora-label"><span class="aurora-label-dot" aria-hidden="true" />还没有开始播放</p>
+          <h1>选择一首歌，开始沉浸聆听</h1>
+          <p>从每日推荐或左侧歌单开始，舞台会随播放状态展开。</p>
+          <button
+            type="button"
+            class="aurora-play"
+            data-test="empty-stage-refresh"
+            :disabled="model.isRefreshing"
+            @click="emit('refresh')"
+          >
+            {{ model.isRefreshing ? '加载中…' : '刷新推荐' }}
+          </button>
         </div>
 
-        <section
-          v-if="model.dailyTracks.length > 0"
-          class="aurora-recommendations"
-          data-test="daily-picks"
-        >
-          <div class="aurora-section-head">
-            <h2>DAILY PICKS · 今日推荐</h2>
+        <aside class="aurora-queue-rail" data-test="queue-rail" aria-label="播放队列">
+          <header class="aurora-queue-rail-head">
+            <h2>播放队列 <span>{{ queueCount }}</span></h2>
             <button
               type="button"
-              class="aurora-picks-refresh"
-              :disabled="model.isRefreshing"
-              @click="emit('refresh')"
-            >
-              {{ model.isRefreshing ? '刷新中…' : '刷新' }}
-            </button>
-          </div>
-          <div class="aurora-recommendation-grid">
-            <button
-              v-for="track in model.dailyTracks.slice(0, 6)"
-              :key="track.FileHash"
-              :ref="setRecommendationRef"
-              type="button"
-              class="aurora-track-card"
-              :data-test="`daily-track-${track.FileHash}`"
-              @click="onTrackPlay(track)"
-            >
-              <span class="aurora-track-cover">
-                <img v-if="track.Image" :src="track.Image" :alt="`${track.SongName}封面`" />
-                <span v-else>推荐</span>
-              </span>
-              <strong>{{ track.SongName }}</strong>
-              <small>{{ track.SingerName }}</small>
-            </button>
-          </div>
-        </section>
-      </div>
-
-      <aside class="aurora-queue-rail" data-test="queue-rail" aria-label="播放队列">
-        <header class="aurora-queue-rail-head">
-          <h2>播放队列 <span>{{ queueCount }}</span></h2>
-          <button type="button" class="aurora-queue-clear" disabled aria-label="清空播放队列">清空</button>
-        </header>
-        <ol v-if="displayedQueuePreview.length" class="aurora-queue-list">
-          <li v-for="(track, index) in displayedQueuePreview" :key="track.FileHash" class="aurora-queue-row">
-            <button
-              type="button"
-              :data-test="`queue-track-${track.FileHash}`"
-              :class="{ 'is-active': isActiveQueueTrack(track) }"
-              :aria-current="isActiveQueueTrack(track) ? 'true' : undefined"
-              @click="onTrackPlay(track)"
-            >
-              <span class="aurora-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
-              <span class="aurora-queue-copy"><b>{{ track.SongName }}</b><small>{{ track.SingerName }}</small></span>
-              <span class="aurora-queue-duration">{{ formatDuration(track.Duration) }}</span>
-            </button>
-          </li>
-        </ol>
-        <div
-          v-else
-          class="aurora-queue-empty"
-          data-test="queue-empty-state"
-        >
-          <p class="aurora-queue-empty-title">队列还是空的</p>
-          <p class="aurora-queue-empty-hint">播放每日推荐或歌单后，曲目会出现在这里</p>
-          <ul
-            v-if="emptyQueueSuggestions.length"
-            class="aurora-queue-suggestions"
-          >
-            <li v-for="track in emptyQueueSuggestions" :key="track.FileHash">
-              <button type="button" @click="onTrackPlay(track)">
-                {{ track.SongName }}
-                <small>{{ track.SingerName }}</small>
+              class="aurora-queue-clear"
+              data-test="queue-clear"
+              :disabled="!model.queueTotal"
+              aria-label="清空播放队列"
+              @click="emit('clear-queue')"
+            >清空</button>
+          </header>
+          <ol v-if="displayedQueuePreview.length" class="aurora-queue-list">
+            <li v-for="(track, index) in displayedQueuePreview" :key="track.FileHash" class="aurora-queue-row">
+              <button
+                type="button"
+                :data-test="`queue-track-${track.FileHash}`"
+                :class="{ 'is-active': isActiveQueueTrack(track) }"
+                :aria-current="isActiveQueueTrack(track) ? 'true' : undefined"
+                @click="onTrackPlay(track)"
+              >
+                <span class="aurora-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
+                <span class="aurora-queue-copy"><b>{{ track.SongName }}</b><small>{{ track.SingerName }}</small></span>
+                <span class="aurora-queue-duration">{{ formatDuration(track.Duration) }}</span>
               </button>
             </li>
-          </ul>
+          </ol>
+          <div
+            v-else
+            class="aurora-queue-empty"
+            data-test="queue-empty-state"
+          >
+            <p class="aurora-queue-empty-title">队列还是空的</p>
+            <p class="aurora-queue-empty-hint">播放每日推荐或歌单后，曲目会出现在这里</p>
+            <ul
+              v-if="emptyQueueSuggestions.length"
+              class="aurora-queue-suggestions"
+            >
+              <li v-for="track in emptyQueueSuggestions" :key="track.FileHash">
+                <button type="button" @click="onTrackPlay(track)">
+                  {{ track.SongName }}
+                  <small>{{ track.SingerName }}</small>
+                </button>
+              </li>
+            </ul>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+    <section
+      v-if="model.dailyTracks.length > 0"
+      class="aurora-recommendations"
+      data-test="daily-picks"
+    >
+      <div class="aurora-section-head">
+        <div class="aurora-section-head-copy">
+          <h2>DAILY PICKS · 今日推荐</h2>
+          <p class="aurora-section-sub">
+            根据你与「{{ model.heroTrack?.SingerName || '收藏' }}」的收听偏好精选
+          </p>
         </div>
-      </aside>
+        <button
+          type="button"
+          class="aurora-picks-refresh"
+          :disabled="model.isRefreshing"
+          @click="emit('refresh')"
+        >
+          {{ model.isRefreshing ? '刷新中…' : '刷新' }}
+        </button>
+      </div>
+      <div class="aurora-recommendation-grid">
+        <button
+          v-for="track in model.dailyTracks.slice(0, 18)"
+          :key="track.FileHash"
+          :ref="setRecommendationRef"
+          type="button"
+          class="aurora-track-card"
+          :data-test="`daily-track-${track.FileHash}`"
+          @click="onTrackPlay(track)"
+        >
+          <span class="aurora-track-cover">
+            <img v-if="track.Image" :src="track.Image" :alt="`${track.SongName}封面`" />
+            <span v-else>推荐</span>
+          </span>
+          <strong>{{ track.SongName }}</strong>
+          <small>{{ track.SingerName }}</small>
+        </button>
+      </div>
     </section>
 
     <div
-      v-for="err in model.errors"
-      :key="err.section"
-      class="aurora-error"
+      v-if="model.errors.length"
+      class="aurora-error-summary"
+      data-test="home-error-summary"
+      role="alert"
     >
-      {{ err.message }}
-      <button class="aurora-retry" @click="emit('refresh')">重试</button>
+      <p>{{ model.errorSummary || '部分内容加载失败' }}</p>
+      <button
+        type="button"
+        class="aurora-retry"
+        data-test="home-error-retry-all"
+        @click="emit('refresh')"
+      >
+        全部重试
+      </button>
     </div>
 
     <section v-if="model.playlists.length > 0" class="aurora-section">
@@ -318,47 +431,92 @@ export default { name: 'AuroraHome' };
 
 <style scoped>
 /*
-  Codex design (1586×1024):
-  LEFT (defines height): cover+info → 每日推荐条 → DAILY PICKS 小专辑一排
-  RIGHT: 竖长队列，高度严格 = 左侧整列（触底到舞台底，不是撑满整窗空白）
+  Hero row: cover+info | queue (CSS grid, equal height)
+  Below: full-width DAILY PICKS / 编辑推荐 / 最新歌单 (no rail gutter)
 */
 .aurora-home {
-  padding: 12px 22px 8px;
+  padding: 12px clamp(16px, 2vw, 28px) 18px;
   box-sizing: border-box;
   min-height: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  /* Tight stack: hero → DAILY PICKS (no tall dead gap) */
+  gap: 12px;
 }
 
 .aurora-stage {
   position: relative;
-  /* Leave room for absolute queue on the right */
-  padding-right: calc(332px + 24px);
+  z-index: 1;
   margin: 0;
   min-width: 0;
+  isolation: isolate;
   box-sizing: border-box;
+  flex: none;
 }
 
-.aurora-stage-left {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
+.aurora-stage-hero {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 320px);
+  gap: 18px;
+  /* Match queue to cover height; cover owns the row height */
+  align-items: stretch;
   min-width: 0;
 }
 
 .aurora-stage-main {
   min-width: 0;
   display: grid;
-  grid-template-columns: 340px minmax(0, 1fr);
-  gap: 28px;
-  align-items: start;
-  padding: 4px 0 0;
+  grid-template-columns: minmax(240px, 320px) minmax(0, 1fr);
+  gap: 22px;
+  align-items: center;
+  padding: 0;
   background:
     radial-gradient(ellipse 55% 65% at 70% 35%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 62%);
 }
 
+.aurora-stage-empty {
+  min-height: 280px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  gap: 12px;
+  padding: 28px clamp(20px, 4vw, 48px);
+  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
+  border-radius: 20px;
+  background: color-mix(in srgb, var(--surface-2) 78%, transparent);
+  box-shadow: 0 20px 54px color-mix(in srgb, var(--accent) 10%, transparent);
+  min-width: 0;
+}
+
+.aurora-stage-empty h1,
+.aurora-stage-empty p {
+  margin: 0;
+}
+
+.aurora-stage-empty h1 {
+  max-width: min(20ch, 100%);
+  font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
+  font-size: clamp(30px, 3vw, 46px);
+  line-height: 1.2;
+  color: var(--text-primary);
+  text-wrap: balance;
+}
+
+.aurora-stage-empty > p:not(.aurora-label) {
+  max-width: 36rem;
+  color: var(--text-secondary);
+  line-height: 1.65;
+}
+
 .aurora-cover {
   aspect-ratio: 1;
-  width: 340px;
-  max-width: 100%;
+  width: 100%;
+  max-width: 320px;
   height: auto;
   border-radius: 16px;
   overflow: hidden;
@@ -391,6 +549,7 @@ export default { name: 'AuroraHome' };
   gap: 8px;
   min-width: 0;
   padding-top: 0;
+  justify-content: center;
 }
 
 .aurora-label {
@@ -413,10 +572,9 @@ export default { name: 'AuroraHome' };
 
 .aurora-song-name {
   font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
-  /* Spec §6.4: 48–56px desktop */
-  font-size: clamp(40px, 3.6vw, 54px);
+  font-size: clamp(30px, 3vw, 44px);
   font-weight: 700;
-  line-height: 1.08;
+  line-height: 1.1;
   word-break: break-word;
   overflow-wrap: break-word;
   margin: 0;
@@ -425,7 +583,7 @@ export default { name: 'AuroraHome' };
 }
 
 .aurora-artist {
-  font-size: 20px;
+  font-size: 18px;
   color: var(--text-secondary);
   margin: 0;
   display: inline-flex;
@@ -435,58 +593,17 @@ export default { name: 'AuroraHome' };
 
 .aurora-artist-chevron {
   opacity: 0.55;
-  font-size: 20px;
+  font-size: 18px;
   line-height: 1;
 }
 
-.aurora-quote {
-  margin: 6px 0 2px;
-  padding: 0 0 0 2px;
-  border: 0;
-  color: var(--text-secondary);
-  font-size: 14px;
-  line-height: 1.55;
-  max-width: 28em;
-}
-
-.aurora-quote p {
-  margin: 0 0 2px;
-}
-
-.aurora-quote-accent {
-  color: var(--accent) !important;
-  font-weight: 500;
-}
-
-.aurora-quote-empty {
+/* Single album subtitle — no re-listing artist/song under the title */
+.aurora-album-line {
+  margin: 2px 0 0;
+  max-width: 36em;
   color: var(--text-muted);
-}
-
-.aurora-daily-banner {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 2px 0 0;
-  min-width: 0;
-}
-
-.aurora-daily-pill {
-  flex: none;
-  padding: 6px 12px;
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2));
-  border: 1px solid color-mix(in srgb, var(--accent) 40%, transparent);
-  color: var(--accent);
-  font-size: 12px;
-  font-weight: 600;
-}
-
-.aurora-daily-banner p {
-  margin: 0;
   font-size: 13px;
-  color: var(--text-secondary);
   line-height: 1.45;
-  min-width: 0;
 }
 
 .aurora-quality-row {
@@ -512,7 +629,7 @@ export default { name: 'AuroraHome' };
   display: flex;
   align-items: center;
   gap: 14px;
-  margin-top: 6px;
+  margin-top: 10px;
   flex-wrap: wrap;
 }
 
@@ -569,23 +686,21 @@ export default { name: 'AuroraHome' };
   cursor: not-allowed;
 }
 
-/*
-  Queue = absolute tall vertical rect pinned to stage left column height.
-  top/bottom:0 → 与左侧同高并触到舞台底（设计图竖长列表）。
-*/
+/* Queue matches cover row height (capped so empty state can't invent ~600px blank) */
 .aurora-queue-rail {
-  position: absolute;
-  top: 0;
-  right: 0;
-  bottom: 0;
-  width: 332px;
+  position: relative;
+  z-index: 1;
+  width: auto;
+  min-width: 0;
+  min-height: 0;
+  max-height: 320px;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
   border-radius: 14px;
   background: color-mix(in srgb, var(--surface-2) 88%, transparent);
-  padding: 14px 12px 12px;
+  padding: 12px 10px 10px;
   box-sizing: border-box;
 }
 
@@ -611,6 +726,11 @@ export default { name: 'AuroraHome' };
   font-size: 12px;
   font-weight: 500;
   margin-left: 4px;
+}
+
+.aurora-queue-clear:disabled {
+  opacity: 0.35;
+  cursor: not-allowed;
 }
 
 .aurora-queue-clear {
@@ -709,9 +829,9 @@ export default { name: 'AuroraHome' };
   align-items: stretch;
   justify-content: center;
   flex: 1;
-  min-height: 200px;
-  padding: 16px 10px;
-  gap: 8px;
+  min-height: 0;
+  padding: 12px 8px;
+  gap: 6px;
   color: var(--text-muted);
   font-size: 13px;
   box-sizing: border-box;
@@ -776,26 +896,43 @@ export default { name: 'AuroraHome' };
   outline: none;
 }
 
-/* Spec §6.5: DAILY PICKS — 6 small albums in a tight row under hero */
+/* Full-width DAILY PICKS — larger covers so they own the space under hero */
 .aurora-recommendations {
   margin: 0;
   min-width: 0;
+  width: 100%;
   padding: 4px 0 0;
+  flex: none;
 }
 
 .aurora-recommendations .aurora-section-head {
-  margin-bottom: 12px;
+  margin-bottom: 14px;
   display: flex;
-  align-items: baseline;
+  align-items: flex-end;
   justify-content: space-between;
+  gap: 12px;
+}
+
+.aurora-section-head-copy {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
 }
 
 .aurora-recommendations .aurora-section-head h2 {
-  font-size: 13px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  color: var(--text-secondary);
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-primary);
   margin: 0;
+}
+
+.aurora-section-sub {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  line-height: 1.4;
 }
 
 .aurora-picks-refresh {
@@ -803,20 +940,26 @@ export default { name: 'AuroraHome' };
   background: transparent;
   color: var(--text-muted);
   font: inherit;
-  font-size: 12px;
+  font-size: 13px;
   cursor: pointer;
-  padding: 0;
+  padding: 0 0 2px;
+  flex-shrink: 0;
 }
 
 .aurora-picks-refresh:hover {
   color: var(--accent);
 }
 
+/*
+  Bigger cards (≈140–168px): fill the band under hero instead of a dark void.
+  auto-fit collapses empty tracks on wide windows.
+*/
 .aurora-recommendation-grid {
   display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 14px;
-  max-width: 780px;
+  grid-template-columns: repeat(auto-fit, minmax(min(140px, 100%), 1fr));
+  gap: 16px 18px;
+  width: 100%;
+  max-width: none;
 }
 
 .aurora-track-card,
@@ -832,7 +975,7 @@ export default { name: 'AuroraHome' };
 
 .aurora-track-card {
   display: grid;
-  gap: 6px;
+  gap: 8px;
 }
 
 .aurora-track-card strong,
@@ -842,17 +985,17 @@ export default { name: 'AuroraHome' };
   white-space: nowrap;
 }
 
-.aurora-track-card strong { font-size: 12px; font-weight: 600; }
-.aurora-track-card small { color: var(--text-muted); font-size: 11px; }
+.aurora-track-card strong { font-size: 13px; font-weight: 600; }
+.aurora-track-card small { color: var(--text-muted); font-size: 12px; }
 
 .aurora-track-cover {
   display: grid;
   aspect-ratio: 1;
   width: 100%;
   overflow: hidden;
-  border-radius: 10px;
+  border-radius: 12px;
   background: var(--surface-2);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.24);
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
 }
 
 .aurora-track-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -875,16 +1018,21 @@ export default { name: 'AuroraHome' };
   border: 0;
 }
 
-.aurora-error {
+.aurora-error-summary {
   padding: 10px 14px;
   margin-bottom: 8px;
   border-radius: 8px;
   background: var(--surface-1);
-  color: var(--accent);
+  color: var(--text-secondary, var(--accent));
   font-size: 13px;
   display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 12px;
+}
+
+.aurora-error-summary p {
+  margin: 0;
 }
 
 .aurora-retry {
@@ -898,17 +1046,20 @@ export default { name: 'AuroraHome' };
 
 .aurora-section {
   flex: none;
-  margin-top: 10px;
-  margin-bottom: 0;
-  overflow: auto;
+  margin: 0;
+  overflow: visible;
   min-height: 0;
+  width: 100%;
+  min-width: 0;
 }
 
 .aurora-section-head {
   display: flex;
   align-items: baseline;
   justify-content: space-between;
-  margin-bottom: 14px;
+  margin-bottom: 12px;
+  gap: 12px;
+  min-width: 0;
 }
 
 .aurora-section-head h3 {
@@ -926,12 +1077,36 @@ export default { name: 'AuroraHome' };
 .aurora-section-head span {
   font-size: 13px;
   color: var(--text-secondary);
+  flex-shrink: 0;
 }
 
+/* Editor picks / new albums: fill width without ghost empty columns */
 .aurora-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
-  gap: 16px;
+  grid-template-columns: repeat(auto-fit, minmax(min(132px, 100%), 1fr));
+  gap: 14px 16px;
+  width: 100%;
+}
+
+@media (min-width: 1600px) {
+  .aurora-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(148px, 100%), 1fr));
+  }
+  .aurora-recommendation-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(152px, 100%), 1fr));
+  }
+
+  .aurora-cover {
+    max-width: 340px;
+  }
+
+  .aurora-stage-main {
+    grid-template-columns: minmax(260px, 340px) minmax(0, 1fr);
+  }
+
+  .aurora-queue-rail {
+    max-height: 340px;
+  }
 }
 
 .aurora-card {
@@ -985,27 +1160,38 @@ export default { name: 'AuroraHome' };
 }
 
 @media (max-width: 1359px) {
-  .aurora-stage {
-    padding-right: calc(300px + 20px);
-  }
-
-  .aurora-queue-rail {
-    width: 300px;
+  .aurora-stage-hero {
+    grid-template-columns: minmax(0, 1fr) minmax(250px, 290px);
+    gap: 14px;
   }
 
   .aurora-stage-main {
-    grid-template-columns: minmax(260px, 300px) minmax(0, 1fr);
+    grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+    gap: 16px;
   }
 
   .aurora-cover {
-    width: 100%;
-    max-width: 300px;
+    max-width: 280px;
+  }
+
+  .aurora-queue-rail {
+    max-height: 280px;
+  }
+
+  .aurora-recommendation-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(128px, 100%), 1fr));
   }
 }
 
-@media (max-width: 1099px) {
-  .aurora-stage {
-    padding-right: 0;
+/* Hide queue earlier so mid/small desktops aren't cramped */
+@media (max-width: 1279px) {
+  .aurora-home {
+    padding: 12px 14px 16px;
+    gap: 12px;
+  }
+
+  .aurora-stage-hero {
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .aurora-queue-rail {
@@ -1013,12 +1199,13 @@ export default { name: 'AuroraHome' };
   }
 
   .aurora-recommendation-grid {
-    grid-auto-flow: column;
-    grid-auto-columns: minmax(100px, 120px);
-    grid-template-columns: none;
-    overflow-x: auto;
-    max-width: none;
-    padding-bottom: 4px;
+    grid-template-columns: repeat(auto-fit, minmax(min(120px, 30%), 1fr));
+    gap: 12px 14px;
+  }
+
+  .aurora-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(118px, 30%), 1fr));
+    gap: 12px;
   }
 }
 
@@ -1029,19 +1216,36 @@ export default { name: 'AuroraHome' };
   }
 
   .aurora-cover {
-    width: min(70vw, 300px);
-    max-width: 300px;
+    width: min(58vw, 240px);
+    max-width: 240px;
     margin-inline: auto;
   }
 
-  .aurora-meta-row,
-  .aurora-daily-banner {
+  .aurora-meta-row {
     justify-content: center;
     text-align: center;
   }
 
-  .aurora-quote {
+  .aurora-album-line {
     margin-inline: auto;
+  }
+
+  .aurora-section-head-copy {
+    text-align: left;
+  }
+
+  .aurora-stage-empty {
+    min-height: 200px;
+    padding: 22px 18px;
+  }
+
+  .aurora-stage-empty h1 {
+    font-size: clamp(24px, 6vw, 34px);
+  }
+
+  .aurora-recommendation-grid {
+    grid-template-columns: repeat(auto-fit, minmax(min(108px, 46%), 1fr));
+    gap: 10px 12px;
   }
 }
 </style>

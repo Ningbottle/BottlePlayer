@@ -1,15 +1,25 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { mount, flushPromises } from '@vue/test-utils';
+import { nextTick } from 'vue';
 import AuroraHome from '../AuroraHome.vue';
 import type { HomeViewModel, HomeSectionError } from '../homeViewModel';
 import type { Track } from '../../../api/normalizer';
 import type { PlaylistInfo } from '../../../api/homeFeedStore';
+import { animateStagger } from '../../../api/motion';
+
+vi.mock('gsap', () => {
+  const fromTo = vi.fn(() => ({ kill: vi.fn() }));
+  const set = vi.fn();
+  const killTweensOf = vi.fn();
+  const to = vi.fn(() => ({ kill: vi.fn() }));
+  return { gsap: { fromTo, set, killTweensOf, to } };
+});
 
 vi.mock('../../../api/motion', () => ({
   animateElement: vi.fn(() => ({ kill: () => {} })),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
   startAmbientMotion: vi.fn(() => ({ kill: () => {} })),
-  isReducedMotion: vi.fn(() => true),
+  isReducedMotion: vi.fn(() => false),
 }));
 
 function createTrack(overrides: Partial<Track> = {}): Track {
@@ -46,13 +56,22 @@ function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel 
     isInitialLoading: false,
     isRefreshing: false,
     errors: [] as readonly HomeSectionError[],
+    errorSummary: '',
+    heroQualityChips: [],
     ...overrides,
   };
 }
 
 describe('AuroraHome', () => {
+  const getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext');
+
   beforeEach(() => {
     vi.clearAllMocks();
+    getContextSpy.mockReturnValue(null);
+  });
+
+  afterEach(() => {
+    getContextSpy.mockReset();
   });
 
   it('displays hero track with cover, song name, artist, and play button', () => {
@@ -165,6 +184,40 @@ describe('AuroraHome', () => {
     const empty = wrapper.get('[data-test="queue-empty-state"]');
     expect(empty.text()).toMatch(/队列|推荐/);
     expect(empty.text()).not.toBe('暂无队列');
+  });
+
+  it('uses an actionable empty stage instead of fabricated playback metadata', async () => {
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: null,
+          dailyTracks: [],
+          queuePreview: [],
+          queueTotal: 0,
+        }),
+      },
+    });
+
+    expect(wrapper.get('[data-test="aurora-stage-empty"]').text()).toContain('选择一首歌');
+    expect(wrapper.text()).not.toContain('96kHz / 24bit');
+    expect(wrapper.text()).not.toContain('VIP');
+    expect(wrapper.find('[data-test="hero-play"]').exists()).toBe(false);
+
+    await wrapper.get('[data-test="empty-stage-refresh"]').trigger('click');
+    expect(wrapper.emitted('refresh')).toBeTruthy();
+  });
+
+  it('provides a particle environment with an explicit playback state', () => {
+    const paused = mount(AuroraHome, {
+      props: { model: createViewModel({ isPlaying: false }) },
+    });
+    const playing = mount(AuroraHome, {
+      props: { model: createViewModel({ isPlaying: true }) },
+    });
+
+    expect(paused.get('[data-test="aurora-atmosphere"]').attributes('data-playing')).toBe('false');
+    expect(playing.get('[data-test="aurora-atmosphere"]').attributes('data-playing')).toBe('true');
+    expect(paused.find('canvas[data-test="aurora-atmosphere"]').exists()).toBe(true);
   });
 
   it('keeps list rows when queue has tracks', () => {
@@ -310,16 +363,44 @@ describe('AuroraHome', () => {
     expect(wrapper.text()).toContain('Existing Track');
   });
 
-  it('displays section errors', () => {
+  it('displays a single columnized error summary instead of repeated rows', async () => {
     const vm = createViewModel({
-      errors: [{ section: 'daily', message: '加载失败' }],
+      errors: [
+        { section: 'daily', message: '加载失败' },
+        { section: 'albums', message: '加载失败' },
+      ],
+      errorSummary: '每日推荐、最新歌单加载失败',
+      playlists: [createPlaylist()],
     });
 
     const wrapper = mount(AuroraHome, {
       props: { model: vm },
     });
 
-    expect(wrapper.text()).toContain('加载失败');
+    const summary = wrapper.get('[data-test="home-error-summary"]');
+    expect(summary.text()).toContain('每日推荐、最新歌单加载失败');
+    expect(wrapper.findAll('[data-test="home-error-summary"]')).toHaveLength(1);
+    expect(wrapper.text()).not.toMatch(/加载失败[\s\S]*加载失败[\s\S]*加载失败/);
+
+    await wrapper.get('[data-test="home-error-retry-all"]').trigger('click');
+    expect(wrapper.emitted('refresh')).toBeTruthy();
+  });
+
+  it('shows hero quality chips only from real data, never decorative sample rate', () => {
+    const withChips = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          heroQualityChips: ['无损', 'VIP'],
+        }),
+      },
+    });
+    expect(withChips.get('[data-test="hero-quality-chips"]').text()).toContain('无损');
+    expect(withChips.text()).not.toContain('96kHz');
+
+    const without = mount(AuroraHome, {
+      props: { model: createViewModel({ heroQualityChips: [] }) },
+    });
+    expect(without.find('[data-test="hero-quality-chips"]').exists()).toBe(false);
   });
 
   it('shows loading state during initial load', () => {
@@ -333,5 +414,104 @@ describe('AuroraHome', () => {
     });
 
     expect(wrapper.text()).toBeTruthy();
+  });
+
+  describe('home enter cold / return budgets', () => {
+    it('uses cold stagger overrides when enterMode is cold', async () => {
+      const daily = Array.from({ length: 4 }, (_, i) =>
+        createTrack({ FileHash: `d-${i}`, SongName: `Daily ${i}` }),
+      );
+      mount(AuroraHome, {
+        props: {
+          model: createViewModel({ dailyTracks: daily }),
+          enterMode: 'cold',
+          enterNonce: 1,
+        },
+      });
+      await nextTick();
+      await flushPromises();
+
+      expect(animateStagger).toHaveBeenCalledWith(
+        expect.any(Array),
+        'cardEnter',
+        expect.objectContaining({
+          duration: 0.42,
+          stagger: 0.04,
+          maxItems: 12,
+          fromY: 20,
+        }),
+      );
+      const { gsap } = await import('gsap');
+      expect(gsap.fromTo).toHaveBeenCalledWith(
+        expect.any(Object),
+        expect.objectContaining({ opacity: 0, y: 20 }),
+        expect.objectContaining({ duration: 0.55, ease: 'expo.out' }),
+      );
+    });
+
+    it('uses return stagger overrides when enterMode is return', async () => {
+      const daily = Array.from({ length: 4 }, (_, i) =>
+        createTrack({ FileHash: `r-${i}`, SongName: `Return ${i}` }),
+      );
+      mount(AuroraHome, {
+        props: {
+          model: createViewModel({ dailyTracks: daily }),
+          enterMode: 'return',
+          enterNonce: 2,
+        },
+      });
+      await nextTick();
+      await flushPromises();
+
+      expect(animateStagger).toHaveBeenCalledWith(
+        expect.any(Array),
+        'cardEnter',
+        expect.objectContaining({
+          duration: 0.24,
+          stagger: 0.025,
+          maxItems: 6,
+          fromY: 10,
+        }),
+      );
+    });
+
+    it('replays enter when enterNonce changes', async () => {
+      const wrapper = mount(AuroraHome, {
+        props: {
+          model: createViewModel({ dailyTracks: [createTrack()] }),
+          enterMode: 'cold',
+          enterNonce: 1,
+        },
+      });
+      await nextTick();
+      await flushPromises();
+      const callsAfterCold = (animateStagger as ReturnType<typeof vi.fn>).mock.calls.length;
+
+      await wrapper.setProps({ enterMode: 'return', enterNonce: 2 });
+      await nextTick();
+      await flushPromises();
+
+      expect((animateStagger as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(
+        callsAfterCold,
+      );
+      const lastCall = (animateStagger as ReturnType<typeof vi.fn>).mock.calls.at(-1);
+      expect(lastCall?.[2]).toEqual(
+        expect.objectContaining({ duration: 0.24, maxItems: 6, fromY: 10 }),
+      );
+    });
+
+    it('does not run enter choreography when enterMode is none', async () => {
+      mount(AuroraHome, {
+        props: {
+          model: createViewModel({ dailyTracks: [createTrack()] }),
+          enterMode: 'none',
+          enterNonce: 0,
+        },
+      });
+      await nextTick();
+      await flushPromises();
+
+      expect(animateStagger).not.toHaveBeenCalled();
+    });
   });
 });
