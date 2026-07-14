@@ -3,6 +3,8 @@ import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import Sidebar from '../Sidebar.vue';
 import { useThemeStore, __resetForTest } from '../../api/themeStore';
+import { createAppRouter } from '../../navigation/router';
+import { routeNames } from '../../navigation/routes';
 
 vi.mock('@tauri-apps/plugin-updater', () => ({
   check: vi.fn().mockResolvedValue(null),
@@ -35,9 +37,19 @@ vi.mock('../../api/skippedVersion', async () => {
   };
 });
 
+async function mountSidebar(initialRoute = routeNames.home) {
+  const router = createAppRouter();
+  await router.push({ name: initialRoute });
+  await router.isReady();
+  return {
+    router,
+    wrapper: mount(Sidebar, { global: { plugins: [router] } }),
+  };
+}
+
 describe('Sidebar', () => {
   it('places the equalizer navigation entry directly below recent-play and navigates to it', async () => {
-    const wrapper = mount(Sidebar, { props: { activeView: 'home' } });
+    const { router, wrapper } = await mountSidebar();
 
     const navEntries = wrapper.findAll('.nav > a');
     expect(navEntries).toHaveLength(4);
@@ -52,6 +64,7 @@ describe('Sidebar', () => {
 
     await navEntries[3].trigger('click');
     expect(wrapper.emitted('navigate')?.[0]).toEqual(['equalizer']);
+    expect(router.currentRoute.value.name).toBe(routeNames.home);
   });
 });
 
@@ -64,18 +77,21 @@ describe('Sidebar skin chrome', () => {
 
   it('marks chrome for aurora and uses pill active nav without newsprint stamp footer', async () => {
     useThemeStore().setSkin('aurora');
-    const wrapper = mount(Sidebar, { props: { activeView: 'home' } });
+    const { router, wrapper } = await mountSidebar();
     await nextTick();
     const root = wrapper.get('[data-test="sidebar-chrome"]');
     expect(root.attributes('data-skin-chrome')).toBe('aurora');
     expect(wrapper.find('[data-test="sidebar-nav-active-pill"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="newsprint-stamp"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="aurora-nav-label"]').exists()).toBe(true);
+    await router.push({ name: routeNames.stats });
+    await nextTick();
+    expect(wrapper.findAll('[data-test="sidebar-nav-item"]')[1].classes()).toContain('active');
   });
 
   it('keeps the original Newsprint icon navigation and stamp footer, without Aurora chrome', async () => {
     useThemeStore().setSkin('newsprint');
-    const wrapper = mount(Sidebar, { props: { activeView: 'home' } });
+    const { wrapper } = await mountSidebar();
     await nextTick();
     const root = wrapper.get('[data-test="sidebar-chrome"]');
     expect(root.attributes('data-skin-chrome')).toBe('newsprint');
@@ -86,8 +102,9 @@ describe('Sidebar skin chrome', () => {
 
   it('still emits navigate without duplicating API surface', async () => {
     useThemeStore().setSkin('aurora');
-    const wrapper = mount(Sidebar, { props: { activeView: 'home' } });
+    const { router, wrapper } = await mountSidebar();
     await wrapper.findAll('.nav a, [data-test="sidebar-nav-item"]')[0].trigger('click');
     expect(wrapper.emitted('navigate')?.[0]).toEqual(['home']);
+    expect(router.currentRoute.value.name).toBe(routeNames.home);
   });
 });

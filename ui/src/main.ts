@@ -7,8 +7,11 @@ import "./styles/skins/aurora.css";
 import "./styles/skins/newsprint.css";
 import { useThemeStore } from "./api/themeStore";
 import { useLyricFocusStore } from "./api/lyricFocusStore";
+import { router } from "./navigation/router";
 
 useThemeStore().init();
 useLyricFocusStore().init();
 
-createApp(App).mount("#app");
+const app = createApp(App);
+app.use(router);
+app.mount("#app");

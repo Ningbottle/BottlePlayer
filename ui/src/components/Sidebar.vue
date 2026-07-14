@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { check } from '@tauri-apps/plugin-updater';
 import { apiGet } from '../api/backend';
 import { userStore } from '../api/userStore';
@@ -7,16 +8,14 @@ import { normalizePlaylists, UserPlaylist } from '../api/favorite';
 import { useSkippedVersion, getSkippedVersion } from '../api/skippedVersion';
 import { useThemeStore } from '../api/themeStore';
 
-defineProps<{
-  activeView: string;
-}>();
-
 const emit = defineEmits<{
   (e: 'navigate', view: string, params?: any): void;
 }>();
 
 const themeStore = useThemeStore();
 const skinId = themeStore.skinId;
+const route = useRoute();
+const activeView = computed(() => route.name);
 
 const sidebarNav = [
   { id: 'home', name: '首页', icon: 'M3 11l9-8 9 8v10a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2V11z' },

@@ -319,6 +319,35 @@ vi.mock('../../../views/EqualizerView.vue', () => ({ default: { template: '<main
 
 import { useThemeStore, __resetForTest } from '../../../api/themeStore';
 import App from '../../../App.vue';
+import { createAppRouter } from '../../../navigation/router';
+import { routeNames } from '../../../navigation/routes';
+
+async function mountApp() {
+  const router = createAppRouter();
+  await router.push({ name: routeNames.home });
+  await router.isReady();
+  return {
+    router,
+    wrapper: mount(App, { global: { plugins: [router] } }),
+  };
+}
+
+async function clickAndWaitForNavigation(
+  router: ReturnType<typeof createAppRouter>,
+  wrapper: ReturnType<typeof mount>,
+  selector: string,
+) {
+  const settled = new Promise<void>((resolve) => {
+    const removeAfterEach = router.afterEach(() => {
+      removeAfterEach();
+      resolve();
+    });
+  });
+  await wrapper.get(selector).trigger('click');
+  await settled;
+  await flushPromises();
+  await nextTick();
+}
 
 describe('Skin switch preserves state', () => {
   beforeEach(() => {
@@ -334,12 +363,11 @@ describe('Skin switch preserves state', () => {
   });
 
   it('preserves currentView, searchQuery across skinId switch', async () => {
-    const wrapper = mount(App);
+    const { wrapper, router } = await mountApp();
     await flushPromises();
 
     // Navigate to search view
-    await wrapper.find('[data-test="go-search"]').trigger('click');
-    await nextTick();
+    await clickAndWaitForNavigation(router, wrapper, '[data-test="go-search"]');
     expect(wrapper.find('[data-test="search-view"]').exists()).toBe(true);
 
     // Switch skin from aurora to newsprint

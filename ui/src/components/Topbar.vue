@@ -1,11 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { userStore } from '../api/userStore';
 import { useThemeStore } from '../api/themeStore';
-
-const props = defineProps<{
-  searchQuery: string;
-}>();
 
 const emit = defineEmits<{
   (e: 'update:searchQuery', val: string): void;
@@ -18,29 +15,28 @@ const emit = defineEmits<{
 
 const themeStore = useThemeStore();
 const skinId = themeStore.skinId;
+const route = useRoute();
 const searchVariant = computed(() =>
   skinId.value === 'newsprint' ? 'legacy' : 'command',
 );
 
-const localQuery = ref(props.searchQuery);
+const localQuery = ref(typeof route.query.q === 'string' ? route.query.q : '');
 
 watch(
-  () => props.searchQuery,
+  () => route.query.q,
   (value) => {
-    localQuery.value = value;
+    localQuery.value = typeof value === 'string' ? value : '';
   },
   { immediate: true }
 );
 
 function triggerSearch() {
-  emit('update:searchQuery', localQuery.value);
   emit('search', localQuery.value);
 }
 
 function handleSearchInput(e: Event) {
   const val = (e.target as HTMLInputElement).value;
   localQuery.value = val;
-  emit('update:searchQuery', val);
 }
 
 function goBack() {
@@ -87,7 +83,7 @@ function shareAlert() {
         <path d="m20 20-3.5-3.5"/>
       </svg>
       <input
-        :value="searchQuery"
+        :value="localQuery"
         @input="handleSearchInput"
         @keyup.enter="triggerSearch"
         :placeholder="skinId === 'newsprint'

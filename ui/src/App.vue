@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { RouterView, useRouter } from 'vue-router';
 
 import Sidebar from './components/Sidebar.vue';
 import Topbar from './components/Topbar.vue';
@@ -16,10 +17,23 @@ import { ping } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
 import { lyricFullscreen, setLyricFullscreen } from './api/lyricFullscreen';
 import { transitionEnter, transitionLeave } from './api/motion';
-import { resolveViewDescriptor, type HistoryEntry, type ViewDescriptor } from './api/viewRegistry';
+import { registerPageTransition, unregisterPageTransition } from './navigation/navigationLifecycle';
+import { routeNames, type AppRouteName } from './navigation/routes';
 import { useThemeStore } from './api/themeStore';
 
 const themeStore = useThemeStore();
+const appRouter = useRouter();
+const keepAliveComponents = computed(() => appRouter.getRoutes()
+  .filter((route) => route.meta.keepAlive)
+  .flatMap((route) => {
+    const component = route.components?.default;
+    if (typeof component === 'function') return component.name ? [component.name] : [];
+    if (component && typeof component === 'object' && 'name' in component) {
+      return typeof component.name === 'string' ? [component.name] : [];
+    }
+    return [];
+  }));
+
 const currentShell = computed(() => themeStore.skinId.value === 'aurora' ? AuroraShell : NewsprintShell);
 /** Aurora: simultaneous enter/leave (overlap). Newsprint: serial out-in. */
 const pageTransitionMode = computed<'out-in' | undefined>(() =>
@@ -27,10 +41,6 @@ const pageTransitionMode = computed<'out-in' | undefined>(() =>
 );
 const isAuroraOverlap = computed(() => themeStore.skinId.value === 'aurora');
 
-const currentView = ref('home');
-const searchQuery = ref('');
-const playlistId = ref('');
-const playlistName = ref('');
 const tweaksCollapsed = ref(true);
 const isQueueOpen = ref(false);
 const networkDegraded = ref(false);
@@ -59,82 +69,39 @@ async function fetchMemoryUsage() {
   }
 }
 
-// Navigation History Stack
-const historyStack = ref<HistoryEntry[]>([{ view: 'home' }]);
-const historyIndex = ref(0);
-
-const currentEntry = computed<HistoryEntry>(() => historyStack.value[historyIndex.value]);
-const currentDescriptor = computed<ViewDescriptor>(() => resolveViewDescriptor(currentEntry.value));
-
-const viewProps = computed<Record<string, unknown>>(() => {
-  switch (currentEntry.value.view) {
-    case 'search':
-      return { query: searchQuery.value };
-    case 'playlist':
-      return { playlistId: playlistId.value, playlistName: playlistName.value };
-    case 'lyric':
-      return { isQueueOpen: isQueueOpen.value };
-    default:
-      return {};
+function handleNavigate(view: string, params?: { id?: string; name?: string }) {
+  if (view === routeNames.playlist && params?.id) {
+    void appRouter.push({
+      name: routeNames.playlist,
+      params: { id: params.id },
+      query: params.name ? { name: params.name } : {},
+    });
+    return;
   }
-});
-
-function pushHistory(entry: HistoryEntry) {
-  historyStack.value.splice(historyIndex.value + 1);
-  historyStack.value.push(entry);
-  historyIndex.value = historyStack.value.length - 1;
-}
-
-function applyHistoryEntry(entry: HistoryEntry) {
-  currentView.value = entry.view;
-  if (entry.view === 'playlist') {
-    playlistId.value = entry.playlistId || '';
-    playlistName.value = entry.playlistName || '';
-  } else if (entry.view === 'search') {
-    searchQuery.value = entry.searchQuery || '';
-  }
-}
-
-function handleNavigate(view: string, params?: any) {
-  const entry: HistoryEntry = { view: view as HistoryEntry['view'] };
-  if (view === 'playlist' && params) {
-    entry.playlistId = params.id;
-    entry.playlistName = params.name;
-  }
-  applyHistoryEntry(entry);
-  pushHistory(entry);
+  void appRouter.push({ name: view as AppRouteName });
 }
 
 function handleSearch(query: string) {
   if (query.trim()) {
-    const entry: HistoryEntry = { view: 'search', searchQuery: query };
-    applyHistoryEntry(entry);
-    pushHistory(entry);
+    void appRouter.push({ name: routeNames.search, query: { q: query } });
+  }
+}
+
+function handleSearchQuery(query: string) {
+  if (appRouter.currentRoute.value.name === routeNames.search) {
+    void appRouter.replace({ name: routeNames.search, query: { q: query } });
   }
 }
 
 function goBack() {
-  if (historyIndex.value > 0) {
-    historyIndex.value--;
-    applyHistoryEntry(historyStack.value[historyIndex.value]);
-  }
+  appRouter.back();
 }
 
 function goForward() {
-  if (historyIndex.value < historyStack.value.length - 1) {
-    historyIndex.value++;
-    applyHistoryEntry(historyStack.value[historyIndex.value]);
-  }
+  appRouter.forward();
 }
 
 onMounted(() => {
-  // Clear any stuck inline styles from interrupted page transitions
-  document.querySelectorAll('.scroll > *, .list-view, .aurora-home, .np-home').forEach((node) => {
-    const el = node as HTMLElement;
-    el.style.opacity = '';
-    el.style.filter = '';
-    el.style.transform = '';
-  });
   // Don't boot into a broken fullscreen shell with zero chrome rows
   setLyricFullscreen(false);
 
@@ -172,15 +139,12 @@ onUnmounted(() => {
     </template>
 
     <template #sidebar>
-      <Sidebar
-        :active-view="currentView"
-        @navigate="handleNavigate"
-      />
+      <Sidebar @navigate="handleNavigate" />
     </template>
 
     <template #topbar>
       <Topbar
-        v-model:searchQuery="searchQuery"
+        @update:search-query="handleSearchQuery"
         @search="handleSearch"
         @toggle-tweaks="tweaksCollapsed = !tweaksCollapsed"
         @navigate="handleNavigate"
@@ -190,21 +154,26 @@ onUnmounted(() => {
     </template>
 
     <div class="scroll" :class="{ 'page-transition-stack': isAuroraOverlap }">
-      <Transition
-        :mode="pageTransitionMode"
-        :css="false"
-        @enter="transitionEnter"
-        @leave="transitionLeave"
-      >
-        <KeepAlive include="HomeView">
-          <component
-            :is="currentDescriptor.component"
-            :key="currentDescriptor.cacheKey"
-            v-bind="viewProps"
-            @navigate="handleNavigate"
-          />
-        </KeepAlive>
-      </Transition>
+      <RouterView v-slot="{ Component, route }">
+        <Transition
+          :mode="pageTransitionMode"
+          :css="false"
+          @before-enter="registerPageTransition"
+          @before-leave="registerPageTransition"
+          @after-enter="unregisterPageTransition"
+          @after-leave="unregisterPageTransition"
+          @enter="transitionEnter"
+          @leave="transitionLeave"
+        >
+          <KeepAlive :include="keepAliveComponents">
+            <component
+              :is="Component"
+              v-bind="route.name === routeNames.lyric ? { isQueueOpen } : {}"
+              @navigate="handleNavigate"
+            />
+          </KeepAlive>
+        </Transition>
+      </RouterView>
     </div>
 
     <template #extras>
@@ -220,7 +189,6 @@ onUnmounted(() => {
 
     <template #playerbar>
       <PlayerBar
-        :active-view="currentView"
         @navigate="handleNavigate"
         @toggle-queue="isQueueOpen = !isQueueOpen"
       />
