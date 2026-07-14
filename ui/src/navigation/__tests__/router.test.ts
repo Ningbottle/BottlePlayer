@@ -117,11 +117,8 @@ vi.mock('../../components/PlayerBar.vue', () => ({
     template: '<footer><button data-test="player-lyric" @click="$emit(\'navigate\', \'lyric\')" /><button data-test="player-queue" @click="$emit(\'toggle-queue\')" /></footer>',
   },
 }));
-vi.mock('../../components/Drawer.vue', () => ({
-  default: { name: 'Drawer', template: '<aside />' },
-}));
 vi.mock('../../components/QueuePanel.vue', () => ({
-  default: { name: 'QueuePanel', template: '<aside />' },
+  default: { name: 'QueuePanel', template: '<aside data-test="queue-panel" />' },
 }));
 vi.mock('../../components/shell/FullscreenWindowControls.vue', () => ({
   default: { name: 'FullscreenWindowControls', template: '<div />' },
@@ -474,6 +471,21 @@ describe('navigation route contract', () => {
       await nextTick();
       expect(transitionLeave).toHaveBeenCalled();
       expect(transitionEnter).toHaveBeenCalled();
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
+  it('App shell does not render Drawer and still renders QueuePanel', async () => {
+    const router = createAppRouter();
+    await router.push({ name: routeNames.home });
+    await router.isReady();
+    const wrapper = mount(App, { global: { plugins: [router] } });
+
+    try {
+      await nextTick();
+      expect(wrapper.find('.drawer').exists(), 'Drawer component should not be rendered').toBe(false);
+      expect(wrapper.find('[data-test="queue-panel"]').exists(), 'QueuePanel should be rendered in the extras slot').toBe(true);
     } finally {
       wrapper.unmount();
     }

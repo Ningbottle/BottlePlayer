@@ -66,4 +66,10 @@ describe('Topbar skin chrome', () => {
     expect(wrapper.emitted('forward')?.[0]).toEqual([]);
     expect(router.currentRoute.value.name).toBe(routeNames.search);
   });
+
+  it('does not have a toggle-tweaks button', async () => {
+    const { wrapper } = await mountTopbar();
+    const tweakBtn = wrapper.findAll('button').find((b) => b.attributes('aria-label') === '调整');
+    expect(tweakBtn).toBeUndefined();
+  });
 });

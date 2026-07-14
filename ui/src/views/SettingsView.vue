@@ -297,13 +297,6 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-const showClearConfirm = ref(false);
-const cacheStatus = ref('');
-function clearCache() {
-  cacheStatus.value = '✓ 本地 SQLite3 设置缓存与图片 LRU 缓存已执行清理回收！';
-  showClearConfirm.value = false;
-}
-
 // ── Playback diagnostics (frontend event ring buffer) ──
 const diagEvents = ref<DiagEvent[]>([]);
 function refreshDiag() {
@@ -547,17 +540,6 @@ async function copyDiag() {
             <p class="settings-hint">
               项目当前把缓存记录在 SQLite3 中。图片解码走 WIC 缓存通道，内存 LRU 自动在 16MB 满额时启动淘汰。
             </p>
-            <div class="settings-row">
-              <SkinButton variant="secondary" size="md" @click="showClearConfirm = true">清理本地数据缓存</SkinButton>
-              <span v-if="cacheStatus" class="settings-status">{{ cacheStatus }}</span>
-            </div>
-            <div v-if="showClearConfirm" class="settings-confirm">
-              <p>确认清理本地数据缓存？</p>
-              <div class="settings-row">
-                <SkinButton variant="primary" size="md" @click="clearCache">确认清理</SkinButton>
-                <SkinButton variant="ghost" size="md" @click="showClearConfirm = false">取消</SkinButton>
-              </div>
-            </div>
           </section>
 
           <!-- ── Diagnostics (native memory + frontend playback merged) ── -->

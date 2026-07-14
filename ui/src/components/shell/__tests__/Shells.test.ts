@@ -306,7 +306,6 @@ vi.mock('../../../components/Topbar.vue', () => ({
   },
 }));
 vi.mock('../../../components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
-vi.mock('../../../components/Drawer.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../views/SearchView.vue', () => ({ default: { props: ['query'], template: '<main data-test="search-view" />' } }));
 vi.mock('../../../views/PlaylistView.vue', () => ({ default: { template: '<main />' } }));

@@ -214,3 +214,48 @@ describe('SettingsView appearance controls', () => {
     expect(wrapper.get('[data-test="settings-lyric-align-center"]').attributes('aria-pressed')).toBe('true');
   });
 });
+
+describe('SettingsView storage and diagnostics preservation', () => {
+  let wrapper: VueWrapper<any> | undefined;
+
+  beforeEach(() => {
+    localStorage.clear();
+    resetAppearance();
+    resetTheme();
+    mockApiGet.mockReset();
+    mockApiGet.mockResolvedValue({ status: 1, data: {} });
+  });
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+  });
+
+  it('storage section does not show a fake cache confirmation modal', async () => {
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    const storageNav = wrapper.findAll('[data-test="settings-nav-item"]').find((n) => n.text().includes('存储'));
+    await storageNav!.trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).not.toContain('确认清理');
+    expect(wrapper.text()).not.toContain('清理本地数据缓存');
+  });
+
+  it('storage section still renders with SQLite3 description', async () => {
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    const storageNav = wrapper.findAll('[data-test="settings-nav-item"]').find((n) => n.text().includes('存储'));
+    await storageNav!.trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-test="settings-section-storage"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('SQLite3');
+  });
+
+  it('diagnostics section still renders', async () => {
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    const diagNav = wrapper.findAll('[data-test="settings-nav-item"]').find((n) => n.text().includes('诊断'));
+    await diagNav!.trigger('click');
+    await flushPromises();
+    expect(wrapper.find('[data-test="settings-section-diagnostics"]').exists()).toBe(true);
+  });
+});

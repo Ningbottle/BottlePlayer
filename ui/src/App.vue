@@ -5,7 +5,6 @@ import { RouterView, useRouter } from 'vue-router';
 import Sidebar from './components/Sidebar.vue';
 import Topbar from './components/Topbar.vue';
 import PlayerBar from './components/PlayerBar.vue';
-import Drawer from './components/Drawer.vue';
 import QueuePanel from './components/QueuePanel.vue';
 import AuroraShell from './components/shell/AuroraShell.vue';
 import NewsprintShell from './components/shell/NewsprintShell.vue';
@@ -42,7 +41,6 @@ const pageTransitionMode = computed<'out-in' | undefined>(() =>
 );
 const isAuroraOverlap = computed(() => themeStore.skinId.value === 'aurora');
 
-const tweaksCollapsed = ref(true);
 const isQueueOpen = ref(false);
 const networkDegraded = ref(false);
 let networkInterval: ReturnType<typeof setInterval> | null = null;
@@ -147,7 +145,6 @@ onUnmounted(() => {
       <Topbar
         @update:search-query="handleSearchQuery"
         @search="handleSearch"
-        @toggle-tweaks="tweaksCollapsed = !tweaksCollapsed"
         @navigate="handleNavigate"
         @back="goBack"
         @forward="goForward"
@@ -181,10 +178,6 @@ onUnmounted(() => {
     </div>
 
     <template #extras>
-      <Drawer
-        :collapsed="tweaksCollapsed"
-        @close="tweaksCollapsed = true"
-      />
       <QueuePanel
         :show="isQueueOpen"
         @close="isQueueOpen = false"

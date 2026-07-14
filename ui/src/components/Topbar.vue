@@ -7,7 +7,6 @@ import { useThemeStore } from '../api/themeStore';
 const emit = defineEmits<{
   (e: 'update:searchQuery', val: string): void;
   (e: 'search', query: string): void;
-  (e: 'toggle-tweaks'): void;
   (e: 'navigate', view: string): void;
   (e: 'back'): void;
   (e: 'forward'): void;
@@ -114,11 +113,6 @@ function shareAlert() {
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
           <circle cx="12" cy="12" r="3"/>
           <path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.08a1.7 1.7 0 0 0-1.11-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06A2 2 0 1 1 4.18 16.9l.06-.06A1.7 1.7 0 0 0 4.58 15 1.7 1.7 0 0 0 3 14H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1.11 1.7 1.7 0 0 0-.34-1.87l-.06-.06A2 2 0 1 1 7.1 4.18l.06.06A1.7 1.7 0 0 0 9 4.58 1.7 1.7 0 0 0 10 3V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55 1.7 1.7 0 0 0 1.87-.34l.06-.06A2 2 0 1 1 19.82 7.1l-.06.06a1.7 1.7 0 0 0-.34 1.87V9c.27.65.84 1.13 1.55 1.11H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1.11z"/>
-        </svg>
-      </button>
-      <button class="icon-btn" aria-label="调整" @click="emit('toggle-tweaks')">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-          <path d="M4 6h16M4 12h10M4 18h16"/>
         </svg>
       </button>
     </div>
