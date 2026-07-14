@@ -13,7 +13,7 @@ describe('themeStore', () => {
     const store = useThemeStore();
     store.setSkin('newsprint');
     expect(document.documentElement.dataset.skin).toBe('newsprint');
-    expect(localStorage.getItem('tweak_skin')).toBe('newsprint');
+    expect(localStorage.getItem('appearance_skin')).toBe('newsprint');
     expect(store.skinId.value).toBe('newsprint');
   });
 
@@ -21,11 +21,20 @@ describe('themeStore', () => {
     const store = useThemeStore();
     store.setMode('dark');
     expect(document.documentElement.dataset.mode).toBe('dark');
-    expect(localStorage.getItem('tweak_mode')).toBe('dark');
+    expect(localStorage.getItem('appearance_mode')).toBe('dark');
     expect(store.mode.value).toBe('dark');
   });
 
   it('init reads stored skin+mode and applies to DOM', () => {
+    localStorage.setItem('appearance_skin', 'newsprint');
+    localStorage.setItem('appearance_mode', 'dark');
+    const store = useThemeStore();
+    store.init();
+    expect(document.documentElement.dataset.skin).toBe('newsprint');
+    expect(document.documentElement.dataset.mode).toBe('dark');
+  });
+
+  it('init reads legacy skin+mode keys when canonical keys are absent', () => {
     localStorage.setItem('tweak_skin', 'newsprint');
     localStorage.setItem('tweak_mode', 'dark');
     const store = useThemeStore();

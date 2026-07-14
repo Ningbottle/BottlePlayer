@@ -11,11 +11,8 @@ vi.mock('../../api/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
 
 import SettingsView from '../SettingsView.vue';
 import { playbackDiagnostics } from '../../api/playbackDiagnostics';
-import { useThemeStore, __resetForTest as resetTheme } from '../../api/themeStore';
-import {
-  useLyricFocusStore,
-  __resetLyricFocusForTest,
-} from '../../api/lyricFocusStore';
+import { useAppearanceStore, __resetForTest as resetAppearance } from '../../api/appearanceStore';
+import { __resetForTest as resetTheme } from '../../api/themeStore';
 
 // Reduced-motion stub: makes GSAP transition hooks (transitionEnter/Leave)
 // call done() synchronously so <Transition> leave/enter completes within the
@@ -105,19 +102,19 @@ describe('SettingsView sub-navigation', () => {
     expect(wrapper.find('[data-test="settings-section-appearance"]').exists()).toBe(false);
   });
 
-  it('Appearance section calls themeStore.setSkin when a skin is selected', async () => {
-    const store = useThemeStore();
+  it('Appearance section calls appearanceStore.setSkin when a skin is selected', async () => {
+    const store = useAppearanceStore();
     wrapper = mount(SettingsView, { attachTo: document.body });
     await flushPromises();
     const newsprintBtn = wrapper.find('[data-test="select-skin-newsprint"]');
     await newsprintBtn.trigger('click');
     await flushPromises();
-    expect(store.skinId.value).toBe('newsprint');
+    expect(store.skin.value).toBe('newsprint');
     expect(document.documentElement.dataset.skin).toBe('newsprint');
   });
 
-  it('Appearance section calls themeStore.setMode when dark mode is toggled', async () => {
-    const store = useThemeStore();
+  it('Appearance section calls appearanceStore.setMode when dark mode is toggled', async () => {
+    const store = useAppearanceStore();
     wrapper = mount(SettingsView, { attachTo: document.body });
     await flushPromises();
     const darkBtn = wrapper.find('[data-test="select-mode-dark"]');
@@ -128,89 +125,92 @@ describe('SettingsView sub-navigation', () => {
   });
 });
 
-describe('SettingsView lyric focus a11y', () => {
+describe('SettingsView appearance controls', () => {
   let wrapper: VueWrapper<any> | undefined;
 
   beforeEach(() => {
     localStorage.clear();
-    __resetLyricFocusForTest();
+    resetAppearance();
     resetTheme();
     mockApiGet.mockReset();
     mockApiGet.mockResolvedValue({ status: 1, data: {} });
-    useLyricFocusStore().init();
   });
   afterEach(() => {
     wrapper?.unmount();
     wrapper = undefined;
   });
 
-  it('exposes an accessible lyric-focus group with labelled hint and pressed state', async () => {
+  it('shows the allowed appearance controls and excludes unrelated controls', async () => {
     wrapper = mount(SettingsView, { attachTo: document.body });
     await flushPromises();
 
-    const section = wrapper.get('[data-test="settings-lyric-focus"]');
-    const group = section.get('[role="group"]');
-    expect(group.attributes('aria-labelledby')).toBe('settings-lyric-focus-label');
-    expect(group.attributes('aria-describedby')).toBe('settings-lyric-focus-hint');
-
-    const label = wrapper.get('#settings-lyric-focus-label');
-    const hint = wrapper.get('#settings-lyric-focus-hint');
-    expect(label.text()).toContain('歌词显示');
-    expect(hint.text().length).toBeGreaterThan(0);
-
-    const readable = wrapper.get('[data-test="settings-lyric-focus-readable"]');
-    const stage = wrapper.get('[data-test="settings-lyric-focus-stage"]');
-    expect(readable.element.tagName).toBe('BUTTON');
-    expect(stage.element.tagName).toBe('BUTTON');
-    expect(readable.attributes('type')).toBe('button');
-    expect(stage.attributes('type')).toBe('button');
-    expect(readable.attributes('aria-pressed')).toBe('true');
-    expect(stage.attributes('aria-pressed')).toBe('false');
-
-    const live = wrapper.get('[data-test="settings-lyric-focus-live"]');
-    expect(live.attributes('aria-live')).toBe('polite');
-    expect(live.text()).toContain('清晰可读');
+    const section = wrapper.get('[data-test="settings-section-appearance"]');
+    expect(section.text()).toContain('极光');
+    expect(section.text()).toContain('Aurora');
+    expect(section.text()).toContain('报刊');
+    expect(section.text()).toContain('Newsprint');
+    expect(section.text()).toContain('强调色');
+    expect(section.text()).toContain('Accent');
+    expect(section.text()).toContain('紧凑列表');
+    expect(section.text()).toContain('Compact List');
+    expect(section.text()).toContain('歌词对齐');
+    expect(section.text()).toContain('Lyric Alignment');
+    expect(section.find('[data-test="settings-accent-input"]').attributes('type')).toBe('color');
+    expect(section.find('[data-test="settings-compact-list"]').attributes('type')).toBe('checkbox');
+    expect(section.find('[data-test="settings-lyric-align-left"]').exists()).toBe(true);
+    expect(section.find('[data-test="settings-lyric-align-center"]').exists()).toBe(true);
+    expect(section.find('[data-test="settings-lyric-focus"]').exists()).toBe(false);
+    expect(section.text()).not.toMatch(/字体|背景|暖|模糊|噪|grain|blur|cache|缓存/i);
   });
 
-  it('updates aria-pressed and polite live region when mode changes', async () => {
+  it('labels skin and mode groups and exposes pressed states with secondary English', async () => {
     wrapper = mount(SettingsView, { attachTo: document.body });
     await flushPromises();
 
-    const focus = useLyricFocusStore();
-    const stageBtn = wrapper.get('[data-test="settings-lyric-focus-stage"]');
-    await stageBtn.trigger('click');
-    await flushPromises();
+    const skinGroup = wrapper.get('[data-test="settings-skin-group"]');
+    expect(skinGroup.attributes('role')).toBe('group');
+    expect(skinGroup.attributes('aria-labelledby')).toBe('settings-skin-label');
+    expect(skinGroup.get('#settings-skin-label').text()).toContain('皮肤');
+    expect(skinGroup.get('#settings-skin-label .settings-control-secondary').text()).toBe('Skin');
+    expect(skinGroup.get('[data-test="select-skin-aurora"]').attributes('aria-pressed')).toBe('true');
+    expect(skinGroup.get('[data-test="select-skin-newsprint"]').attributes('aria-pressed')).toBe('false');
+    expect(skinGroup.get('[data-test="select-skin-aurora"] .settings-control-secondary').text()).toBe('Aurora');
+    expect(skinGroup.get('[data-test="select-skin-newsprint"] .settings-control-secondary').text()).toBe('Newsprint');
 
-    expect(focus.mode.value).toBe('stage');
-    expect(wrapper.get('[data-test="settings-lyric-focus-stage"]').attributes('aria-pressed')).toBe(
-      'true',
+    const modeGroup = wrapper.get('[data-test="settings-mode-group"]');
+    expect(modeGroup.attributes('role')).toBe('group');
+    expect(modeGroup.attributes('aria-labelledby')).toBe('settings-mode-label');
+    expect(modeGroup.get('#settings-mode-label').text()).toContain('光感');
+    expect(modeGroup.get('#settings-mode-label .settings-control-secondary').text()).toBe('Mode');
+    expect(modeGroup.get('[data-test="select-mode-light"]').attributes('aria-pressed')).toBe('true');
+    expect(modeGroup.get('[data-test="select-mode-dark"]').attributes('aria-pressed')).toBe('false');
+    expect(modeGroup.get('[data-test="select-mode-light"] .settings-control-secondary').text()).toBe('Light');
+    expect(modeGroup.get('[data-test="select-mode-dark"] .settings-control-secondary').text()).toBe('Dark');
+
+    expect(wrapper.get('label[for="settings-accent"]').text()).toContain('强调色');
+    expect(wrapper.get('[data-test="settings-appearance-compact-list"]').element.tagName).toBe('LABEL');
+    expect(wrapper.get('[data-test="settings-appearance-compact-list"]').text()).toContain('紧凑列表');
+    expect(wrapper.get('[data-test="settings-appearance-lyric-align"] [role="group"]').attributes('aria-labelledby')).toBe(
+      'settings-lyric-align-label',
     );
-    expect(
-      wrapper.get('[data-test="settings-lyric-focus-readable"]').attributes('aria-pressed'),
-    ).toBe('false');
-    expect(wrapper.get('[data-test="settings-lyric-focus-live"]').text()).toContain('舞台渐隐');
   });
 
-  it('persists setMode across remount via localStorage', async () => {
+  it('persists and reflects accent, compact-list, and lyric alignment changes', async () => {
     wrapper = mount(SettingsView, { attachTo: document.body });
     await flushPromises();
-    await wrapper.get('[data-test="settings-lyric-focus-stage"]').trigger('click');
-    await flushPromises();
-    expect(localStorage.getItem('tweak_lyric_focus')).toBe('stage');
 
-    wrapper.unmount();
-    __resetLyricFocusForTest();
-    useLyricFocusStore().init();
-
-    wrapper = mount(SettingsView, { attachTo: document.body });
+    await wrapper.get('[data-test="settings-accent-input"]').setValue('#ff0000');
+    await wrapper.get('[data-test="settings-compact-list"]').setValue(true);
+    await wrapper.get('[data-test="settings-lyric-align-center"]').trigger('click');
     await flushPromises();
-    expect(useLyricFocusStore().mode.value).toBe('stage');
-    expect(wrapper.get('[data-test="settings-lyric-focus-stage"]').attributes('aria-pressed')).toBe(
-      'true',
-    );
-    expect(
-      wrapper.get('[data-test="settings-lyric-focus-readable"]').attributes('aria-pressed'),
-    ).toBe('false');
-    expect(wrapper.get('[data-test="settings-lyric-focus-live"]').text()).toContain('舞台渐隐');
+
+    const store = useAppearanceStore();
+    expect(store.accent.value).toBe('#ff0000');
+    expect(store.compactList.value).toBe(true);
+    expect(store.lyricAlign.value).toBe('center');
+    expect(localStorage.getItem('appearance_accent')).toBe('#ff0000');
+    expect(localStorage.getItem('appearance_compact_list')).toBe('true');
+    expect(localStorage.getItem('appearance_lyric_align')).toBe('center');
+    expect(wrapper.get('[data-test="settings-lyric-align-center"]').attributes('aria-pressed')).toBe('true');
   });
 });
