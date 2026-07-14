@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
-import { defineComponent, h, nextTick, reactive } from 'vue';
+import { defineComponent, effectScope, h, nextTick, reactive } from 'vue';
 
 const gsapSetMock = vi.hoisted(() => vi.fn());
 const gsapToMock = vi.hoisted(() => vi.fn((_: any, opts: any) => {
@@ -58,7 +58,7 @@ vi.mock('../../../api/backend', () => ({
 import AuroraLyricStage from '../AuroraLyricStage.vue';
 import AuroraPlaylistShelf from '../AuroraPlaylistShelf.vue';
 import NewsprintLyricStage from '../NewsprintLyricStage.vue';
-import type { LyricStageModel } from '../useLyricStage';
+import type { LyricStageCommands, LyricStageModel } from '../useLyricStage';
 import { useLyricStage } from '../useLyricStage';
 import {
   useLyricFocusStore,
@@ -83,6 +83,7 @@ function createModel(overrides: Partial<LyricStageModel> = {}): LyricStageModel 
     isPlaying: true,
     currentTime: 5,
     duration: 100,
+    error: null,
     ...overrides,
   };
 }
@@ -283,6 +284,237 @@ describe('Lyric request race boundaries', () => {
       wrapper.unmount();
       mockPlayerStoreHolder.value.currentTrack = null;
       vi.useRealTimers();
+    }
+  });
+});
+
+describe('Lyric resource stage adapter', () => {
+  it('does not schedule immediate-load follow before mount after its scope is disposed', async () => {
+    vi.useFakeTimers();
+    const detail = deferred<{ status: number; lyric: string }>();
+    lyricApiGetMock.mockReset();
+    lyricApiGetMock.mockImplementation((path: string) => {
+      if (path === '/search/lyric') {
+        return Promise.resolve({ status: 1, candidates: [{ id: 'a', accesskey: 'key' }] });
+      }
+      return detail.promise;
+    });
+    mockPlayerStoreHolder.value.currentTrack = {
+      FileHash: 'a', SongName: 'A', SingerName: 'Artist', Duration: 100, Image: '',
+    };
+    const getElementById = vi.spyOn(document, 'getElementById');
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const scope = effectScope();
+    try {
+      scope.run(() => useLyricStage());
+      await flushPromises();
+      scope.stop();
+
+      detail.resolve({ status: 1, lyric: '[00:00.00]Late line' });
+      await flushPromises();
+      await nextTick();
+      vi.runAllTimers();
+      await nextTick();
+
+      expect(getElementById).not.toHaveBeenCalled();
+    } finally {
+      scope.stop();
+      warn.mockRestore();
+      getElementById.mockRestore();
+      mockPlayerStoreHolder.value.currentTrack = null;
+      vi.useRealTimers();
+    }
+  });
+
+  it('exposes a load error without fabricating a lyric line and retries the current track', async () => {
+    lyricApiGetMock.mockReset();
+    lyricApiGetMock
+      .mockRejectedValueOnce(new Error('lyrics unavailable'))
+      .mockResolvedValueOnce({ status: 1, candidates: [{ id: 'b', accesskey: 'key' }] })
+      .mockResolvedValueOnce({ status: 1, lyric: '[00:00.00]Recovered line' });
+    mockPlayerStoreHolder.value.currentTrack = {
+      FileHash: 'b', SongName: 'B', SingerName: 'Artist', Duration: 100, Image: '',
+    };
+    const Harness = defineComponent({
+      setup() {
+        return useLyricStage();
+      },
+      render() {
+        return h('div');
+      },
+    });
+    const wrapper = mount(Harness);
+    try {
+      await flushPromises();
+
+      expect.soft(wrapper.vm.model.parsedLyrics).toEqual([]);
+      expect.soft(wrapper.vm.model.error).toEqual(expect.objectContaining({ message: 'lyrics unavailable' }));
+      const retryLyrics = wrapper.vm.commands.retryLyrics;
+      expect.soft(retryLyrics).toEqual(expect.any(Function));
+
+      await retryLyrics();
+      await flushPromises();
+
+      expect.soft(wrapper.vm.model.parsedLyrics).toEqual([{ time: 0, text: 'Recovered line' }]);
+      expect.soft(wrapper.vm.model.error).toBeNull();
+    } finally {
+      wrapper.unmount();
+      mockPlayerStoreHolder.value.currentTrack = null;
+    }
+  });
+
+  it('clears delayed entry follow before manual seek and re-follow', async () => {
+    vi.useFakeTimers();
+    lyricApiGetMock.mockReset();
+    lyricApiGetMock.mockImplementation((path: string) => {
+      if (path === '/search/lyric') {
+        return Promise.resolve({ status: 1, candidates: [{ id: 'a', accesskey: 'key' }] });
+      }
+      return Promise.resolve({ status: 1, lyric: '[00:00.00]A line' });
+    });
+    mockPlayerStoreHolder.value.currentTrack = {
+      FileHash: 'a', SongName: 'A', SingerName: 'Artist', Duration: 100, Image: '',
+    };
+    const Harness = defineComponent({
+      setup() { return useLyricStage(); },
+      render() { return h('div'); },
+    });
+    const wrapper = mount(Harness);
+    const scrollIntoView = vi.fn();
+    const getElementById = vi.spyOn(document, 'getElementById').mockImplementation(() => ({ scrollIntoView } as any));
+    try {
+      await flushPromises();
+      await nextTick();
+      scrollIntoView.mockClear();
+
+      wrapper.vm.commands.seekToLine(0);
+      wrapper.vm.commands.resumeFollow();
+      await nextTick();
+      const immediateScrolls = scrollIntoView.mock.calls.length;
+
+      vi.advanceTimersByTime(480);
+      await nextTick();
+      await flushPromises();
+
+      expect(scrollIntoView).toHaveBeenCalledTimes(immediateScrolls);
+    } finally {
+      getElementById.mockRestore();
+      wrapper.unmount();
+      mockPlayerStoreHolder.value.currentTrack = null;
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not run delayed entry follow after the stage unmounts', async () => {
+    vi.useFakeTimers();
+    lyricApiGetMock.mockReset();
+    lyricApiGetMock.mockImplementation((path: string) => {
+      if (path === '/search/lyric') {
+        return Promise.resolve({ status: 1, candidates: [{ id: 'a', accesskey: 'key' }] });
+      }
+      return Promise.resolve({ status: 1, lyric: '[00:00.00]A line' });
+    });
+    mockPlayerStoreHolder.value.currentTrack = {
+      FileHash: 'a', SongName: 'A', SingerName: 'Artist', Duration: 100, Image: '',
+    };
+    const Harness = defineComponent({
+      setup() { return useLyricStage(); },
+      render() { return h('div'); },
+    });
+    const wrapper = mount(Harness);
+    const scrollIntoView = vi.fn();
+    const getElementById = vi.spyOn(document, 'getElementById').mockImplementation(() => ({ scrollIntoView } as any));
+    try {
+      await flushPromises();
+      await nextTick();
+      scrollIntoView.mockClear();
+
+      wrapper.unmount();
+      vi.advanceTimersByTime(480);
+      await nextTick();
+      await flushPromises();
+
+      expect(scrollIntoView).not.toHaveBeenCalled();
+    } finally {
+      getElementById.mockRestore();
+      mockPlayerStoreHolder.value.currentTrack = null;
+      vi.useRealTimers();
+    }
+  });
+
+  it.each<{
+    name: string;
+    queueScroll: (commands: LyricStageCommands) => void;
+  }>([
+    { name: 'resumeFollow', queueScroll: (commands) => commands.resumeFollow() },
+    { name: 'seekToLine', queueScroll: (commands) => commands.seekToLine(0) },
+  ])('does not access lyric DOM from a queued $name scroll after unmount', async ({ queueScroll }) => {
+    lyricApiGetMock.mockReset();
+    lyricApiGetMock.mockImplementation((path: string) => {
+      if (path === '/search/lyric') {
+        return Promise.resolve({ status: 1, candidates: [{ id: 'a', accesskey: 'key' }] });
+      }
+      return Promise.resolve({ status: 1, lyric: '[00:00.00]A line' });
+    });
+    mockPlayerStoreHolder.value.currentTrack = {
+      FileHash: 'a', SongName: 'A', SingerName: 'Artist', Duration: 100, Image: '',
+    };
+    const Harness = defineComponent({
+      setup() { return useLyricStage(); },
+      render() { return h('div'); },
+    });
+    const wrapper = mount(Harness);
+    try {
+      await flushPromises();
+      await nextTick();
+      const getElementById = vi.spyOn(document, 'getElementById');
+      try {
+        queueScroll(wrapper.vm.commands);
+        wrapper.unmount();
+        await nextTick();
+
+        expect(getElementById).not.toHaveBeenCalled();
+      } finally {
+        getElementById.mockRestore();
+      }
+    } finally {
+      wrapper.unmount();
+      mockPlayerStoreHolder.value.currentTrack = null;
+    }
+  });
+
+  it('clears a delayed entry follow when its timer handle is zero', async () => {
+    lyricApiGetMock.mockReset();
+    lyricApiGetMock.mockImplementation((path: string) => {
+      if (path === '/search/lyric') {
+        return Promise.resolve({ status: 1, candidates: [{ id: 'a', accesskey: 'key' }] });
+      }
+      return Promise.resolve({ status: 1, lyric: '[00:00.00]A line' });
+    });
+    mockPlayerStoreHolder.value.currentTrack = {
+      FileHash: 'a', SongName: 'A', SingerName: 'Artist', Duration: 100, Image: '',
+    };
+    const setTimeoutSpy = vi.spyOn(window, 'setTimeout')
+      .mockReturnValue(0 as unknown as ReturnType<typeof window.setTimeout>);
+    const clearTimeoutSpy = vi.spyOn(globalThis, 'clearTimeout').mockImplementation(() => {});
+    const Harness = defineComponent({
+      setup() { return useLyricStage(); },
+      render() { return h('div'); },
+    });
+    const wrapper = mount(Harness);
+    try {
+      await flushPromises();
+      await nextTick();
+      expect(setTimeoutSpy).toHaveBeenCalledWith(expect.any(Function), 480);
+
+      wrapper.vm.commands.resumeFollow();
+
+      expect(clearTimeoutSpy).toHaveBeenCalledWith(0);
+    } finally {
+      wrapper.unmount();
+      clearTimeoutSpy.mockRestore();
+      setTimeoutSpy.mockRestore();
+      mockPlayerStoreHolder.value.currentTrack = null;
     }
   });
 });

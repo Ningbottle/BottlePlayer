@@ -1,14 +1,12 @@
-import { ref, computed, watch, onMounted, onUnmounted, nextTick, type ComputedRef } from 'vue';
+import { computed, watch, onMounted, onScopeDispose, nextTick, type ComputedRef } from 'vue';
 import { playerStore, seek as storeSeek } from '../../api/playerStore';
 import { apiGet } from '../../api/backend';
 import { useLyricFollow } from '../../api/useLyricFollow';
 import { lyricFullscreen, setLyricFullscreen } from '../../api/lyricFullscreen';
 import type { Track } from '../../api/normalizer';
+import { LyricsResource, type LyricLine } from '../../api/lyricsResource';
 
-export interface LyricLine {
-  time: number;
-  text: string;
-}
+export type { LyricLine } from '../../api/lyricsResource';
 
 export interface LyricStageModel {
   loading: boolean;
@@ -21,6 +19,7 @@ export interface LyricStageModel {
   isPlaying: boolean;
   currentTime: number;
   duration: number;
+  error: Error | null;
 }
 
 export interface LyricStageCommands {
@@ -30,6 +29,7 @@ export interface LyricStageCommands {
   exitFullscreen: () => void;
   /** Seek playback to a lyric line timestamp (seconds) and resume follow. */
   seekToLine: (timeSeconds: number) => void;
+  retryLyrics: () => Promise<void>;
 }
 
 export interface UseLyricStageReturn {
@@ -102,9 +102,31 @@ export function parseLrc(raw: string): LyricLine[] {
   return result.sort((a, b) => a.time - b.time);
 }
 
+async function fetchLyrics(track: Track): Promise<LyricLine[]> {
+  const searchRes = await apiGet<{ status: number; candidates?: { id: string; accesskey: string }[] }>('/search/lyric', {
+    hash: track.FileHash,
+  });
+  if (searchRes.status !== 1 && searchRes.status !== 200) {
+    throw new Error('Unable to search lyrics');
+  }
+
+  const candidate = searchRes.candidates?.[0];
+  if (!candidate) return [];
+
+  const detailRes = await apiGet<{ status: number; lyric?: string }>('/lyric', {
+    id: candidate.id,
+    accesskey: candidate.accesskey,
+  });
+  if (detailRes.status !== 1 && detailRes.status !== 200) {
+    throw new Error('Unable to load lyrics');
+  }
+
+  return detailRes.lyric ? parseLrc(detailRes.lyric) : [];
+}
+
 export function useLyricStage(): UseLyricStageReturn {
-  const loading = ref(false);
-  const parsedLyrics = ref<LyricLine[]>([]);
+  const lyricsResource = new LyricsResource(fetchLyrics);
+  const parsedLyrics = computed(() => lyricsResource.state.lines);
 
   const currentTrack = computed(() => playerStore.currentTrack);
   const currentTime = computed(() => playerStore.currentTime);
@@ -118,14 +140,28 @@ export function useLyricStage(): UseLyricStageReturn {
     return Math.max(0, idx - 1);
   });
 
+  let mounted = false;
+  let disposed = false;
   let scrollToken = 0;
+  let followGeneration = 0;
+  let enterFollowTimer: number | null = null;
+
+  function clearEnterFollowTimer(): void {
+    if (enterFollowTimer !== null) {
+      globalThis.clearTimeout(enterFollowTimer);
+      enterFollowTimer = null;
+    }
+  }
+
   function scrollToLine(idx: number, behavior: ScrollBehavior = 'smooth'): void {
     scrollToken++;
     const myToken = scrollToken;
+    const ownerGeneration = followGeneration;
     // nextTick: wait for lyric list paint (test-friendly; no rAF dependency)
     void nextTick(() => {
+      if (!mounted || ownerGeneration !== followGeneration || myToken !== scrollToken) return;
       const el = document.getElementById(`lyric-line-${idx}`);
-      if (el && myToken === scrollToken) {
+      if (el) {
         el.scrollIntoView({ behavior, block: 'center' });
       }
     });
@@ -136,74 +172,67 @@ export function useLyricStage(): UseLyricStageReturn {
     scrollToLine,
   });
 
-  /** After lyrics land, snap to playhead quickly (<1s total, including layout). */
-  function scheduleEnterFollow(): void {
+  /** After current lyrics land, snap to playhead quickly (<1s total, including layout). */
+  function scheduleEnterFollow(generation: number): void {
+    if (!mounted || generation !== followGeneration) return;
+    clearEnterFollowTimer();
     // Instant first snap so user sees the current line immediately
     snapToActive('auto');
     // Second snap after enter animation settles (~0.5s)
-    window.setTimeout(() => {
-      if (autoFollowing.value) snapToActive('smooth');
+    enterFollowTimer = window.setTimeout(() => {
+      enterFollowTimer = null;
+      if (mounted && generation === followGeneration && autoFollowing.value) {
+        snapToActive('smooth');
+      }
     }, 480);
   }
 
-  async function loadLyrics(): Promise<void> {
-    if (!currentTrack.value) {
-      parsedLyrics.value = [];
-      return;
-    }
-    loading.value = true;
-    parsedLyrics.value = [];
-    try {
-      const searchRes = await apiGet<{ status: number; candidates?: { id: string; accesskey: string }[] }>('/search/lyric', {
-        hash: currentTrack.value.FileHash,
+  watch(
+    () => currentTrack.value?.FileHash ?? null,
+    () => {
+      const followSession = ++followGeneration;
+      clearEnterFollowTimer();
+      resetForTrack(currentTrack.value?.FileHash ?? '');
+      void lyricsResource.load(currentTrack.value).then(() => {
+        if (
+          !mounted ||
+          followSession !== followGeneration ||
+          lyricsResource.state.loading ||
+          lyricsResource.state.error ||
+          lyricsResource.state.lines.length === 0
+        ) return;
+        scheduleEnterFollow(followSession);
       });
-      if ((searchRes.status === 1 || searchRes.status === 200) && searchRes.candidates && searchRes.candidates.length > 0) {
-        const candidate = searchRes.candidates[0];
-        const detailRes = await apiGet<{ status: number; lyric?: string }>('/lyric', {
-          id: candidate.id,
-          accesskey: candidate.accesskey,
-        });
-        if ((detailRes.status === 1 || detailRes.status === 200) && detailRes.lyric) {
-          parsedLyrics.value = parseLrc(detailRes.lyric);
-        } else {
-          parsedLyrics.value = [{ time: 0, text: '无法加载歌词文本' }];
-        }
-      } else {
-        parsedLyrics.value = [{ time: 0, text: '暂无歌词' }];
-      }
-    } catch (e) {
-      console.error('Lyric fetch failed', e);
-      parsedLyrics.value = [{ time: 0, text: '歌词加载出错' }];
-    } finally {
-      loading.value = false;
-      // Snap to current line as soon as lines exist
-      if (parsedLyrics.value.length > 0) {
-        scheduleEnterFollow();
-      }
-    }
-  }
-
-  watch(currentTrack, (track) => {
-    resetForTrack(track?.FileHash || '');
-    loadLyrics();
-  }, { deep: true });
+    },
+    { immediate: true },
+  );
 
   function onKeydown(e: KeyboardEvent): void {
     if (e.key === 'Escape' && lyricFullscreen.value) setLyricFullscreen(false);
   }
 
   onMounted(() => {
-    loadLyrics();
+    if (disposed) return;
+    mounted = true;
     window.addEventListener('keydown', onKeydown);
   });
 
-  onUnmounted(() => {
+  function disposeStage(): void {
+    if (disposed) return;
+    disposed = true;
+    mounted = false;
+    followGeneration++;
+    scrollToken++;
+    clearEnterFollowTimer();
+    lyricsResource.dispose();
     window.removeEventListener('keydown', onKeydown);
     if (lyricFullscreen.value) setLyricFullscreen(false);
-  });
+  }
+
+  onScopeDispose(disposeStage);
 
   const model = computed<LyricStageModel>(() => ({
-    loading: loading.value,
+    loading: lyricsResource.state.loading,
     parsedLyrics: parsedLyrics.value,
     activeIndex: activeIndex.value,
     currentTrack: currentTrack.value,
@@ -213,6 +242,7 @@ export function useLyricStage(): UseLyricStageReturn {
     isPlaying: playerStore.isPlaying,
     currentTime: currentTime.value,
     duration: playerStore.duration,
+    error: lyricsResource.state.error,
   }));
 
   /**
@@ -221,16 +251,41 @@ export function useLyricStage(): UseLyricStageReturn {
    */
   function seekToLine(timeSeconds: number): void {
     if (!Number.isFinite(timeSeconds) || timeSeconds < 0) return;
+    followGeneration++;
+    clearEnterFollowTimer();
     void storeSeek(timeSeconds);
     snapToActive('smooth');
   }
 
+  async function retryLyrics(): Promise<void> {
+    const followSession = ++followGeneration;
+    clearEnterFollowTimer();
+    await lyricsResource.retry();
+    if (
+      !mounted ||
+      followSession !== followGeneration ||
+      lyricsResource.state.loading ||
+      lyricsResource.state.error ||
+      lyricsResource.state.lines.length === 0
+    ) return;
+    scheduleEnterFollow(followSession);
+  }
+
   const commands: LyricStageCommands = {
-    onUserScroll,
-    resumeFollow,
+    onUserScroll: () => {
+      followGeneration++;
+      clearEnterFollowTimer();
+      onUserScroll();
+    },
+    resumeFollow: () => {
+      followGeneration++;
+      clearEnterFollowTimer();
+      resumeFollow();
+    },
     enterFullscreen: () => setLyricFullscreen(true),
     exitFullscreen: () => setLyricFullscreen(false),
     seekToLine,
+    retryLyrics,
   };
 
   return { model, commands };

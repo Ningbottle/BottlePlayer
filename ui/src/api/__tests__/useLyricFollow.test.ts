@@ -188,4 +188,22 @@ describe('useLyricFollow', () => {
     vi.advanceTimersByTime(5000);
     expect(follow.autoFollowing.value).toBe(false);
   });
+
+  it('does not retain an idle resume across track reset and manual re-follow', async () => {
+    const { follow, scrolledTo } = setup({ activeIndex: 2 });
+    await nextTick();
+    scrolledTo.length = 0;
+
+    follow.onUserScroll();
+    follow.resetForTrack('next-track');
+    follow.onUserScroll();
+    follow.resumeFollow();
+    const immediateScrolls = scrolledTo.length;
+
+    vi.advanceTimersByTime(IDLE_RESUME_MS);
+
+    expect(follow.autoFollowing.value).toBe(true);
+    expect(follow.manualScrollUntil.value).toBe(0);
+    expect(scrolledTo).toHaveLength(immediateScrolls);
+  });
 });
