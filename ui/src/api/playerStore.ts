@@ -241,7 +241,9 @@ export function initWebAudioEQ() {
 export async function attachWebAudioEqSource(
   audio: HTMLAudioElement,
   crossOriginSafe = false,
+  isCurrent: () => boolean = () => true,
 ) {
+  if (!isCurrent()) return;
   currentEqSafeSource = crossOriginSafe ? getAudioSource(audio) : '';
   if (!crossOriginSafe) {
     eqState.available = false;
@@ -251,8 +253,11 @@ export async function attachWebAudioEqSource(
   }
 
   await webAudioEq.awaitReady();
+  if (!isCurrent()) return;
   webAudioEq.attachSource(audio);
+  if (!isCurrent()) return;
   syncEqAvailabilityFromReroute();
+  if (!isCurrent()) return;
   setWebAudioEqVolume(playerStore.volume);
 }
 
@@ -411,15 +416,19 @@ export async function initPlayerBackend() {
     prepareSourceUrl: preparePlaybackAudioSourceUrl,
     getAttachTransitionSeq: () => playbackOrchestrator.getTransitionSeq(),
     isAttachTransitionCurrent: (seq) => playbackOrchestrator.isTransitionCurrent(seq),
-    initEq: (audio, crossOriginSafe) => {
+    initEq: async (audio, crossOriginSafe, isCurrent) => {
+      if (!isCurrent()) return;
       if (!playerStore.eqEnabled) {
+        if (!isCurrent()) return;
         currentEqSafeSource = crossOriginSafe ? getAudioSource(audio) : '';
+        if (!isCurrent()) return;
         eqState.available = false;
         eqState.reason = EQ_UNAVAILABLE_REASON;
+        if (!isCurrent()) return;
         audio.volume = playerStore.volume;
         return;
       }
-      void attachWebAudioEqSource(audio, crossOriginSafe);
+      await attachWebAudioEqSource(audio, crossOriginSafe, isCurrent);
     },
     disconnectEq: disconnectWebAudioEqSource,
     isEqRerouted: () => webAudioEq.isRerouted,
@@ -759,20 +768,24 @@ export function removeFromQueue(index: number) {
   saveQueue();
 }
 
-/** Empty the play queue without necessarily stopping the current audio element. */
+/** Empty the play queue and stop the active backend when one is available. */
 export function clearQueue() {
+  const clearSeq = playbackOrchestrator.invalidatePlaybackIntent();
   playerStore.queue = [];
   playerStore.currentIndex = -1;
   playerStore.currentTrack = null;
   playerStore.isPlaying = false;
   playerStore.isLoading = false;
-  playSession.skip();
-  if (playerStore.audio) {
-    try {
-      playerStore.audio.pause();
-      playerStore.audio.src = '';
-    } catch {
-      /* ignore */
+  if (activeBackend) {
+    void playbackOrchestrator.stopInvalidatedPlayback(clearSeq);
+  } else {
+    if (playerStore.audio) {
+      try {
+        playerStore.audio.pause();
+        playerStore.audio.src = '';
+      } catch {
+        /* ignore */
+      }
     }
   }
   saveQueue();

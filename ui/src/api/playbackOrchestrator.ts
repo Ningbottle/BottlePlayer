@@ -38,8 +38,8 @@ export interface PlaybackStateSlice {
 
 export type PlaybackResult =
   | { status: 'played' }
-  | { status: 'failed'; error: string }
-  | { status: 'stale' };
+  | { status: 'superseded' }
+  | { status: 'failed'; message: string };
 
 interface PlaybackBackendLike {
   playUrl(url: string): Promise<boolean>;
@@ -70,7 +70,7 @@ export interface PlaybackOrchestratorDeps {
 
 export class PlaybackOrchestrator {
   private transitionSeq = 0;
-  private canceledThroughSeq = 0;
+  private stopTail: Promise<void> = Promise.resolve();
 
   constructor(private readonly deps: PlaybackOrchestratorDeps) {}
 
@@ -82,8 +82,8 @@ export class PlaybackOrchestrator {
     const prevTrack = prevIndex >= 0 ? state.queue[prevIndex] ?? null : null;
 
     this.deps.playSession.skip();
-    await backend.stop().catch(() => {});
-    if (!this.isCurrent(seq)) return { status: 'stale' };
+    await this.stopBackend(seq, backend);
+    if (!this.isCurrent(seq)) return this.superseded(track, 'switchTrack stopped before start');
 
     const normalized = normalizeTrack(track);
     this.deps.recordDiagnostic({
@@ -119,7 +119,7 @@ export class PlaybackOrchestrator {
     try {
       result = await this.deps.resolveTrack(normalized, state.quality);
     } catch (err) {
-      if (!this.isCurrent(seq)) return { status: 'stale' };
+      if (!this.isCurrent(seq)) return this.superseded(normalized, 'switchTrack resolve rejected');
       const error = err instanceof Error ? err.message : '获取歌曲链接失败';
       this.deps.recordDiagnostic({
         kind: 'url_resolve',
@@ -128,9 +128,9 @@ export class PlaybackOrchestrator {
         trackKey: normalized.FileHash,
       });
       this.rollback(prevIndex, prevTrack, error);
-      return { status: 'failed', error };
+      return { status: 'failed', message: error };
     }
-    if (!this.isCurrent(seq)) return { status: 'stale' };
+    if (!this.isCurrent(seq)) return this.superseded(normalized, 'switchTrack resolve completed');
 
     if (result.status !== 1 || !result.url) {
       const error = result.error || '获取歌曲链接失败';
@@ -143,7 +143,7 @@ export class PlaybackOrchestrator {
       this.rollback(prevIndex, prevTrack, error);
       return {
         status: 'failed',
-        error,
+        message: error,
       };
     }
     this.deps.recordDiagnostic({
@@ -169,15 +169,23 @@ export class PlaybackOrchestrator {
 
     this.deps.playSession.intend(normalized);
 
-    const ok = await backend.playUrl(finalUrl);
+    let ok: boolean;
+    try {
+      ok = await backend.playUrl(finalUrl);
+    } catch (err) {
+      if (!this.isCurrent(seq)) return this.superseded(normalized, 'switchTrack play rejected');
+      const message = err instanceof Error ? err.message : '播放失败';
+      this.deps.playSession.skip();
+      this.rollback(prevIndex, prevTrack, message);
+      return { status: 'failed', message };
+    }
     if (!this.isCurrent(seq)) {
-      await this.cleanupCanceledStaleTransition(seq, backend);
-      return { status: 'stale' };
+      return this.superseded(normalized, 'switchTrack play completed');
     }
     if (!ok) {
       this.deps.playSession.skip();
       this.rollback(prevIndex, prevTrack, '播放失败');
-      return { status: 'failed', error: '播放失败' };
+      return { status: 'failed', message: '播放失败' };
     }
 
     this.deps.patchState({ isLoading: false });
@@ -188,12 +196,25 @@ export class PlaybackOrchestrator {
   }
 
   async cancelPendingPlayback(): Promise<void> {
-    const pendingSeq = this.transitionSeq;
-    this.canceledThroughSeq = Math.max(this.canceledThroughSeq, pendingSeq);
-    const seq = ++this.transitionSeq;
+    const seq = this.invalidatePlaybackIntent();
+    await this.stopBackend(seq, this.deps.backend());
+    if (!this.isCurrent(seq)) return;
 
-    this.deps.playSession.skip();
-    await this.deps.backend().stop().catch(() => {});
+    this.deps.patchState({
+      isLoading: false,
+      isPlaying: false,
+      errorMsg: '',
+    });
+  }
+
+  async clearCurrentPlayback(): Promise<void> {
+    const seq = this.invalidatePlaybackIntent();
+    await this.stopInvalidatedPlayback(seq);
+  }
+
+  async stopInvalidatedPlayback(seq: number): Promise<void> {
+    if (!this.isCurrent(seq)) return;
+    await this.stopBackend(seq, this.deps.backend());
     if (!this.isCurrent(seq)) return;
 
     this.deps.patchState({
@@ -204,15 +225,23 @@ export class PlaybackOrchestrator {
   }
 
   async switchQuality(quality: string): Promise<PlaybackResult> {
+    return this.switchQualityAtPosition(quality);
+  }
+
+  private async switchQualityAtPosition(
+    quality: string,
+    positionOverride?: number,
+    autoplayOverride?: boolean,
+  ): Promise<PlaybackResult> {
     const seq = ++this.transitionSeq;
     const state = this.deps.getState();
     const current = state.currentTrack;
     if (!current) {
-      return { status: 'failed', error: '没有当前歌曲' };
+      return { status: 'failed', message: '没有当前歌曲' };
     }
 
-    const position = state.currentTime;
-    const autoplay = state.isPlaying;
+    const position = positionOverride ?? state.currentTime;
+    const autoplay = autoplayOverride ?? state.isPlaying;
     const cached = state.availableQualities.find((q) => q.quality === quality && q.url);
     let finalUrl = cached?.url;
 
@@ -221,15 +250,15 @@ export class PlaybackOrchestrator {
       try {
         result = await this.deps.resolveTrack(current, quality);
       } catch (err) {
-        if (!this.isCurrent(seq)) return { status: 'stale' };
+        if (!this.isCurrent(seq)) return this.superseded(current, 'switchQuality resolve rejected');
         return {
           status: 'failed',
-          error: err instanceof Error ? err.message : '获取歌曲链接失败',
+          message: err instanceof Error ? err.message : '获取歌曲链接失败',
         };
       }
-      if (!this.isCurrent(seq)) return { status: 'stale' };
+      if (!this.isCurrent(seq)) return this.superseded(current, 'switchQuality resolve completed');
       if (result.status !== 1 || !result.url) {
-        return { status: 'failed', error: result.error || '获取歌曲链接失败' };
+        return { status: 'failed', message: result.error || '获取歌曲链接失败' };
       }
       const availableQualities = result.data?.available_qualities || [];
       const preferred = availableQualities.find((q) => q.quality === quality && q.url);
@@ -237,15 +266,27 @@ export class PlaybackOrchestrator {
       this.deps.patchState({ availableQualities });
     }
 
+    await this.waitForStops(seq);
+    if (!this.isCurrent(seq)) return this.superseded(current, 'switchQuality waited for stop');
+
     this.deps.playSession.skip();
     this.deps.playSession.intend(current);
 
-    const ok = await this.deps.backend().switchUrl(finalUrl, { position, autoplay });
-    if (!this.isCurrent(seq)) return { status: 'stale' };
+    let ok: boolean;
+    try {
+      ok = await this.deps.backend().switchUrl(finalUrl, { position, autoplay });
+    } catch (err) {
+      if (!this.isCurrent(seq)) return this.superseded(current, 'switchQuality switchUrl rejected');
+      const message = err instanceof Error ? err.message : '播放失败';
+      this.deps.playSession.skip();
+      this.deps.patchState({ errorMsg: message, isLoading: false, isPlaying: false });
+      return { status: 'failed', message };
+    }
+    if (!this.isCurrent(seq)) return this.superseded(current, 'switchQuality switchUrl completed');
     if (!ok) {
       this.deps.playSession.skip();
       this.deps.patchState({ errorMsg: '播放失败', isPlaying: false });
-      return { status: 'failed', error: '播放失败' };
+      return { status: 'failed', message: '播放失败' };
     }
 
     this.deps.patchState({ errorMsg: '' });
@@ -255,48 +296,61 @@ export class PlaybackOrchestrator {
   async resumeOrReloadCurrent(): Promise<PlaybackResult> {
     const seq = ++this.transitionSeq;
     const state = this.deps.getState();
-    if (!state.currentTrack) {
-      return { status: 'failed', error: '没有当前歌曲' };
+    const current = state.currentTrack;
+    if (!current) {
+      return { status: 'failed', message: '没有当前歌曲' };
     }
 
     const backend = this.deps.backend();
     if (!backend.hasSource()) {
-      return this.switchTrack(state.currentTrack);
+      return this.switchTrack(current);
+    }
+
+    await this.waitForStops(seq);
+    if (!this.isCurrent(seq)) return this.superseded(current, 'resume waited for stop');
+    if (!backend.hasSource()) {
+      return this.switchQualityAtPosition(state.quality, state.currentTime, true);
     }
 
     try {
       await backend.resume();
     } catch (err) {
-      if (!this.isCurrent(seq)) return { status: 'stale' };
+      if (!this.isCurrent(seq)) return this.superseded(current, 'resume rejected');
       return {
         status: 'failed',
-        error: err instanceof Error ? err.message : '恢复播放失败',
+        message: err instanceof Error ? err.message : '恢复播放失败',
       };
     }
-    if (!this.isCurrent(seq)) return { status: 'stale' };
+    if (!this.isCurrent(seq)) return this.superseded(current, 'resume completed');
     return { status: 'played' };
   }
 
   async replaySameTrack(): Promise<PlaybackResult> {
     const seq = ++this.transitionSeq;
     const state = this.deps.getState();
-    if (!state.currentTrack) {
-      return { status: 'failed', error: '没有当前歌曲' };
+    const current = state.currentTrack;
+    if (!current) {
+      return { status: 'failed', message: '没有当前歌曲' };
     }
 
     const backend = this.deps.backend();
-    this.deps.playSession.intend(state.currentTrack);
+    await this.waitForStops(seq);
+    if (!this.isCurrent(seq)) return this.superseded(current, 'replay waited for stop');
+    if (!backend.hasSource()) {
+      return this.switchQualityAtPosition(state.quality, 0, true);
+    }
+    this.deps.playSession.intend(current);
     try {
       await backend.seek(0);
-      if (!this.isCurrent(seq)) return { status: 'stale' };
+      if (!this.isCurrent(seq)) return this.superseded(current, 'replay seek completed');
       await backend.resume();
-      if (!this.isCurrent(seq)) return { status: 'stale' };
+      if (!this.isCurrent(seq)) return this.superseded(current, 'replay resume completed');
       return { status: 'played' };
     } catch (err) {
-      if (!this.isCurrent(seq)) return { status: 'stale' };
+      if (!this.isCurrent(seq)) return this.superseded(current, 'replay rejected');
       return {
         status: 'failed',
-        error: err instanceof Error ? err.message : '重播失败',
+        message: err instanceof Error ? err.message : '重播失败',
       };
     }
   }
@@ -310,25 +364,38 @@ export class PlaybackOrchestrator {
     return seq === this.transitionSeq;
   }
 
+  invalidatePlaybackIntent(): number {
+    this.deps.playSession.skip();
+    return ++this.transitionSeq;
+  }
+
   private isCurrent(seq: number): boolean {
     return this.isTransitionCurrent(seq);
   }
 
-  private async cleanupCanceledStaleTransition(
-    seq: number,
-    backend: PlaybackBackendLike,
-  ): Promise<void> {
-    if (seq > this.canceledThroughSeq) return;
-    if (this.transitionSeq !== this.canceledThroughSeq + 1) return;
-
-    await backend.stop().catch(() => {});
-    if (this.transitionSeq !== this.canceledThroughSeq + 1) return;
-
-    this.deps.patchState({
-      isLoading: false,
-      isPlaying: false,
-      errorMsg: '',
+  private waitForStops(seq: number): Promise<void> {
+    return this.stopTail.then(() => {
+      if (!this.isCurrent(seq)) return;
     });
+  }
+
+  private stopBackend(seq: number, backend: PlaybackBackendLike): Promise<void> {
+    const stop = this.stopTail.then(() => {
+      if (!this.isCurrent(seq)) return;
+      return backend.stop();
+    }).catch(() => {});
+    this.stopTail = stop;
+    return stop;
+  }
+
+  private superseded(track: Track | null | undefined, detail: string): PlaybackResult {
+    this.deps.recordDiagnostic({
+      kind: 'track_switch',
+      phase: 'noop',
+      detail: `superseded: ${detail}`,
+      trackKey: track?.FileHash,
+    });
+    return { status: 'superseded' };
   }
 
   private fetchMissingCover(track: Track): void {

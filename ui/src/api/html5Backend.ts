@@ -9,7 +9,11 @@ export interface PreparedAudioSource {
 export interface Html5AudioBackendOptions {
   prepareSourceUrl?: (url: string) => Promise<PreparedAudioSource>;
   /** Called after audio.play() resolves — post-play attachSource (spec §5.2). */
-  initEq?: (audio: HTMLAudioElement, crossOriginSafe: boolean) => void;
+  initEq?: (
+    audio: HTMLAudioElement,
+    crossOriginSafe: boolean,
+    isCurrent: () => boolean,
+  ) => void | Promise<void>;
   /** Capture transition epoch at play start; checked after play() before initEq. */
   getAttachTransitionSeq?: () => number;
   isAttachTransitionCurrent?: (seq: number) => boolean;
@@ -20,9 +24,14 @@ export interface Html5AudioBackendOptions {
   recordDiagnostic?: (e: Omit<DiagEvent, 'ts'>) => void;
 }
 
+interface SourceLease {
+  readonly id: number;
+}
+
 export class Html5AudioBackend implements PlayerBackend {
   readonly kind = 'html5' as const;
   private lastCrossOriginSafe = false;
+  private sourceLeaseId = 0;
 
   constructor(
     private audio: HTMLAudioElement,
@@ -34,15 +43,22 @@ export class Html5AudioBackend implements PlayerBackend {
   async initialize(): Promise<boolean> { return true; }
 
   async playUrl(url: string): Promise<boolean> {
+    const lease = this.beginSourceLease();
     const attachSeq = this.options.getAttachTransitionSeq?.();
-    await this.setPreparedSource(url);
+    if (!await this.setPreparedSource(url, lease, attachSeq)) return false;
     try {
       await this.audio.play();
-      if (this.shouldAttachEq(attachSeq)) {
-        this.options.initEq?.(this.audio, this.lastCrossOriginSafe);
+      if (!this.ownsPlayback(lease, attachSeq)) return false;
+      if (this.shouldAttachEq(lease, attachSeq)) {
+        await this.options.initEq?.(
+          this.audio,
+          this.lastCrossOriginSafe,
+          () => this.ownsPlayback(lease, attachSeq),
+        );
       }
-      return true;
+      return this.ownsPlayback(lease, attachSeq);
     } catch (e) {
+      if (!this.ownsSourceLease(lease)) return false;
       console.warn('Html5AudioBackend playUrl play failed:', {
         url,
         error: e,
@@ -59,28 +75,38 @@ export class Html5AudioBackend implements PlayerBackend {
     url: string,
     options: { position?: number; autoplay: boolean },
   ): Promise<boolean> {
-    await this.setPreparedSource(url);
+    const lease = this.beginSourceLease();
+    const attachSeq = this.options.getAttachTransitionSeq?.();
+    if (!await this.setPreparedSource(url, lease, attachSeq)) return false;
+    if (!this.ownsPlayback(lease, attachSeq)) return false;
 
     if (options.position && options.position > 0) {
       await this.waitForMetadata();
+      if (!this.ownsPlayback(lease, attachSeq)) return false;
       try {
         this.audio.currentTime = options.position;
       } catch {
         // Best-effort resume position. Some media reject seeks before enough
         // metadata is available; playback should still continue.
       }
+      if (!this.ownsPlayback(lease, attachSeq)) return false;
     }
 
-    if (!options.autoplay) return true;
+    if (!options.autoplay) return this.ownsPlayback(lease, attachSeq);
 
     try {
-      const attachSeq = this.options.getAttachTransitionSeq?.();
       await this.audio.play();
-      if (this.shouldAttachEq(attachSeq)) {
-        this.options.initEq?.(this.audio, this.lastCrossOriginSafe);
+      if (!this.ownsPlayback(lease, attachSeq)) return false;
+      if (this.shouldAttachEq(lease, attachSeq)) {
+        await this.options.initEq?.(
+          this.audio,
+          this.lastCrossOriginSafe,
+          () => this.ownsPlayback(lease, attachSeq),
+        );
       }
-      return true;
+      return this.ownsPlayback(lease, attachSeq);
     } catch (e) {
+      if (!this.ownsSourceLease(lease)) return false;
       console.warn('Html5AudioBackend switchUrl play failed:', e);
       return false;
     }
@@ -93,6 +119,7 @@ export class Html5AudioBackend implements PlayerBackend {
   async pause(): Promise<void> { this.audio.pause(); }
   async resume(): Promise<void> { await this.audio.play(); }
   async stop(): Promise<void> {
+    this.beginSourceLease();
     this.options.disconnectEq?.();
     this.audio.pause();
     this.audio.removeAttribute('src');
@@ -176,9 +203,22 @@ export class Html5AudioBackend implements PlayerBackend {
     });
   }
 
-  private shouldAttachEq(attachSeq: number | undefined): boolean {
+  private shouldAttachEq(lease: SourceLease, attachSeq: number | undefined): boolean {
+    return this.ownsPlayback(lease, attachSeq);
+  }
+
+  private ownsPlayback(lease: SourceLease, attachSeq: number | undefined): boolean {
+    if (!this.ownsSourceLease(lease)) return false;
     if (attachSeq === undefined) return true;
     return this.options.isAttachTransitionCurrent?.(attachSeq) ?? false;
+  }
+
+  private beginSourceLease(): SourceLease {
+    return { id: ++this.sourceLeaseId };
+  }
+
+  private ownsSourceLease(lease: SourceLease): boolean {
+    return lease.id === this.sourceLeaseId;
   }
 
   private warnMediaEvent(event: string): void {
@@ -224,7 +264,11 @@ export class Html5AudioBackend implements PlayerBackend {
     ].join('; ');
   }
 
-  private async setPreparedSource(url: string): Promise<void> {
+  private async setPreparedSource(
+    url: string,
+    lease: SourceLease,
+    attachSeq: number | undefined,
+  ): Promise<boolean> {
     let prepared: PreparedAudioSource;
     if (this.options.prepareSourceUrl) {
       try {
@@ -246,13 +290,16 @@ export class Html5AudioBackend implements PlayerBackend {
       prepared = { url, crossOriginSafe: false };
     }
 
+    if (!this.ownsPlayback(lease, attachSeq)) return false;
     if (prepared.crossOriginSafe) {
       this.audio.crossOrigin = 'anonymous';
     } else {
       this.audio.removeAttribute('crossorigin');
     }
 
+    if (!this.ownsPlayback(lease, attachSeq)) return false;
     this.lastCrossOriginSafe = prepared.crossOriginSafe;
     this.audio.src = prepared.url;
+    return this.ownsPlayback(lease, attachSeq);
   }
 }

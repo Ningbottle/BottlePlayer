@@ -13,6 +13,12 @@ vi.mock('@tauri-apps/api/event', () => ({
 
 import { invoke } from '@tauri-apps/api/core';
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((res) => { resolve = res; });
+  return { promise, resolve };
+}
+
 describe('NativePlaybackBackend', () => {
   beforeEach(() => { vi.clearAllMocks(); });
 
@@ -114,6 +120,31 @@ describe('Html5AudioBackend', () => {
     expect(audio.src).toContain('/b');
     expect(prepareSourceUrl).toHaveBeenCalledWith('https://cdn.example/a');
     expect(prepareSourceUrl).toHaveBeenCalledWith('https://cdn.example/b');
+  });
+
+  it('does not let preparation invalidated by stop overwrite a newer source', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    audio.pause = vi.fn();
+    audio.load = vi.fn();
+    let resolveA!: (source: { url: string; crossOriginSafe: boolean }) => void;
+    const prepareA = new Promise<{ url: string; crossOriginSafe: boolean }>((resolve) => {
+      resolveA = resolve;
+    });
+    const backend = new Html5AudioBackend(audio, {
+      prepareSourceUrl: (url) => url.endsWith('/a')
+        ? prepareA
+        : Promise.resolve({ url: 'http://127.0.0.1/b', crossOriginSafe: true }),
+    });
+
+    const playA = backend.playUrl('https://cdn.example/a');
+    await backend.stop();
+    await backend.playUrl('https://cdn.example/b');
+
+    resolveA({ url: 'http://127.0.0.1/a', crossOriginSafe: true });
+    await expect(playA).resolves.toBe(false);
+    expect(audio.src).toContain('/b');
+    expect(audio.pause).toHaveBeenCalledTimes(1);
   });
 
   it('reports HTML5 media event diagnostics for error and stall-like events', () => {
@@ -240,7 +271,7 @@ describe('Html5AudioBackend', () => {
     expect(audio.crossOrigin).toBe('anonymous');
     expect(audio.src).toBe('http://127.0.0.1:17631/audio/1');
     expect(callOrder).toEqual(['play', 'initEq']);
-    expect(initEq).toHaveBeenCalledWith(audio, true);
+    expect(initEq).toHaveBeenCalledWith(audio, true, expect.any(Function));
     expect(audio.play).toHaveBeenCalled();
   });
 
@@ -270,10 +301,10 @@ describe('Html5AudioBackend', () => {
     await backend.playUrl('https://cdn.example/song.mp3');
 
     expect(audio.hasAttribute('crossorigin')).toBe(false);
-    expect(initEq).toHaveBeenCalledWith(audio, false);
+    expect(initEq).toHaveBeenCalledWith(audio, false, expect.any(Function));
   });
 
-  it('playUrl skips initEq when attach transition is stale after play()', async () => {
+  it('playUrl abandons a stale entry transition before it can play or attach EQ', async () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
     audio.play = vi.fn().mockResolvedValue(undefined);
     const initEq = vi.fn();
@@ -285,7 +316,7 @@ describe('Html5AudioBackend', () => {
 
     await backend.playUrl('https://example.com/song.mp3');
 
-    expect(audio.play).toHaveBeenCalled();
+    expect(audio.play).not.toHaveBeenCalled();
     expect(initEq).not.toHaveBeenCalled();
   });
 
@@ -301,7 +332,36 @@ describe('Html5AudioBackend', () => {
 
     await backend.playUrl('https://example.com/song.mp3');
 
-    expect(initEq).toHaveBeenCalledWith(audio, false);
+    expect(initEq).toHaveBeenCalledWith(audio, false, expect.any(Function));
+  });
+
+  it('does not let a stale post-play async EQ attach reroute the newer source', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    const attachMayFinish = deferred<void>();
+    let attachStarted!: () => void;
+    const attachStartedPromise = new Promise<void>((resolve) => { attachStarted = resolve; });
+    const attachCount = { a: 0, b: 0 };
+    let attachAttempt = 0;
+    const initEq = vi.fn(async (...args: unknown[]) => {
+      const isCurrent = args[2] as (() => boolean) | undefined;
+      const intent = attachAttempt++ === 0 ? 'a' : 'b';
+      attachStarted();
+      await attachMayFinish.promise;
+      if (isCurrent?.()) attachCount[intent] += 1;
+    });
+    const backend = new Html5AudioBackend(audio, { initEq: initEq as any });
+
+    const playA = backend.playUrl('https://example.com/a.mp3');
+    await attachStartedPromise;
+    const playB = backend.playUrl('https://example.com/b.mp3');
+    attachMayFinish.resolve();
+    await playB;
+    await playA;
+
+    expect(initEq).toHaveBeenCalledTimes(2);
+    expect(attachCount.a).toBe(0);
+    expect(attachCount.b).toBe(1);
   });
 
   it('stop disconnects EQ before clearing source', async () => {
@@ -342,6 +402,10 @@ describe('Html5AudioBackend', () => {
       position: 42,
       autoplay: false,
     });
+    const addListener = vi.spyOn(audio, 'addEventListener');
+    await vi.waitFor(() => expect(addListener).toHaveBeenCalledWith(
+      'loadedmetadata', expect.any(Function), { once: true },
+    ));
     audio.dispatchEvent(new Event('loadedmetadata'));
 
     await expect(switched).resolves.toBe(true);
@@ -349,6 +413,95 @@ describe('Html5AudioBackend', () => {
     expect(audio.currentTime).toBe(42);
     expect(audio.play).not.toHaveBeenCalled();
     expect(backend.hasSource()).toBe(true);
+  });
+
+  it('does not attach EQ when a pending audio.play loses its source lease', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    const finishA = deferred<void>();
+    audio.play = vi.fn()
+      .mockImplementationOnce(() => finishA.promise)
+      .mockResolvedValueOnce(undefined);
+    const initEq = vi.fn();
+    const backend = new Html5AudioBackend(audio, { initEq });
+
+    const playA = backend.playUrl('https://example.com/a.mp3');
+    await vi.waitFor(() => expect(audio.play).toHaveBeenCalledTimes(1));
+    await backend.playUrl('https://example.com/b.mp3');
+    finishA.resolve();
+
+    await expect(playA).resolves.toBe(false);
+    expect(audio.src).toBe('https://example.com/b.mp3');
+    expect(initEq).toHaveBeenCalledTimes(1);
+  });
+
+  it.each([
+    ['playUrl', (backend: Html5AudioBackend) => backend.playUrl('https://example.com/a.mp3')],
+    ['switchUrl', (backend: Html5AudioBackend) => backend.switchUrl('https://example.com/a.mp3', { position: 12, autoplay: true })],
+  ])('does not write a prepared %s source after an epoch-only supersession', async (_name, begin) => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    audio.src = 'https://example.com/b.mp3';
+    audio.crossOrigin = 'anonymous';
+    const preparedA = deferred<{ url: string; crossOriginSafe: boolean }>();
+    let epoch = 1;
+    const initEq = vi.fn();
+    const backend = new Html5AudioBackend(audio, {
+      prepareSourceUrl: () => preparedA.promise,
+      getAttachTransitionSeq: () => epoch,
+      isAttachTransitionCurrent: (seq) => seq === epoch,
+      initEq,
+    });
+
+    const a = begin(backend);
+    epoch = 2; // B resumed/replayed; no new backend lease was created.
+    preparedA.resolve({ url: 'https://example.com/a.mp3', crossOriginSafe: false });
+
+    await expect(a).resolves.toBe(false);
+    expect(audio.src).toBe('https://example.com/b.mp3');
+    expect(audio.crossOrigin).toBe('anonymous');
+    expect(audio.play).not.toHaveBeenCalled();
+    expect(initEq).not.toHaveBeenCalled();
+  });
+
+  it('does not seek or play an older switchUrl after a newer source takes ownership', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    const backend = new Html5AudioBackend(audio);
+
+    const switchA = backend.switchUrl('https://example.com/a.mp3', {
+      position: 42,
+      autoplay: true,
+    });
+    await backend.switchUrl('https://example.com/b.mp3', { autoplay: false });
+    audio.dispatchEvent(new Event('loadedmetadata'));
+
+    await expect(switchA).resolves.toBe(false);
+    expect(audio.src).toBe('https://example.com/b.mp3');
+    expect(audio.currentTime).toBe(0);
+    expect(audio.play).not.toHaveBeenCalled();
+  });
+
+  it('abandons a metadata wait when its captured transition epoch is superseded without a new lease', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    const addListener = vi.spyOn(audio, 'addEventListener');
+    let epoch = 1;
+    const backend = new Html5AudioBackend(audio, {
+      getAttachTransitionSeq: () => epoch,
+      isAttachTransitionCurrent: (seq) => seq === epoch,
+    });
+
+    const switchA = backend.switchUrl('https://example.com/a.mp3', {
+      position: 42,
+      autoplay: false,
+    });
+    await vi.waitFor(() => expect(addListener).toHaveBeenCalledWith(
+      'loadedmetadata', expect.any(Function), { once: true },
+    ));
+    epoch = 2; // B resumed/replayed: orchestrator epoch changed, source lease did not.
+    audio.dispatchEvent(new Event('loadedmetadata'));
+
+    await expect(switchA).resolves.toBe(false);
+    expect(audio.currentTime).toBe(0);
   });
 
   it('stop clears source so hasSource returns false', async () => {
