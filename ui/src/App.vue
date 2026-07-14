@@ -10,6 +10,7 @@ import QueuePanel from './components/QueuePanel.vue';
 import AuroraShell from './components/shell/AuroraShell.vue';
 import NewsprintShell from './components/shell/NewsprintShell.vue';
 import FullscreenWindowControls from './components/shell/FullscreenWindowControls.vue';
+import PageRecoveryBoundary from './components/shell/PageRecoveryBoundary.vue';
 
 import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { checkLoginStatus } from './api/userStore';
@@ -154,26 +155,29 @@ onUnmounted(() => {
     </template>
 
     <div class="scroll" :class="{ 'page-transition-stack': isAuroraOverlap }">
-      <RouterView v-slot="{ Component, route }">
-        <Transition
-          :mode="pageTransitionMode"
-          :css="false"
-          @before-enter="registerPageTransition"
-          @before-leave="registerPageTransition"
-          @after-enter="unregisterPageTransition"
-          @after-leave="unregisterPageTransition"
-          @enter="transitionEnter"
-          @leave="transitionLeave"
-        >
-          <KeepAlive :include="keepAliveComponents">
-            <component
-              :is="Component"
-              v-bind="route.name === routeNames.lyric ? { isQueueOpen } : {}"
-              @navigate="handleNavigate"
-            />
-          </KeepAlive>
-        </Transition>
-      </RouterView>
+      <PageRecoveryBoundary v-slot="{ retryKey }">
+        <RouterView v-slot="{ Component, route }">
+          <Transition
+            :mode="pageTransitionMode"
+            :css="false"
+            @before-enter="registerPageTransition"
+            @before-leave="registerPageTransition"
+            @after-enter="unregisterPageTransition"
+            @after-leave="unregisterPageTransition"
+            @enter="transitionEnter"
+            @leave="transitionLeave"
+          >
+            <KeepAlive :include="keepAliveComponents">
+              <component
+                :is="Component"
+                :key="`${String(route.name)}:${retryKey}`"
+                v-bind="route.name === routeNames.lyric ? { isQueueOpen } : {}"
+                @navigate="handleNavigate"
+              />
+            </KeepAlive>
+          </Transition>
+        </RouterView>
+      </PageRecoveryBoundary>
     </div>
 
     <template #extras>

@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
-import { beginTransitionSession } from '../transitionSession';
+import { beginTransitionSession, settleActiveTransitionSessions } from '../transitionSession';
+import { cancelPageTransition, registerPageTransition } from '../../navigation/navigationLifecycle';
 
 describe('transitionSession', () => {
   it('does not call done on begin; complete settles exactly once', () => {
@@ -45,5 +46,49 @@ describe('transitionSession', () => {
       s.complete();
       s.interrupt();
     }).not.toThrow();
+  });
+
+  it('settles all active sessions and restores transition-related inline styles', () => {
+    const el = document.createElement('div');
+    el.style.opacity = '0.4';
+    el.style.transform = 'scale(1)';
+    el.style.filter = 'none';
+    const done = vi.fn();
+    beginTransitionSession(el, 'enter', done);
+
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(28px)';
+    el.style.filter = 'blur(2px)';
+
+    const restore = settleActiveTransitionSessions();
+
+    expect(done).toHaveBeenCalledTimes(1);
+    expect(restore).toBeTypeOf('function');
+    restore();
+    expect(el.style.opacity).toBe('0.4');
+    expect(el.style.transform).toBe('scale(1)');
+    expect(el.style.filter).toBe('none');
+    settleActiveTransitionSessions();
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it('restores original styles after the exact settle, cancel, and final-restore sequence', () => {
+    const el = document.createElement('div');
+    el.style.opacity = '0.6';
+    el.style.transform = 'scale(1)';
+    el.style.filter = 'none';
+    registerPageTransition(el);
+    beginTransitionSession(el, 'enter', vi.fn());
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(28px)';
+    el.style.filter = 'blur(2px)';
+
+    const finalRestore = settleActiveTransitionSessions() as unknown as (() => void);
+    cancelPageTransition();
+    finalRestore?.();
+
+    expect(el.style.opacity).toBe('0.6');
+    expect(el.style.transform).toBe('scale(1)');
+    expect(el.style.filter).toBe('none');
   });
 });
