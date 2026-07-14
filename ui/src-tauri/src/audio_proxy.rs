@@ -2,7 +2,7 @@ use std::{
     collections::HashMap,
     net::TcpListener as StdTcpListener,
     sync::{Arc, Mutex},
-    time::{Duration, Instant},
+    time::Instant,
 };
 
 use futures_util::StreamExt;
@@ -33,7 +33,6 @@ struct RouteEntry {
     created_at: Instant,
 }
 
-const ROUTE_TTL: Duration = Duration::from_secs(10 * 60);
 const MAX_ROUTES: usize = 128;
 const BODY_RETRY_LIMIT: usize = 2;
 
@@ -68,7 +67,6 @@ impl AudioProxyState {
             .routes
             .lock()
             .map_err(|_| "audio_proxy_routes_poisoned".to_string())?;
-        prune_routes(&mut routes);
         while routes.len() >= MAX_ROUTES {
             if let Some(oldest_id) = routes
                 .iter()
@@ -98,8 +96,7 @@ impl AudioProxyState {
     }
 
     fn resolve(&self, id: &str) -> Option<String> {
-        let mut routes = self.inner.routes.lock().ok()?;
-        prune_routes(&mut routes);
+        let routes = self.inner.routes.lock().ok()?;
         routes.get(id).map(|route| route.url.clone())
     }
 }
@@ -543,11 +540,6 @@ fn parse_content_range_bounds(content_range: &str) -> Option<(u64, u64)> {
     Some((start.parse::<u64>().ok()?, end.parse::<u64>().ok()?))
 }
 
-fn prune_routes(routes: &mut HashMap<String, RouteEntry>) {
-    let now = Instant::now();
-    routes.retain(|_, route| now.duration_since(route.created_at) <= ROUTE_TTL);
-}
-
 fn random_route_id() -> Result<String, String> {
     let mut bytes = [0u8; 16];
     getrandom::getrandom(&mut bytes).map_err(|e| format!("audio_proxy_random_failed: {e}"))?;
@@ -607,7 +599,9 @@ mod tests {
         assert!(is_supported_audio_url("https://fs.wbpz.kugou.com/song.mp3"));
         assert!(is_supported_audio_url("http://fs.ab12.kugou.com/song.mp3"));
         assert!(is_supported_audio_url("https://imge.kugou.com/song.mp3"));
-        assert!(!is_supported_audio_url("https://imge.kugou.com.evil.com/song.mp3"));
+        assert!(!is_supported_audio_url(
+            "https://imge.kugou.com.evil.com/song.mp3"
+        ));
         assert!(!is_supported_audio_url("file:///tmp/song.mp3"));
         assert!(!is_supported_audio_url("https://cdn.example/song.mp3"));
         assert!(!is_supported_audio_url("https://127.0.0.1/song.mp3"));
@@ -678,7 +672,9 @@ mod tests {
         assert!(is_client_disconnect(
             "route=abc stage=client_body bytes=0 client write failed (body chunk): An established connection was aborted"
         ));
-        assert!(!is_client_disconnect("route=abc stage=upstream_body upstream body read failed"));
+        assert!(!is_client_disconnect(
+            "route=abc stage=upstream_body upstream body read failed"
+        ));
     }
 
     #[tokio::test]
@@ -952,6 +948,48 @@ mod tests {
             .unwrap()
             .expect("proxy should resume and complete the response body");
         upstream_task.await.unwrap();
+    }
+
+    #[test]
+    fn route_survives_beyond_old_ttl_for_active_audio_element() {
+        let state = AudioProxyState::new(12345);
+        let url = "https://fs.wbpz.kugou.com/song.mp3".to_string();
+        let registered = state.register(url.clone()).expect("should register");
+        let route_id = registered.rsplit('/').next().expect("route id");
+
+        // Simulate the audio element being paused for longer than the old
+        // 10-minute TTL by backdating created_at past ROUTE_TTL.
+        let old_time = Instant::now() - Duration::from_secs(601);
+        {
+            let mut routes = state.inner.routes.lock().unwrap();
+            if let Some(entry) = routes.get_mut(route_id) {
+                entry.created_at = old_time;
+            }
+        }
+
+        // The route should still resolve because it is still in the route
+        // table (not evicted by capacity). The audio element still holds
+        // this loopback URL and should not get a 404 on resume.
+        let resolved = state.resolve(route_id);
+        assert!(
+            resolved.is_some(),
+            "route should survive beyond old TTL as long as capacity allows"
+        );
+        assert_eq!(resolved, Some(url));
+    }
+
+    #[test]
+    fn route_table_stays_bounded_by_max_routes() {
+        let state = AudioProxyState::new(12345);
+        for i in 0..(MAX_ROUTES + 10) {
+            let url = format!("https://fs.ab{:03}.kugou.com/song.mp3", i);
+            state.register(url).expect("should register");
+        }
+        let count = state.inner.routes.lock().unwrap().len();
+        assert_eq!(
+            count, MAX_ROUTES,
+            "route table should be bounded by MAX_ROUTES even without TTL pruning"
+        );
     }
 
     async fn send_one_proxy_request(state: AudioProxyState, request: &str) -> String {
