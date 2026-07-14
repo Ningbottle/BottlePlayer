@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import NewsprintHome from '../NewsprintHome.vue';
-import type { HomeViewModel, HomeSectionError } from '../homeViewModel';
+import type { HomeSectionError, HomeSectionViewState, HomeViewModel } from '../homeViewModel';
 import type { Track } from '../../../api/normalizer';
-import type { PlaylistInfo } from '../../../api/homeFeedStore';
+import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
 
 vi.mock('../../../api/motion', () => ({
   animateElement: vi.fn(),
@@ -33,6 +33,23 @@ function createPlaylist(overrides: Partial<PlaylistInfo> = {}): PlaylistInfo {
   };
 }
 
+function createSectionStates(
+  overrides: Partial<Record<HomeSection, Partial<HomeSectionViewState>>> = {},
+): Record<HomeSection, HomeSectionViewState> {
+  const base = (): HomeSectionViewState => ({
+    loading: false,
+    refreshing: false,
+    error: null,
+    isEmpty: false,
+    retry: () => Promise.resolve(),
+  });
+  return {
+    daily: { ...base(), ...overrides.daily },
+    playlists: { ...base(), ...overrides.playlists },
+    albums: { ...base(), ...overrides.albums },
+  };
+}
+
 function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel {
   const { queueWindowStart = 0, ...rest } = overrides;
   return {
@@ -47,6 +64,7 @@ function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel 
     isPlaying: false,
     isInitialLoading: false,
     isRefreshing: false,
+    sections: createSectionStates(),
     errors: [] as readonly HomeSectionError[],
     errorSummary: '',
     heroQualityChips: [],
@@ -57,6 +75,49 @@ function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel 
 describe('NewsprintHome', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+  });
+
+  it('keeps daily loading, playlist refresh, and album retry scoped to their sections', async () => {
+    const retryDaily = vi.fn().mockResolvedValue(undefined);
+    const retryAlbums = vi.fn().mockResolvedValue(undefined);
+    const wrapper = mount(NewsprintHome, {
+      props: {
+        model: createViewModel({
+          dailyTracks: [],
+          playlists: [createPlaylist({ specialid: 2 })],
+          albums: [],
+          sections: createSectionStates({
+            daily: { loading: true, retry: retryDaily },
+            playlists: { refreshing: true },
+            albums: { error: '加载失败', retry: retryAlbums },
+          }),
+        }),
+      },
+    });
+
+    expect(wrapper.get('[data-test="daily-section-status"]').text()).toContain('加载中…');
+    expect(wrapper.get('[data-test="playlists-section-status"]').text()).toContain('刷新中…');
+    expect(wrapper.find('[data-test="albums-section-retry"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="albums-section-retry"]').trigger('click');
+    expect(retryAlbums).toHaveBeenCalledTimes(1);
+    expect(retryDaily).not.toHaveBeenCalled();
+  });
+
+  it('shows playlist loading without putting daily or albums into loading state', () => {
+    const wrapper = mount(NewsprintHome, {
+      props: {
+        model: createViewModel({
+          dailyTracks: [createTrack({ FileHash: 'daily-ready' })],
+          albums: [createPlaylist({ specialid: 3 })],
+          sections: createSectionStates({ playlists: { loading: true } }),
+        }),
+      },
+    });
+
+    expect(wrapper.get('[data-test="daily-section-status"]').text()).toContain('刷新推荐');
+    expect(wrapper.get('[data-test="playlists-section-status"]').text()).toContain('加载中…');
+    expect(wrapper.get('[data-test="albums-section-status"]').text()).toContain('全部歌单');
   });
 
   it('renders classic late-edition masthead and feature row', () => {
@@ -127,16 +188,17 @@ describe('NewsprintHome', () => {
     expect(wrapper.emitted('play-track')![0]).toEqual([track]);
   });
 
-  it('emits refresh when refresh button is clicked', async () => {
-    const vm = createViewModel();
+  it('retries only the daily section when its refresh control is clicked', async () => {
+    const retryDaily = vi.fn().mockResolvedValue(undefined);
+    const vm = createViewModel({ sections: createSectionStates({ daily: { retry: retryDaily } }) });
 
     const wrapper = mount(NewsprintHome, {
       props: { model: vm },
     });
 
-    await wrapper.get('[data-test="refresh"]').trigger('click');
+    await wrapper.get('[data-test="daily-section-status"]').trigger('click');
 
-    expect(wrapper.emitted('refresh')).toBeTruthy();
+    expect(retryDaily).toHaveBeenCalledTimes(1);
   });
 
   it('emits navigate when a playlist is clicked', async () => {

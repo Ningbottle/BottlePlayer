@@ -20,6 +20,7 @@ const homeFeedMock = {
   daily: { items: [] as Track[], loaded: true, loading: false, refreshing: false, error: null as string | null },
   playlists: { items: [] as any[], loaded: true, loading: false, refreshing: false, error: null as string | null },
   albums: { items: [] as any[], loaded: true, loading: false, refreshing: false, error: null as string | null },
+  retrySection: vi.fn(),
 };
 
 vi.mock('../../../api/homeFeedStore', () => ({
@@ -83,6 +84,47 @@ describe('useHomeViewModel', () => {
     const model = useHomeViewModel().value;
     expect(model.heroQualityChips).toEqual(['无损', 'VIP']);
     expect(buildHeroQualityChips(makeTrack('other'), track, 'flac', false)).toEqual([]);
+  });
+
+  it('exposes independent section states and target-scoped retries', async () => {
+    homeFeedMock.daily.items = [];
+    homeFeedMock.daily.loading = true;
+    homeFeedMock.daily.refreshing = false;
+    homeFeedMock.daily.error = null;
+    homeFeedMock.playlists.items = [];
+    homeFeedMock.playlists.loading = false;
+    homeFeedMock.playlists.refreshing = true;
+    homeFeedMock.playlists.error = 'fail';
+    homeFeedMock.albums.items = [];
+    homeFeedMock.albums.loading = false;
+    homeFeedMock.albums.refreshing = false;
+    homeFeedMock.albums.error = null;
+    homeFeedMock.retrySection.mockReset();
+
+    const model = useHomeViewModel().value;
+    const sections = model.sections;
+
+    expect(sections.daily).toMatchObject({
+      loading: true,
+      refreshing: false,
+      error: null,
+      isEmpty: true,
+    });
+    expect(sections.playlists).toMatchObject({
+      loading: false,
+      refreshing: true,
+      error: 'fail',
+      isEmpty: true,
+    });
+    expect(sections.albums).toMatchObject({
+      loading: false,
+      refreshing: false,
+      error: null,
+      isEmpty: true,
+    });
+
+    await sections.playlists.retry();
+    expect(homeFeedMock.retrySection).toHaveBeenCalledWith('playlists');
   });
 });
 

@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../api/normalizer';
-import type { PlaylistInfo } from '../../api/homeFeedStore';
+import type { HomeSection, PlaylistInfo } from '../../api/homeFeedStore';
 
 const props = defineProps<{ model: HomeViewModel }>();
 
@@ -55,6 +55,18 @@ function formatPlays(n: number): string {
 function formatDate(): string {
   const days = ['日', '一', '二', '三', '四', '五', '六'];
   return `星期${days[new Date().getDay()]} · ${new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}`;
+}
+
+function sectionStatus(section: HomeSection, idle: string): string {
+  const state = props.model.sections[section];
+  if (state.error) return '重试';
+  if (state.loading) return '加载中…';
+  if (state.refreshing) return '刷新中…';
+  return state.isEmpty ? '暂无内容' : idle;
+}
+
+function retrySection(section: HomeSection): void {
+  void props.model.sections[section].retry();
 }
 </script>
 
@@ -137,13 +149,13 @@ function formatDate(): string {
           </h3>
           <span
             class="more"
-            data-test="refresh"
             role="button"
             tabindex="0"
-            @click="emit('refresh')"
-            @keydown.enter="emit('refresh')"
+            data-test="daily-section-status"
+            @click="retrySection('daily')"
+            @keydown.enter="retrySection('daily')"
           >
-            {{ model.isRefreshing ? '刷新中…' : '刷新推荐 ↻' }}
+            {{ sectionStatus('daily', '刷新推荐 ↻') }}
           </span>
         </div>
 
@@ -162,15 +174,22 @@ function formatDate(): string {
             <span class="dur">{{ formatDuration(song.Duration) }}</span>
           </li>
           <li v-if="!recommendations.length" style="padding: 10px; font-style: italic; color: var(--ink-mute); cursor: default">
-            暂时没有推荐歌曲
+            {{ sectionStatus('daily', '暂时没有推荐歌曲') }}
           </li>
         </ol>
       </div>
     </div>
 
-    <div v-if="model.playlists.length" class="section-bar">
+    <div v-if="model.playlists.length || model.sections.playlists.loading || model.sections.playlists.error || model.sections.playlists.isEmpty" class="section-bar">
       <h2>编辑推荐<i>Editor's Picks</i></h2>
-      <span class="more">{{ model.isRefreshing ? '刷新中…' : '本周精选' }}</span>
+      <button
+        v-if="model.sections.playlists.error"
+        type="button"
+        class="more"
+        data-test="playlists-section-retry"
+        @click="retrySection('playlists')"
+      >重试</button>
+      <span v-else class="more" data-test="playlists-section-status">{{ sectionStatus('playlists', '本周精选') }}</span>
     </div>
     <div v-if="model.playlists.length" class="grid">
       <article
@@ -203,9 +222,16 @@ function formatDate(): string {
       </article>
     </div>
 
-    <div v-if="model.albums.length" class="section-bar" style="margin-top: 34px">
+    <div v-if="model.albums.length || model.sections.albums.loading || model.sections.albums.error || model.sections.albums.isEmpty" class="section-bar" style="margin-top: 34px">
       <h2>最新歌单<i>Newly Pressed</i></h2>
-      <span class="more">{{ model.isRefreshing ? '刷新中…' : '全部歌单' }}</span>
+      <button
+        v-if="model.sections.albums.error"
+        type="button"
+        class="more"
+        data-test="albums-section-retry"
+        @click="retrySection('albums')"
+      >重试</button>
+      <span v-else class="more" data-test="albums-section-status">{{ sectionStatus('albums', '全部歌单') }}</span>
     </div>
     <div v-if="model.albums.length" class="grid">
       <article

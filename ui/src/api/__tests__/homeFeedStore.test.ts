@@ -46,7 +46,7 @@ describe('home feed store', () => {
     expect(mockApiGet).toHaveBeenCalledTimes(3);
   });
 
-  it('deduplicates concurrent refresh calls and keeps old data visible', async () => {
+  it('supersedes concurrent refresh calls and keeps old data visible', async () => {
     const store = useHomeFeedStore();
     await store.ensureLoaded();
     const oldDaily = store.daily.items;
@@ -60,7 +60,8 @@ describe('home feed store', () => {
     const first = store.refresh();
     const second = store.refresh();
 
-    expect(first).toBe(second);
+    expect(first).not.toBe(second);
+    expect(mockApiGet).toHaveBeenCalledTimes(9);
     expect(store.daily.items).toBe(oldDaily);
 
     resolveRefresh?.();
@@ -224,5 +225,139 @@ describe('home feed store', () => {
 
     expect(mockApiGet).toHaveBeenCalledTimes(1);
     expect(mockApiGet).toHaveBeenCalledWith('/top/playlist', { pagesize: 5, sort: 2 });
+  });
+
+  it('accepts explicitly successful empty section lists', async () => {
+    mockApiGet.mockImplementation((path: string, query?: { sort?: number }) => {
+      if (path === '/everyday/recommend') {
+        return Promise.resolve({ status: 1, data: { data: { song_list: [] } } });
+      }
+      if (path === '/top/song') {
+        return Promise.resolve({ status: 1, data: { data: { info: [] } } });
+      }
+      return Promise.resolve({
+        status: 1,
+        data: { data: { info: query?.sort === 5 ? [] : [] } },
+      });
+    });
+
+    const store = useHomeFeedStore();
+    await store.ensureLoaded();
+
+    for (const section of [store.daily, store.playlists, store.albums]) {
+      expect(section.items).toEqual([]);
+      expect(section.loaded).toBe(true);
+      expect(section.error).toBeNull();
+    }
+  });
+
+  it('prevents a stale refresh failure from clearing a newer daily session', async () => {
+    const store = useHomeFeedStore() as typeof useHomeFeedStore extends () => infer S ? S & {
+      retrySection: (section: 'daily' | 'playlists' | 'albums') => Promise<void>;
+    } : never;
+    await store.ensureLoaded();
+
+    let releaseOlderDaily!: () => void;
+    const olderDaily = new Promise<never>((_resolve, reject) => {
+      releaseOlderDaily = () => reject(new Error('older refresh failed'));
+    });
+    let dailyCalls = 0;
+    mockApiGet.mockImplementation((path: string, query?: { sort?: number }) => {
+      if (path === '/everyday/recommend') {
+        dailyCalls += 1;
+        return dailyCalls === 1 ? olderDaily : Promise.resolve(dailyResponse('newer-daily'));
+      }
+      return Promise.resolve(playlistResponse(query?.sort === 5 ? 'Fresh albums' : 'Fresh playlists'));
+    });
+
+    const olderRefresh = store.refresh();
+    await vi.waitFor(() => expect(store.daily.refreshing).toBe(true));
+    await store.retrySection('daily');
+
+    expect(store.daily.items[0]?.FileHash).toBe('newer-daily');
+    expect(store.daily.error).toBeNull();
+    expect(store.daily.loading).toBe(false);
+    expect(store.daily.refreshing).toBe(false);
+
+    releaseOlderDaily();
+    await olderRefresh;
+
+    expect(store.daily.items[0]?.FileHash).toBe('newer-daily');
+    expect(store.daily.error).toBeNull();
+    expect(store.daily.loading).toBe(false);
+    expect(store.daily.refreshing).toBe(false);
+  });
+
+  it('supersedes every pending section when refresh starts a newer generation', async () => {
+    const store = useHomeFeedStore();
+    const olderRequests = new Map<string, { reject: (error: Error) => void }>();
+    let useFreshResponses = false;
+
+    mockApiGet.mockImplementation((path: string, query?: { sort?: number }) => {
+      const key = `${path}:${query?.sort ?? ''}`;
+      if (useFreshResponses) {
+        if (path === '/everyday/recommend') return Promise.resolve(dailyResponse('fresh-daily'));
+        return Promise.resolve(playlistResponse(query?.sort === 5 ? 'Fresh albums' : 'Fresh playlists'));
+      }
+      return new Promise((_resolve, reject) => {
+        olderRequests.set(key, { reject });
+      });
+    });
+
+    const initialLoad = store.ensureLoaded();
+    await vi.waitFor(() => expect(mockApiGet).toHaveBeenCalledTimes(3));
+
+    useFreshResponses = true;
+    const refreshed = store.refresh();
+    await vi.waitFor(() => expect(mockApiGet).toHaveBeenCalledTimes(6));
+    await refreshed;
+
+    expect(store.daily.items[0]?.FileHash).toBe('fresh-daily');
+    expect(store.playlists.items[0]?.specialname).toBe('Fresh playlists');
+    expect(store.albums.items[0]?.specialname).toBe('Fresh albums');
+    expect(store.daily.loading).toBe(false);
+    expect(store.playlists.loading).toBe(false);
+    expect(store.albums.loading).toBe(false);
+
+    for (const request of olderRequests.values()) {
+      request.reject(new Error('stale request failed'));
+    }
+    await initialLoad;
+
+    expect(store.daily.error).toBeNull();
+    expect(store.playlists.error).toBeNull();
+    expect(store.albums.error).toBeNull();
+    expect(store.daily.refreshing).toBe(false);
+    expect(store.playlists.refreshing).toBe(false);
+    expect(store.albums.refreshing).toBe(false);
+  });
+
+  it('seeds stable synchronous demo data from every public load entry point', async () => {
+    const originalUrl = new URL(window.location.href);
+    window.history.replaceState({}, '', `${originalUrl.pathname}?layoutDemo=1`);
+
+    try {
+      const store = useHomeFeedStore();
+      const entryPoints = [
+        () => store.ensureLoaded(),
+        () => store.refresh(),
+        () => store.retrySection('albums'),
+      ];
+
+      for (const load of entryPoints) {
+        __resetHomeFeedForTest();
+        mockApiGet.mockClear();
+        const result = load();
+
+        expect(store.daily.items[0]?.FileHash).toBe('demo-track-1');
+        expect(store.playlists.items[0]?.specialname).toBe('精选歌单 1');
+        expect(store.albums.items[0]?.specialname).toBe('最新歌单 1');
+        expect(mockApiGet).not.toHaveBeenCalled();
+        await result;
+      }
+    } finally {
+      window.history.replaceState({}, '', `${originalUrl.pathname}${originalUrl.search}`);
+      __resetHomeFeedForTest();
+    }
   });
 });
