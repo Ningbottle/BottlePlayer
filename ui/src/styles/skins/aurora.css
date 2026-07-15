@@ -10,7 +10,7 @@
   display: grid;
   grid-template-columns: clamp(232px, 16vw, 252px) minmax(0, 1fr);
   /* Compact player row — less chrome, more content */
-  grid-template-rows: 32px auto minmax(0, 1fr) 96px;
+  grid-template-rows: 32px auto minmax(0, 1fr) 104px;
   height: 100vh;
   min-height: 720px;
   background: var(--app-bg);

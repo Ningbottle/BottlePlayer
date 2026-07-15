@@ -320,7 +320,7 @@ function onRelease(e: MouseEvent) {
   gap: 6px 12px;
   align-items: center;
   min-height: 72px;
-  padding: 8px 16px 10px;
+  padding: 6px 16px 8px;
   box-sizing: border-box;
   border-radius: 24px;
   border: 1px solid color-mix(in srgb, #fff 8%, transparent);
