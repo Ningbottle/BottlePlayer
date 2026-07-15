@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
+import { PhArrowsOutSimple } from '@phosphor-icons/vue';
 import { isReducedMotion } from '../../api/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
 import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api/playerStore';
@@ -37,6 +38,7 @@ function closeShelf(): void {
 }
 
 function onCoverClick(): void {
+  if (!props.model.fullscreen) return;
   openShelf();
 }
 
@@ -304,25 +306,46 @@ onBeforeUnmount(clearFullscreenTransientStyles);
       aria-hidden="true"
     />
 
-    <!-- Cover only — no title/artist/hints/buttons. Dblclick → fullscreen; fs click → shelf. -->
     <div
-      class="lyric-meta"
-      data-test="lyric-meta"
+      class="lyric-meta aurora-lyric-meta-column"
+      data-test="lyric-meta-column"
       @dblclick="!model.fullscreen && emit('enter-fullscreen')"
     >
       <div
-        class="aurora-cover is-shelf-hot"
+        class="aurora-cover"
+        :class="{ 'is-shelf-hot': model.fullscreen }"
         ref="coverRef"
         data-test="lyric-cover"
         :style="{ aspectRatio: '1' }"
-        aria-label="打开歌单架"
+        :aria-label="model.fullscreen ? '打开歌单架' : undefined"
+        :role="model.fullscreen ? 'button' : undefined"
+        :tabindex="model.fullscreen ? 0 : undefined"
         @click="onCoverClick"
+        @keydown.enter.prevent="onCoverClick"
+        @keydown.space.prevent="onCoverClick"
       >
         <img :src="model.coverUrl" alt="" />
         <CoverWebGLParticles
           :active="model.fullscreen"
           :is-playing="model.isPlaying"
         />
+      </div>
+      <button
+        v-if="!model.fullscreen"
+        type="button"
+        class="aurora-lyric-enter-fullscreen"
+        data-test="lyric-enter-fullscreen"
+        aria-label="进入全屏歌词"
+        title="进入全屏歌词"
+        @click.stop="emit('enter-fullscreen')"
+      >
+        <PhArrowsOutSimple :size="16" weight="bold" aria-hidden="true" />
+      </button>
+      <div class="aurora-lyric-track-meta">
+        <span class="aurora-lyric-kicker">正在播放</span>
+        <h2>{{ model.currentTrack?.SongName }}</h2>
+        <p>{{ model.currentTrack?.SingerName }}</p>
+        <small>{{ model.currentTrack?.AlbumName || '未知专辑' }}</small>
       </div>
     </div>
 
@@ -334,24 +357,33 @@ onBeforeUnmount(clearFullscreenTransientStyles);
       @select="onSelectTrack"
     />
     <div
-      class="lyric-scroll"
-      :class="{ paused: !model.autoFollowing }"
-      data-test="lyric-scroll"
-      @wheel.passive="$emit('user-scroll')"
-      @touchmove.passive="$emit('user-scroll')"
+      class="lyric-content-column aurora-lyric-content-column"
+      data-test="lyric-content-column"
+      data-layout="two-column"
     >
-      <button
-        v-for="(line, idx) in model.parsedLyrics"
-        :key="idx"
-        type="button"
-        :id="`lyric-line-${idx}`"
-        :data-test="`lyric-line-${idx}`"
-        class="lyric-line"
-        :class="lineClass(idx)"
-        @click="onLineClick(line)"
+      <slot v-if="model.error" name="error" />
+      <div
+        v-else
+        class="lyric-scroll"
+        :class="{ paused: !model.autoFollowing }"
+        data-test="lyric-scroll"
+        @wheel.passive="$emit('user-scroll')"
+        @touchmove.passive="$emit('user-scroll')"
       >
-        {{ line.text }}
-      </button>
+        <button
+          v-for="(line, idx) in model.parsedLyrics"
+          :key="idx"
+          type="button"
+          :id="`lyric-line-${idx}`"
+          :data-test="`lyric-line-${idx}`"
+          class="lyric-line"
+          :class="lineClass(idx)"
+          @click="onLineClick(line)"
+        >
+          {{ line.text }}
+        </button>
+      </div>
+      <slot name="footer" />
     </div>
 
     <div
@@ -494,6 +526,76 @@ export default { name: 'AuroraLyricStage' };
   box-sizing: border-box;
 }
 
+.aurora-lyric-meta-column {
+  flex: 0 1 38%;
+  gap: 10px;
+}
+
+.aurora-lyric-track-meta {
+  width: min(100%, 380px);
+  text-align: center;
+}
+
+.aurora-lyric-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.aurora-lyric-track-meta h2,
+.aurora-lyric-track-meta p,
+.aurora-lyric-track-meta small {
+  display: block;
+  margin: 0;
+}
+
+.aurora-lyric-track-meta h2 {
+  color: var(--text-primary);
+  font-size: clamp(20px, 2.2vw, 30px);
+  line-height: 1.2;
+}
+
+.aurora-lyric-track-meta p {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.aurora-lyric-track-meta small {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.aurora-lyric-enter-fullscreen {
+  width: 30px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-elevated) 24%, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 0;
+  transition: color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.aurora-lyric-enter-fullscreen:hover,
+.aurora-lyric-enter-fullscreen:focus-visible {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.aurora-lyric-enter-fullscreen:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .aurora-cover {
   position: relative;
   width: min(34vw, 46vh, 380px);
@@ -550,6 +652,24 @@ export default { name: 'AuroraLyricStage' };
   scrollbar-width: none;
   scrollbar-gutter: auto;
   -ms-overflow-style: none;
+}
+
+.aurora-cover.is-shelf-hot:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.lyric-content-column {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lyric-content-column .lyric-scroll {
+  flex: 1 1 0;
 }
 
 .lyric-scroll::-webkit-scrollbar {
@@ -649,22 +769,30 @@ export default { name: 'AuroraLyricStage' };
 @media (max-width: 900px) {
   .aurora-lyric-stage,
   .aurora-lyric-fullscreen {
-    flex-direction: column;
+    flex-direction: row;
     justify-content: flex-start;
-    gap: 20px;
-    padding: 16px clamp(16px, 4vw, 32px);
+    gap: 14px;
+    padding: 12px;
   }
 
   .aurora-cover,
   .aurora-lyric-fullscreen .aurora-cover {
-    width: min(56vw, 300px, 36vh);
+    width: min(34vw, 240px, 32vh);
+  }
+
+  .aurora-lyric-meta-column {
+    flex: 0 1 38%;
+  }
+
+  .aurora-lyric-track-meta h2 {
+    font-size: clamp(17px, 3vw, 22px);
   }
 
   .lyric-scroll,
   .aurora-lyric-fullscreen .lyric-scroll {
-    flex: 1 1 auto;
-    width: 100%;
-    height: auto;
+    width: auto;
+    height: 100%;
+    padding-inline: 4px;
   }
 }
 

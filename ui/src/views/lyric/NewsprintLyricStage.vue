@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
 import { gsap } from 'gsap';
+import { Maximize2 } from '@lucide/vue';
 import { isReducedMotion } from '../../api/motion';
 import { getMotionProfile } from '../../api/motionProfiles';
 import type { LyricStageModel } from './useLyricStage';
@@ -49,9 +50,17 @@ watch(() => props.model.fullscreen, (fs) => {
 </script>
 
 <template>
-  <!-- Fullscreen mode: independent stage template (cover left, lyrics right) -->
-  <div v-if="model.fullscreen" class="np-lyric-stage np-lyric-fullscreen" ref="rootRef">
-    <div class="lyric-meta" data-test="lyric-meta" @dblclick="$emit('enter-fullscreen')">
+  <div
+    ref="rootRef"
+    class="np-lyric-stage"
+    :class="{ 'np-lyric-fullscreen': model.fullscreen }"
+    data-test="newsprint-lyric-stage"
+  >
+    <div
+      class="lyric-meta np-lyric-meta-column"
+      data-test="lyric-meta-column"
+      @dblclick="!model.fullscreen && $emit('enter-fullscreen')"
+    >
       <div
         class="big-cover np-cover"
         ref="coverRef"
@@ -60,73 +69,53 @@ watch(() => props.model.fullscreen, (fs) => {
       >
         <img :src="model.coverUrl" alt="cover" />
       </div>
+      <button
+        v-if="!model.fullscreen"
+        type="button"
+        class="np-lyric-enter-fullscreen"
+        data-test="lyric-enter-fullscreen"
+        aria-label="进入全屏歌词"
+        title="进入全屏歌词"
+        @click.stop="$emit('enter-fullscreen')"
+      >
+        <Maximize2 :size="15" :stroke-width="1.75" aria-hidden="true" />
+      </button>
       <div class="np-meta-block">
-        <div class="np-meta-kicker">正在播放</div>
+        <div class="np-meta-kicker">正在播放 · NOW PLAYING</div>
         <h2 class="np-song-title">{{ model.currentTrack?.SongName }}</h2>
         <p class="np-artist">{{ model.currentTrack?.SingerName }}</p>
+        <small class="np-album">{{ model.currentTrack?.AlbumName || '未知专辑' }}</small>
       </div>
     </div>
     <div
-      class="lyric-scroll"
-      :class="{ paused: !model.autoFollowing }"
-      data-test="lyric-scroll"
-      :style="{ paddingBottom: '60px' }"
-      @wheel.passive="$emit('user-scroll')"
-      @touchmove.passive="$emit('user-scroll')"
+      class="lyric-content-column np-lyric-content-column"
+      data-test="lyric-content-column"
+      data-layout="two-column"
     >
-      <button
-        v-for="(line, idx) in model.parsedLyrics"
-        :key="idx"
-        type="button"
-        :id="`lyric-line-${idx}`"
-        :data-test="`lyric-line-${idx}`"
-        class="np-lyric-line"
-        :class="{ active: idx === model.activeIndex }"
-        @click="onLineClick(line)"
-      >
-        <span class="np-line-num">{{ String(idx + 1).padStart(2, '0') }}</span>
-        <span class="np-line-text">{{ line.text }}</span>
-      </button>
-    </div>
-  </div>
-  <!-- Normal mode: single-column, meta row / scroll row -->
-  <div v-else class="np-lyric-stage" ref="rootRef">
-    <div class="lyric-meta" data-test="lyric-meta" @dblclick="$emit('enter-fullscreen')">
+      <slot v-if="model.error" name="error" />
       <div
-        class="big-cover np-cover"
-        ref="coverRef"
-        data-test="lyric-cover"
-        :style="{ aspectRatio: '1' }"
+        v-else
+        class="lyric-scroll"
+        :class="{ paused: !model.autoFollowing }"
+        data-test="lyric-scroll"
+        @wheel.passive="$emit('user-scroll')"
+        @touchmove.passive="$emit('user-scroll')"
       >
-        <img :src="model.coverUrl" alt="cover" />
+        <button
+          v-for="(line, idx) in model.parsedLyrics"
+          :key="idx"
+          type="button"
+          :id="`lyric-line-${idx}`"
+          :data-test="`lyric-line-${idx}`"
+          class="np-lyric-line"
+          :class="{ active: idx === model.activeIndex }"
+          @click="onLineClick(line)"
+        >
+          <span class="np-line-num">{{ String(idx + 1).padStart(2, '0') }}</span>
+          <span class="np-line-text">{{ line.text }}</span>
+        </button>
       </div>
-      <div class="np-meta-block">
-        <div class="np-meta-kicker">NOW PLAYING</div>
-        <h2 class="np-song-title">{{ model.currentTrack?.SongName }}</h2>
-        <p class="np-artist">{{ model.currentTrack?.SingerName }}</p>
-      </div>
-    </div>
-    <div
-      class="lyric-scroll"
-      :class="{ paused: !model.autoFollowing }"
-      data-test="lyric-scroll"
-      :style="{ paddingBottom: '60px' }"
-      @wheel.passive="$emit('user-scroll')"
-      @touchmove.passive="$emit('user-scroll')"
-    >
-      <button
-        v-for="(line, idx) in model.parsedLyrics"
-        :key="idx"
-        type="button"
-        :id="`lyric-line-${idx}`"
-        :data-test="`lyric-line-${idx}`"
-        class="np-lyric-line"
-        :class="{ active: idx === model.activeIndex }"
-        @click="onLineClick(line)"
-      >
-        <span class="np-line-num">{{ String(idx + 1).padStart(2, '0') }}</span>
-        <span class="np-line-text">{{ line.text }}</span>
-      </button>
+      <slot name="footer" />
     </div>
   </div>
 </template>
@@ -138,16 +127,17 @@ export default { name: 'NewsprintLyricStage' };
 <style scoped>
 .np-lyric-stage {
   display: grid;
-  grid-template-rows: auto 1fr;
-  grid-template-columns: 1fr;
-  gap: 20px;
+  grid-template-rows: minmax(0, 1fr);
+  grid-template-columns: minmax(180px, 32%) minmax(0, 1fr);
+  gap: clamp(18px, 3vw, 40px);
   height: 100%;
   min-height: 0;
-  padding: 20px 16px;
+  padding: 20px clamp(16px, 3vw, 40px);
+  box-sizing: border-box;
+  overflow: hidden;
 }
 
 .np-lyric-fullscreen {
-  grid-template-rows: 1fr;
   grid-template-columns: 380px 1fr;
   gap: 40px;
   padding: 32px 48px;
@@ -157,12 +147,16 @@ export default { name: 'NewsprintLyricStage' };
   display: flex;
   flex-direction: column;
   align-items: center;
+  justify-content: center;
   gap: 16px;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .np-cover {
-  width: 240px;
-  height: 240px;
+  width: min(240px, 100%);
+  height: auto;
+  aspect-ratio: 1 / 1;
   overflow: hidden;
   border: 2px solid var(--ink);
   box-shadow: 4px 4px 0 var(--ink-soft);
@@ -183,6 +177,8 @@ export default { name: 'NewsprintLyricStage' };
 
 .np-meta-block {
   text-align: center;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .np-meta-kicker {
@@ -209,7 +205,53 @@ export default { name: 'NewsprintLyricStage' };
   font-style: italic;
 }
 
+.np-album {
+  display: block;
+  margin-top: 5px;
+  color: var(--ink-mute);
+  font-family: var(--font-serif, serif);
+  font-size: 11px;
+  font-style: italic;
+}
+
+.np-lyric-enter-fullscreen {
+  width: 28px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--rule-soft, var(--rule));
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink-mute);
+  cursor: pointer;
+  line-height: 0;
+  transition: color 0.15s ease, border-color 0.15s ease;
+}
+
+.np-lyric-enter-fullscreen:hover,
+.np-lyric-enter-fullscreen:focus-visible {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+}
+
+.np-lyric-enter-fullscreen:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.np-lyric-content-column {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
 .lyric-scroll {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   display: flex;
@@ -219,7 +261,14 @@ export default { name: 'NewsprintLyricStage' };
   padding: min(18vh, 120px) 0 min(18vh, 100px);
   mask-image: linear-gradient(to bottom, transparent, white 12%, white 88%, transparent);
   -webkit-mask-image: linear-gradient(to bottom, transparent, white 12%, white 88%, transparent);
-  scrollbar-width: thin;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+
+.lyric-scroll::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
 }
 
 .np-lyric-fullscreen .lyric-scroll {
@@ -277,5 +326,32 @@ export default { name: 'NewsprintLyricStage' };
 
 .np-line-text {
   line-height: 1.5;
+}
+
+@media (max-width: 900px) {
+  .np-lyric-stage,
+  .np-lyric-fullscreen {
+    grid-template-columns: minmax(140px, 34%) minmax(0, 1fr);
+    gap: 14px;
+    padding: 14px 12px;
+  }
+
+  .np-cover,
+  .np-lyric-fullscreen .np-cover {
+    width: min(30vw, 210px, 30vh);
+    height: auto;
+  }
+
+  .np-song-title {
+    font-size: 17px;
+  }
+
+  .np-lyric-line,
+  .np-lyric-fullscreen .np-lyric-line {
+    grid-template-columns: 28px minmax(0, 1fr);
+    gap: 8px;
+    padding-inline: 6px;
+    font-size: 14px;
+  }
 }
 </style>

@@ -584,16 +584,14 @@ describe('Lyric stage shared data', () => {
     expect(newsprint.text()).toContain('Third line');
   });
 
-  it('Newsprint shows song meta; Aurora cover rail is text-free', () => {
+  it('both stages surface song metadata in their independent meta columns', () => {
     const model = createModel();
     const aurora = mount(AuroraLyricStage, { props: { model } });
     const newsprint = mount(NewsprintLyricStage, { props: { model } });
 
-    // Aurora left rail is cover-only (no title/artist chrome)
     expect(aurora.find('[data-test="lyric-cover"]').exists()).toBe(true);
-    expect(aurora.text()).not.toContain('Test Song');
-    expect(aurora.text()).not.toContain('Test Artist');
-    // Newsprint still surfaces song info in its chrome
+    expect(aurora.get('[data-test="lyric-meta-column"]').text()).toContain('Test Song');
+    expect(aurora.get('[data-test="lyric-meta-column"]').text()).toContain('Test Artist');
     expect(newsprint.text()).toContain('Test Song');
     expect(newsprint.text()).toContain('Test Artist');
   });
@@ -974,5 +972,83 @@ describe('Aurora playlist shelf selection', () => {
     expect(wrapper.emitted('select')).toEqual([[queueTracks[1]]]);
 
     wrapper.unmount();
+  });
+});
+
+describe('Task 3 non-fullscreen two-column contract', () => {
+  it.each([
+    ['Aurora', AuroraLyricStage],
+    ['Newsprint', NewsprintLyricStage],
+  ])('%s exposes independent meta and lyric columns at the narrow-layout contract', (_skin, Stage) => {
+    const wrapper = mount(Stage, {
+      props: { model: createModel({ fullscreen: false }) },
+    });
+
+    wrapper.get('[data-test="lyric-meta-column"]');
+    expect(wrapper.get('[data-test="lyric-content-column"]').attributes('data-layout')).toBe('two-column');
+  });
+
+  it.each([
+    ['Aurora', AuroraLyricStage],
+    ['Newsprint', NewsprintLyricStage],
+  ])('%s shows track metadata and an icon-only fullscreen entry below the cover', async (_skin, Stage) => {
+    const wrapper = mount(Stage, {
+      props: {
+        model: createModel({
+          fullscreen: false,
+          currentTrack: {
+            FileHash: 'meta',
+            SongName: '纸月亮',
+            SingerName: '测试歌手',
+            AlbumName: '夜航专辑',
+            Duration: 180,
+            Image: 'http://img/',
+          } as any,
+        }),
+      },
+    });
+
+    const meta = wrapper.get('[data-test="lyric-meta-column"]');
+    expect(meta.text()).toContain('纸月亮');
+    expect(meta.text()).toContain('测试歌手');
+    expect(meta.text()).toContain('夜航专辑');
+
+    const fullscreen = meta.get('[data-test="lyric-enter-fullscreen"]');
+    expect(fullscreen.text().trim()).toBe('');
+    expect(fullscreen.find('svg').exists()).toBe(true);
+    expect(fullscreen.attributes('aria-label')).toMatch(/[\u3400-\u9fff]/);
+    expect(fullscreen.attributes('title')).toMatch(/[\u3400-\u9fff]/);
+    await fullscreen.trigger('click');
+    expect(wrapper.emitted('enter-fullscreen')).toHaveLength(1);
+  });
+
+  it('Aurora opens fullscreen on cover double-click but never opens the shelf on a normal-mode click', async () => {
+    const wrapper = mount(AuroraLyricStage, {
+      props: { model: createModel({ fullscreen: false }) },
+    });
+
+    await wrapper.get('[data-test="lyric-cover"]').trigger('click');
+    expect(wrapper.getComponent(AuroraPlaylistShelf).props('open')).toBe(false);
+
+    await wrapper.get('[data-test="lyric-cover"]').trigger('dblclick');
+    expect(wrapper.emitted('enter-fullscreen')).toHaveLength(1);
+  });
+
+  it('makes the Aurora cover keyboard-operable only when fullscreen shelf access is active', async () => {
+    const normal = mount(AuroraLyricStage, {
+      props: { model: createModel({ fullscreen: false }) },
+    });
+    expect(normal.get('[data-test="lyric-cover"]').attributes('role')).toBeUndefined();
+    expect(normal.get('[data-test="lyric-cover"]').attributes('tabindex')).toBeUndefined();
+
+    const fullscreen = mount(AuroraLyricStage, {
+      props: { model: createModel({ fullscreen: true }) },
+    });
+    const cover = fullscreen.get('[data-test="lyric-cover"]');
+    expect(cover.attributes('role')).toBe('button');
+    expect(cover.attributes('tabindex')).toBe('0');
+
+    await cover.trigger('keydown', { key: 'Enter' });
+    expect(fullscreen.getComponent(AuroraPlaylistShelf).props('open')).toBe(true);
   });
 });

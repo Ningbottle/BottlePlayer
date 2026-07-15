@@ -61,12 +61,21 @@ const stageComponent = computed(() =>
         @user-scroll="commands.onUserScroll"
         @seek-line="commands.seekToLine"
         @seek="commands.seekToLine"
-      />
-      <LyricFollowFooter
-        v-if="!model.fullscreen"
-        :auto-following="model.autoFollowing"
-        @resume="commands.resumeFollow"
-      />
+      >
+        <template #error>
+          <div class="lyric-error-state" data-test="lyric-error" role="alert">
+            <strong>歌词暂时无法加载</strong>
+            <span>连接恢复后可以重新获取当前歌曲的歌词。</span>
+            <button type="button" data-test="lyric-retry" @click="commands.retryLyrics">重试歌词</button>
+          </div>
+        </template>
+        <template v-if="!model.fullscreen" #footer>
+          <LyricFollowFooter
+            :auto-following="model.autoFollowing"
+            @resume="commands.resumeFollow"
+          />
+        </template>
+      </component>
     </div>
   </div>
 </template>
@@ -83,12 +92,52 @@ const stageComponent = computed(() =>
 
 .lyric-view-grid {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: minmax(0, 1fr);
   height: calc(100vh - 160px);
   min-height: 420px;
   transition: padding-right 0.2s ease;
   min-width: 0;
   width: 100%;
+}
+
+.lyric-error-state {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary, var(--ink-soft));
+}
+
+.lyric-error-state strong {
+  color: var(--text-primary, var(--ink));
+  font-size: 16px;
+}
+
+.lyric-error-state span {
+  max-width: 32ch;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.lyric-error-state button {
+  margin-top: 4px;
+  padding: 7px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary, var(--ink));
+  cursor: pointer;
+  font: inherit;
+}
+
+.lyric-error-state button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .lyric-view-grid.queue-open {
