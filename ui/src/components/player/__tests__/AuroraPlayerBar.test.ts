@@ -128,15 +128,17 @@ describe('AuroraPlayerBar', () => {
     expect(openLyricView).toHaveBeenCalledOnce();
   });
 
-  it('renders a fullscreen text entry button and opens lyrics when clicked', async () => {
+  it('renders an icon-only fullscreen command and opens lyric immersion', async () => {
     const openLyricImmersion = vi.fn();
     const wrapper = mount(AuroraPlayerBar, {
       props: { controller: createStubController({ currentTrack: mkTrack(), openLyricImmersion }) },
     });
 
     const entry = wrapper.get('[data-test="aurora-pb-enter-fullscreen"]');
-    expect(entry.text()).toBe('进入全屏');
+    expect(entry.text().trim()).toBe('');
+    expect(entry.find('svg').exists()).toBe(true);
     expect(entry.attributes('aria-label')).toBe('进入全屏歌词');
+    expect(entry.attributes('title')).toBe('进入全屏歌词');
     await entry.trigger('click');
     expect(openLyricImmersion).toHaveBeenCalledOnce();
   });
@@ -162,6 +164,46 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="下一首"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="循环"]').exists()).toBe(true);
+  });
+
+  it('keeps previous, play/pause, and next in the core transport order', () => {
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack() }) },
+    });
+
+    const labels = wrapper.get('[data-test="aurora-player-transport"]')
+      .findAll('button')
+      .map((button) => button.attributes('aria-label'))
+      .filter((label): label is string =>
+        typeof label === 'string' && ['上一首', '播放', '暂停', '下一首'].includes(label));
+
+    expect(labels).toEqual(['上一首', '播放', '下一首']);
+  });
+
+  it('uses accessible icon commands without visible command words', () => {
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack() }) },
+    });
+
+    for (const button of wrapper.findAll('button')) {
+      const ariaLabel = button.attributes('aria-label');
+      const title = button.attributes('title');
+      expect(ariaLabel).toBeDefined();
+      expect(title).toBeDefined();
+      if (!ariaLabel || !title) continue;
+      expect(ariaLabel).toMatch(/[\u3400-\u9fff]/);
+      expect(title).toMatch(/[\u3400-\u9fff]/);
+    }
+
+    const iconCommands = [
+      wrapper.get('[data-test="aurora-pb-enter-fullscreen"]'),
+      ...wrapper.get('[data-test="aurora-player-transport"]').findAll('button'),
+      wrapper.get('.aurora-pb-queue'),
+      wrapper.get('.aurora-pb-lyric'),
+    ];
+    for (const command of iconCommands) {
+      expect(command.text().trim()).toBe('');
+    }
   });
 
   // ── Calls controller commands ──

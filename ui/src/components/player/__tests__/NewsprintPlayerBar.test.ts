@@ -111,15 +111,17 @@ describe('NewsprintPlayerBar', () => {
     expect(openLyricImmersion).not.toHaveBeenCalled();
   });
 
-  it('renders a fullscreen text entry button and opens lyrics when clicked', async () => {
+  it('renders an icon-only fullscreen command and opens lyric immersion', async () => {
     const openLyricImmersion = vi.fn();
     const wrapper = mount(NewsprintPlayerBar, {
       props: { controller: createStubController({ currentTrack: mkTrack(), openLyricImmersion }) },
     });
 
     const entry = wrapper.get('[data-test="np-pb-enter-fullscreen"]');
-    expect(entry.text()).toBe('进入全屏');
+    expect(entry.text().trim()).toBe('');
+    expect(entry.find('svg').exists()).toBe(true);
     expect(entry.attributes('aria-label')).toBe('进入全屏歌词');
+    expect(entry.attributes('title')).toBe('进入全屏歌词');
     await entry.trigger('click');
     expect(openLyricImmersion).toHaveBeenCalledOnce();
   });
@@ -168,14 +170,44 @@ describe('NewsprintPlayerBar', () => {
     expect(wrapper.find('[aria-label="循环"]').exists()).toBe(true);
   });
 
-  it('uses Chinese visible labels for the playback controls', () => {
+  it('keeps previous, play/pause, and next in the core transport order', () => {
     const wrapper = mount(NewsprintPlayerBar, {
       props: { controller: createStubController({ currentTrack: mkTrack() }) },
     });
 
-    const labels = wrapper.findAll('.np-pb-btn-label').map((node) => node.text());
-    expect(labels).toEqual(expect.arrayContaining(['随机', '播放', '循环', '队列']));
-    expect(wrapper.find('.np-pb-vol-label').text()).toBe('音量');
+    const labels = wrapper.get('[data-test="newsprint-player-transport"]')
+      .findAll('button')
+      .map((button) => button.attributes('aria-label'))
+      .filter((label): label is string =>
+        typeof label === 'string' && ['上一首', '播放', '暂停', '下一首'].includes(label));
+
+    expect(labels).toEqual(['上一首', '播放', '下一首']);
+  });
+
+  it('uses accessible icon commands without visible command words', () => {
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack() }) },
+    });
+
+    for (const button of wrapper.findAll('button')) {
+      const ariaLabel = button.attributes('aria-label');
+      const title = button.attributes('title');
+      expect(ariaLabel).toBeDefined();
+      expect(title).toBeDefined();
+      if (!ariaLabel || !title) continue;
+      expect(ariaLabel).toMatch(/[\u3400-\u9fff]/);
+      expect(title).toMatch(/[\u3400-\u9fff]/);
+    }
+
+    const iconCommands = [
+      wrapper.get('[data-test="np-pb-enter-fullscreen"]'),
+      ...wrapper.get('[data-test="newsprint-player-transport"]').findAll('button'),
+      wrapper.get('.np-pb-icon[aria-label="队列"]'),
+      wrapper.get('.np-pb-lyric'),
+    ];
+    for (const command of iconCommands) {
+      expect(command.text().trim()).toBe('');
+    }
   });
 
   // ── Calls controller commands ──
