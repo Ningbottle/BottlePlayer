@@ -1,18 +1,30 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { gsap } from 'gsap';
-import { Maximize2 } from '@lucide/vue';
+import { Maximize2, Pause, Play } from '@lucide/vue';
 import { isReducedMotion } from '../../api/motion';
 import { getMotionProfile } from '../../api/motionProfiles';
+import { togglePlay as storeTogglePlay } from '../../api/playerStore';
+import PlayerProgress from '../../components/player/PlayerProgress.vue';
 import type { LyricStageModel } from './useLyricStage';
+import { useAutoHideControls } from './useAutoHideControls';
 
 const props = defineProps<{ model: LyricStageModel }>();
 
 const emit = defineEmits<{
   (e: 'enter-fullscreen'): void;
+  (e: 'exit-fullscreen'): void;
   (e: 'user-scroll'): void;
   (e: 'seek-line', timeSeconds: number): void;
+  (e: 'seek', timeSeconds: number): void;
 }>();
+
+const fullscreenActive = computed(() => props.model.fullscreen);
+const autoHideControls = useAutoHideControls({
+  active: fullscreenActive,
+  onEscape: () => emit('exit-fullscreen'),
+});
+const controlsVisible = autoHideControls.visible;
 
 function onLineClick(line: { time: number }): void {
   if (!Number.isFinite(line.time) || line.time < 0) return;
@@ -47,6 +59,8 @@ watch(() => props.model.fullscreen, (fs) => {
     gsap.to(cover, { width: 240, height: 240, duration: 0.35, ease: 'power3.out', clearProps: 'width,height' });
   }
 }, { flush: 'post' });
+
+onBeforeUnmount(autoHideControls.dispose);
 </script>
 
 <template>
@@ -55,6 +69,9 @@ watch(() => props.model.fullscreen, (fs) => {
     class="np-lyric-stage"
     :class="{ 'np-lyric-fullscreen': model.fullscreen }"
     data-test="newsprint-lyric-stage"
+    @pointermove="autoHideControls.onPointerMove"
+    @focusin="autoHideControls.onFocusIn"
+    @focusout="autoHideControls.onFocusOut"
   >
     <div
       class="lyric-meta np-lyric-meta-column"
@@ -116,6 +133,31 @@ watch(() => props.model.fullscreen, (fs) => {
         </button>
       </div>
       <slot name="footer" />
+      <div
+        v-if="model.fullscreen && model.duration > 0"
+        class="np-fs-controls"
+        :class="{ 'controls-visible': controlsVisible }"
+        data-test="newsprint-fs-controls"
+        :data-visible="String(controlsVisible)"
+        data-visual-weight="subtle"
+      >
+        <button
+          type="button"
+          class="np-fs-play"
+          :data-test="model.isPlaying ? 'newsprint-fs-pause' : 'newsprint-fs-play'"
+          :aria-label="model.isPlaying ? '暂停' : '播放'"
+          :title="model.isPlaying ? '暂停' : '播放'"
+          @click="storeTogglePlay"
+        >
+          <Pause v-if="model.isPlaying" :size="15" :stroke-width="1.8" aria-hidden="true" />
+          <Play v-else :size="15" :stroke-width="1.8" aria-hidden="true" />
+        </button>
+        <PlayerProgress
+          :current-time="model.currentTime"
+          :duration="model.duration"
+          @seek="(s: number) => emit('seek', s)"
+        />
+      </div>
     </div>
   </div>
 </template>
@@ -246,6 +288,74 @@ export default { name: 'NewsprintLyricStage' };
   display: flex;
   flex-direction: column;
   overflow: hidden;
+}
+
+.np-fs-controls {
+  flex: 0 0 auto;
+  width: min(430px, 100%);
+  align-self: flex-end;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 8px 0 48px;
+  padding: 4px 8px;
+  border-top: 1px solid var(--rule-soft, var(--rule));
+  border-bottom: 1px solid var(--rule-soft, var(--rule));
+  background: color-mix(in srgb, var(--paper-2) 72%, transparent);
+  box-sizing: border-box;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(4px);
+  transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.np-fs-controls.controls-visible,
+.np-fs-controls:focus-within {
+  opacity: 0.86;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+.np-fs-controls:hover,
+.np-fs-controls:focus-within {
+  opacity: 1;
+}
+
+.np-fs-play {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid var(--rule-soft, var(--rule));
+  border-radius: 2px;
+  background: transparent;
+  color: var(--ink-soft);
+  cursor: pointer;
+  line-height: 0;
+}
+
+.np-fs-play:hover,
+.np-fs-play:focus-visible {
+  color: var(--ink);
+  border-color: var(--ink-soft);
+}
+
+.np-fs-play:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.np-fs-controls :deep(.progress-time) {
+  color: var(--ink-mute);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-fs-controls {
+    transform: none;
+    transition: none;
+  }
 }
 
 .lyric-scroll {

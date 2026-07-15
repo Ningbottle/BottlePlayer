@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
-import { PhArrowsOutSimple } from '@phosphor-icons/vue';
+import { PhArrowsOutSimple, PhPause, PhPlay } from '@phosphor-icons/vue';
 import { isReducedMotion } from '../../api/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
 import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api/playerStore';
@@ -10,6 +10,7 @@ import type { LyricStageModel } from './useLyricStage';
 import CoverWebGLParticles from './CoverWebGLParticles.vue';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
 import PlayerProgress from '../../components/player/PlayerProgress.vue';
+import { useAutoHideControls } from './useAutoHideControls';
 
 const props = defineProps<{ model: LyricStageModel }>();
 
@@ -20,6 +21,13 @@ const emit = defineEmits<{
   (e: 'seek-line', timeSeconds: number): void;
   (e: 'seek', timeSeconds: number): void;
 }>();
+
+const fullscreenActive = computed(() => props.model.fullscreen);
+const autoHideControls = useAutoHideControls({
+  active: fullscreenActive,
+  onEscape: () => emit('exit-fullscreen'),
+});
+const controlsVisible = autoHideControls.visible;
 
 const coverRef = ref<HTMLElement | null>(null);
 const rootRef = ref<HTMLElement | null>(null);
@@ -275,7 +283,10 @@ watch(() => props.model.coverUrl, () => {
   gsap.fromTo(wash, { opacity: 0 }, { opacity: 0.9, duration: 0.6, ease: 'power2.out' });
 }, { flush: 'post' });
 
-onBeforeUnmount(clearFullscreenTransientStyles);
+onBeforeUnmount(() => {
+  clearFullscreenTransientStyles();
+  autoHideControls.dispose();
+});
 </script>
 
 <template>
@@ -286,6 +297,9 @@ onBeforeUnmount(clearFullscreenTransientStyles);
     :class="{ 'aurora-lyric-fullscreen': model.fullscreen }"
     :data-lyric-focus="focus.mode.value"
     data-test="aurora-lyric-stage"
+    @pointermove="autoHideControls.onPointerMove"
+    @focusin="autoHideControls.onFocusIn"
+    @focusout="autoHideControls.onFocusOut"
     @dblclick="onStageDblClick"
   >
     <!-- Cover wash: always in DOM when cover exists; GSAP controls opacity fade -->
@@ -384,30 +398,32 @@ onBeforeUnmount(clearFullscreenTransientStyles);
         </button>
       </div>
       <slot name="footer" />
-    </div>
-
-    <div
-      v-if="model.fullscreen && model.duration > 0"
-      class="aurora-fs-controls"
-      data-test="aurora-fs-controls"
-      data-contrast="high"
-      data-visual-weight="subtle"
-    >
-      <button
-        type="button"
-        class="aurora-fs-play"
-        :data-test="model.isPlaying ? 'aurora-fs-pause' : 'aurora-fs-play'"
-        :aria-label="model.isPlaying ? '暂停' : '播放'"
-        @click="storeTogglePlay"
+      <div
+        v-if="model.fullscreen && model.duration > 0"
+        class="aurora-fs-controls"
+        :class="{ 'controls-visible': controlsVisible }"
+        data-test="aurora-fs-controls"
+        :data-visible="String(controlsVisible)"
+        data-contrast="high"
+        data-visual-weight="subtle"
       >
-        <svg v-if="model.isPlaying" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
-        <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      </button>
-      <PlayerProgress
-        :current-time="model.currentTime"
-        :duration="model.duration"
-        @seek="(s: number) => emit('seek', s)"
-      />
+        <button
+          type="button"
+          class="aurora-fs-play"
+          :data-test="model.isPlaying ? 'aurora-fs-pause' : 'aurora-fs-play'"
+          :aria-label="model.isPlaying ? '暂停' : '播放'"
+          :title="model.isPlaying ? '暂停' : '播放'"
+          @click="storeTogglePlay"
+        >
+          <PhPause v-if="model.isPlaying" :size="16" weight="fill" aria-hidden="true" />
+          <PhPlay v-else :size="16" weight="fill" aria-hidden="true" />
+        </button>
+        <PlayerProgress
+          :current-time="model.currentTime"
+          :duration="model.duration"
+          @seek="(s: number) => emit('seek', s)"
+        />
+      </div>
     </div>
 
   </div>
@@ -797,11 +813,10 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .aurora-fs-controls {
-  position: absolute;
-  bottom: clamp(12px, 2.5vh, 24px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(500px, 62%);
+  flex: 0 0 auto;
+  align-self: center;
+  width: min(500px, 100%);
+  margin-top: 8px;
   padding: 2px 5px;
   box-sizing: border-box;
   z-index: 2;
@@ -812,15 +827,25 @@ export default { name: 'AuroraLyricStage' };
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface-elevated, var(--app-bg)) 20%, transparent);
   backdrop-filter: blur(6px);
-  opacity: 0.7;
-  transition: opacity 0.2s ease, border-color 0.2s ease;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 0.22s ease, transform 0.22s ease, border-color 0.2s ease;
 }
 
+.aurora-fs-controls.controls-visible,
 .aurora-fs-controls:hover,
 .aurora-fs-controls:focus-within,
 .aurora-fs-play:focus-visible {
-  opacity: 1;
+  opacity: 0.82;
+  pointer-events: auto;
+  transform: translateY(0);
   border-color: color-mix(in srgb, var(--text-primary) 26%, transparent);
+}
+
+.aurora-fs-controls:hover,
+.aurora-fs-controls:focus-within {
+  opacity: 1;
 }
 
 .aurora-fs-controls :deep(.progress-time) {
@@ -866,5 +891,12 @@ export default { name: 'AuroraLyricStage' };
 .aurora-fs-play svg {
   width: 16px;
   height: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-fs-controls {
+    transform: none;
+    transition: none;
+  }
 }
 </style>

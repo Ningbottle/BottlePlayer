@@ -1052,3 +1052,39 @@ describe('Task 3 non-fullscreen two-column contract', () => {
     expect(fullscreen.getComponent(AuroraPlaylistShelf).props('open')).toBe(true);
   });
 });
+
+describe('Task 4 fullscreen controls', () => {
+  it.each([
+    ['Aurora', AuroraLyricStage, 'aurora-fs-controls'],
+    ['Newsprint', NewsprintLyricStage, 'newsprint-fs-controls'],
+  ])('%s exposes an intent-revealed fullscreen transport', async (_skin, Stage, testId) => {
+    vi.useFakeTimers();
+    const wrapper = mount(Stage, {
+      props: { model: createModel({ fullscreen: true, duration: 240 }) },
+    });
+
+    const controls = wrapper.get(`[data-test="${testId}"]`);
+    expect(controls.attributes('data-visible')).toBe('true');
+    vi.advanceTimersByTime(1_800);
+    await nextTick();
+    expect(controls.attributes('data-visible')).toBe('false');
+
+    await wrapper.get('[data-test$="lyric-stage"]').trigger('pointermove');
+    expect(controls.attributes('data-visible')).toBe('true');
+
+    wrapper.unmount();
+    vi.useRealTimers();
+  });
+
+  it('renders the Newsprint fullscreen transport as icon-only play and progress controls', () => {
+    const wrapper = mount(NewsprintLyricStage, {
+      props: { model: createModel({ fullscreen: true, duration: 240 }) },
+    });
+    const controls = wrapper.get('[data-test="newsprint-fs-controls"]');
+
+    const playButton = controls.get('button');
+    expect(playButton.text().trim()).toBe('');
+    expect(playButton.find('svg').exists()).toBe(true);
+    expect(controls.findComponent({ name: 'PlayerProgress' }).exists()).toBe(true);
+  });
+});
