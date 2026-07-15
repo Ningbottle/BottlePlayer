@@ -1,9 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import NewsprintHome from '../NewsprintHome.vue';
 import type { HomeSectionError, HomeSectionViewState, HomeViewModel } from '../homeViewModel';
 import type { Track } from '../../../api/normalizer';
 import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
+
+const newsprintCss = readFileSync(resolve(__dirname, '../../../styles/skins/newsprint.css'), 'utf8');
 
 vi.mock('../../../api/motion', () => ({
   animateElement: vi.fn(),
@@ -270,5 +274,81 @@ describe('NewsprintHome', () => {
 
     const items = wrapper.findAll('.np-rec-item');
     expect(items.length).toBe(10);
+  });
+
+  it('shows a Newsprint-specific skeleton during the first daily load', () => {
+    const wrapper = mount(NewsprintHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: null,
+          dailyTracks: [],
+          sections: createSectionStates({ daily: { loading: true } }),
+        }),
+      },
+    });
+
+    const loadingStage = wrapper.get('[data-test="newsprint-stage-loading"]');
+    expect(loadingStage.attributes('aria-busy')).toBe('true');
+    expect(loadingStage.attributes('aria-label')).toBe('正在加载每日推荐');
+    expect(wrapper.find('[data-test="hero-play"]').exists()).toBe(false);
+  });
+
+  it('keeps Newsprint stage styling semantic and reduced-motion safe', () => {
+    expect(newsprintCss).toContain('.newsprint-stage-loading');
+    expect(newsprintCss).toContain('.newsprint-stage-empty');
+    expect(newsprintCss).not.toContain('[data-test="newsprint-stage-loading"]');
+    expect(newsprintCss).not.toContain('[data-test="newsprint-stage-empty"]');
+
+    const reduceStart = newsprintCss.indexOf('@media (prefers-reduced-motion: reduce)');
+    expect(reduceStart).toBeGreaterThanOrEqual(0);
+    const reducedMotionCss = newsprintCss.slice(reduceStart);
+    expect(reducedMotionCss).toContain('.newsprint-stage-loading');
+    expect(reducedMotionCss).toContain('.newsprint-stage-empty');
+    expect(reducedMotionCss).toContain('animation: none');
+    expect(reducedMotionCss).toContain('transform: none');
+  });
+
+  it('uses a rectangular editorial skeleton masthead', () => {
+    const skeletonRule = newsprintCss.match(/\.newsprint-skeleton-masthead\s*\{([\s\S]*?)\n\}/)?.[1] ?? '';
+    expect(skeletonRule).toContain('height:');
+    expect(skeletonRule).not.toContain('aspect-ratio: 1');
+    expect(skeletonRule).not.toMatch(/border-radius:\s*50%/);
+  });
+
+  it('renders the current track immediately while the daily feed is still loading', () => {
+    const wrapper = mount(NewsprintHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: createTrack({ SongName: '报刊当前歌曲' }),
+          sections: createSectionStates({ daily: { loading: true } }),
+        }),
+      },
+    });
+
+    expect(wrapper.text()).toContain('报刊当前歌曲');
+    expect(wrapper.find('[data-test="newsprint-stage-loading"]').exists()).toBe(false);
+  });
+
+  it('shows an actionable empty stage when no current track or recommendation exists', async () => {
+    const retry = vi.fn().mockResolvedValue(undefined);
+    const wrapper = mount(NewsprintHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: null,
+          dailyTracks: [],
+          sections: createSectionStates({ daily: { isEmpty: true, retry } }),
+        }),
+      },
+    });
+
+    expect(wrapper.get('[data-test="newsprint-stage-empty"]').text()).toContain('还没有可播放的歌曲');
+    await wrapper.get('[data-test="newsprint-empty-retry"]').trigger('click');
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps Chinese as the primary masthead and feature language', () => {
+    const wrapper = mount(NewsprintHome, { props: { model: createViewModel() } });
+    expect(wrapper.get('.np-masthead .kicker').text()).toMatch(/^晚刊/);
+    expect(wrapper.get('.feature .label').text()).toMatch(/^私荐/);
   });
 });

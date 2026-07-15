@@ -22,6 +22,11 @@ import AuroraShell from '../AuroraShell.vue';
 import NewsprintShell from '../NewsprintShell.vue';
 
 describe('AuroraShell', () => {
+  it('renders the BottleMusic and Chinese-first Aurora wordmark', () => {
+    const wrapper = mount(AuroraShell);
+    expect(wrapper.get('[data-test="shell-brand"]').text()).toContain('BottleMusic');
+    expect(wrapper.get('[data-test="shell-skin-label"]').text()).toBe('极光 Aurora');
+  });
   it('renders data-shell="aurora"', () => {
     const wrapper = mount(AuroraShell);
     expect(wrapper.find('[data-shell="aurora"]').exists()).toBe(true);
@@ -94,6 +99,12 @@ describe('AuroraShell', () => {
 });
 
 describe('NewsprintShell', () => {
+  it('renders the BottleMusic and Chinese-first Newsprint masthead', () => {
+    const wrapper = mount(NewsprintShell);
+    expect(wrapper.get('[data-test="shell-brand"]').text()).toContain('BottleMusic');
+    expect(wrapper.get('[data-test="shell-skin-label"]').text()).toBe('报刊 Newsprint');
+    expect(wrapper.text()).not.toContain('The Player');
+  });
   it('renders data-shell="newsprint"', () => {
     const wrapper = mount(NewsprintShell);
     expect(wrapper.find('[data-shell="newsprint"]').exists()).toBe(true);

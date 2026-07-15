@@ -75,7 +75,7 @@ function retrySection(section: HomeSection): void {
   <div class="np-home list-view" data-test="newsprint-home">
     <div class="page-head np-masthead">
       <div>
-        <div class="kicker">Late Edition · 晚刊</div>
+        <div class="kicker">晚刊 · Late Edition</div>
         <h1>为你精选<i>For You</i></h1>
       </div>
       <div class="date">
@@ -96,10 +96,53 @@ function retrySection(section: HomeSection): void {
       </button>
     </div>
 
-    <div class="feature">
+    <div
+      v-if="!model.heroTrack && !model.dailyTracks.length && model.sections.daily.loading"
+      class="newsprint-stage-loading"
+      data-test="newsprint-stage-loading"
+      aria-busy="true"
+      aria-live="polite"
+      aria-label="正在加载每日推荐"
+    >
+      <div class="newsprint-skeleton-masthead" aria-hidden="true" />
+      <div class="newsprint-skeleton-copy" aria-hidden="true">
+        <span class="newsprint-skeleton-line newsprint-skeleton-title" />
+        <span class="newsprint-skeleton-line" />
+        <span class="newsprint-skeleton-line newsprint-skeleton-short" />
+      </div>
+    </div>
+
+    <div
+      v-else-if="!model.heroTrack && !model.dailyTracks.length"
+      class="newsprint-stage-empty"
+      data-test="newsprint-stage-empty"
+    >
+      <div class="label">今日无推荐 · 私荐</div>
+      <h2>还没有可播放的歌曲</h2>
+      <p>刷新每日推荐，找到下一首适合此刻的歌。</p>
+      <div class="newsprint-empty-actions">
+        <button
+          type="button"
+          class="play-cta"
+          data-test="hero-play"
+          disabled
+        >暂无推荐可播放</button>
+        <button
+          type="button"
+          class="more"
+          data-test="newsprint-empty-retry"
+          :disabled="model.sections.daily.loading || model.sections.daily.refreshing"
+          @click="retrySection('daily')"
+        >
+          {{ model.sections.daily.error ? '重试' : model.sections.daily.refreshing ? '刷新中…' : '刷新推荐' }}
+        </button>
+      </div>
+    </div>
+
+    <div v-else class="feature">
       <div class="hero">
         <div>
-          <div class="label">Daily Picks · 私荐</div>
+          <div class="label">私荐 · Daily Picks</div>
           <h2>今日适合这几首</h2>
           <p>
             {{

@@ -127,6 +127,39 @@
   color: var(--text-muted);
 }
 
+[data-skin-chrome='aurora'].sidebar .sidebar-brand {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 16px;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+
+[data-skin-chrome='aurora'].sidebar .masthead {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-bottom-color: var(--border-subtle, var(--rule));
+}
+
+[data-skin-chrome='aurora'].sidebar .sidebar-wordmark {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.1;
+}
+
+[data-skin-chrome='aurora'].sidebar .sidebar-skin-label {
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 10px;
+  font-weight: 500;
+  line-height: 1.1;
+  letter-spacing: 0.08em;
+  color: var(--text-muted);
+}
+
 /* Aurora: clean app background (no paper textures) */
 [data-shell="aurora"] .paper-base,
 [data-shell="aurora"] .paper-fibers,
@@ -162,15 +195,14 @@
   display: none; /* shell titlebar owns brand */
 }
 [data-skin-chrome='aurora'].sidebar .aurora-nav-label {
+  flex-shrink: 0;
+  margin-left: auto;
   font-family: var(--font-sans, system-ui, sans-serif);
   font-size: 12px;
   font-weight: 600;
   letter-spacing: 0.12em;
   text-transform: uppercase;
   color: var(--text-muted, var(--ink-mute));
-}
-[data-skin-chrome='aurora'].sidebar .masthead {
-  border-bottom-color: var(--border-subtle, var(--rule));
 }
 [data-skin-chrome='aurora'].sidebar .masthead::after {
   display: none;

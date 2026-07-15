@@ -537,6 +537,25 @@ describe('AuroraHome', () => {
     expect(wrapper.text()).not.toContain('96kHz');
   });
 
+  it('renders the current track immediately while the daily feed is still loading', () => {
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: createTrack({ SongName: '立即显示的歌曲' }),
+          sections: createSectionStates({ daily: { loading: true } }),
+        }),
+      },
+    });
+
+    expect(wrapper.get('[data-test="aurora-stage"]').text()).toContain('立即显示的歌曲');
+    expect(wrapper.find('[data-test="aurora-stage-loading"]').exists()).toBe(false);
+  });
+
+  it('keeps Chinese as the primary heading language', () => {
+    const wrapper = mount(AuroraHome, { props: { model: createViewModel() } });
+    expect(wrapper.get('[data-test="daily-picks"] h2').text()).toMatch(/^今日推荐/);
+  });
+
   describe('home enter cold / return budgets', () => {
     it('uses cold stagger overrides when enterMode is cold', async () => {
       const daily = Array.from({ length: 4 }, (_, i) =>

@@ -369,7 +369,7 @@ function formatDuration(sec: number): string {
     >
       <div class="aurora-section-head">
         <div class="aurora-section-head-copy">
-          <h2>DAILY PICKS · 今日推荐</h2>
+          <h2>今日推荐 · DAILY PICKS</h2>
           <p class="aurora-section-sub">
             根据你与「{{ model.heroTrack?.SingerName || '收藏' }}」的收听偏好精选
           </p>

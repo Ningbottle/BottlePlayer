@@ -112,9 +112,14 @@ function handlePlaylist(playlist: { id: string; name: string }) {
   >
     <!-- Logo Section -->
     <div class="masthead">
-      <span v-if="skinId === 'newsprint'" class="logo"><i>The</i> Player</span>
+      <div class="sidebar-wordmark">
+        <span class="sidebar-brand" data-test="sidebar-brand">BottleMusic</span>
+        <span class="sidebar-skin-label" data-test="sidebar-skin-label">
+          {{ skinId === 'aurora' ? '极光 Aurora' : '报刊 Newsprint' }}
+        </span>
+      </div>
       <span
-        v-else
+        v-if="skinId === 'aurora'"
         class="aurora-nav-label"
         data-test="aurora-nav-label"
       >导航</span>
@@ -199,7 +204,7 @@ function handlePlaylist(playlist: { id: string; name: string }) {
       data-test="newsprint-stamp"
     >
       <div class="stamp">印</div>
-      <div>Printed daily<br/>since 2026</div>
+      <div>每日刊印<br/>始于 2026</div>
     </div>
   </aside>
 </template>

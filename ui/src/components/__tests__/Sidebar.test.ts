@@ -84,6 +84,13 @@ describe('Sidebar skin chrome', () => {
     expect(wrapper.find('[data-test="sidebar-nav-active-pill"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="newsprint-stamp"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="aurora-nav-label"]').exists()).toBe(true);
+    expect(wrapper.get('[data-test="sidebar-brand"]').text()).toContain('BottleMusic');
+    expect(wrapper.get('[data-test="sidebar-skin-label"]').text()).toBe('极光 Aurora');
+    const masthead = root.get('.masthead');
+    const wordmark = masthead.get('.sidebar-wordmark');
+    expect(wordmark.find('[data-test="sidebar-brand"]').exists()).toBe(true);
+    expect(wordmark.find('[data-test="sidebar-skin-label"]').exists()).toBe(true);
+    expect(root.get('[data-test="aurora-nav-label"]').element.parentElement).toBe(masthead.element);
     await router.push({ name: routeNames.stats });
     await nextTick();
     expect(wrapper.findAll('[data-test="sidebar-nav-item"]')[1].classes()).toContain('active');
@@ -98,6 +105,11 @@ describe('Sidebar skin chrome', () => {
     expect(wrapper.find('[data-test="sidebar-nav-index"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="newsprint-stamp"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="sidebar-nav-active-pill"]').exists()).toBe(false);
+    expect(wrapper.get('[data-test="sidebar-brand"]').text()).toContain('BottleMusic');
+    expect(wrapper.get('[data-test="sidebar-skin-label"]').text()).toBe('报刊 Newsprint');
+    expect(wrapper.get('[data-test="newsprint-stamp"] .stamp').text()).toBe('印');
+    expect(wrapper.get('[data-test="newsprint-stamp"]').findAll('div')[1].text()).toBe('每日刊印始于 2026');
+    expect(wrapper.text()).not.toContain('The Player');
   });
 
   it('still emits navigate without duplicating API surface', async () => {
