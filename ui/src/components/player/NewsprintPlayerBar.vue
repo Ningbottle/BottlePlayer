@@ -1,5 +1,18 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import {
+  FileText,
+  Heart,
+  ListMusic,
+  Maximize2,
+  Pause,
+  Play,
+  Repeat2,
+  Shuffle,
+  SkipBack,
+  SkipForward,
+  Volume2,
+} from '@lucide/vue';
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
 
@@ -24,13 +37,11 @@ function handleVolumeClick(e: MouseEvent) {
 function onPress(e: MouseEvent) {
   const el = e.currentTarget as HTMLElement;
   el.style.transform = 'translateY(1px)';
-  el.style.boxShadow = '0 1px 2px rgba(0,0,0,0.15)';
 }
 
 function onRelease(e: MouseEvent) {
   const el = e.currentTarget as HTMLElement;
   el.style.transform = '';
-  el.style.boxShadow = '';
 }
 </script>
 
@@ -57,6 +68,7 @@ function onRelease(e: MouseEvent) {
           type="button"
           class="np-pb-cover-btn"
           data-test="np-pb-cover-immersion"
+          aria-label="打开歌词"
           title="打开歌词"
           :disabled="!c.currentTrack"
           @click.stop="c.openLyricView"
@@ -70,16 +82,18 @@ function onRelease(e: MouseEvent) {
           class="np-pb-enter-fullscreen"
           data-test="np-pb-enter-fullscreen"
           aria-label="进入全屏歌词"
+          title="进入全屏歌词"
           :disabled="!c.currentTrack"
           @click.stop="c.openLyricImmersion"
         >
-          进入全屏
+          <Maximize2 :size="12" :stroke-width="1.75" aria-hidden="true" />
         </button>
       </div>
 
       <button
         class="np-pb-info-btn"
         type="button"
+        aria-label="查看歌曲歌词"
         title="点击查看歌词"
         :disabled="!c.currentTrack"
         @click.stop="c.openLyricView"
@@ -110,13 +124,12 @@ function onRelease(e: MouseEvent) {
       <button
         v-if="c.currentTrack"
         class="np-pb-fav"
+        type="button"
         aria-label="收藏"
         title="收藏"
         @click.stop="c.handleFavorite"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" width="14" height="14">
-          <path d="M12 2l2.39 6.96H22l-6 4.62L18.18 21 12 16.77 5.82 21 8 13.58 2 8.96h7.61z"/>
-        </svg>
+        <Heart :size="14" :stroke-width="1.75" aria-hidden="true" />
       </button>
     </div>
 
@@ -127,32 +140,35 @@ function onRelease(e: MouseEvent) {
       data-test="newsprint-player-transport"
     >
       <button
+        type="button"
         class="np-pb-btn"
         :class="{ active: c.loopMode === 'random' }"
         aria-label="随机"
+        :aria-pressed="c.loopMode === 'random'"
         title="随机播放"
         @click="c.toggleShuffle"
         @mousedown="onPress"
         @mouseup="onRelease"
         @mouseleave="onRelease"
       >
-        <span class="np-pb-btn-label">随机</span>
+        <Shuffle :size="15" :stroke-width="1.75" aria-hidden="true" />
       </button>
 
       <button
+        type="button"
         class="np-pb-btn"
         aria-label="上一首"
+        title="上一首"
         @click="c.prev"
         @mousedown="onPress"
         @mouseup="onRelease"
         @mouseleave="onRelease"
       >
-        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-          <polygon points="6,5 6,19 8,19 8,13 19,19 19,5 8,11 8,5"/>
-        </svg>
+        <SkipBack :size="15" :stroke-width="1.75" aria-hidden="true" />
       </button>
 
       <button
+        type="button"
         class="np-pb-btn np-pb-play"
         :aria-label="c.showPauseIcon ? '暂停' : '播放'"
         :title="c.isLoading ? '取消加载' : (c.isPlaying ? '暂停' : '播放')"
@@ -161,33 +177,36 @@ function onRelease(e: MouseEvent) {
         @mouseup="onRelease"
         @mouseleave="onRelease"
       >
-        <span class="np-pb-btn-label">{{ c.showPauseIcon ? '暂停' : '播放' }}</span>
+        <Pause v-if="c.showPauseIcon" :size="16" :stroke-width="1.75" aria-hidden="true" />
+        <Play v-else :size="16" :stroke-width="1.75" aria-hidden="true" />
       </button>
 
       <button
+        type="button"
         class="np-pb-btn"
         aria-label="下一首"
+        title="下一首"
         @click="c.next"
         @mousedown="onPress"
         @mouseup="onRelease"
         @mouseleave="onRelease"
       >
-        <svg viewBox="0 0 24 24" fill="currentColor" width="16" height="16">
-          <polygon points="5,5 16,11 16,5 18,5 18,19 16,19 16,13 5,19"/>
-        </svg>
+        <SkipForward :size="15" :stroke-width="1.75" aria-hidden="true" />
       </button>
 
       <button
+        type="button"
         class="np-pb-btn"
         :class="{ active: c.loopMode === 'single' }"
         aria-label="循环"
+        :aria-pressed="c.loopMode === 'single'"
         title="单曲循环"
         @click="c.toggleRepeat"
         @mousedown="onPress"
         @mouseup="onRelease"
         @mouseleave="onRelease"
       >
-        <span class="np-pb-btn-label">{{ c.loopMode === 'single' ? '1×' : '循环' }}</span>
+        <Repeat2 :size="15" :stroke-width="1.75" aria-hidden="true" />
       </button>
     </div>
     <div
@@ -211,8 +230,11 @@ function onRelease(e: MouseEvent) {
     <div class="np-pb-aux">
       <div v-if="c.currentTrack" class="np-pb-quality" data-test="newsprint-player-quality" @click.stop>
         <button
+          type="button"
           class="np-pb-q-btn"
           :class="{ active: c.showQualityMenu }"
+          aria-label="选择音质"
+          :aria-expanded="c.showQualityMenu"
           @click="c.showQualityMenu = !c.showQualityMenu"
           title="音质选择"
         >
@@ -236,25 +258,28 @@ function onRelease(e: MouseEvent) {
       </div>
 
       <button
+        type="button"
         class="np-pb-icon"
         aria-label="队列"
         @click="emit('toggle-queue')"
         title="播放队列"
       >
-        <span class="np-pb-btn-label">队列</span>
+        <ListMusic :size="15" :stroke-width="1.75" aria-hidden="true" />
       </button>
 
       <button
+        type="button"
         class="np-pb-icon np-pb-lyric"
         :class="{ active: c.isLyricView }"
         aria-label="歌词"
+        title="歌词"
         @click="c.toggleLyricView"
       >
-        词
+        <FileText :size="15" :stroke-width="1.75" aria-hidden="true" />
       </button>
 
       <div class="np-pb-volume">
-        <span class="np-pb-vol-label">音量</span>
+        <Volume2 class="np-pb-vol-icon" :size="14" :stroke-width="1.75" aria-hidden="true" />
         <div class="np-pb-vol-bar" @click="handleVolumeClick">
           <div class="np-pb-vol-fill" :style="{ width: c.volumePercent + '%' }"></div>
         </div>
@@ -349,9 +374,12 @@ function onRelease(e: MouseEvent) {
 
 .np-pb-enter-fullscreen {
   color: var(--ink-mute, #8a7e6a);
-  font-family: 'EB Garamond', serif;
-  font-size: 10px;
-  line-height: 1.2;
+  width: 14px;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  line-height: 0;
   white-space: nowrap;
   transition: color 0.15s ease;
 }
@@ -406,6 +434,8 @@ function onRelease(e: MouseEvent) {
   transition: color 0.2s;
   display: inline-flex;
   align-items: center;
+  justify-content: center;
+  line-height: 0;
 }
 
 .np-pb-fav:hover {
@@ -433,16 +463,18 @@ function onRelease(e: MouseEvent) {
 .np-pb-btn {
   display: grid;
   place-items: center;
-  min-width: 36px;
+  width: 32px;
+  min-width: 32px;
   height: 28px;
-  padding: 0 8px;
+  padding: 0;
   cursor: pointer;
   color: var(--ink-soft, #666);
   background: transparent;
   border: 1px solid var(--border-subtle, #ccc);
   border-radius: 2px;
-  transition: transform 0.1s ease-out, box-shadow 0.1s ease-out, color 0.2s;
+  transition: transform 0.1s ease-out, color 0.2s;
   font-family: 'Noto Serif SC', serif;
+  line-height: 0;
 }
 
 .np-pb-btn:hover {
@@ -463,22 +495,17 @@ function onRelease(e: MouseEvent) {
   border-color: var(--accent, #a8311b);
 }
 
-.np-pb-btn-label {
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.08em;
-}
-
 .np-pb-play {
-  min-width: 56px;
+  width: 34px;
+  min-width: 34px;
   height: 32px;
-  background: var(--ink, #2a2520);
-  color: var(--paper, #f1ead8);
-  border-color: var(--ink, #2a2520);
+  background: transparent;
+  color: var(--ink, #2a2520);
+  border-color: color-mix(in srgb, var(--ink, #2a2520) 52%, transparent);
 }
 
 .np-pb-play:hover {
-  color: var(--paper, #f1ead8);
+  color: var(--accent, #a8311b);
 }
 
 .np-pb-progress {
@@ -560,20 +587,22 @@ function onRelease(e: MouseEvent) {
 .np-pb-icon {
   display: grid;
   place-items: center;
+  width: 28px;
   min-width: 28px;
   height: 28px;
-  padding: 0 6px;
+  padding: 0;
   cursor: pointer;
   color: var(--ink-soft, #666);
   background: transparent;
   border: 1px solid var(--border-subtle, #ccc);
   border-radius: 2px;
-  transition: transform 0.1s ease-out, box-shadow 0.1s ease-out, color 0.2s;
+  transition: transform 0.1s ease-out, color 0.2s;
   font-family: 'Noto Serif SC', serif;
+  line-height: 0;
 }
 
 .np-pb-icon:not(.np-pb-lyric) {
-  min-width: 44px;
+  min-width: 28px;
 }
 
 .np-pb-icon:hover {
@@ -581,8 +610,7 @@ function onRelease(e: MouseEvent) {
 }
 
 .np-pb-lyric {
-  font-weight: 700;
-  font-size: 13px;
+  font-size: 0;
 }
 
 .np-pb-volume {
@@ -592,11 +620,25 @@ function onRelease(e: MouseEvent) {
   width: 90px;
 }
 
-.np-pb-vol-label {
-  font-family: 'Noto Serif SC', Georgia, serif;
-  font-size: 11px;
-  letter-spacing: 0.04em;
+.np-pb-vol-icon {
+  flex: none;
   color: var(--ink-mute, #8a7e6a);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .np-pb-btn,
+  .np-pb-fav,
+  .np-pb-icon,
+  .np-pb-enter-fullscreen {
+    transition: none;
+  }
+
+  .np-pb-btn:active,
+  .np-pb-fav:active,
+  .np-pb-icon:active,
+  .np-pb-enter-fullscreen:active {
+    transform: none !important;
+  }
 }
 
 .np-pb-vol-bar {
