@@ -38,14 +38,6 @@ const stageComponent = computed(() =>
       </div>
     </div>
 
-    <div v-else-if="model.loading" class="spinner">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <circle cx="12" cy="12" r="10" stroke="rgba(34,27,18,0.1)"></circle>
-        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
-      </svg>
-      译稿编撰中…
-    </div>
-
     <div
       v-else
       class="lyric-view-grid"
@@ -62,6 +54,15 @@ const stageComponent = computed(() =>
         @seek-line="commands.seekToLine"
         @seek="commands.seekToLine"
       >
+        <template #loading>
+          <div class="spinner" data-test="lyric-loading" role="status" aria-live="polite">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" stroke="rgba(34,27,18,0.1)"></circle>
+              <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
+            </svg>
+            译稿编撰中…
+          </div>
+        </template>
         <template #error>
           <div class="lyric-error-state" data-test="lyric-error" role="alert">
             <strong>歌词暂时无法加载</strong>
@@ -69,7 +70,7 @@ const stageComponent = computed(() =>
             <button type="button" data-test="lyric-retry" @click="commands.retryLyrics">重试歌词</button>
           </div>
         </template>
-        <template v-if="!model.fullscreen" #footer>
+        <template v-if="!model.fullscreen && !model.loading" #footer>
           <LyricFollowFooter
             :auto-following="model.autoFollowing"
             @resume="commands.resumeFollow"
@@ -223,12 +224,13 @@ const stageComponent = computed(() =>
 }
 
 .spinner {
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  min-height: 240px;
   color: var(--text-muted);
 }
 

@@ -3,6 +3,7 @@ import { computed } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../api/normalizer';
 import type { HomeSection, PlaylistInfo } from '../../api/homeFeedStore';
+import { ArrowRight } from '@lucide/vue';
 
 const props = defineProps<{ model: HomeViewModel }>();
 
@@ -249,10 +250,15 @@ function retrySection(section: HomeSection): void {
             <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="24" fill="#221b12">歌单</text>
           </svg>
           <div class="corner">精品</div>
-          <button type="button" class="play" aria-label="play" @click.stop="onPlaylistClick(pl)">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-              <polygon points="6,4 20,12 6,20" />
-            </svg>
+          <button
+            type="button"
+            class="play"
+            :data-test="`playlist-open-${pl.specialid}`"
+            :aria-label="`打开歌单：${pl.specialname}`"
+            :title="`打开歌单：${pl.specialname}`"
+            @click.stop="onPlaylistClick(pl)"
+          >
+            <ArrowRight :size="14" :stroke-width="1.8" aria-hidden="true" />
           </button>
         </div>
         <div class="meta-row">
@@ -291,10 +297,15 @@ function retrySection(section: HomeSection): void {
             <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="24" fill="#3b5a3a">新碟</text>
           </svg>
           <div class="corner">NEW</div>
-          <button type="button" class="play" aria-label="play" @click.stop="onPlaylistClick(pl)">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-              <polygon points="6,4 20,12 6,20" />
-            </svg>
+          <button
+            type="button"
+            class="play"
+            :data-test="`album-open-${pl.specialid}`"
+            :aria-label="`打开歌单：${pl.specialname}`"
+            :title="`打开歌单：${pl.specialname}`"
+            @click.stop="onPlaylistClick(pl)"
+          >
+            <ArrowRight :size="14" :stroke-width="1.8" aria-hidden="true" />
           </button>
         </div>
         <div class="meta-row">

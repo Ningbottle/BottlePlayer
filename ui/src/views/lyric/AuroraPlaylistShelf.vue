@@ -29,19 +29,37 @@ const dragAccum = ref(0);
 const dragging = ref(false);
 const pointerActive = ref(false);
 const hovering = ref(false);
+const windowStart = ref(0);
 
-const visibleTracks = computed(() => props.tracks.slice(0, 32));
-
-const activeIndex = computed(() => {
-  if (!props.activeHash) return 0;
-  const i = visibleTracks.value.findIndex((t) => t.FileHash === props.activeHash);
-  return i >= 0 ? i : 0;
-});
-
+const WINDOW_SIZE = 32;
 const followPaused = computed(() => pointerActive.value || dragging.value || hovering.value);
 
-function syncActiveFocus(): void {
-  if (!followPaused.value) focusIndex.value = activeIndex.value;
+const activeQueueIndex = computed(() => {
+  if (!props.activeHash) return 0;
+  const index = props.tracks.findIndex((track) => track.FileHash === props.activeHash);
+  return index >= 0 ? index : 0;
+});
+
+const visibleTracks = computed(() =>
+  props.tracks.slice(windowStart.value, windowStart.value + WINDOW_SIZE),
+);
+
+function desiredWindowStart(): number {
+  const maxStart = Math.max(0, props.tracks.length - WINDOW_SIZE);
+  return Math.min(
+    Math.max(activeQueueIndex.value - Math.floor(WINDOW_SIZE / 2), 0),
+    maxStart,
+  );
+}
+
+function syncActiveFocus(force = false): void {
+  if (!force && followPaused.value) return;
+
+  windowStart.value = desiredWindowStart();
+  const activeVisibleIndex = props.activeHash
+    ? visibleTracks.value.findIndex((track) => track.FileHash === props.activeHash)
+    : 0;
+  focusIndex.value = activeVisibleIndex >= 0 ? activeVisibleIndex : 0;
 }
 
 watch(
@@ -54,14 +72,15 @@ watch(
       hovering.value = false;
       return;
     }
-    focusIndex.value = activeIndex.value;
+    syncActiveFocus(true);
     await nextTick();
     playOpen();
   },
+  { immediate: true, flush: 'post' },
 );
 
 watch(
-  [() => props.activeHash, () => props.tracks],
+  [() => props.activeHash, () => props.tracks.map((track) => track.FileHash)],
   () => syncActiveFocus(),
 );
 

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /* ── Shared mocks ── */
 
@@ -20,6 +22,8 @@ vi.mock('@tauri-apps/api/window', () => ({
 
 import AuroraShell from '../AuroraShell.vue';
 import NewsprintShell from '../NewsprintShell.vue';
+
+const newsprintCss = readFileSync(resolve(__dirname, '../../../styles/skins/newsprint.css'), 'utf8');
 
 describe('AuroraShell', () => {
   it('renders the BottleMusic and Chinese-first Aurora wordmark', () => {
@@ -108,6 +112,18 @@ describe('NewsprintShell', () => {
   it('renders data-shell="newsprint"', () => {
     const wrapper = mount(NewsprintShell);
     expect(wrapper.find('[data-shell="newsprint"]').exists()).toBe(true);
+  });
+
+  it('collapses every shell chrome row in lyric fullscreen mode', () => {
+    expect(newsprintCss).toMatch(
+      /\.app\[data-shell="newsprint"\]\.lyric-fullscreen-active\s*\{[\s\S]*?grid-template-rows:\s*0 0 1fr 0\s*!important;/,
+    );
+    expect(newsprintCss).toMatch(
+      /\.app\[data-shell="newsprint"\]\.lyric-fullscreen-active \.titlebar[\s\S]*?display:\s*none\s*!important;/,
+    );
+    expect(newsprintCss).toMatch(
+      /\.app\[data-shell="newsprint"\]\.lyric-fullscreen-active \.shell-main[\s\S]*?grid-row:\s*1 \/ -1;/,
+    );
   });
 
   it('uses <aside> for sidebar landmark', () => {

@@ -1048,6 +1048,37 @@ describe('Aurora playlist shelf selection', () => {
     }
   });
 
+  it('keeps an active track beyond the first 32 items inside the visible shelf window', async () => {
+    const longQueue = Array.from({ length: 40 }, (_, index) => ({
+      FileHash: `long-${index}`,
+      SongName: `Long Queue ${index}`,
+      SingerName: 'Artist',
+      Duration: 180,
+      Image: '',
+    }));
+    const activeTrack = longQueue[35];
+    const wrapper = mount(AuroraPlaylistShelf, {
+      props: {
+        open: true,
+        tracks: longQueue as any,
+        activeHash: activeTrack.FileHash,
+      },
+      attachTo: document.body,
+    });
+
+    try {
+      await nextTick();
+      const cards = Array.from(document.querySelectorAll('.shelf-card'));
+      const activeCard = document.querySelector('.shelf-card.is-active');
+
+      expect(cards).toHaveLength(32);
+      expect(activeCard?.getAttribute('aria-label')).toBe(activeTrack.SongName);
+      expect(activeCard?.classList.contains('is-focus')).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
+  });
+
   it('pauses active-item follow during hover and resumes when hover ends', async () => {
     const wrapper = mount(AuroraPlaylistShelf, {
       props: {
@@ -1335,9 +1366,6 @@ describe('Task 4 fullscreen controls', () => {
     });
 
     const controls = wrapper.get(`[data-test="${testId}"]`);
-    expect(controls.attributes('data-visible')).toBe('true');
-    vi.advanceTimersByTime(1_800);
-    await nextTick();
     expect(controls.attributes('data-visible')).toBe('false');
 
     await wrapper.get('[data-test$="lyric-stage"]').trigger('pointermove');

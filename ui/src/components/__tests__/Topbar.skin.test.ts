@@ -72,4 +72,10 @@ describe('Topbar skin chrome', () => {
     const tweakBtn = wrapper.findAll('button').find((b) => b.attributes('aria-label') === '调整');
     expect(tweakBtn).toBeUndefined();
   });
+
+  it('does not expose a fake desktop share action', async () => {
+    const { wrapper } = await mountTopbar();
+    const shareButton = wrapper.findAll('button').find((button) => button.attributes('aria-label') === '分享');
+    expect(shareButton).toBeUndefined();
+  });
 });

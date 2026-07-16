@@ -181,6 +181,30 @@ describe('LyricView layout', () => {
     expect(w.find('[data-test="lyric-footer"]').exists()).toBe(true);
   });
 
+  it('keeps the lyric stage mounted while lyrics for the current track are loading', async () => {
+    let resolveDetail!: (value: { status: number; lyric: string }) => void;
+    const pendingDetail = new Promise<{ status: number; lyric: string }>((resolve) => {
+      resolveDetail = resolve;
+    });
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/search/lyric') {
+        return Promise.resolve({ status: 1, candidates: [{ id: 'pending', accesskey: 'key' }] });
+      }
+      if (path === '/lyric') return pendingDetail;
+      return Promise.resolve({ status: 1 });
+    });
+
+    const w = mountLyric();
+    await flushPromises();
+
+    expect(w.find('[data-test="lyric-grid"]').exists()).toBe(true);
+    expect(w.find('[data-test$="lyric-stage"]').exists()).toBe(true);
+    expect(w.find('[data-test="lyric-loading"]').exists()).toBe(true);
+
+    resolveDetail({ status: 1, lyric: '[00:00.00]Loaded line' });
+    await flushPromises();
+  });
+
   it('footer retains height when following (visibility hidden, not display none)', async () => {
     const w = mountLyric();
     await flushPromises();

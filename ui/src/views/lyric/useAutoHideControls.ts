@@ -81,11 +81,10 @@ export function useAutoHideControls(options: AutoHideControlsOptions): AutoHideC
 
   const stopActiveWatch = watch(
     options.active,
-    (active) => {
+    () => {
       focusWithin = false;
       clearIdleTimer();
-      visible.value = active;
-      if (active) armIdleTimer();
+      visible.value = false;
     },
     { immediate: true },
   );

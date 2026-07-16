@@ -56,13 +56,26 @@
 /* Fullscreen mode */
 .app[data-shell="newsprint"].lyric-fullscreen-active {
   grid-template-columns: 1fr !important;
-  grid-template-rows: 32px 0 1fr 0 !important;
+  grid-template-rows: 0 0 1fr 0 !important;
+}
+
+.app[data-shell="newsprint"].lyric-fullscreen-active .titlebar,
+.app[data-shell="newsprint"].lyric-fullscreen-active .shell-topbar,
+.app[data-shell="newsprint"].lyric-fullscreen-active .shell-sidebar,
+.app[data-shell="newsprint"].lyric-fullscreen-active .shell-playerbar,
+.app[data-shell="newsprint"].lyric-fullscreen-active .network-banner {
+  display: none !important;
 }
 
 .app[data-shell="newsprint"].lyric-fullscreen-active .shell-main,
-.app[data-shell="newsprint"].lyric-fullscreen-active .titlebar,
-.app[data-shell="newsprint"].lyric-fullscreen-active .shell-playerbar {
-  grid-column: 1 / 2;
+.app[data-shell="newsprint"].lyric-fullscreen-active .shell-content,
+.app[data-shell="newsprint"].lyric-fullscreen-active .scroll {
+  grid-column: 1 / -1;
+  grid-row: 1 / -1;
+  height: 100%;
+  min-height: 100vh;
+  padding: 0 !important;
+  overflow: hidden;
 }
 
 /* Newsprint: topbar with editorial rule (no decorative horizontal line) */

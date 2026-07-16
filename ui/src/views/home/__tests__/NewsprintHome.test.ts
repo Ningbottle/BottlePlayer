@@ -219,6 +219,23 @@ describe('NewsprintHome', () => {
     expect(wrapper.emitted('navigate')![0]).toEqual(['playlist', { id: 7, name: 'Editorial Picks' }]);
   });
 
+  it('labels the playlist corner action as opening the playlist instead of playing it', async () => {
+    const pl = createPlaylist({ specialid: 8, specialname: 'Archive Edition' });
+    const wrapper = mount(NewsprintHome, {
+      props: { model: createViewModel({ playlists: [pl] }) },
+    });
+
+    const openButton = wrapper.get('[data-test="playlist-open-8"]');
+    expect(openButton.attributes('aria-label')).toBe('打开歌单：Archive Edition');
+    expect(openButton.text().trim()).toBe('');
+
+    await openButton.trigger('click');
+    expect(wrapper.emitted('navigate')).toEqual([
+      ['playlist', { id: 8, name: 'Archive Edition' }],
+    ]);
+    expect(wrapper.emitted('play-track')).toBeUndefined();
+  });
+
   it('keeps old content visible during refresh', () => {
     const vm = createViewModel({
       isRefreshing: true,

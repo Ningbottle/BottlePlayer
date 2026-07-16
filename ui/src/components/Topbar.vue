@@ -46,9 +46,6 @@ function goForward() {
   emit('forward');
 }
 
-function shareAlert() {
-  window.alert('分享功能在桌面端已复制链接！');
-}
 </script>
 
 <template>
@@ -101,14 +98,6 @@ function shareAlert() {
 
     <!-- Right Action Buttons -->
     <div class="top-actions">
-      <button class="icon-btn" aria-label="分享" @click="shareAlert">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-          <circle cx="6" cy="12" r="2.5"/>
-          <circle cx="18" cy="6" r="2.5"/>
-          <circle cx="18" cy="18" r="2.5"/>
-          <path d="M8 11l8-4M8 13l8 4"/>
-        </svg>
-      </button>
       <button class="icon-btn" aria-label="设置" @click="emit('navigate', 'settings')">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
           <circle cx="12" cy="12" r="3"/>

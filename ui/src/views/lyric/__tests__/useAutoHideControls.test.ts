@@ -18,15 +18,13 @@ describe('useAutoHideControls', () => {
     vi.restoreAllMocks();
   });
 
-  it('briefly reveals fullscreen controls, then hides them after the idle delay', () => {
+  it('keeps fullscreen controls hidden until the user shows intent', () => {
     const controls = useAutoHideControls({
       active: ref(true),
       onEscape: vi.fn(),
       idleMs: IDLE_MS,
     });
 
-    expect(controls.visible.value).toBe(true);
-    vi.advanceTimersByTime(IDLE_MS);
     expect(controls.visible.value).toBe(false);
     controls.dispose();
   });
@@ -103,8 +101,6 @@ describe('useAutoHideControls', () => {
 
     active.value = true;
     await nextTick();
-    expect(controls.visible.value).toBe(true);
-    vi.advanceTimersByTime(IDLE_MS);
     expect(controls.visible.value).toBe(false);
     controls.dispose();
   });

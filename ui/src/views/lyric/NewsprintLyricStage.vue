@@ -118,7 +118,8 @@ onBeforeUnmount(autoHideControls.dispose);
       data-test="lyric-content-column"
       data-layout="two-column"
     >
-      <slot v-if="model.error" name="error" />
+      <slot v-if="model.loading" name="loading" />
+      <slot v-else-if="model.error" name="error" />
       <div
         v-else
         class="lyric-scroll"
