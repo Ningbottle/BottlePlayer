@@ -27,6 +27,8 @@ const focusIndex = ref(0);
 const dragStartX = ref<number | null>(null);
 const dragAccum = ref(0);
 const dragging = ref(false);
+const pointerActive = ref(false);
+const hovering = ref(false);
 
 const visibleTracks = computed(() => props.tracks.slice(0, 32));
 
@@ -36,18 +38,31 @@ const activeIndex = computed(() => {
   return i >= 0 ? i : 0;
 });
 
+const followPaused = computed(() => pointerActive.value || dragging.value || hovering.value);
+
+function syncActiveFocus(): void {
+  if (!followPaused.value) focusIndex.value = activeIndex.value;
+}
+
 watch(
   () => props.open,
   async (open) => {
     if (!open) {
       dragStartX.value = null;
+      pointerActive.value = false;
       dragging.value = false;
+      hovering.value = false;
       return;
     }
     focusIndex.value = activeIndex.value;
     await nextTick();
     playOpen();
   },
+);
+
+watch(
+  [() => props.activeHash, () => props.tracks],
+  () => syncActiveFocus(),
 );
 
 function coverOf(t: Track): string {
@@ -106,6 +121,7 @@ function onPointerDown(e: PointerEvent): void {
   if (!props.open || e.button !== 0) return;
   dragStartX.value = e.clientX;
   dragAccum.value = 0;
+  pointerActive.value = true;
   dragging.value = false;
   (e.currentTarget as HTMLElement | null)?.setPointerCapture?.(e.pointerId);
 }
@@ -130,10 +146,21 @@ function onPointerUp(e: PointerEvent): void {
     /* ignore */
   }
   dragStartX.value = null;
+  pointerActive.value = false;
   // keep dragging true briefly so click after drag is ignored
   window.setTimeout(() => {
     dragging.value = false;
+    syncActiveFocus();
   }, 0);
+}
+
+function onStageEnter(): void {
+  hovering.value = true;
+}
+
+function onStageLeave(): void {
+  hovering.value = false;
+  syncActiveFocus();
 }
 
 function onKey(e: KeyboardEvent): void {
@@ -195,6 +222,8 @@ function onSelect(t: Track): void {
         data-test="shelf-stage"
         ref="stripRef"
         @wheel.prevent="onWheel"
+        @mouseenter="onStageEnter"
+        @mouseleave="onStageLeave"
         @pointerdown="onPointerDown"
         @pointermove="onPointerMove"
         @pointerup="onPointerUp"
@@ -223,6 +252,13 @@ function onSelect(t: Track): void {
             </div>
           </button>
         </div>
+        <p
+          v-else
+          class="shelf-empty"
+          data-test="shelf-empty"
+          role="status"
+          aria-label="播放队列为空"
+        >播放队列为空</p>
       </div>
     </div>
   </Teleport>
@@ -278,6 +314,23 @@ function onSelect(t: Track): void {
     color-mix(in srgb, var(--accent) 20%, transparent),
     transparent 72%
   );
+  pointer-events: none;
+}
+
+.shelf-empty {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 24px;
+  color: var(--text-primary, #f2f5f2);
+  font-size: clamp(1rem, 2.4vw, 1.35rem);
+  font-weight: 600;
+  line-height: 1.6;
+  text-align: center;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.6);
   pointer-events: none;
 }
 

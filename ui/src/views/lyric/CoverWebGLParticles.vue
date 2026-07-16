@@ -5,6 +5,7 @@
  */
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { isReducedMotion } from '../../api/motion';
+import { getMotionProfile } from '../../api/motionProfiles';
 
 const props = defineProps<{
   active: boolean;
@@ -20,23 +21,28 @@ let buf: WebGLBuffer | null = null;
 let aPos = -1;
 let uTime: WebGLUniformLocation | null = null;
 let uPlaying: WebGLUniformLocation | null = null;
+let uTimeScale: WebGLUniformLocation | null = null;
+let uMotionEnabled: WebGLUniformLocation | null = null;
 let raf = 0;
 let timeOrigin = 0;
 let alive = true;
+const coverMotion = getMotionProfile('aurora').particles.cover;
 
 const VS = `
 attribute vec3 a_pos;
 uniform float u_time;
 uniform float u_playing;
+uniform float u_time_scale;
+uniform float u_motion_enabled;
 varying float v_a;
 void main() {
-  float t = u_time * (0.35 + u_playing * 0.55);
+  float t = u_time * u_time_scale;
   vec3 p = a_pos;
-  p.x += sin(t + a_pos.z * 6.0) * 0.04 * (0.5 + u_playing);
-  p.y += cos(t * 1.1 + a_pos.x * 5.0) * 0.05 * (0.5 + u_playing);
+  p.x += sin(t + a_pos.z * 6.0) * 0.04 * (0.5 + u_playing) * u_motion_enabled;
+  p.y += cos(t * 1.1 + a_pos.x * 5.0) * 0.05 * (0.5 + u_playing) * u_motion_enabled;
   gl_Position = vec4(p.xy, 0.0, 1.0);
-  gl_PointSize = mix(1.5, 3.2, u_playing) * (1.0 + 0.4 * sin(t + a_pos.z * 10.0));
-  v_a = 0.25 + 0.55 * abs(sin(t + a_pos.z * 8.0));
+  gl_PointSize = mix(1.5, 3.2, u_playing) * (1.0 + 0.4 * sin(t + a_pos.z * 10.0) * u_motion_enabled);
+  v_a = 0.25 + 0.55 * abs(sin(t + a_pos.z * 8.0)) * u_motion_enabled;
 }
 `;
 
@@ -85,6 +91,8 @@ function initGl(): boolean {
   aPos = gl.getAttribLocation(program, 'a_pos');
   uTime = gl.getUniformLocation(program, 'u_time');
   uPlaying = gl.getUniformLocation(program, 'u_playing');
+  uTimeScale = gl.getUniformLocation(program, 'u_time_scale');
+  uMotionEnabled = gl.getUniformLocation(program, 'u_motion_enabled');
 
   const data = new Float32Array(COUNT * 3);
   for (let i = 0; i < COUNT; i++) {
@@ -115,11 +123,14 @@ function resize(): void {
   }
 }
 
-function frame(ts: number): void {
-  raf = 0;
-  if (!alive || !props.active || !gl || !program || isReducedMotion()) return;
+function render(ts: number, animate: boolean): void {
+  if (!alive || !props.active || !gl || !program) return;
   resize();
-  const t = (ts - timeOrigin) / 1000;
+  const t = animate ? (ts - timeOrigin) / 1000 : 0;
+  const timeScale = animate
+    ? (props.isPlaying ? coverMotion.timeScale.playing : coverMotion.timeScale.paused)
+    : 0;
+  const motionEnabled = animate ? 1 : 0;
   gl.clear(gl.COLOR_BUFFER_BIT);
   gl.useProgram(program);
   gl.bindBuffer(gl.ARRAY_BUFFER, buf);
@@ -127,13 +138,30 @@ function frame(ts: number): void {
   gl.vertexAttribPointer(aPos, 3, gl.FLOAT, false, 0, 0);
   gl.uniform1f(uTime, t);
   gl.uniform1f(uPlaying, props.isPlaying ? 1 : 0.35);
+  gl.uniform1f(uTimeScale, timeScale);
+  gl.uniform1f(uMotionEnabled, motionEnabled);
   gl.drawArrays(gl.POINTS, 0, COUNT);
+}
+
+function frame(ts: number): void {
+  raf = 0;
+  if (!alive || !props.active || !gl || !program) return;
+  if (isReducedMotion()) {
+    render(ts, false);
+    return;
+  }
+  render(ts, true);
   raf = requestAnimationFrame(frame);
 }
 
 function startLoop(): void {
-  if (!alive || !props.active || isReducedMotion()) return;
+  if (!alive || !props.active) return;
   if (!gl && !initGl()) return;
+  if (isReducedMotion()) {
+    stop();
+    render(performance.now(), false);
+    return;
+  }
   timeOrigin = performance.now();
   if (!raf) raf = requestAnimationFrame(frame);
 }
@@ -147,7 +175,7 @@ function stop(): void {
 
 onMounted(() => {
   alive = true;
-  if (props.active && !isReducedMotion()) startLoop();
+  if (props.active) startLoop();
 });
 
 onBeforeUnmount(() => {
@@ -163,7 +191,7 @@ onBeforeUnmount(() => {
 watch(
   () => [props.active, props.isPlaying] as const,
   ([active]) => {
-    if (active && !isReducedMotion()) startLoop();
+    if (active) startLoop();
     else stop();
   },
 );

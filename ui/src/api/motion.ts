@@ -84,14 +84,12 @@ export function transitionEnter(el: Element, done?: () => void): void {
     return;
   }
   const spec = currentProfile().pageEnter;
-  // Aurora: slightly deeper travel for page opens (still short leave elsewhere).
-  const skin = useThemeStore().skinId.value;
-  const fromY = skin === 'aurora' ? 28 : 16;
+  const fromY = spec.fromY ?? 16;
   gsap.fromTo(el, { opacity: 0, y: fromY }, {
     opacity: 1,
     y: 0,
     duration: spec.duration,
-    ease: skin === 'aurora' ? 'power3.out' : spec.ease,
+    ease: spec.ease,
     delay: spec.delay ?? 0,
     onComplete: () => {
       gsap.set(el, { clearProps: 'transform,opacity' });
@@ -174,10 +172,12 @@ export function pressBounceDown(el: Element): void {
     el.style.transform = 'scale(0.94)';
     return;
   }
+  const spec = currentProfile().controlPress;
   gsap.to(el, {
     scale: 0.86,
-    duration: 0.09,
-    ease: 'power2.out',
+    duration: spec.duration,
+    ease: spec.ease,
+    delay: spec.delay ?? 0,
     overwrite: true,
   });
 }
@@ -189,10 +189,12 @@ export function pressBounceUp(el: Element): void {
     el.style.transform = '';
     return;
   }
+  const spec = currentProfile().controlRelease;
   gsap.to(el, {
     scale: 1,
-    duration: 0.55,
-    ease: 'elastic.out(1.15, 0.42)',
+    duration: spec.duration,
+    ease: spec.ease,
+    delay: spec.delay ?? 0,
     overwrite: true,
     onComplete: () => {
       gsap.set(el, { clearProps: 'transform' });
