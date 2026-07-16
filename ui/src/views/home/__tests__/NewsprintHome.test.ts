@@ -125,12 +125,14 @@ describe('NewsprintHome', () => {
   });
 
   it('renders classic late-edition masthead and feature row', () => {
+    const featuredTrack = createTrack({
+      SongName: '主推荐歌曲',
+      SingerName: '艺术家',
+      Image: 'http://example.com/cover.jpg',
+    });
     const vm = createViewModel({
-      heroTrack: createTrack({
-        SongName: '主推荐歌曲',
-        SingerName: '艺术家',
-        Image: 'http://example.com/cover.jpg',
-      }),
+      heroTrack: createTrack({ FileHash: 'restored-track', SongName: '上次播放' }),
+      dailyTracks: [featuredTrack],
     });
 
     const wrapper = mount(NewsprintHome, {
@@ -180,7 +182,10 @@ describe('NewsprintHome', () => {
 
   it('emits play-track when play button is clicked', async () => {
     const track = createTrack({ FileHash: 'hero-hash' });
-    const vm = createViewModel({ heroTrack: track });
+    const vm = createViewModel({
+      heroTrack: createTrack({ FileHash: 'restored-track' }),
+      dailyTracks: [track],
+    });
 
     const wrapper = mount(NewsprintHome, {
       props: { model: vm },
@@ -190,6 +195,31 @@ describe('NewsprintHome', () => {
 
     expect(wrapper.emitted('play-track')).toBeTruthy();
     expect(wrapper.emitted('play-track')![0]).toEqual([track]);
+  });
+
+  it('keeps the Newsprint daily feature tied to the daily feed instead of the restored player track', async () => {
+    const restoredTrack = createTrack({
+      FileHash: 'restored-player',
+      SongName: '上次播放',
+    });
+    const dailyTrack = createTrack({
+      FileHash: 'daily-feature',
+      SongName: '今日推荐',
+    });
+    const wrapper = mount(NewsprintHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: restoredTrack,
+          dailyTracks: [dailyTrack],
+        }),
+      },
+    });
+
+    expect(wrapper.get('.hero').text()).toContain('今日推荐');
+    expect(wrapper.get('.hero').text()).not.toContain('上次播放');
+
+    await wrapper.get('[data-test="hero-play"]').trigger('click');
+    expect(wrapper.emitted('play-track')).toEqual([[dailyTrack]]);
   });
 
   it('retries only the daily section when its refresh control is clicked', async () => {
@@ -237,9 +267,11 @@ describe('NewsprintHome', () => {
   });
 
   it('keeps old content visible during refresh', () => {
+    const existingTrack = createTrack({ SongName: 'Existing Track' });
     const vm = createViewModel({
       isRefreshing: true,
-      heroTrack: createTrack({ SongName: 'Existing Track' }),
+      heroTrack: createTrack({ FileHash: 'restored-track' }),
+      dailyTracks: [existingTrack],
     });
 
     const wrapper = mount(NewsprintHome, {
@@ -337,6 +369,7 @@ describe('NewsprintHome', () => {
       props: {
         model: createViewModel({
           heroTrack: createTrack({ SongName: '报刊当前歌曲' }),
+          dailyTracks: [],
           sections: createSectionStates({ daily: { loading: true } }),
         }),
       },

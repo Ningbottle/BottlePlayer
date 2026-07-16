@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { reactive } from 'vue';
+import { PhHeart } from '@phosphor-icons/vue';
 import AuroraPlayerBar from '../AuroraPlayerBar.vue';
 import type { PlayerController } from '../usePlayerControls';
 import type { Track } from '../../../api/normalizer';
@@ -39,6 +40,7 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     progressPercent: 0,
     volumePercent: 70,
     isLyricView: false,
+    isFavorite: false,
     showQualityMenu: false,
     showAddModal: false,
     toastMsg: '',
@@ -266,6 +268,22 @@ describe('AuroraPlayerBar', () => {
     });
 
     expect(wrapper.find('[aria-label="暂停"]').exists()).toBe(true);
+  });
+
+  it('shows a persistent collected state on the favorite icon', () => {
+    const wrapper = mount(AuroraPlayerBar, {
+      props: {
+        controller: createStubController({
+          currentTrack: mkTrack(),
+          isFavorite: true,
+        }),
+      },
+    });
+
+    const favorite = wrapper.get('.aurora-pb-fav');
+    expect(favorite.classes()).toContain('is-active');
+    expect(favorite.attributes('aria-label')).toBe('已收藏');
+    expect(wrapper.findComponent(PhHeart).props('weight')).toBe('fill');
   });
 
   it('long song name does not overflow (has truncation)', () => {

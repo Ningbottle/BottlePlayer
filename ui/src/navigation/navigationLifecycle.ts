@@ -2,6 +2,7 @@ import { gsap } from 'gsap';
 import type { Router } from 'vue-router';
 
 import { setLyricFullscreen } from '../api/lyricFullscreen';
+import { settleActiveTransitionSessions } from '../api/transitionSession';
 import { routeNames } from './routes';
 
 const activePageTransitions = new Set<Element>();
@@ -22,6 +23,7 @@ export function unregisterPageTransition(element: Element): void {
 }
 
 export function cancelPageTransition(): void {
+  const restoreTransitionStyles = settleActiveTransitionSessions();
   const elements = [...activePageTransitions];
   for (const element of elements) {
     gsap.killTweensOf(element);
@@ -30,6 +32,7 @@ export function cancelPageTransition(): void {
     clearTransitionStyles(element as HTMLElement);
     activePageTransitions.delete(element);
   }
+  restoreTransitionStyles();
 }
 
 export function installNavigationLifecycle(router: Router): void {

@@ -143,13 +143,13 @@ function onRelease(e: MouseEvent) {
       <button
         type="button"
         class="aurora-pb-fav"
-        :class="{ 'is-disabled': !c.currentTrack }"
-        aria-label="收藏"
-        title="收藏"
+        :class="{ 'is-disabled': !c.currentTrack, 'is-active': c.isFavorite }"
+        :aria-label="c.isFavorite ? '已收藏' : '收藏'"
+        :title="c.isFavorite ? '已收藏' : '收藏'"
         :disabled="!c.currentTrack"
         @click.stop="c.handleFavorite"
       >
-        <PhHeart :size="18" weight="regular" aria-hidden="true" />
+        <PhHeart :size="18" :weight="c.isFavorite ? 'fill' : 'regular'" aria-hidden="true" />
       </button>
     </div>
 
@@ -492,6 +492,10 @@ function onRelease(e: MouseEvent) {
 .aurora-pb-fav:hover:not(:disabled) {
   color: var(--accent);
   transform: scale(1.06);
+}
+
+.aurora-pb-fav.is-active {
+  color: var(--accent);
 }
 
 .aurora-pb-fav.is-disabled,

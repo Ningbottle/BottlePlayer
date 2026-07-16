@@ -190,6 +190,7 @@ export default { name: 'NewsprintLyricStage' };
 }
 
 .np-lyric-fullscreen {
+  position: relative;
   grid-template-columns: 380px 1fr;
   gap: 40px;
   padding: 32px 48px;
@@ -329,6 +330,17 @@ export default { name: 'NewsprintLyricStage' };
   pointer-events: none;
   transform: translateY(4px);
   transition: opacity 0.16s ease, transform 0.16s ease;
+}
+
+.np-lyric-fullscreen .np-fs-controls {
+  position: absolute;
+  left: 48px;
+  bottom: 28px;
+  width: 430px;
+  max-width: calc(100% - 96px);
+  align-self: auto;
+  margin: 0;
+  z-index: 4;
 }
 
 .np-fs-controls.controls-visible,
@@ -472,6 +484,13 @@ export default { name: 'NewsprintLyricStage' };
   .np-lyric-fullscreen .np-cover {
     width: min(30vw, 210px, 30vh);
     height: auto;
+  }
+
+  .np-lyric-fullscreen .np-fs-controls {
+    left: 12px;
+    bottom: 16px;
+    width: min(360px, calc(100% - 24px));
+    max-width: none;
   }
 
   .np-song-title {

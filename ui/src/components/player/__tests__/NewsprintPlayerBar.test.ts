@@ -39,6 +39,7 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     progressPercent: 0,
     volumePercent: 70,
     isLyricView: false,
+    isFavorite: false,
     showQualityMenu: false,
     showAddModal: false,
     toastMsg: '',
@@ -267,6 +268,22 @@ describe('NewsprintPlayerBar', () => {
     });
 
     expect(wrapper.find('[aria-label="暂停"]').exists()).toBe(true);
+  });
+
+  it('shows a persistent collected state on the favorite icon', () => {
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: {
+        controller: createStubController({
+          currentTrack: mkTrack(),
+          isFavorite: true,
+        }),
+      },
+    });
+
+    const favorite = wrapper.get('.np-pb-fav');
+    expect(favorite.classes()).toContain('is-active');
+    expect(favorite.attributes('aria-label')).toBe('已收藏');
+    expect(favorite.get('svg').attributes('fill')).toBe('currentColor');
   });
 
   it('long song name does not overflow (has truncation)', () => {

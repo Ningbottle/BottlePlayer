@@ -91,4 +91,22 @@ describe('transitionSession', () => {
     expect(el.style.transform).toBe('scale(1)');
     expect(el.style.filter).toBe('none');
   });
+
+  it('cancelPageTransition settles Vue transition done even when GSAP does not report interruption', () => {
+    const el = document.createElement('div');
+    el.style.opacity = '0.8';
+    const done = vi.fn();
+    registerPageTransition(el);
+    beginTransitionSession(el, 'enter', done);
+    el.style.opacity = '0';
+
+    try {
+      cancelPageTransition();
+
+      expect(done).toHaveBeenCalledTimes(1);
+      expect(el.style.opacity).toBe('0.8');
+    } finally {
+      settleActiveTransitionSessions();
+    }
+  });
 });

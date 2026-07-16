@@ -134,12 +134,18 @@ function onRelease(e: MouseEvent) {
       <button
         v-if="c.currentTrack"
         class="np-pb-fav"
+        :class="{ 'is-active': c.isFavorite }"
         type="button"
-        aria-label="收藏"
-        title="收藏"
+        :aria-label="c.isFavorite ? '已收藏' : '收藏'"
+        :title="c.isFavorite ? '已收藏' : '收藏'"
         @click.stop="c.handleFavorite"
       >
-        <Heart :size="14" :stroke-width="1.75" aria-hidden="true" />
+        <Heart
+          :size="14"
+          :stroke-width="1.75"
+          :fill="c.isFavorite ? 'currentColor' : 'none'"
+          aria-hidden="true"
+        />
       </button>
     </div>
 
@@ -451,6 +457,10 @@ function onRelease(e: MouseEvent) {
 }
 
 .np-pb-fav:hover {
+  color: var(--accent, #a8311b);
+}
+
+.np-pb-fav.is-active {
   color: var(--accent, #a8311b);
 }
 

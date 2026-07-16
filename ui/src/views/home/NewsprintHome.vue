@@ -27,9 +27,10 @@ const timeOfDayPhrase = computed(() => {
 });
 
 const recommendations = computed(() => props.model.dailyTracks.slice(0, 10));
+const featureTrack = computed(() => props.model.dailyTracks[0] ?? props.model.heroTrack);
 
 function onHeroPlay() {
-  const t = props.model.heroTrack ?? props.model.dailyTracks[0];
+  const t = featureTrack.value;
   if (t) emit('play-track', t);
 }
 
@@ -147,8 +148,8 @@ function retrySection(section: HomeSection): void {
           <h2>今日适合这几首</h2>
           <p>
             {{
-              model.heroTrack
-                ? `根据每日推荐为你排好一组歌。想少一点选择困难，就从「${model.heroTrack.SongName}」开始慢慢听。`
+              featureTrack
+                ? `根据每日推荐为你排好一组歌。想少一点选择困难，就从「${featureTrack.SongName}」开始慢慢听。`
                 : '根据每日推荐为你排好一组歌。想少一点选择困难，就从第一首开始慢慢听。'
             }}
           </p>
@@ -157,7 +158,7 @@ function retrySection(section: HomeSection): void {
           type="button"
           class="play-cta"
           data-test="hero-play"
-          :disabled="!model.heroTrack && !model.dailyTracks.length"
+          :disabled="!featureTrack"
           @click="onHeroPlay"
         >
           <span class="pp">
@@ -165,7 +166,7 @@ function retrySection(section: HomeSection): void {
               <polygon points="6,4 20,12 6,20" />
             </svg>
           </span>
-          {{ model.heroTrack || model.dailyTracks.length ? '立即收听 · 每日推荐' : '暂无推荐可播放' }}
+          {{ featureTrack ? '立即收听 · 每日推荐' : '暂无推荐可播放' }}
         </button>
         <svg class="hero-art" viewBox="0 0 200 200" fill="none" aria-hidden="true">
           <defs>

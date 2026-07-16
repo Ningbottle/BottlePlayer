@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { defineComponent, effectScope, h, nextTick, reactive } from 'vue';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 const gsapSetMock = vi.hoisted(() => vi.fn());
 const gsapToMock = vi.hoisted(() => vi.fn((_: any, opts: any) => {
@@ -66,6 +68,8 @@ import {
   useLyricFocusStore,
   __resetLyricFocusForTest,
 } from '../../../api/lyricFocusStore';
+
+const newsprintStageSource = readFileSync(resolve(__dirname, '../NewsprintLyricStage.vue'), 'utf8');
 
 const SAMPLE_LINES = [
   { time: 0, text: 'First line' },
@@ -1385,5 +1389,14 @@ describe('Task 4 fullscreen controls', () => {
     expect(playButton.text().trim()).toBe('');
     expect(playButton.find('svg').exists()).toBe(true);
     expect(controls.findComponent({ name: 'PlayerProgress' }).exists()).toBe(true);
+  });
+
+  it('anchors the Newsprint fullscreen transport in the lower-left metadata space', () => {
+    expect(newsprintStageSource).toMatch(
+      /\.np-lyric-fullscreen\s*\{[\s\S]*?position:\s*relative;/,
+    );
+    expect(newsprintStageSource).toMatch(
+      /\.np-lyric-fullscreen \.np-fs-controls\s*\{[\s\S]*?position:\s*absolute;[\s\S]*?left:\s*48px;[\s\S]*?bottom:\s*28px;/,
+    );
   });
 });

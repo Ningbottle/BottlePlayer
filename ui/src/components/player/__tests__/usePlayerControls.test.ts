@@ -59,6 +59,7 @@ function mkTrack(overrides: Partial<Track> = {}): Track {
 
 describe('usePlayerControls', () => {
   beforeEach(() => {
+    localStorage.clear();
     mocks.store.currentTrack = null;
     mocks.store.isPlaying = false;
     mocks.store.isLoading = false;
@@ -260,6 +261,18 @@ describe('usePlayerControls', () => {
     expect(ctrl.showAddModal).toBe(true);
     ctrl.closeAddModal();
     expect(ctrl.showAddModal).toBe(false);
+  });
+
+  it('marks the current track as collected after a successful add and restores the marker', () => {
+    mocks.store.currentTrack = mkTrack({ FileHash: 'favorite-hash' });
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
+
+    expect(ctrl.isFavorite).toBe(false);
+    ctrl.handleFavoriteSuccess('我喜欢');
+    expect(ctrl.isFavorite).toBe(true);
+
+    const restored = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
+    expect(restored.isFavorite).toBe(true);
   });
 
   // ── handleSelectQuality ──
