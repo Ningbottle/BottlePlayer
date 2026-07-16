@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
-import { PhArrowsOutSimple, PhPause, PhPlay } from '@phosphor-icons/vue';
+import { PhArrowsOutSimple, PhDisc, PhPause, PhPlay } from '@phosphor-icons/vue';
 import { isReducedMotion } from '../../api/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
 import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api/playerStore';
@@ -338,7 +338,16 @@ onBeforeUnmount(() => {
         @keydown.enter.prevent="onCoverClick"
         @keydown.space.prevent="onCoverClick"
       >
-        <img :src="model.coverUrl" alt="" />
+        <img v-if="model.coverUrl" :src="model.coverUrl" alt="" />
+        <PhDisc
+          v-else
+          class="aurora-cover-placeholder"
+          data-test="lyric-cover-placeholder"
+          data-icon-family="phosphor"
+          :size="88"
+          weight="duotone"
+          aria-hidden="true"
+        />
         <CoverWebGLParticles
           :active="model.fullscreen"
           :is-playing="model.isPlaying"
@@ -668,6 +677,17 @@ export default { name: 'AuroraLyricStage' };
   scrollbar-width: none;
   scrollbar-gutter: auto;
   -ms-overflow-style: none;
+}
+
+.aurora-cover-placeholder {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28%;
+  height: 28%;
+  color: var(--accent);
+  opacity: 0.5;
+  transform: translate(-50%, -50%);
 }
 
 .aurora-cover.is-shelf-hot:focus-visible {

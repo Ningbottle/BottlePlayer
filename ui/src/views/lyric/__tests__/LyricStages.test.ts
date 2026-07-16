@@ -198,6 +198,29 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+describe('Lyric cover fallback contract', () => {
+  it.each([
+    ['Aurora', AuroraLyricStage, 'phosphor'],
+    ['Newsprint', NewsprintLyricStage, 'lucide'],
+  ])('%s keeps real cover images and uses its icon family for an empty cover', (_skin, Stage, iconFamily) => {
+    const withCover = mount(Stage, {
+      props: { model: createModel({ coverUrl: 'http://img/cover.jpg' }) },
+    });
+    expect(withCover.get('[data-test="lyric-cover"]').get('img').attributes('src')).toBe('http://img/cover.jpg');
+    withCover.unmount();
+
+    const withoutCover = mount(Stage, {
+      props: { model: createModel({ coverUrl: '' }) },
+    });
+    const cover = withoutCover.get('[data-test="lyric-cover"]');
+    expect(cover.find('img').exists()).toBe(false);
+    const placeholder = cover.get('[data-test="lyric-cover-placeholder"]');
+    expect(placeholder.attributes('data-icon-family')).toBe(iconFamily);
+    expect(placeholder.attributes('aria-hidden')).toBe('true');
+    withoutCover.unmount();
+  });
+});
+
 describe('Lyric request race boundaries', () => {
   it('keeps B lyrics/loading and ignores A follow work after A resolves late', async () => {
     vi.useFakeTimers();

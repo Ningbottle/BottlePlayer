@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { gsap } from 'gsap';
-import { Maximize2, Pause, Play } from '@lucide/vue';
+import { Disc3, Maximize2, Pause, Play } from '@lucide/vue';
 import { isReducedMotion } from '../../api/motion';
 import { getMotionProfile } from '../../api/motionProfiles';
 import { togglePlay as storeTogglePlay } from '../../api/playerStore';
@@ -84,7 +84,16 @@ onBeforeUnmount(autoHideControls.dispose);
         data-test="lyric-cover"
         :style="{ aspectRatio: '1' }"
       >
-        <img :src="model.coverUrl" alt="cover" />
+        <img v-if="model.coverUrl" :src="model.coverUrl" alt="cover" />
+        <Disc3
+          v-else
+          class="np-cover-placeholder"
+          data-test="lyric-cover-placeholder"
+          data-icon-family="lucide"
+          :size="72"
+          :stroke-width="1.15"
+          aria-hidden="true"
+        />
       </div>
       <button
         v-if="!model.fullscreen"
@@ -196,6 +205,7 @@ export default { name: 'NewsprintLyricStage' };
 }
 
 .np-cover {
+  position: relative;
   width: min(240px, 100%);
   height: auto;
   aspect-ratio: 1 / 1;
@@ -221,6 +231,17 @@ export default { name: 'NewsprintLyricStage' };
   text-align: center;
   min-width: 0;
   max-width: 100%;
+}
+
+.np-cover-placeholder {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28%;
+  height: 28%;
+  color: var(--ink-soft);
+  opacity: 0.72;
+  transform: translate(-50%, -50%);
 }
 
 .np-meta-kicker {

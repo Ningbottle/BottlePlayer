@@ -309,15 +309,15 @@ describe('usePlayerControls', () => {
     expect(ctrl.coverUrl).toBe('http://cover.jpg');
   });
 
-  it('coverUrl returns fallback when track has no Image', () => {
+  it('coverUrl is empty when track has no Image', () => {
     mocks.store.currentTrack = mkTrack({ Image: undefined });
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
-    expect(ctrl.coverUrl).toContain('data:image/svg+xml');
+    expect(ctrl.coverUrl).toBe('');
   });
 
-  it('coverUrl returns fallback when no track', () => {
+  it('coverUrl is empty when no track is active', () => {
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
-    expect(ctrl.coverUrl).toContain('data:image/svg+xml');
+    expect(ctrl.coverUrl).toBe('');
   });
 
   it('progressPercent computes currentTime/duration * 100', () => {

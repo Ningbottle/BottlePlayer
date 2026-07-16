@@ -251,7 +251,8 @@ describe('NewsprintPlayerBar', () => {
     });
 
     expect(wrapper.text()).toContain('未播放歌曲');
-    expect(wrapper.find('.np-pb-cover img').exists()).toBe(true);
+    expect(wrapper.find('.np-pb-cover img').exists()).toBe(false);
+    expect(wrapper.find('[data-test="player-cover-placeholder"]').exists()).toBe(true);
     expect(wrapper.find('.np-pb-info').exists()).toBe(true);
   });
 
@@ -281,17 +282,19 @@ describe('NewsprintPlayerBar', () => {
     expect(wrapper.find('.np-pb-info').exists()).toBe(true);
   });
 
-  it('no cover uses fallback coverUrl', () => {
-    const fallbackUrl = 'data:image/svg+xml;utf8,fallback';
+  it('no cover renders the Newsprint icon placeholder without an empty image', () => {
     const ctrl = createStubController({
       currentTrack: mkTrack({ Image: undefined }),
-      coverUrl: fallbackUrl,
+      coverUrl: '',
     });
     const wrapper = mount(NewsprintPlayerBar, {
       props: { controller: ctrl },
     });
 
-    expect(wrapper.find('.np-pb-cover img').attributes('src')).toBe(fallbackUrl);
+    expect(wrapper.find('.np-pb-cover img').exists()).toBe(false);
+    const placeholder = wrapper.get('[data-test="player-cover-placeholder"]');
+    expect(placeholder.attributes('data-icon-family')).toBe('lucide');
+    expect(placeholder.attributes('aria-hidden')).toBe('true');
   });
 
   // ── DOM structure (Newsprint-specific) ──

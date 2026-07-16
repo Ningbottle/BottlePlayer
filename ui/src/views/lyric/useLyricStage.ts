@@ -37,14 +37,6 @@ export interface UseLyricStageReturn {
   commands: LyricStageCommands;
 }
 
-const FALLBACK_BIG_COVER =
-  'data:image/svg+xml;utf8,' + encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200">` +
-    `<rect width="200" height="200" fill="#2a2520"/>` +
-    `<text x="100" y="115" text-anchor="middle" font-family="Noto Serif SC,serif" ` +
-    `font-weight="700" font-size="36" fill="#f1ead8">听</text></svg>`
-  );
-
 /**
  * Parse LRC (and light enhanced LRC). Exported for unit tests.
  * - Decodes base64 payloads when the body has no `[mm:ss]` tags
@@ -130,7 +122,7 @@ export function useLyricStage(): UseLyricStageReturn {
 
   const currentTrack = computed(() => playerStore.currentTrack);
   const currentTime = computed(() => playerStore.currentTime);
-  const coverUrl = computed(() => currentTrack.value?.Image || FALLBACK_BIG_COVER);
+  const coverUrl = computed(() => currentTrack.value?.Image || '');
 
   const activeIndex = computed(() => {
     if (parsedLyrics.value.length === 0) return -1;

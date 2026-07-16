@@ -2,6 +2,7 @@
 import { computed } from 'vue';
 import {
   PhArrowsOutSimple,
+  PhDisc,
   PhHeart,
   PhPause,
   PhPlay,
@@ -92,7 +93,16 @@ function onRelease(e: MouseEvent) {
           @click.stop="c.openLyricView"
         >
           <div class="aurora-pb-cover">
-            <img :src="c.coverUrl" alt="cover" />
+            <img v-if="c.coverUrl" :src="c.coverUrl" alt="cover" />
+            <PhDisc
+              v-else
+              class="aurora-pb-cover-placeholder"
+              data-test="player-cover-placeholder"
+              data-icon-family="phosphor"
+              :size="30"
+              weight="duotone"
+              aria-hidden="true"
+            />
           </div>
         </button>
         <button
@@ -422,6 +432,8 @@ function onRelease(e: MouseEvent) {
   flex: none;
   background: var(--surface-2);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
 }
 
 .aurora-pb-cover img {
@@ -592,6 +604,11 @@ function onRelease(e: MouseEvent) {
   width: 16px;
   height: 16px;
   display: block;
+}
+
+.aurora-pb-cover-placeholder {
+  color: var(--accent);
+  opacity: 0.68;
 }
 
 .aurora-pb-play {

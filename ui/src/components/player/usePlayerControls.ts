@@ -65,14 +65,6 @@ export interface UsePlayerControlsOptions {
   onNavigate: (view: string) => void;
 }
 
-const FALLBACK_COVER =
-  'data:image/svg+xml;utf8,' + encodeURIComponent(
-    `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 56 56">` +
-    `<rect width="56" height="56" fill="#2a2520"/>` +
-    `<text x="28" y="34" text-anchor="middle" font-family="Noto Serif SC,serif" ` +
-    `font-weight="700" font-size="14" fill="#f1ead8">听</text></svg>`
-  );
-
 const qualityLabels: Record<string, string> = {
   '128': '标准',
   '320': '高品',
@@ -97,7 +89,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   const vipRequired = computed(() => playerStore.vipRequired);
   const quality = computed(() => playerStore.quality);
 
-  const coverUrl = computed(() => currentTrack.value?.Image || FALLBACK_COVER);
+  const coverUrl = computed(() => currentTrack.value?.Image || '');
 
   const progressPercent = computed(() => {
     if (!duration.value || duration.value <= 0) return 0;

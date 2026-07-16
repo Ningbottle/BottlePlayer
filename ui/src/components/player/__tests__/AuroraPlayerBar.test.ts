@@ -247,7 +247,8 @@ describe('AuroraPlayerBar', () => {
     });
 
     expect(wrapper.text()).toContain('未播放歌曲');
-    expect(wrapper.find('.aurora-pb-cover img').exists()).toBe(true);
+    expect(wrapper.find('.aurora-pb-cover img').exists()).toBe(false);
+    expect(wrapper.find('[data-test="player-cover-placeholder"]').exists()).toBe(true);
     expect(wrapper.find('.aurora-pb-info-btn').exists()).toBe(true);
     expect(wrapper.find('.aurora-pb-transport').exists()).toBe(false);
     expect(wrapper.find('[data-test="aurora-player-quality"]').exists()).toBe(false);
@@ -280,17 +281,19 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.find('.aurora-pb-info-btn').exists()).toBe(true);
   });
 
-  it('no cover uses fallback coverUrl', () => {
-    const fallbackUrl = 'data:image/svg+xml;utf8,fallback';
+  it('no cover renders the Aurora icon placeholder without an empty image', () => {
     const ctrl = createStubController({
       currentTrack: mkTrack({ Image: undefined }),
-      coverUrl: fallbackUrl,
+      coverUrl: '',
     });
     const wrapper = mount(AuroraPlayerBar, {
       props: { controller: ctrl },
     });
 
-    expect(wrapper.find('.aurora-pb-cover img').attributes('src')).toBe(fallbackUrl);
+    expect(wrapper.find('.aurora-pb-cover img').exists()).toBe(false);
+    const placeholder = wrapper.get('[data-test="player-cover-placeholder"]');
+    expect(placeholder.attributes('data-icon-family')).toBe('phosphor');
+    expect(placeholder.attributes('aria-hidden')).toBe('true');
   });
 
   // ── DOM structure (Aurora-specific) ──

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import {
+  Disc3,
   FileText,
   Heart,
   ListMusic,
@@ -74,7 +75,16 @@ function onRelease(e: MouseEvent) {
           @click.stop="c.openLyricView"
         >
           <div class="np-pb-cover">
-            <img :src="c.coverUrl" alt="cover" />
+            <img v-if="c.coverUrl" :src="c.coverUrl" alt="cover" />
+            <Disc3
+              v-else
+              class="np-pb-cover-placeholder"
+              data-test="player-cover-placeholder"
+              data-icon-family="lucide"
+              :size="25"
+              :stroke-width="1.35"
+              aria-hidden="true"
+            />
           </div>
         </button>
         <button
@@ -317,6 +327,8 @@ function onRelease(e: MouseEvent) {
   overflow: hidden;
   flex: none;
   background: var(--surface-1, #f1ead8);
+  display: grid;
+  place-items: center;
 }
 
 .np-pb-cover-stack {
@@ -502,6 +514,11 @@ function onRelease(e: MouseEvent) {
   background: transparent;
   color: var(--ink, #2a2520);
   border-color: color-mix(in srgb, var(--ink, #2a2520) 52%, transparent);
+}
+
+.np-pb-cover-placeholder {
+  color: var(--ink-soft, #756f66);
+  opacity: 0.78;
 }
 
 .np-pb-play:hover {
