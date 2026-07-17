@@ -94,4 +94,28 @@ describe('release security configuration', () => {
       expect(actionRef).toMatch(/^[0-9a-f]{40}$/);
     }
   });
+
+  it('uses bash for verify steps so native-command failures propagate', () => {
+    const workflow = readText('../.github/workflows/release.yml');
+    const verifySteps = ['Verify native core', 'Verify release', 'Verify Rust bridge'];
+    for (const stepName of verifySteps) {
+      const idx = workflow.indexOf(`name: ${stepName}`);
+      expect(idx).toBeGreaterThan(-1);
+      const rest = workflow.slice(idx);
+      const nextStep = rest.search(/\n      - (?:name|uses):/);
+      const block = nextStep === -1 ? rest : rest.slice(0, nextStep);
+      expect(block).toMatch(/shell:\s*bash/);
+      expect(block).not.toMatch(/continue-on-error:\s*true/i);
+    }
+  });
+
+  it('runs ctest as part of native verification', () => {
+    const workflow = readText('../.github/workflows/release.yml');
+    const idx = workflow.indexOf('name: Verify native core');
+    expect(idx).toBeGreaterThan(-1);
+    const rest = workflow.slice(idx);
+    const nextStep = rest.search(/\n      - (?:name|uses):/);
+    const block = nextStep === -1 ? rest : rest.slice(0, nextStep);
+    expect(block).toContain('ctest');
+  });
 });

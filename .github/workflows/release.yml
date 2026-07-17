@@ -66,6 +66,7 @@ jobs:
         working-directory: ui
 
       - name: Verify native core
+        shell: bash
         run: |
           cmake -S . --preset bottlemusic-check
           cmake --build out/bottlemusic-check --config Debug
@@ -73,14 +74,16 @@ jobs:
         working-directory: native
 
       - name: Verify release
+        shell: bash
         run: |
           pnpm test
           pnpm build
         working-directory: ui
 
       - name: Verify Rust bridge
+        shell: bash
         run: |
-          $env:PATH = "$PWD\..\..\native\vcpkg_installed\x64-windows\bin;$env:PATH"
+          export PATH="$PWD/../../native/vcpkg_installed/x64-windows/bin:$PATH"
           cargo test
           cargo clippy --all-targets -- -D warnings
         working-directory: ui/src-tauri
