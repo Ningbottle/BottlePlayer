@@ -1,5 +1,3 @@
-use std::ffi::CStr;
-use std::os::raw::c_char;
 use std::path::PathBuf;
 
 fn load_dll() -> PathBuf {
@@ -35,41 +33,36 @@ fn test_runtime_dependencies_are_next_to_echo_capi() {
 }
 
 #[test]
-fn test_playback_initialize_and_query_state() {
+fn test_core_exports_present_without_playback() {
     use libloading::Library;
+    use std::os::raw::c_char;
+
     let path = load_dll();
     let lib = unsafe { Library::new(&path) }.expect("load DLL");
 
     unsafe {
-        let init: libloading::Symbol<unsafe extern "C" fn(i32) -> bool> =
-            lib.get(b"EchoPlaybackInitialize").expect("find init");
+        // Core request path must remain exported.
+        let _: libloading::Symbol<
+            unsafe extern "C" fn(
+                *const c_char,
+                *const c_char,
+                *const c_char,
+                *const c_char,
+                *const c_char,
+                *mut *mut c_char,
+            ),
+        > = lib
+            .get(b"EchoHandleRequest")
+            .expect("EchoHandleRequest must exist");
 
-        // Try MFS first (backend=1), fall back to MFP (backend=0) for headless CI
-        let ok = init(1);
-        if !ok {
-            let ok2 = init(0);
-            assert!(ok2, "Both MFS and MFP init failed");
-        }
+        let _: libloading::Symbol<unsafe extern "C" fn() -> i32> =
+            lib.get(b"EchoShutdown").expect("EchoShutdown must exist");
 
-        // Query state — should return valid JSON allocated by C++
-        let get_state: libloading::Symbol<unsafe extern "C" fn() -> *mut c_char> =
-            lib.get(b"EchoPlaybackGetState").expect("find get_state");
-        let free_str: libloading::Symbol<unsafe extern "C" fn(*mut c_char)> =
-            lib.get(b"EchoFreeString").expect("find free_str");
-
-        let ptr = get_state();
-        assert!(!ptr.is_null(), "GetState returned null");
-        let json = CStr::from_ptr(ptr)
-            .to_str()
-            .expect("utf8")
-            .to_owned();
-        free_str(ptr);
-
-        assert!(json.contains("state"), "JSON missing 'state' field: {}", json);
-
-        // Shutdown playback subsystem
-        let shutdown: libloading::Symbol<unsafe extern "C" fn()> =
-            lib.get(b"EchoPlaybackShutdown").expect("find shutdown");
-        shutdown();
+        // Media Foundation playback ABI must be gone after stage 2c.
+        assert!(
+            lib.get::<unsafe extern "C" fn(i32) -> bool>(b"EchoPlaybackInitialize")
+                .is_err(),
+            "EchoPlaybackInitialize must not be exported"
+        );
     }
 }

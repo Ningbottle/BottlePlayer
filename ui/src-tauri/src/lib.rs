@@ -1,7 +1,6 @@
 mod ai_analysis;
 mod audio_proxy;
 mod backend_api;
-mod playback;
 mod stats;
 
 use std::time::Duration;
@@ -31,18 +30,17 @@ fn get_memory_usage() -> u64 {
 }
 
 /// Map a request path to a per-kind deadline (seconds).
-/// Inner WinHTTP total deadline (9s) is set slightly under the shortest middle
-/// deadline so the inner layer fails first and the outer layers return a real
-/// 504 instead of timing out and wasting their budget.
+/// MUST stay in sync with native/include/echo/core/RequestDeadlines.h
+/// (kDeadline*Ms). Outer watchdog only — unique GET retry owner is C++ HttpClient.
 fn deadline_for_path(path: &str) -> Duration {
     if path.starts_with("/song/url") {
-        Duration::from_secs(10)
+        Duration::from_millis(10_000) // kDeadlineSongUrlMs
     } else if path.starts_with("/images/") {
-        Duration::from_secs(8)
+        Duration::from_millis(8_000) // kDeadlineImageMs
     } else if path.starts_with("/login/qr/") {
-        Duration::from_secs(6)
+        Duration::from_millis(6_000) // kDeadlineLoginPollMs
     } else {
-        Duration::from_secs(12)
+        Duration::from_millis(12_000) // kDeadlineGenericMs / Search / Playlist
     }
 }
 
@@ -151,9 +149,6 @@ pub fn run() {
                         if let Err(e) = backend_api::set_log_callback() {
                             eprintln!("[EchoCAPI WARN] Failed to set log callback: {}", e);
                         }
-                        if let Err(e) = backend_api::set_event_callback() {
-                            eprintln!("[EchoCAPI WARN] Failed to set event callback: {}", e);
-                        }
                         loaded = true;
                         break;
                     }
@@ -179,19 +174,6 @@ pub fn run() {
             get_memory_usage,
             native_request,
             audio_proxy::audio_proxy_url,
-            playback::playback_initialize,
-            playback::playback_play_url,
-            playback::playback_pause,
-            playback::playback_resume,
-            playback::playback_stop,
-            playback::playback_seek,
-            playback::playback_set_volume,
-            playback::playback_set_rate,
-            playback::playback_get_state,
-            playback::playback_shutdown,
-            playback::playback_set_eq_enabled,
-            playback::playback_set_eq_bands,
-            playback::playback_get_eq_bands,
             ai_analysis::ai_analyze,
             stats::stats_record_play,
             stats::stats_get_summary,
