@@ -1400,3 +1400,33 @@ describe('Task 4 fullscreen controls', () => {
     );
   });
 });
+
+describe('AuroraLyricStage keyboard navigation', () => {
+  it('emits seek-line with the next line time on ArrowDown', async () => {
+    const model = createModel({ activeIndex: 1 });
+    const wrapper = mount(AuroraLyricStage, { props: { model } });
+    const scroll = wrapper.find('[data-test="lyric-scroll"]');
+    await scroll.trigger('keydown', { key: 'ArrowDown' });
+    const events = wrapper.emitted('seek-line');
+    expect(events).toBeTruthy();
+    expect(events![0]).toEqual([model.parsedLyrics[2].time]);
+  });
+
+  it('emits seek-line with the previous line time on ArrowUp', async () => {
+    const model = createModel({ activeIndex: 1 });
+    const wrapper = mount(AuroraLyricStage, { props: { model } });
+    const scroll = wrapper.find('[data-test="lyric-scroll"]');
+    await scroll.trigger('keydown', { key: 'ArrowUp' });
+    const events = wrapper.emitted('seek-line');
+    expect(events).toBeTruthy();
+    expect(events![0]).toEqual([model.parsedLyrics[0].time]);
+  });
+
+  it('does nothing at the last line on ArrowDown', async () => {
+    const lastIndex = SAMPLE_LINES.length - 1;
+    const model = createModel({ activeIndex: lastIndex });
+    const wrapper = mount(AuroraLyricStage, { props: { model } });
+    await wrapper.find('[data-test="lyric-scroll"]').trigger('keydown', { key: 'ArrowDown' });
+    expect(wrapper.emitted('seek-line')).toBeFalsy();
+  });
+});

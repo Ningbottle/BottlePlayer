@@ -61,6 +61,20 @@ function onLineClick(line: { time: number; text: string }): void {
   emit('seek-line', line.time);
 }
 
+function onLyricKeydown(e: KeyboardEvent): void {
+  const lyrics = props.model.parsedLyrics;
+  const current = props.model.activeIndex;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    const next = current + 1;
+    if (next < lyrics.length) onLineClick(lyrics[next]);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    const prev = current - 1;
+    if (prev >= 0) onLineClick(lyrics[prev]);
+  }
+}
+
 function onStageDblClick(e: MouseEvent): void {
   if (!props.model.fullscreen) return;
   const target = e.target as HTMLElement;
@@ -391,8 +405,10 @@ onBeforeUnmount(() => {
         class="lyric-scroll"
         :class="{ paused: !model.autoFollowing }"
         data-test="lyric-scroll"
+        tabindex="0"
         @wheel.passive="$emit('user-scroll')"
         @touchmove.passive="$emit('user-scroll')"
+        @keydown="onLyricKeydown"
       >
         <button
           v-for="(line, idx) in model.parsedLyrics"
