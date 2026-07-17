@@ -16,8 +16,10 @@ import {
   type QualityOption,
   type ResolveTrackResult,
 } from './playbackOrchestrator';
+import { loadNumber } from './safeStorage';
 
 export type { Track };
+export { loadNumber } from './safeStorage';
 
 export type LoopMode = 'list' | 'single' | 'random';
 export type QueueMode = 'normal' | 'personalFm';
@@ -156,7 +158,7 @@ export const playerStore = reactive<PlayerState>({
   isPlaying: false,
   currentTime: 0,
   duration: 0,
-  volume: parseFloat(localStorage.getItem('player_volume') || '0.7'),
+  volume: loadNumber('player_volume', 0.7, 0, 1),
   queue: loadJSON<Track[]>('player_queue', []),
   currentIndex: parseInt(localStorage.getItem('player_index') || '-1', 10),
   loopMode: (localStorage.getItem('player_loop_mode') || 'list') as LoopMode,

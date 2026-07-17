@@ -1,5 +1,6 @@
 import type { PlayerBackend, PlaybackEvent, PlaybackState } from './playerBackend';
 import type { DiagEvent } from './playbackDiagnostics';
+import { loadNumber } from './safeStorage';
 
 export interface PreparedAudioSource {
   url: string;
@@ -37,7 +38,7 @@ export class Html5AudioBackend implements PlayerBackend {
     private audio: HTMLAudioElement,
     private readonly options: Html5AudioBackendOptions = {},
   ) {
-    this.audio.volume = parseFloat(localStorage.getItem('player_volume') || '0.7');
+    this.audio.volume = loadNumber('player_volume', 0.7, 0, 1);
   }
 
   async initialize(): Promise<boolean> { return true; }

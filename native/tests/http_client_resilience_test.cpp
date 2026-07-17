@@ -174,13 +174,13 @@ int main() {
   std::cout << "[Test] Testing HttpClient max body size guard...\n";
   {
     HttpClient client;
-    // Use httpbin to get a real response > 1 byte, with 1-byte maxBody
-    auto res = client.Get("https://httpbin.org/bytes/1024", {},
-                          /*totalTimeoutMs=*/9000, /*maxBodyBytes=*/1);
-    // Must have an error or timeout (body exceeded 1 byte), not success
+    // Local mock (StartOkServer): 2-byte body "ok" triggers maxBodyBytes=1 guard.
+    // Offline-stable — no httpbin/external network dependency.
+    std::string url = "http://127.0.0.1:" + std::to_string(g_okPort) + "/ok";
+    auto res = client.Get(url, {},
+                          /*totalTimeoutMs=*/3000, /*maxBodyBytes=*/1);
     CHECK(!res.error.empty() || res.timedOut,
-          "1-byte maxBody triggers error or timeout on real response");
-    // If it did succeed (network issue), body must be empty or tiny
+          "1-byte maxBody triggers error or timeout on local mock");
     if (res.error.empty() && !res.timedOut) {
       CHECK(res.body.size() <= 1, "body is at most 1 byte when maxBodyBytes=1");
     }
