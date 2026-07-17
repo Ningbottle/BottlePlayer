@@ -16,7 +16,6 @@ import {
   loadJSON,
   bindQueuePersistence,
   saveQueue,
-  flushSaveQueue,
 } from './playerPersistence';
 import { appendPersonalFmRecommendations as appendFm } from './fmSession';
 import {

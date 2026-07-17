@@ -12,6 +12,7 @@ import FullscreenWindowControls from './components/shell/FullscreenWindowControl
 import PageRecoveryBoundary from './components/shell/PageRecoveryBoundary.vue';
 
 import { initPlayer, initPlayerBackend } from './api/playerStore';
+import { bindOsMediaBridge, unbindOsMediaBridge } from './api/osMediaBridge';
 import { checkLoginStatus } from './api/userStore';
 import { ping } from './api/backend';
 import { invoke } from '@tauri-apps/api/core';
@@ -111,6 +112,11 @@ onMounted(() => {
   initPlayer();
   // Initialize native playback backend (falls back to HTML5)
   initPlayerBackend();
+  // OS media session (T1a): only in Tauri shell (skip browser/vitest)
+  const w = window as unknown as { __TAURI_INTERNALS__?: unknown; __TAURI__?: unknown };
+  if (w.__TAURI_INTERNALS__ || w.__TAURI__) {
+    void bindOsMediaBridge();
+  }
   // Fetch initial login status
   checkLoginStatus();
 
@@ -124,6 +130,7 @@ onMounted(() => {
 onUnmounted(() => {
   if (memInterval) clearInterval(memInterval);
   if (networkInterval) clearInterval(networkInterval);
+  void unbindOsMediaBridge();
 });
 </script>
 

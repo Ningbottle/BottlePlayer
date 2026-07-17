@@ -13,7 +13,8 @@ export type QueueState = {
 export type PlaybackQueueDeps = {
   getState: () => QueueState;
   saveQueue: () => void;
-  playTrack: (track: Track) => void | Promise<void>;
+  /** May return PlaybackResult or void; callers always fire-and-forget. */
+  playTrack: (track: Track) => void | Promise<unknown>;
   skipSession: () => void;
   invalidatePlaybackIntent: () => number;
   stopInvalidatedPlayback: (seq: number) => Promise<void>;

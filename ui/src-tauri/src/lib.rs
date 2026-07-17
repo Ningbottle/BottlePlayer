@@ -1,6 +1,7 @@
 mod ai_analysis;
 mod audio_proxy;
 mod backend_api;
+mod os_media_session;
 mod stats;
 
 use std::time::Duration;
@@ -96,6 +97,7 @@ pub fn run() {
 
             // Store AppHandle for event emission from C++ callbacks.
             backend_api::set_app_handle(app.handle().clone());
+            os_media_session::set_app_handle(app.handle().clone());
 
             match audio_proxy::bind_listener() {
                 Ok((listener, port)) => {
@@ -194,6 +196,12 @@ pub fn run() {
             stats::stats_get_timeline,
             stats::stats_get_recent,
             stats::stats_get_recommendations,
+            os_media_session::os_media_bind,
+            os_media_session::os_media_unbind,
+            os_media_session::os_media_set_now_playing,
+            os_media_session::os_media_set_playback_status,
+            os_media_session::os_media_set_enabled_controls,
+            os_media_session::os_media_inject_button,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BottleMusic Tauri app");
