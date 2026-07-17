@@ -109,6 +109,16 @@ describe('release security configuration', () => {
     }
   });
 
+  it('uses bash for Build C++ Release step so cmake commands propagate failures', () => {
+    const workflow = readText('../.github/workflows/release.yml');
+    const idx = workflow.indexOf('name: Build C++ Release');
+    expect(idx).toBeGreaterThan(-1);
+    const rest = workflow.slice(idx);
+    const nextStep = rest.search(/\n      - (?:name|uses):/);
+    const block = nextStep === -1 ? rest : rest.slice(0, nextStep);
+    expect(block).toMatch(/shell:\s*bash/);
+  });
+
   it('runs ctest as part of native verification', () => {
     const workflow = readText('../.github/workflows/release.yml');
     const idx = workflow.indexOf('name: Verify native core');

@@ -52,6 +52,7 @@ jobs:
         working-directory: ui
 
       - name: Build C++ Release
+        shell: bash
         run: |
           cmake -S native --preset bottlemusic-release
           cmake --build native/out/bottlemusic-release --config Release --target EchoCAPI

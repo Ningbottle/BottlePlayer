@@ -1259,6 +1259,28 @@ int main() {
   }
 
   {
+    // RedactSensitive: all credential keys from the StripSessionCredentials
+    // allowlist must be masked in log output (M2 alignment).
+    std::string raw = "t1=secret-t1&access_token=secret-at&auth_token=secret-aut&session_token=secret-st&secret=secret-val&set-cookie=secret-sc&signature=secret-sig";
+    auto redacted = echo::diagnostics::RedactSensitive(raw);
+    assert(redacted.find("secret-t1") == std::string::npos);
+    assert(redacted.find("t1=***") != std::string::npos);
+    assert(redacted.find("secret-at") == std::string::npos);
+    assert(redacted.find("access_token=***") != std::string::npos);
+    assert(redacted.find("secret-aut") == std::string::npos);
+    assert(redacted.find("auth_token=***") != std::string::npos);
+    assert(redacted.find("secret-st") == std::string::npos);
+    assert(redacted.find("session_token=***") != std::string::npos);
+    assert(redacted.find("secret-val") == std::string::npos);
+    assert(redacted.find("secret=***") != std::string::npos);
+    assert(redacted.find("secret-sc") == std::string::npos);
+    assert(redacted.find("set-cookie=***") != std::string::npos);
+    assert(redacted.find("secret-sig") == std::string::npos);
+    assert(redacted.find("signature=***") != std::string::npos);
+    std::cout << "  [ok] RedactSensitive masks all StripSessionCredentials keys" << std::endl;
+  }
+
+  {
     std::string raw = R"(Cookie=abc url=https://example.test {"token":"json-secret"} token=query-secret)";
     auto redacted = echo::diagnostics::RedactSensitive(raw);
     assert(redacted.find("url=https://example.test") != std::string::npos);
