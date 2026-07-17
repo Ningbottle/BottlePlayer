@@ -4,8 +4,10 @@ import WindowControls from './WindowControls.vue';
 
 withDefaults(defineProps<{
   lyricFullscreen?: boolean;
+  isPlaybackView?: boolean;
 }>(), {
   lyricFullscreen: false,
+  isPlaybackView: false,
 });
 
 function handleTitlebarDoubleClick(event: MouseEvent): void {
@@ -20,6 +22,7 @@ function handleTitlebarDoubleClick(event: MouseEvent): void {
     class="app aurora-app"
     data-shell="aurora"
     data-layout="immersive"
+    :data-header="(!isPlaybackView && !lyricFullscreen) ? 'merged' : 'compact'"
     :class="{ 'lyric-fullscreen-active': lyricFullscreen }"
   >
     <div class="titlebar" data-tauri-drag-region @dblclick="handleTitlebarDoubleClick">

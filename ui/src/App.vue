@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
-import { RouterView, useRouter } from 'vue-router';
+import { RouterView, useRouter, useRoute } from 'vue-router';
 
 import Sidebar from './components/Sidebar.vue';
 import Topbar from './components/Topbar.vue';
@@ -23,6 +23,9 @@ import { useThemeStore } from './api/themeStore';
 
 const themeStore = useThemeStore();
 const appRouter = useRouter();
+const route = useRoute();
+/** True on the lyric (playback) route - shells render a compact titlebar there. */
+const isPlaybackView = computed(() => route.path.startsWith('/lyric'));
 const keepAliveComponents = computed(() => appRouter.getRoutes()
   .filter((route) => route.meta.keepAlive)
   .flatMap((route) => {
@@ -128,6 +131,7 @@ onUnmounted(() => {
   <component
     :is="currentShell"
     :lyric-fullscreen="lyricFullscreen"
+    :is-playback-view="isPlaybackView"
   >
     <template #titlebar-center>
       <span v-if="!lyricFullscreen">{{ memoryUsage }}</span>

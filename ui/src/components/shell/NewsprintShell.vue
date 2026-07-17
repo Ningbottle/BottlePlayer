@@ -4,8 +4,10 @@ import WindowControls from './WindowControls.vue';
 
 withDefaults(defineProps<{
   lyricFullscreen?: boolean;
+  isPlaybackView?: boolean;
 }>(), {
   lyricFullscreen: false,
+  isPlaybackView: false,
 });
 
 function handleTitlebarDoubleClick(event: MouseEvent): void {
@@ -16,7 +18,7 @@ function handleTitlebarDoubleClick(event: MouseEvent): void {
 </script>
 
 <template>
-  <div class="app" data-shell="newsprint" :class="{ 'lyric-fullscreen-active': lyricFullscreen }">
+  <div class="app" data-shell="newsprint" :data-header="(!isPlaybackView && !lyricFullscreen) ? 'merged' : 'compact'" :class="{ 'lyric-fullscreen-active': lyricFullscreen }">
     <!-- Newsprint procedural background layers -->
     <div class="paper-base"></div>
     <div class="paper-fibers"></div>
