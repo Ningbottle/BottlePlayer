@@ -1150,11 +1150,11 @@ svg { display:block; }
 }
 .titlebar-controls {
   display: flex;
-  gap: 6px;
+  gap: 8px;
 }
 .titlebar-controls .control-btn {
-  width: 20px;
-  height: 20px;
+  width: 28px;
+  height: 28px;
   border: 1px solid var(--rule);
   border-radius: 50%;
   display: flex;
@@ -1176,8 +1176,8 @@ svg { display:block; }
   border-color: var(--accent);
 }
 .titlebar-controls .control-btn svg {
-  width: 9px;
-  height: 9px;
+  width: 13px;
+  height: 13px;
 }
 
 /* ---------- Compact mode ---------- */
