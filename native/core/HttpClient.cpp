@@ -9,6 +9,7 @@
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <queue>
@@ -56,19 +57,19 @@ bool IsCancelled(const std::atomic_bool* cancelled) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────
-// Process-wide request watchdog (P1-D / stage 6)
+// Process-wide request watchdog (action-typed entries)
 //
-// Replaces per-request detached threads (peak ~36 under burst) with a single
-// worker + min-heap of (deadline, HINTERNET). Completion is cooperative: the
-// request owner CAS-claims the shared atomic so only one side closes.
-// Expired-but-already-completed entries are lazy-dropped (flag already true).
+// Single worker + min-heap of (deadline, action). Owner CAS-claims the shared
+// atomic so only the winner runs action(). Expired-but-completed entries are
+// lazy-dropped (claimed already true). Flag-only entries (scheduler) use
+// actions that never touch HINTERNET — compile-time separation from close.
 // ─────────────────────────────────────────────────────────────────────────
 
 struct WatchdogEntry {
   std::chrono::steady_clock::time_point deadline;
   std::uint64_t seq = 0;
-  HINTERNET request = nullptr;
   std::shared_ptr<std::atomic_bool> claimed;
+  std::function<void()> action;
 };
 
 // Min-heap by deadline (earliest first).
@@ -86,22 +87,31 @@ class RequestWatchdog {
     return wd;
   }
 
-  // Register request to be closed after timeoutMs if not claimed first.
-  void Arm(HINTERNET request, long timeoutMs,
-           std::shared_ptr<std::atomic_bool> claimed) {
-    if (!request || timeoutMs <= 0 || !claimed) return;
+  // Generic arm: on deadline, if CAS claims, run action().
+  void Arm(long timeoutMs, std::shared_ptr<std::atomic_bool> claimed,
+           std::function<void()> action) {
+    if (timeoutMs <= 0 || !claimed || !action) return;
     WatchdogEntry entry;
     entry.deadline = std::chrono::steady_clock::now() +
                      std::chrono::milliseconds(timeoutMs);
     entry.seq = nextSeq_.fetch_add(1, std::memory_order_relaxed);
-    entry.request = request;
     entry.claimed = std::move(claimed);
+    entry.action = std::move(action);
     {
       std::lock_guard<std::mutex> lock(mu_);
       EnsureWorkerLocked();
       heap_.push(std::move(entry));
     }
     cv_.notify_one();
+  }
+
+  // WinHTTP thin wrapper: action closes the request handle.
+  void Arm(HINTERNET request, long timeoutMs,
+           std::shared_ptr<std::atomic_bool> claimed) {
+    if (!request) return;
+    Arm(timeoutMs, std::move(claimed), [request]() {
+      CloseRequestHandle(request);
+    });
   }
 
   RequestWatchdog(const RequestWatchdog&) = delete;
@@ -147,12 +157,12 @@ class RequestWatchdog {
           break;
         }
       }
-      // Outside the lock: claim close right (same CAS protocol as before).
+      // Outside the lock: winner of CAS runs action once.
       bool expected = false;
       if (expired.claimed &&
           expired.claimed->compare_exchange_strong(
               expected, true, std::memory_order_acq_rel)) {
-        CloseRequestHandle(expired.request);
+        if (expired.action) expired.action();
       }
     }
   }
