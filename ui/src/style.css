@@ -78,9 +78,9 @@
                   inset 0 1px 0 rgba(255,255,255,0.8);
 
   --font-serif:
-    "Inter", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+    "MiSans", system-ui, -apple-system, sans-serif;
   --font-sans:
-    "Inter", "Noto Sans SC", system-ui, -apple-system, sans-serif;
+    "MiSans", system-ui, -apple-system, sans-serif;
 }
 
 /* Aurora dark: graphite + emerald (do not inherit Newsprint/iOS dark paper reds) */
