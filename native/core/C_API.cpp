@@ -17,26 +17,23 @@
 #include <shared_mutex>
 #include <sstream>
 
-// Stage 6 degraded EchoContext: process globals are documented as a single
-// logical context. Full Echo*(EchoContext*,...) signature migration is deferred
-// until dead-code deletion and retry ownership have baked; getContext()-style
-// aggregation lives here as the sole process state cluster.
-//
-// g_api is a shared_ptr (not unique_ptr) so worker threads executing
-// in-flight requests can capture a strong reference to the object.
-// EchoShutdown can reset our global ref while in-flight calls continue
-// using their captured shared_ptr; the object is destroyed only when
-// the last worker releases its ref. This prevents the use-after-free
-// that the bounded Shutdown path would otherwise expose when a worker
-// is abandoned mid-call.
-static std::unique_ptr<echo::storage::Database> g_db;
-static std::shared_ptr<echo::core::CompatApi> g_api;
-static echo::async::RequestScheduler g_scheduler(4);
-static std::shared_mutex g_api_rwlock;
-// P1-E: atomic — written without g_api_rwlock (EchoShutdown), read under
-// shared_lock (EchoHandleRequest). Plain bool was a data race (UB).
-static std::atomic<bool> g_shutdown{false};
-static std::unique_ptr<echo::stats::PlayStatsService> g_stats;
+// Process-local state cluster. FFI signatures stay Echo*(...) without an
+// EchoContext* handle; internals use Ctx() so globals are not scattered.
+// api is shared_ptr so workers can hold a strong ref across EchoShutdown.
+struct EchoContext {
+  std::unique_ptr<echo::storage::Database> db;
+  std::shared_ptr<echo::core::CompatApi> api;
+  echo::async::RequestScheduler scheduler{4};
+  std::shared_mutex api_rwlock;
+  // atomic: written without api_rwlock (EchoShutdown), read under shared_lock.
+  std::atomic<bool> shutdown{false};
+  std::unique_ptr<echo::stats::PlayStatsService> stats;
+};
+
+static EchoContext& Ctx() {
+  static EchoContext ctx;
+  return ctx;
+}
 
 static const char* _dup_str(const char* s) {
     char* out = new char[std::strlen(s) + 1];
@@ -68,17 +65,17 @@ static long DeadlineMsForKind(echo::async::RequestKind kind) {
     return echo::core::kDeadlineGenericMs;
 }
 
-// Initialize g_db/g_api if needed. PRECONDITION: caller holds g_api_rwlock
+// Initialize Ctx().db/Ctx().api if needed. PRECONDITION: caller holds Ctx().api_rwlock
 // EXCLUSIVELY (unique_lock). Mutation of the globals only ever happens under the
 // exclusive lock; requests read them under a shared lock.
 static void EnsureInitializedLocked(const char* app_data_dir) {
-    if (g_shutdown.load(std::memory_order_acquire)) return;
-    if(!g_scheduler.Restart()) {
-        g_shutdown.store(true, std::memory_order_release);
+    if (Ctx().shutdown.load(std::memory_order_acquire)) return;
+    if(!Ctx().scheduler.Restart()) {
+        Ctx().shutdown.store(true, std::memory_order_release);
         return;
     }
-    if(!g_db) {
-        g_db = std::make_unique<echo::storage::Database>();
+    if(!Ctx().db) {
+        Ctx().db = std::make_unique<echo::storage::Database>();
 #ifdef _WIN32
         std::filesystem::path dbPath = app_data_dir
             ? std::filesystem::path(reinterpret_cast<const char8_t*>(app_data_dir)) / "bottlemusic.db"
@@ -88,26 +85,26 @@ static void EnsureInitializedLocked(const char* app_data_dir) {
             ? std::filesystem::path(app_data_dir) / "bottlemusic.db"
             : echo::storage::GetDefaultDatabasePath();
 #endif
-        g_db->Open(dbPath);
-        g_db->Initialize();
-        g_api = std::make_shared<echo::core::CompatApi>(*g_db);
-        g_stats = std::make_unique<echo::stats::PlayStatsService>(*g_db);
+        Ctx().db->Open(dbPath);
+        Ctx().db->Initialize();
+        Ctx().api = std::make_shared<echo::core::CompatApi>(*Ctx().db);
+        Ctx().stats = std::make_unique<echo::stats::PlayStatsService>(*Ctx().db);
     }
 }
 
 void EchoInitializeWithPaths(const char* app_data_dir) {
-    std::unique_lock<std::shared_mutex> lock(g_api_rwlock);
-    g_shutdown.store(false, std::memory_order_release);  // allow re-init after shutdown
+    std::unique_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+    Ctx().shutdown.store(false, std::memory_order_release);  // allow re-init after shutdown
     try {
         EnsureInitializedLocked(app_data_dir);
     } catch (const std::exception& e) {
         // Never let C++ exceptions cross the extern "C" FFI boundary.
-        // Log and leave g_api null — subsequent requests will get 500.
-        g_api.reset();
-        g_db.reset();
+        // Log and leave Ctx().api null — subsequent requests will get 500.
+        Ctx().api.reset();
+        Ctx().db.reset();
     } catch (...) {
-        g_api.reset();
-        g_db.reset();
+        Ctx().api.reset();
+        Ctx().db.reset();
     }
 }
 
@@ -128,13 +125,13 @@ int EchoShutdown() {
     // EchoShutdown would block for 60s+ — violating the "close within
     // 3-5s" contract. Bounded Shutdown detaches hung workers (safe since
     // the process is exiting).
-    g_shutdown.store(true, std::memory_order_release);
-    const auto abandoned = g_scheduler.Shutdown(std::chrono::milliseconds(3000));
+    Ctx().shutdown.store(true, std::memory_order_release);
+    const auto abandoned = Ctx().scheduler.Shutdown(std::chrono::milliseconds(3000));
 
     // If the bounded shutdown had to abandon a worker, that detached thread may
     // still be running apiShared->Handle(...). The captured apiShared keeps the
     // CompatApi object alive, but CompatApi holds the Database BY REFERENCE
-    // (storage::Database&), so resetting g_db would free the storage out from
+    // (storage::Database&), so resetting Ctx().db would free the storage out from
     // under the live worker — a use-after-free. The process is exiting anyway,
     // so the safe choice is to leak: skip the teardown and the HTTP pool close
     // entirely and let the OS reclaim everything.
@@ -144,11 +141,11 @@ int EchoShutdown() {
     }
 
     // Phase 2: no worker was abandoned, so every job has finished. Acquire the
-    // exclusive lock (bounded) to safely tear down g_api/g_stats/g_db. If the 3s
-    // acquisition times out we return WITHOUT resetting them — g_shutdown still
+    // exclusive lock (bounded) to safely tear down Ctx().api/Ctx().stats/Ctx().db. If the 3s
+    // acquisition times out we return WITHOUT resetting them — Ctx().shutdown still
     // blocks new requests and the process is exiting, so the leak is acceptable.
     {
-        std::unique_lock<std::shared_mutex> lock(g_api_rwlock, std::defer_lock);
+        std::unique_lock<std::shared_mutex> lock(Ctx().api_rwlock, std::defer_lock);
         auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
         while (std::chrono::steady_clock::now() < deadline) {
             if (lock.try_lock()) break;
@@ -157,9 +154,9 @@ int EchoShutdown() {
         if (!lock.owns_lock()) {
             return 0;
         }
-        g_api.reset();
-        g_stats.reset();
-        g_db.reset();
+        Ctx().api.reset();
+        Ctx().stats.reset();
+        Ctx().db.reset();
     }
     echo::core::CloseHttpConnectionPool();
     return 0;
@@ -223,14 +220,14 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
     auto kind = KindForPath(pathStr);
     long deadlineMs = DeadlineMsForKind(kind);
 
-    // Acquire a strong reference to g_api under the rwlock so the object
+    // Acquire a strong reference to Ctx().api under the rwlock so the object
     // stays alive for the entire scheduled call — even if EchoShutdown
-    // runs concurrently and resets the global g_api pointer. The
+    // runs concurrently and resets the global Ctx().api pointer. The
     // rwlock gates the pointer swap; the object's lifetime is now
     // ref-counted via shared_ptr.
     std::shared_ptr<echo::core::CompatApi> apiShared;
     {
-        std::shared_lock<std::shared_mutex> lock(g_api_rwlock, std::defer_lock);
+        std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock, std::defer_lock);
         auto lockDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
         while (std::chrono::steady_clock::now() < lockDeadline) {
             if (lock.try_lock()) break;
@@ -242,13 +239,13 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
             SerializeResponse(r, out_response);
             return;
         }
-        if (!g_api || g_shutdown.load(std::memory_order_acquire)) {
+        if (!Ctx().api || Ctx().shutdown.load(std::memory_order_acquire)) {
             r.httpStatus = 500;
             r.body = {{"error", "C API is not initialized or was shut down"}};
             SerializeResponse(r, out_response);
             return;
         }
-        apiShared = g_api;
+        apiShared = Ctx().api;
     }  // release shared_lock
 
     try {
@@ -256,8 +253,8 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
         // The scheduler provides bounded concurrency (4 workers + queue cap)
         // and the deadline ensures a hung WinHTTP call frees the future even
         // if it can't be interrupted cooperatively. The captured apiShared
-        // keeps g_api alive even if EchoShutdown runs while we wait.
-        auto fut = g_scheduler.SubmitWithDeadline(
+        // keeps Ctx().api alive even if EchoShutdown runs while we wait.
+        auto fut = Ctx().scheduler.SubmitWithDeadline(
             kind,
             [apiShared, methodStr, pathStr, q, h, bodyStr](echo::async::CancellationToken token) -> echo::core::CompatResponse {
                 // P1-C: expose scheduler cancel to nested HttpClient calls.
@@ -295,8 +292,8 @@ void EchoSetLogCallback(EchoLogCallback cb, void* user_data) {
 
 ECHO_C_API void EchoStatsRecordPlay(const char* json_record) {
     if (!json_record) return;
-    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
-    if (!g_stats) return;
+    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+    if (!Ctx().stats) return;
     try {
         auto j = nlohmann::json::parse(json_record);
         echo::stats::PlayRecord r;
@@ -311,55 +308,55 @@ ECHO_C_API void EchoStatsRecordPlay(const char* json_record) {
         r.listenedSeconds = j.value("listened_seconds", 0.0);
         r.quality = j.value("quality", "");
         r.playedAtMs = j.value("played_at", 0LL);
-        g_stats->RecordPlay(r);
+        Ctx().stats->RecordPlay(r);
     } catch (...) {}
 }
 
 ECHO_C_API const char* EchoStatsGetSummary(const char* range) {
-    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
+    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     try {
-        if (!g_stats) return _dup_str(R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all"})");
-        return _dup_str(g_stats->GetSummary(range ? range : "all").c_str());
+        if (!Ctx().stats) return _dup_str(R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all"})");
+        return _dup_str(Ctx().stats->GetSummary(range ? range : "all").c_str());
     } catch (...) {
         return _dup_str(R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all"})");
     }
 }
 
 ECHO_C_API const char* EchoStatsGetTop(const char* dim, const char* range, int limit) {
-    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
+    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     try {
-        if (!g_stats || !dim || !range) return _dup_str(R"({"items":[]})");
-        return _dup_str(g_stats->GetTop(dim, range, limit).c_str());
+        if (!Ctx().stats || !dim || !range) return _dup_str(R"({"items":[]})");
+        return _dup_str(Ctx().stats->GetTop(dim, range, limit).c_str());
     } catch (...) {
         return _dup_str(R"({"items":[]})");
     }
 }
 
 ECHO_C_API const char* EchoStatsGetTimeline(const char* range) {
-    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
+    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     try {
-        if (!g_stats || !range) return _dup_str(R"({"items":[]})");
-        return _dup_str(g_stats->GetTimeline(range).c_str());
+        if (!Ctx().stats || !range) return _dup_str(R"({"items":[]})");
+        return _dup_str(Ctx().stats->GetTimeline(range).c_str());
     } catch (...) {
         return _dup_str(R"({"items":[]})");
     }
 }
 
 ECHO_C_API const char* EchoStatsGetRecent(int limit, int offset) {
-    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
+    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     try {
-        if (!g_stats) return _dup_str(R"({"items":[]})");
-        return _dup_str(g_stats->GetRecent(limit, offset).c_str());
+        if (!Ctx().stats) return _dup_str(R"({"items":[]})");
+        return _dup_str(Ctx().stats->GetRecent(limit, offset).c_str());
     } catch (...) {
         return _dup_str(R"({"items":[]})");
     }
 }
 
 ECHO_C_API const char* EchoStatsGetRecommendations(int limit) {
-    std::shared_lock<std::shared_mutex> lock(g_api_rwlock);
+    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     try {
-        if (!g_stats) return _dup_str(R"({"items":[]})");
-        return _dup_str(g_stats->GetRecommendations(limit).c_str());
+        if (!Ctx().stats) return _dup_str(R"({"items":[]})");
+        return _dup_str(Ctx().stats->GetRecommendations(limit).c_str());
     } catch (...) {
         return _dup_str(R"({"items":[]})");
     }
