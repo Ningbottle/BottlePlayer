@@ -32,7 +32,7 @@ fn get_memory_usage() -> u64 {
 
 // Generated from native/include/echo/core/RequestDeadlines.h by build.rs.
 // Names mirror C++ kCamelCase for cross-language identity.
-#[allow(non_upper_case_globals)]
+#[allow(non_upper_case_globals, dead_code)]
 mod deadlines {
     include!(concat!(env!("OUT_DIR"), "/deadlines_generated.rs"));
 }
