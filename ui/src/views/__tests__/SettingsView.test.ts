@@ -4,12 +4,14 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('@tauri-apps/plugin-updater', () => ({ check: vi.fn().mockResolvedValue(null) }));
 vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: vi.fn() }));
+vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 const mockApiGet = vi.fn();
 vi.mock('../../api/backend', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
 vi.mock('../../api/userStore', () => ({ checkLoginStatus: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('../../api/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
 
 import SettingsView from '../SettingsView.vue';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { playbackDiagnostics } from '../../api/playbackDiagnostics';
 import { useAppearanceStore, __resetForTest as resetAppearance } from '../../api/appearanceStore';
 import { __resetForTest as resetTheme } from '../../api/themeStore';
@@ -212,6 +214,18 @@ describe('SettingsView appearance controls', () => {
     expect(localStorage.getItem('appearance_compact_list')).toBe('true');
     expect(localStorage.getItem('appearance_lyric_align')).toBe('center');
     expect(wrapper.get('[data-test="settings-lyric-align-center"]').attributes('aria-pressed')).toBe('true');
+  });
+
+  it('opens the device-help site through the scoped system opener', async () => {
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+
+    const deviceNav = wrapper.findAll('[data-test="settings-nav-item"]').find((node) => node.text().includes('设备'));
+    await deviceNav!.trigger('click');
+    await flushPromises();
+    await wrapper.get('[data-test="open-device-help"]').trigger('click');
+
+    expect(openUrl).toHaveBeenCalledWith('https://m.kugou.com/');
   });
 });
 

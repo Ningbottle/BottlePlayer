@@ -17,7 +17,9 @@ CompatResponse HandleUserDetail(
     storage::Database& database,
     const std::function<nlohmann::json(std::string, std::string)>& handler) {
   if (handler) {
-    return JsonResponse(handler("", ""));
+    auto detail = handler("", "");
+    StripSessionCredentials(detail);
+    return JsonResponse(std::move(detail));
   }
   CompatRequestContext ctx(database);
   const auto& session = ctx.Session();
@@ -44,7 +46,8 @@ CompatResponse HandleUserDetail(
       if (detail["data"].value("pic", "").empty() && !pic.empty()) {
         detail["data"]["pic"] = pic;
       }
-      return JsonResponse(detail);
+      StripSessionCredentials(detail);
+      return JsonResponse(std::move(detail));
     }
 
     // Fallback
@@ -55,7 +58,6 @@ CompatResponse HandleUserDetail(
              {"userid", userId},
              {"nickname", session->nickname.empty() ? "听歌用户" : session->nickname},
              {"pic", session->pic},
-             {"token", token},
          }},
     });
   }

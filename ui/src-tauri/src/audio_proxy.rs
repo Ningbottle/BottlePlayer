@@ -10,6 +10,8 @@ use reqwest::{
     header::{
         ACCEPT, ACCEPT_RANGES, CONTENT_LENGTH, CONTENT_RANGE, CONTENT_TYPE, RANGE, USER_AGENT,
     },
+    redirect::Policy,
+    Client,
     Url,
 };
 use tauri::State;
@@ -35,6 +37,13 @@ struct RouteEntry {
 
 const MAX_ROUTES: usize = 128;
 const BODY_RETRY_LIMIT: usize = 2;
+const MAX_AUDIO_REDIRECTS: usize = 5;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RedirectDecision {
+    Follow,
+    Reject,
+}
 
 impl AudioProxyState {
     pub fn new(port: u16) -> Self {
@@ -184,7 +193,16 @@ async fn handle_client(mut stream: TcpStream, state: AudioProxyState) -> Result<
 
     let range = header_value(&request, "range");
 
-    let client = reqwest::Client::new();
+    let client = build_audio_proxy_client().map_err(|error| {
+        proxy_error(
+            &route_id,
+            upstream_host.as_deref(),
+            None,
+            "upstream_client",
+            0,
+            error,
+        )
+    })?;
     let mut req = client
         .get(upstream_url.clone())
         .header(USER_AGENT, "BottleMusic/1.0 audio proxy")
@@ -492,6 +510,27 @@ fn is_supported_audio_url(url: &str) -> bool {
     is_allowed_kugou_cdn_host(&host)
 }
 
+fn audio_redirect_decision(target: &Url, previous_hops: usize) -> RedirectDecision {
+    if previous_hops >= MAX_AUDIO_REDIRECTS || !is_supported_audio_url(target.as_str()) {
+        RedirectDecision::Reject
+    } else {
+        RedirectDecision::Follow
+    }
+}
+
+fn build_audio_proxy_client() -> Result<Client, String> {
+    Client::builder()
+        .redirect(Policy::custom(|attempt| {
+            match audio_redirect_decision(attempt.url(), attempt.previous().len()) {
+                RedirectDecision::Follow => attempt.follow(),
+                // Stop without surfacing the redirect target or its query string.
+                RedirectDecision::Reject => attempt.stop(),
+            }
+        }))
+        .build()
+        .map_err(|error| format!("audio_proxy_client_build_failed: {error}"))
+}
+
 fn is_allowed_kugou_cdn_host(host: &str) -> bool {
     if host == "imge.kugou.com" {
         return true;
@@ -563,6 +602,46 @@ fn status_reason(status: u16) -> &'static str {
     }
 }
 
+fn redact_url_queries(detail: &str) -> String {
+    let mut redacted = String::with_capacity(detail.len());
+    let mut cursor = 0;
+
+    while cursor < detail.len() {
+        let remaining = &detail[cursor..];
+        let next_http = remaining.find("http://");
+        let next_https = remaining.find("https://");
+        let Some(relative_start) = (match (next_http, next_https) {
+            (Some(http), Some(https)) => Some(http.min(https)),
+            (Some(http), None) => Some(http),
+            (None, Some(https)) => Some(https),
+            (None, None) => None,
+        }) else {
+            redacted.push_str(remaining);
+            break;
+        };
+
+        let url_start = cursor + relative_start;
+        redacted.push_str(&detail[cursor..url_start]);
+        let url_and_suffix = &detail[url_start..];
+        let url_end = url_and_suffix
+            .find(|character: char| {
+                character.is_whitespace()
+                    || matches!(character, ')' | ']' | '}' | '"' | '\'' | ',' | ';')
+            })
+            .unwrap_or(url_and_suffix.len());
+        let url = &url_and_suffix[..url_end];
+        if let Some(query_start) = url.find('?') {
+            redacted.push_str(&url[..=query_start]);
+            redacted.push_str("<redacted>");
+        } else {
+            redacted.push_str(url);
+        }
+        cursor = url_start + url_end;
+    }
+
+    redacted
+}
+
 fn proxy_error(
     route_id: &str,
     upstream_host: Option<&str>,
@@ -571,6 +650,7 @@ fn proxy_error(
     forwarded_bytes: u64,
     detail: String,
 ) -> String {
+    let detail = redact_url_queries(&detail);
     format!(
         "route={} upstream={} status={} phase={} bytes={}: {}",
         route_id,
@@ -635,6 +715,66 @@ mod tests {
         assert!(is_supported_audio_url(
             "https://FS.YouthAndroid.kugou.com/song.mp3"
         ));
+    }
+
+    #[test]
+    fn redirect_policy_allows_kugou_cdn_to_kugou_cdn() {
+        let target = Url::parse("https://fs.audio.kugou.com/song.mp3").unwrap();
+
+        assert_eq!(
+            audio_redirect_decision(&target, 0),
+            RedirectDecision::Follow
+        );
+    }
+
+    #[test]
+    fn redirect_policy_rejects_local_private_and_non_kugou_targets() {
+        for target in [
+            "http://localhost:8080/song.mp3",
+            "http://127.0.0.1:8080/song.mp3",
+            "http://169.254.169.254/latest/meta-data",
+            "http://10.0.0.4/song.mp3",
+            "https://cdn.example/song.mp3",
+            "https://fs.audio.kugou.com.evil.example/song.mp3",
+        ] {
+            let target = Url::parse(target).unwrap();
+            assert_eq!(
+                audio_redirect_decision(&target, 0),
+                RedirectDecision::Reject,
+                "redirect target should be rejected: {target}"
+            );
+        }
+    }
+
+    #[test]
+    fn redirect_policy_limits_redirect_chain_length() {
+        let target = Url::parse("https://fs.audio.kugou.com/song.mp3").unwrap();
+
+        assert_eq!(
+            audio_redirect_decision(&target, MAX_AUDIO_REDIRECTS - 1),
+            RedirectDecision::Follow
+        );
+        assert_eq!(
+            audio_redirect_decision(&target, MAX_AUDIO_REDIRECTS),
+            RedirectDecision::Reject
+        );
+    }
+
+    #[test]
+    fn proxy_errors_redact_signed_url_query_values() {
+        let error = proxy_error(
+            "route-id",
+            Some("fs.audio.kugou.com"),
+            None,
+            "upstream_request",
+            0,
+            "request failed for url (https://fs.audio.kugou.com/song.flac?auth=SECRET&ssig=SIGNED&token=TOKEN)".into(),
+        );
+
+        assert!(error.contains("https://fs.audio.kugou.com/song.flac?<redacted>"));
+        assert!(!error.contains("SECRET"));
+        assert!(!error.contains("SIGNED"));
+        assert!(!error.contains("TOKEN"));
     }
 
     #[test]

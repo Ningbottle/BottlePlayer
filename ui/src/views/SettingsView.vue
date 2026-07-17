@@ -4,6 +4,7 @@ import { apiGet } from '../api/backend';
 import { checkLoginStatus } from '../api/userStore';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
+import { openUrl } from '@tauri-apps/plugin-opener';
 import { useAppearanceStore, type AppearanceSettings } from '../api/appearanceStore';
 import { setSkippedVersion } from '../api/skippedVersion';
 import { playbackDiagnostics, type DiagEvent } from '../api/playbackDiagnostics';
@@ -215,6 +216,14 @@ async function resetDevice() {
     }
   } catch (e: any) {
     deviceStatus.value = '出错：' + (e?.message || String(e));
+  }
+}
+
+async function openDeviceHelp() {
+  try {
+    await openUrl('https://m.kugou.com/');
+  } catch (e: any) {
+    deviceStatus.value = '无法打开系统浏览器：' + (e?.message || String(e));
   }
 }
 
@@ -443,7 +452,14 @@ async function copyDiag() {
             <p class="settings-hint">
               登录后 App 会自动生成并通过 <code>/register/dev</code> 注册设备指纹（dfid / mid / uuid），正常播放 VIP 音频与歌单<strong>无需手动设置</strong>。下面三个框是<strong>可选的高级覆盖</strong>——若你想用从酷狗官方 App / 网页抓到的真实指纹替代自动生成的，填进去即可，所有 KuGou API 调用都会改用你输入的指纹。（格式：dfid 24 位 base64，mid 约 32–40 位 hex，uuid 32 位 hex / GUID）
               <br>
-              <strong>怎么获取</strong>：浏览器打开 <a href="https://m.kugou.com/" target="_blank">m.kugou.com</a> → F12 → Network → 找任意请求里的 query 字符串 → 复制 <code>dfid=</code><code>mid=</code><code>uuid=</code> 三个字段。
+              <strong>怎么获取</strong>：浏览器打开
+              <button
+                type="button"
+                class="settings-inline-link"
+                data-test="open-device-help"
+                @click="openDeviceHelp"
+              >m.kugou.com</button>
+              → F12 → Network → 找任意请求里的 query 字符串 → 复制 <code>dfid=</code><code>mid=</code><code>uuid=</code> 三个字段。
               <br>
               <strong class="settings-warn">注意</strong>：三个框留空即用 App 自动生成 / 注册的指纹，绝大多数情况够用——随机生成的 dfid 也能正常领 VIP 与播放。仅当个别接口因风控偶发受限（如歌单 20017、song/url 只给 60s 试听）时，再尝试填入官方渠道抓到的真实指纹覆盖。
             </p>
@@ -626,6 +642,19 @@ async function copyDiag() {
   font-weight: 500;
   letter-spacing: 0.03em;
   opacity: 0.72;
+}
+.settings-inline-link {
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+.settings-inline-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 .settings-section-title > .settings-control-secondary {
   display: inline;

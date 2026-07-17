@@ -1,6 +1,6 @@
 ﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import { Fragment, nextTick } from 'vue';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
@@ -355,6 +355,32 @@ describe('LyricView empty state', () => {
     await flushPromises();
     await w.get('[data-test="lyric-empty-search"]').trigger('click');
     expect(w.emitted('navigate')).toEqual([['search']]);
+  });
+});
+
+describe('LyricView transition contract', () => {
+  beforeEach(() => {
+    mockLyricApi();
+    playerStore.currentTrack = null;
+    playerStore.queue = [];
+    playerStore.currentIndex = -1;
+    setLyricFullscreen(false);
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    mockApiGet.mockReset();
+    document.body.innerHTML = '';
+    setLyricFullscreen(false);
+  });
+
+  it('exposes one element root for RouterView out-in transitions', async () => {
+    const w = mountLyric();
+    await nextTick();
+
+    expect(w.vm.$.subTree.type).not.toBe(Fragment);
+    expect(w.vm.$.subTree.el).toBeInstanceOf(HTMLElement);
   });
 });
 

@@ -74,50 +74,10 @@ async fn native_request(
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::time::Duration;
-    use tokio::time::timeout;
-
-    #[tokio::test]
-    async fn native_request_times_out_when_handler_sleeps() {
-        // Documents the timeout semantics without depending on the DLL:
-        // work that runs past the deadline returns the timeout branch.
-        let result = timeout(Duration::from_millis(100), async {
-            tokio::time::sleep(Duration::from_secs(60)).await;
-            "ok"
-        })
-        .await;
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn deadline_for_song_url_is_10s() {
-        assert_eq!(deadline_for_path("/song/url"), Duration::from_secs(10));
-    }
-
-    #[test]
-    fn deadline_for_images_is_8s() {
-        assert_eq!(deadline_for_path("/images/audio"), Duration::from_secs(8));
-    }
-
-    #[test]
-    fn deadline_for_login_qr_is_6s() {
-        assert_eq!(deadline_for_path("/login/qr/check"), Duration::from_secs(6));
-    }
-
-    #[test]
-    fn deadline_for_generic_is_12s() {
-        assert_eq!(deadline_for_path("/unknown/route"), Duration::from_secs(12));
-    }
-}
-
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .plugin(tauri_plugin_process::init())
         .setup(|app| {
@@ -242,4 +202,43 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running BottleMusic Tauri app");
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::time::Duration;
+    use tokio::time::timeout;
+
+    #[tokio::test]
+    async fn native_request_times_out_when_handler_sleeps() {
+        // Documents the timeout semantics without depending on the DLL:
+        // work that runs past the deadline returns the timeout branch.
+        let result = timeout(Duration::from_millis(100), async {
+            tokio::time::sleep(Duration::from_secs(60)).await;
+            "ok"
+        })
+        .await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn deadline_for_song_url_is_10s() {
+        assert_eq!(deadline_for_path("/song/url"), Duration::from_secs(10));
+    }
+
+    #[test]
+    fn deadline_for_images_is_8s() {
+        assert_eq!(deadline_for_path("/images/audio"), Duration::from_secs(8));
+    }
+
+    #[test]
+    fn deadline_for_login_qr_is_6s() {
+        assert_eq!(deadline_for_path("/login/qr/check"), Duration::from_secs(6));
+    }
+
+    #[test]
+    fn deadline_for_generic_is_12s() {
+        assert_eq!(deadline_for_path("/unknown/route"), Duration::from_secs(12));
+    }
 }

@@ -69,4 +69,20 @@ inline bool IsKuGouErrorCode(const nlohmann::json& body, int code) {
   return false;
 }
 
+inline void StripSessionCredentials(nlohmann::json& value) {
+  if (value.is_object()) {
+    value.erase("token");
+    value.erase("t1");
+    for (auto& [_, child] : value.items()) {
+      StripSessionCredentials(child);
+    }
+    return;
+  }
+  if (value.is_array()) {
+    for (auto& child : value) {
+      StripSessionCredentials(child);
+    }
+  }
+}
+
 }  // namespace echo::core

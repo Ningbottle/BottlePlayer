@@ -3,36 +3,43 @@ on:
   push:
     tags: ['v*']
 
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
 jobs:
   release:
     runs-on: windows-latest
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           submodules: recursive
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 11
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: pnpm
           cache-dependency-path: ui/pnpm-lock.yaml
 
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: ui/src-tauri
 
-      - uses: ilammy/msvc-dev-cmd@v1
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
 
       - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
+        uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
         with:
           vcpkgGitCommitId: a0400024711b283056538ac19ced80b91a83c24c
 
@@ -54,7 +61,31 @@ jobs:
           New-Item -ItemType Directory -Force -Path ui/src-tauri/libs
           Copy-Item native/out/bottlemusic-release/EchoCAPI.dll ui/src-tauri/libs/EchoCAPI.dll
 
-      - uses: tauri-apps/tauri-action@v0
+      - name: Install frontend deps
+        run: pnpm install --frozen-lockfile
+        working-directory: ui
+
+      - name: Verify native core
+        run: |
+          cmake -S . --preset bottlemusic-check
+          cmake --build out/bottlemusic-check --config Debug
+          ctest --preset bottlemusic-check
+        working-directory: native
+
+      - name: Verify release
+        run: |
+          pnpm test
+          pnpm build
+        working-directory: ui
+
+      - name: Verify Rust bridge
+        run: |
+          $env:PATH = "$PWD\..\..\native\vcpkg_installed\x64-windows\bin;$env:PATH"
+          cargo test
+          cargo clippy --all-targets -- -D warnings
+        working-directory: ui/src-tauri
+
+      - uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}

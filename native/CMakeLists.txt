@@ -34,7 +34,10 @@ add_library(EchoStorage STATIC
   storage/SettingsRepository.cpp
 )
 target_include_directories(EchoStorage PUBLIC include)
-target_link_libraries(EchoStorage PUBLIC nlohmann_json::nlohmann_json)
+target_link_libraries(EchoStorage
+  PUBLIC nlohmann_json::nlohmann_json
+  PRIVATE crypt32
+)
 if(unofficial-sqlite3_FOUND)
   target_compile_definitions(EchoStorage PUBLIC ECHO_NATIVE_HAS_SQLITE=1)
   target_link_libraries(EchoStorage PUBLIC unofficial::sqlite3::sqlite3)

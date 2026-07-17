@@ -23,11 +23,11 @@ const stageComponent = computed(() =>
 </script>
 
 <template>
-  <!--
-    No separate page curtain — stage enter lives only in AuroraLyricStage
-    (one coordinated open). Extra overlay felt disconnected and double-fired.
-  -->
   <div class="list-view lyric-view">
+    <!--
+      No separate page curtain — stage enter lives only in AuroraLyricStage
+      (one coordinated open). Extra overlay felt disconnected and double-fired.
+    -->
     <div v-if="!model.currentTrack" class="lyric-empty-state" data-test="lyric-empty-state">
       <p class="lyric-empty-kicker">LYRICS</p>
       <h1>选择一首歌，歌词会在这里展开</h1>

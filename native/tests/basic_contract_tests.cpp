@@ -300,6 +300,67 @@ int main() {
   assert(!loginQrKey.body.contains("error_code") ||
          loginQrKey.body["error_code"].get<std::string>() != "native_not_implemented");
 
+  {
+    // Successful QR polling stores credentials in the backend but must not
+    // expose them to the WebView response.
+    echo::storage::Database loginDb;
+    loginDb.Open(TestDbPath());
+    loginDb.Initialize();
+    echo::core::DeviceInfo registeredDevice;
+    registeredDevice.dfid = "2ULHpc3qaLZa43ln8x0fLJQp";
+    registeredDevice.registered = true;
+    echo::storage::DeviceRepository(loginDb).Save(registeredDevice);
+
+    echo::core::CompatApiHandlers loginHandlers;
+    loginHandlers.loginQrCheck = [](const echo::core::DeviceInfo&, std::string) {
+      return nlohmann::json{
+          {"status", 1},
+          {"data",
+           {{"status", 4},
+            {"userid", "webview-user-42"},
+            {"token", "webview-token-secret"},
+            {"t1", "webview-t1-secret"},
+            {"nickname", "测试用户"}}}};
+    };
+    echo::core::CompatApi loginApi(loginDb, std::move(loginHandlers));
+    const auto response =
+        loginApi.Handle("GET", "/login/qr/check", {{"key", "qr-key"}}, {}, "");
+    const auto responseText = response.body.dump();
+    assert(responseText.find("webview-token-secret") == std::string::npos);
+    assert(responseText.find("webview-t1-secret") == std::string::npos);
+
+    const auto saved = echo::storage::SessionRepository(loginDb).Load();
+    assert(saved.has_value());
+    assert(saved->token == "webview-token-secret");
+    assert(saved->userId == "webview-user-42");
+    std::cout << "  [ok] QR login keeps credentials out of WebView" << std::endl;
+  }
+
+  {
+    // Profile payloads can echo account credentials from upstream. Strip
+    // those fields before crossing the native/WebView boundary.
+    echo::storage::Database profileDb;
+    profileDb.Open(TestDbPath());
+    profileDb.Initialize();
+    echo::core::CompatApiHandlers profileHandlers;
+    profileHandlers.userDetail = [](std::string, std::string) {
+      return nlohmann::json{
+          {"status", 1},
+          {"data",
+           {{"userid", "profile-user"},
+            {"nickname", "Profile"},
+            {"token", "profile-token-secret"},
+            {"t1", "profile-t1-secret"}}}};
+    };
+    echo::core::CompatApi profileApi(profileDb, std::move(profileHandlers));
+    const auto response = profileApi.Handle("GET", "/user/detail", {}, {}, "");
+    const auto responseText = response.body.dump();
+    assert(responseText.find("profile-token-secret") == std::string::npos);
+    assert(responseText.find("profile-t1-secret") == std::string::npos);
+    assert(response.body["data"]["nickname"] == "Profile");
+    std::cout << "  [ok] User detail keeps credentials out of WebView" << std::endl;
+  }
+
   std::cout << "[Test] Testing ContractJsonMatches..." << std::endl;
   const nlohmann::json contractFixture = {
       {"status", 1},
@@ -1262,6 +1323,73 @@ int main() {
     assert(ctx.Session()->userId == "42");
     assert(ctx.HasLogin());
     std::cout << "  [ok] CompatRequestContext session load" << std::endl;
+  }
+
+  {
+    // Session credentials must be encrypted at rest while remaining readable
+    // by the same Windows user account.
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+
+    echo::storage::SessionRepository repo(db);
+    echo::core::SessionInfo session;
+    session.userId = "release-user-728419";
+    session.token = "release-token-4f8d6e2c";
+    session.t1 = "release-t1-c9a7b3";
+    session.nickname = "release-nickname";
+    session.pic = "https://example.invalid/release-avatar.png";
+    repo.Save(session);
+
+    const auto stored = db.GetJson("session.info");
+    assert(stored.has_value());
+    assert(stored->value("version", 0) == 1);
+    assert(stored->contains("protected_data"));
+    assert((*stored)["protected_data"].is_string());
+    const auto raw = stored->dump();
+    assert(raw.find(session.userId) == std::string::npos);
+    assert(raw.find(session.token) == std::string::npos);
+    assert(raw.find(session.t1) == std::string::npos);
+    assert(raw.find(session.nickname) == std::string::npos);
+    assert(raw.find(session.pic) == std::string::npos);
+
+    const auto loaded = repo.Load();
+    assert(loaded.has_value());
+    assert(loaded->userId == session.userId);
+    assert(loaded->token == session.token);
+    assert(loaded->t1 == session.t1);
+    assert(loaded->nickname == session.nickname);
+    assert(loaded->pic == session.pic);
+    std::cout << "  [ok] SessionRepository encrypts credentials at rest" << std::endl;
+  }
+
+  {
+    // Existing plaintext sessions are migrated in place on first read.
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    db.SetJson("session.info",
+               {{"userid", "legacy-user-9142"},
+                {"token", "legacy-token-a81e"},
+                {"t1", "legacy-t1-532f"},
+                {"nickname", "legacy-nickname"},
+                {"pic", "legacy-picture"}});
+
+    echo::storage::SessionRepository repo(db);
+    const auto loaded = repo.Load();
+    assert(loaded.has_value());
+    assert(loaded->userId == "legacy-user-9142");
+    assert(loaded->token == "legacy-token-a81e");
+
+    const auto migrated = db.GetJson("session.info");
+    assert(migrated.has_value());
+    assert(migrated->value("version", 0) == 1);
+    assert(migrated->contains("protected_data"));
+    const auto raw = migrated->dump();
+    assert(raw.find("legacy-user-9142") == std::string::npos);
+    assert(raw.find("legacy-token-a81e") == std::string::npos);
+    assert(raw.find("legacy-t1-532f") == std::string::npos);
+    std::cout << "  [ok] SessionRepository migrates plaintext sessions" << std::endl;
   }
 
   {

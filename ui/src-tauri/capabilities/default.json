@@ -4,13 +4,20 @@
   "description": "Capability for the main window — native FFI backend (EchoCAPI.dll) + GitHub auto-update.",
   "windows": ["main"],
   "permissions": [
-    "core:default",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
     "core:window:allow-start-dragging",
     "core:window:allow-minimize",
     "core:window:allow-toggle-maximize",
     "core:window:allow-close",
-    "opener:default",
-    "updater:default",
-    "process:default"
+    {
+      "identifier": "opener:allow-open-url",
+      "allow": [
+        { "url": "https://m.kugou.com/*" }
+      ]
+    },
+    "updater:allow-check",
+    "updater:allow-download-and-install",
+    "process:allow-restart"
   ]
 }
