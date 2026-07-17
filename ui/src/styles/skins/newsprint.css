@@ -98,6 +98,7 @@
 
 [data-shell="newsprint"][data-header="merged"] .titlebar {
   position: relative;
+  height: 60px;
   align-items: center;
   padding-right: 140px; /* room for floating window controls */
 }
