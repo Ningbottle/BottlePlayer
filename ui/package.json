@@ -2,6 +2,14 @@
   "name": "bottle-music-ui",
   "private": true,
   "version": "1.0.0",
+  "description": "A dual-interface Windows music player built with Vue and Tauri",
+  "author": "Ningbottle",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Ningbottle/BottlePlayer.git"
+  },
+  "homepage": "https://github.com/Ningbottle/BottlePlayer",
   "type": "module",
   "scripts": {
     "dev": "vite",
@@ -14,6 +22,8 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@lucide/vue": "^1.24.0",
+    "@phosphor-icons/vue": "^2.2.1",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-opener": "^2",
     "@tauri-apps/plugin-process": "^2",
@@ -21,7 +31,8 @@
     "@tauri-apps/plugin-updater": "^2.10.1",
     "gsap": "^3.15.0",
     "qrcode": "^1.5.4",
-    "vue": "^3.5.13"
+    "vue": "^3.5.13",
+    "vue-router": "^4.6.4"
   },
   "devDependencies": {
     "@tauri-apps/cli": "^2",

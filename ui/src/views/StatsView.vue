@@ -49,7 +49,8 @@ const maxTimelineCount = ref(1);
 const timelineBarEls = ref<HTMLElement[]>([]);
 let statsRequestId = 0;
 
-const aiApiKey = ref(localStorage.getItem('deepseek_api_key') || '');
+localStorage.removeItem('deepseek_api_key');
+const aiApiKey = ref('');
 const aiResult = ref('');
 const aiLoading = ref(false);
 const aiError = ref('');
@@ -167,7 +168,6 @@ async function runAIAnalysis() {
     aiError.value = '请先输入 API Key';
     return;
   }
-  localStorage.setItem('deepseek_api_key', aiApiKey.value);
   aiLoading.value = true;
   aiError.value = '';
   aiResult.value = '';
@@ -315,7 +315,14 @@ watch(range, loadStats);
       <div class="stats-ai">
         <h3>AI 听歌分析</h3>
         <div class="ai-input-row">
-          <input type="password" v-model="aiApiKey" placeholder="DeepSeek API Key" class="ai-key-input">
+          <input
+            type="password"
+            v-model="aiApiKey"
+            placeholder="DeepSeek API Key"
+            class="ai-key-input"
+            autocomplete="off"
+            spellcheck="false"
+          >
           <SkinButton variant="primary" size="md" :disabled="aiLoading" @click="runAIAnalysis">
             {{ aiLoading ? '分析中...' : 'AI 分析' }}
           </SkinButton>
@@ -323,7 +330,7 @@ watch(range, loadStats);
         <p v-if="aiError" class="ai-error">{{ aiError }}</p>
         <div v-if="aiResult" class="ai-result">{{ aiResult }}</div>
         <p v-if="!aiResult && !aiLoading && !aiError" class="ai-hint">
-          输入你的 DeepSeek API Key，AI 会分析你的听歌习惯。Key 仅保存在本地浏览器。
+          API Key 仅在当前页面会话中使用，不会保存到磁盘。听歌统计摘要会发送给 DeepSeek 生成分析结果。
         </p>
       </div>
     </template>

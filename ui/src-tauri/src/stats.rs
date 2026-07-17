@@ -109,6 +109,7 @@ mod tests {
         })
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn make_record(
         hash: &str,
         name: &str,

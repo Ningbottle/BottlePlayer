@@ -26,6 +26,7 @@ describe('FullscreenWindowControls', () => {
   it('renders exactly 2 buttons', () => {
     const wrapper = mount(FullscreenWindowControls);
     expect(wrapper.findAll('button')).toHaveLength(2);
+    expect(wrapper.text().trim()).toBe('');
   });
 
   it('has a minimize button with accessible label', () => {

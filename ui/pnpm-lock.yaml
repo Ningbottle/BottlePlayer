@@ -8,6 +8,12 @@ importers:
 
   .:
     dependencies:
+      '@lucide/vue':
+        specifier: ^1.24.0
+        version: 1.24.0(vue@3.5.34(typescript@5.6.2))
+      '@phosphor-icons/vue':
+        specifier: ^2.2.1
+        version: 2.2.1(vue@3.5.34(typescript@5.6.2))
       '@tauri-apps/api':
         specifier: ^2
         version: 2.11.0
@@ -32,6 +38,9 @@ importers:
       vue:
         specifier: ^3.5.13
         version: 3.5.34(typescript@5.6.2)
+      vue-router:
+        specifier: ^4.6.4
+        version: 4.6.4(vue@3.5.34(typescript@5.6.2))
     devDependencies:
       '@tauri-apps/cli':
         specifier: ^2
@@ -304,8 +313,19 @@ packages:
   '@jridgewell/sourcemap-codec@1.5.5':
     resolution: {integrity: sha512-cYQ9310grqxueWbl+WuIUIaiUaDcj7WOq5fVhEljNVgRfOUhY9fy2zTvfoqWsnebh8Sl70VScFbICvJnLKB0Og==}
 
+  '@lucide/vue@1.24.0':
+    resolution: {integrity: sha512-5bNPX0G2YEWdUlBYk7pE8SgDg/f1mkIFpJ9vtE44pW/cwRz7Ioc0tOTESoVJAPvxIELSmYekX+XXIJMjsswNIg==}
+    peerDependencies:
+      vue: '>=3.0.1'
+
   '@one-ini/wasm@0.1.1':
     resolution: {integrity: sha512-XuySG1E38YScSJoMlqovLru4KTUNSjgVTIjyh7qMX6aNN5HY5Ct5LhRJdxO79JtTzKfzV/bnWpz+zquYrISsvw==}
+
+  '@phosphor-icons/vue@2.2.1':
+    resolution: {integrity: sha512-3RNg1utc2Z5RwPKWFkW3eXI/0BfQAwXgtFxPUPeSzi55jGYUq16b+UqcgbKLazWFlwg5R92OCLKjDiJjeiJcnA==}
+    engines: {node: '>=14'}
+    peerDependencies:
+      vue: '>=3.2.39'
 
   '@pkgjs/parseargs@0.11.0':
     resolution: {integrity: sha512-+1VkjdD0QBLPodGrJUeqarH8VAIvQODIbwh9XpP5Syisf7YoQgsJKPNFoqqLQlu+VQ/tVSshMR6loPMn8U+dPg==}
@@ -620,6 +640,9 @@ packages:
 
   '@vue/compiler-vue2@2.7.16':
     resolution: {integrity: sha512-qYC3Psj9S/mfu9uVi5WvNZIzq+xnXMhOwbTFKKDD7b1lhpnn71jXSFdTQ+WsIEk0ONCd7VV2IMm7ONl6tbQ86A==}
+
+  '@vue/devtools-api@6.6.4':
+    resolution: {integrity: sha512-sGhTPMuXqZ1rVOk32RylztWkfXTRhuS7vgAKv0zjqk8gbsHkJ7xfFf+jbySxt7tWObEJwyKaHMikV/WGDiQm8g==}
 
   '@vue/language-core@2.1.10':
     resolution: {integrity: sha512-DAI289d0K3AB5TUG3xDp9OuQ71CnrujQwJrQnfuZDwo6eGNf0UoRlPuaVNO+Zrn65PC3j0oB2i7mNmVPggeGeQ==}
@@ -1190,6 +1213,11 @@ packages:
   vue-component-type-helpers@3.3.3:
     resolution: {integrity: sha512-x4nsFpy5Pe8fqPzp/5vkTPeTTDBpAx4WVtV47Ejt0+2FQrq4pRRsJs7JmYRqMFzTu/LW+pCWEjQ3YVCkPV7f9g==}
 
+  vue-router@4.6.4:
+    resolution: {integrity: sha512-Hz9q5sa33Yhduglwz6g9skT8OBPii+4bFn88w6J+J4MfEo4KRRpmiNG/hHHkdbRFlLBOqxN8y8gf2Fb0MTUgVg==}
+    peerDependencies:
+      vue: ^3.5.0
+
   vue-tsc@2.1.10:
     resolution: {integrity: sha512-RBNSfaaRHcN5uqVqJSZh++Gy/YUzryuv9u1aFWhsammDJXNtUiJMNoJ747lZcQ68wUQFx6E73y4FY3D8E7FGMA==}
     hasBin: true
@@ -1414,7 +1442,15 @@ snapshots:
 
   '@jridgewell/sourcemap-codec@1.5.5': {}
 
+  '@lucide/vue@1.24.0(vue@3.5.34(typescript@5.6.2))':
+    dependencies:
+      vue: 3.5.34(typescript@5.6.2)
+
   '@one-ini/wasm@0.1.1': {}
+
+  '@phosphor-icons/vue@2.2.1(vue@3.5.34(typescript@5.6.2))':
+    dependencies:
+      vue: 3.5.34(typescript@5.6.2)
 
   '@pkgjs/parseargs@0.11.0':
     optional: true
@@ -1672,6 +1708,8 @@ snapshots:
     dependencies:
       de-indent: 1.0.2
       he: 1.2.0
+
+  '@vue/devtools-api@6.6.4': {}
 
   '@vue/language-core@2.1.10(typescript@5.6.2)':
     dependencies:
@@ -2194,6 +2232,11 @@ snapshots:
   vscode-uri@3.1.0: {}
 
   vue-component-type-helpers@3.3.3: {}
+
+  vue-router@4.6.4(vue@3.5.34(typescript@5.6.2)):
+    dependencies:
+      '@vue/devtools-api': 6.6.4
+      vue: 3.5.34(typescript@5.6.2)
 
   vue-tsc@2.1.10(typescript@5.6.2):
     dependencies:

@@ -6,6 +6,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { isReducedMotion } from '../../api/motion';
+import { getMotionProfile } from '../../api/motionProfiles';
 
 const props = withDefaults(
   defineProps<{
@@ -19,6 +20,7 @@ const props = withDefaults(
 const CAP_PAUSED = 32;
 const CAP_PLAYING = 44;
 const DPR_CAP = 2;
+const dockMotion = getMotionProfile('aurora').particles.dock;
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 const particleCap = computed(() => (props.isPlaying ? CAP_PLAYING : CAP_PAUSED));
@@ -85,6 +87,11 @@ function cancelFrame(): void {
 function makeParticle(nearProgress = false): Particle {
   const playing = props.isPlaying;
   const p = clamp01(props.progress);
+  const velocity = playing ? dockMotion.velocity.playing : dockMotion.velocity.paused;
+  const verticalVelocity = playing
+    ? dockMotion.verticalVelocity.playing
+    : dockMotion.verticalVelocity.paused;
+  const speedRange = playing ? dockMotion.speed.playing : dockMotion.speed.paused;
   // Cluster some motes around the playhead when a track is active
   const anchor = nearProgress
     ? Math.max(0, Math.min(1, p + (Math.random() - 0.5) * 0.22))
@@ -92,12 +99,12 @@ function makeParticle(nearProgress = false): Particle {
   return {
     x: anchor * Math.max(cssW, 1),
     y: Math.random() * cssH,
-    vx: (Math.random() - 0.5) * (playing ? 0.24 : 0.1),
-    vy: (Math.random() - 0.5) * (playing ? 0.14 : 0.06) - (playing ? 0.05 : 0.02),
+    vx: (Math.random() - 0.5) * velocity,
+    vy: (Math.random() - 0.5) * verticalVelocity - verticalVelocity * 0.35,
     r: 0.55 + Math.random() * (playing ? 2.4 : 1.5),
     baseAlpha: playing ? 0.24 + Math.random() * 0.38 : 0.08 + Math.random() * 0.16,
     phase: Math.random() * Math.PI * 2,
-    speed: 0.5 + Math.random() * (playing ? 0.85 : 0.65),
+    speed: dockMotion.speedBase + Math.random() * speedRange,
     anchor,
   };
 }
@@ -169,8 +176,6 @@ function paint(ts?: number): void {
   ctx.fillStyle = band;
   ctx.fillRect(0, cssH * 0.35, cssW, cssH * 0.45);
 
-  if (isReducedMotion()) return;
-
   ensureBudget();
   const now = ts ?? performance.now();
   const dt = lastTs ? Math.min(48, now - lastTs) : 16;
@@ -178,28 +183,33 @@ function paint(ts?: number): void {
 
   // Progress advances global phase so motes “breathe” with the song clock
   const progressPhase = prog * Math.PI * 4;
-  const boost = props.isPlaying ? 1.25 : 0.85;
-  const pull = props.isPlaying ? 0.007 : 0.004;
+  const boost = props.isPlaying ? dockMotion.boost.playing : dockMotion.boost.paused;
+  const pull = props.isPlaying ? dockMotion.pull.playing : dockMotion.pull.paused;
+  const phaseRate = dockMotion.phaseRate;
+  const progressPhaseRate = dockMotion.progressPhaseRate;
+  const radiusScale = props.isPlaying ? dockMotion.radiusScale.playing : dockMotion.radiusScale.paused;
 
   for (const p of particles) {
-    // Soft attraction toward current playhead (progress-linked)
-    const targetX = p.anchor * 0.35 * cssW + playheadX * 0.65;
-    p.vx += (targetX - p.x) * pull * (dt * 0.06);
-    p.vx *= 0.98;
-    p.phase += dt * 0.0016 * p.speed + progressPhase * 0.0008;
-    p.x += p.vx * p.speed * (dt * 0.07);
-    p.y += p.vy * p.speed * (dt * 0.07);
-    if (p.x < -8) p.x = cssW + 8;
-    if (p.x > cssW + 8) p.x = -8;
-    if (p.y < -4) p.y = cssH + 4;
-    if (p.y > cssH + 4) p.y = -4;
+    if (!isReducedMotion()) {
+      // Soft attraction toward current playhead (progress-linked)
+      const targetX = p.anchor * 0.35 * cssW + playheadX * 0.65;
+      p.vx += (targetX - p.x) * pull * (dt * 0.06);
+      p.vx *= 0.98;
+      p.phase += dt * phaseRate * p.speed + progressPhase * progressPhaseRate;
+      p.x += p.vx * p.speed * (dt * 0.07);
+      p.y += p.vy * p.speed * (dt * 0.07);
+      if (p.x < -8) p.x = cssW + 8;
+      if (p.x > cssW + 8) p.x = -8;
+      if (p.y < -4) p.y = cssH + 4;
+      if (p.y > cssH + 4) p.y = -4;
+    }
 
     const pulse = 0.55 + 0.45 * Math.sin(p.phase + progressPhase);
     // Brighter near playhead
     const dist = Math.abs(p.x - playheadX) / Math.max(cssW * 0.25, 40);
     const near = Math.max(0, 1 - dist);
     const alpha = Math.min(0.92, p.baseAlpha * pulse * boost * (0.55 + near * 0.65));
-    const radius = p.r * (props.isPlaying ? 1.08 : 1) * (0.85 + 0.3 * pulse) * (0.85 + near * 0.35);
+    const radius = p.r * radiusScale * (0.85 + 0.3 * pulse) * (0.85 + near * 0.35);
 
     const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius * 3.4);
     grad.addColorStop(0, accentLightRGBA(alpha));

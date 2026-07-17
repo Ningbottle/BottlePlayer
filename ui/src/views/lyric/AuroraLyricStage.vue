@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
+import { PhArrowsOutSimple, PhDisc, PhPause, PhPlay } from '@phosphor-icons/vue';
 import { isReducedMotion } from '../../api/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
 import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api/playerStore';
@@ -9,6 +10,7 @@ import type { LyricStageModel } from './useLyricStage';
 import CoverWebGLParticles from './CoverWebGLParticles.vue';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
 import PlayerProgress from '../../components/player/PlayerProgress.vue';
+import { useAutoHideControls } from './useAutoHideControls';
 
 const props = defineProps<{ model: LyricStageModel }>();
 
@@ -19,6 +21,13 @@ const emit = defineEmits<{
   (e: 'seek-line', timeSeconds: number): void;
   (e: 'seek', timeSeconds: number): void;
 }>();
+
+const fullscreenActive = computed(() => props.model.fullscreen);
+const autoHideControls = useAutoHideControls({
+  active: fullscreenActive,
+  onEscape: () => emit('exit-fullscreen'),
+});
+const controlsVisible = autoHideControls.visible;
 
 const coverRef = ref<HTMLElement | null>(null);
 const rootRef = ref<HTMLElement | null>(null);
@@ -37,6 +46,7 @@ function closeShelf(): void {
 }
 
 function onCoverClick(): void {
+  if (!props.model.fullscreen) return;
   openShelf();
 }
 
@@ -49,6 +59,20 @@ function onSelectTrack(track: Track): void {
 function onLineClick(line: { time: number; text: string }): void {
   if (!Number.isFinite(line.time) || line.time < 0) return;
   emit('seek-line', line.time);
+}
+
+function onLyricKeydown(e: KeyboardEvent): void {
+  const lyrics = props.model.parsedLyrics;
+  const current = props.model.activeIndex;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    const next = current + 1;
+    if (next < lyrics.length) onLineClick(lyrics[next]);
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    const prev = current - 1;
+    if (prev >= 0) onLineClick(lyrics[prev]);
+  }
 }
 
 function onStageDblClick(e: MouseEvent): void {
@@ -273,7 +297,10 @@ watch(() => props.model.coverUrl, () => {
   gsap.fromTo(wash, { opacity: 0 }, { opacity: 0.9, duration: 0.6, ease: 'power2.out' });
 }, { flush: 'post' });
 
-onBeforeUnmount(clearFullscreenTransientStyles);
+onBeforeUnmount(() => {
+  clearFullscreenTransientStyles();
+  autoHideControls.dispose();
+});
 </script>
 
 <template>
@@ -284,6 +311,9 @@ onBeforeUnmount(clearFullscreenTransientStyles);
     :class="{ 'aurora-lyric-fullscreen': model.fullscreen }"
     :data-lyric-focus="focus.mode.value"
     data-test="aurora-lyric-stage"
+    @pointermove="autoHideControls.onPointerMove"
+    @focusin="autoHideControls.onFocusIn"
+    @focusout="autoHideControls.onFocusOut"
     @dblclick="onStageDblClick"
   >
     <!-- Cover wash: always in DOM when cover exists; GSAP controls opacity fade -->
@@ -304,25 +334,55 @@ onBeforeUnmount(clearFullscreenTransientStyles);
       aria-hidden="true"
     />
 
-    <!-- Cover only — no title/artist/hints/buttons. Dblclick → fullscreen; fs click → shelf. -->
     <div
-      class="lyric-meta"
-      data-test="lyric-meta"
+      class="lyric-meta aurora-lyric-meta-column"
+      data-test="lyric-meta-column"
       @dblclick="!model.fullscreen && emit('enter-fullscreen')"
     >
       <div
-        class="aurora-cover is-shelf-hot"
+        class="aurora-cover"
+        :class="{ 'is-shelf-hot': model.fullscreen }"
         ref="coverRef"
         data-test="lyric-cover"
         :style="{ aspectRatio: '1' }"
-        aria-label="打开歌单架"
+        :aria-label="model.fullscreen ? '打开歌单架' : undefined"
+        :role="model.fullscreen ? 'button' : undefined"
+        :tabindex="model.fullscreen ? 0 : undefined"
         @click="onCoverClick"
+        @keydown.enter.prevent="onCoverClick"
+        @keydown.space.prevent="onCoverClick"
       >
-        <img :src="model.coverUrl" alt="" />
+        <img v-if="model.coverUrl" :src="model.coverUrl" alt="" />
+        <PhDisc
+          v-else
+          class="aurora-cover-placeholder"
+          data-test="lyric-cover-placeholder"
+          data-icon-family="phosphor"
+          :size="88"
+          weight="duotone"
+          aria-hidden="true"
+        />
         <CoverWebGLParticles
           :active="model.fullscreen"
           :is-playing="model.isPlaying"
         />
+      </div>
+      <button
+        v-if="!model.fullscreen"
+        type="button"
+        class="aurora-lyric-enter-fullscreen"
+        data-test="lyric-enter-fullscreen"
+        aria-label="进入全屏歌词"
+        title="进入全屏歌词"
+        @click.stop="emit('enter-fullscreen')"
+      >
+        <PhArrowsOutSimple :size="16" weight="bold" aria-hidden="true" />
+      </button>
+      <div class="aurora-lyric-track-meta">
+        <span class="aurora-lyric-kicker">正在播放</span>
+        <h2>{{ model.currentTrack?.SongName }}</h2>
+        <p>{{ model.currentTrack?.SingerName }}</p>
+        <small>{{ model.currentTrack?.AlbumName || '未知专辑' }}</small>
       </div>
     </div>
 
@@ -334,48 +394,62 @@ onBeforeUnmount(clearFullscreenTransientStyles);
       @select="onSelectTrack"
     />
     <div
-      class="lyric-scroll"
-      :class="{ paused: !model.autoFollowing }"
-      data-test="lyric-scroll"
-      @wheel.passive="$emit('user-scroll')"
-      @touchmove.passive="$emit('user-scroll')"
+      class="lyric-content-column aurora-lyric-content-column"
+      data-test="lyric-content-column"
+      data-layout="two-column"
     >
-      <button
-        v-for="(line, idx) in model.parsedLyrics"
-        :key="idx"
-        type="button"
-        :id="`lyric-line-${idx}`"
-        :data-test="`lyric-line-${idx}`"
-        class="lyric-line"
-        :class="lineClass(idx)"
-        @click="onLineClick(line)"
+      <slot v-if="model.loading" name="loading" />
+      <slot v-else-if="model.error" name="error" />
+      <div
+        v-else
+        class="lyric-scroll"
+        :class="{ paused: !model.autoFollowing }"
+        data-test="lyric-scroll"
+        tabindex="0"
+        @wheel.passive="$emit('user-scroll')"
+        @touchmove.passive="$emit('user-scroll')"
+        @keydown="onLyricKeydown"
       >
-        {{ line.text }}
-      </button>
-    </div>
-
-    <div
-      v-if="model.fullscreen && model.duration > 0"
-      class="aurora-fs-controls"
-      data-test="aurora-fs-controls"
-      data-contrast="high"
-      data-visual-weight="subtle"
-    >
-      <button
-        type="button"
-        class="aurora-fs-play"
-        :data-test="model.isPlaying ? 'aurora-fs-pause' : 'aurora-fs-play'"
-        :aria-label="model.isPlaying ? '暂停' : '播放'"
-        @click="storeTogglePlay"
+        <button
+          v-for="(line, idx) in model.parsedLyrics"
+          :key="idx"
+          type="button"
+          :id="`lyric-line-${idx}`"
+          :data-test="`lyric-line-${idx}`"
+          class="lyric-line"
+          :class="lineClass(idx)"
+          @click="onLineClick(line)"
+        >
+          {{ line.text }}
+        </button>
+      </div>
+      <slot name="footer" />
+      <div
+        v-if="model.fullscreen && model.duration > 0"
+        class="aurora-fs-controls"
+        :class="{ 'controls-visible': controlsVisible }"
+        data-test="aurora-fs-controls"
+        :data-visible="String(controlsVisible)"
+        data-contrast="high"
+        data-visual-weight="subtle"
       >
-        <svg v-if="model.isPlaying" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
-        <svg v-else viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      </button>
-      <PlayerProgress
-        :current-time="model.currentTime"
-        :duration="model.duration"
-        @seek="(s: number) => emit('seek', s)"
-      />
+        <button
+          type="button"
+          class="aurora-fs-play"
+          :data-test="model.isPlaying ? 'aurora-fs-pause' : 'aurora-fs-play'"
+          :aria-label="model.isPlaying ? '暂停' : '播放'"
+          :title="model.isPlaying ? '暂停' : '播放'"
+          @click="storeTogglePlay"
+        >
+          <PhPause v-if="model.isPlaying" :size="16" weight="fill" aria-hidden="true" />
+          <PhPlay v-else :size="16" weight="fill" aria-hidden="true" />
+        </button>
+        <PlayerProgress
+          :current-time="model.currentTime"
+          :duration="model.duration"
+          @seek="(s: number) => emit('seek', s)"
+        />
+      </div>
     </div>
 
   </div>
@@ -494,6 +568,76 @@ export default { name: 'AuroraLyricStage' };
   box-sizing: border-box;
 }
 
+.aurora-lyric-meta-column {
+  flex: 0 1 38%;
+  gap: 10px;
+}
+
+.aurora-lyric-track-meta {
+  width: min(100%, 380px);
+  text-align: center;
+}
+
+.aurora-lyric-kicker {
+  display: block;
+  margin-bottom: 5px;
+  color: var(--accent);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.aurora-lyric-track-meta h2,
+.aurora-lyric-track-meta p,
+.aurora-lyric-track-meta small {
+  display: block;
+  margin: 0;
+}
+
+.aurora-lyric-track-meta h2 {
+  color: var(--text-primary);
+  font-size: clamp(20px, 2.2vw, 30px);
+  line-height: 1.2;
+}
+
+.aurora-lyric-track-meta p {
+  margin-top: 5px;
+  color: var(--text-secondary);
+  font-size: 14px;
+}
+
+.aurora-lyric-track-meta small {
+  margin-top: 4px;
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.aurora-lyric-enter-fullscreen {
+  width: 30px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--text-primary) 12%, transparent);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-elevated) 24%, transparent);
+  color: var(--text-muted);
+  cursor: pointer;
+  line-height: 0;
+  transition: color 0.15s ease, border-color 0.15s ease, opacity 0.15s ease;
+}
+
+.aurora-lyric-enter-fullscreen:hover,
+.aurora-lyric-enter-fullscreen:focus-visible {
+  color: var(--text-primary);
+  border-color: color-mix(in srgb, var(--accent) 38%, transparent);
+}
+
+.aurora-lyric-enter-fullscreen:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .aurora-cover {
   position: relative;
   width: min(34vw, 46vh, 380px);
@@ -550,6 +694,35 @@ export default { name: 'AuroraLyricStage' };
   scrollbar-width: none;
   scrollbar-gutter: auto;
   -ms-overflow-style: none;
+}
+
+.aurora-cover-placeholder {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 28%;
+  height: 28%;
+  color: var(--accent);
+  opacity: 0.5;
+  transform: translate(-50%, -50%);
+}
+
+.aurora-cover.is-shelf-hot:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
+.lyric-content-column {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.lyric-content-column .lyric-scroll {
+  flex: 1 1 0;
 }
 
 .lyric-scroll::-webkit-scrollbar {
@@ -649,31 +822,38 @@ export default { name: 'AuroraLyricStage' };
 @media (max-width: 900px) {
   .aurora-lyric-stage,
   .aurora-lyric-fullscreen {
-    flex-direction: column;
+    flex-direction: row;
     justify-content: flex-start;
-    gap: 20px;
-    padding: 16px clamp(16px, 4vw, 32px);
+    gap: 14px;
+    padding: 12px;
   }
 
   .aurora-cover,
   .aurora-lyric-fullscreen .aurora-cover {
-    width: min(56vw, 300px, 36vh);
+    width: min(34vw, 240px, 32vh);
+  }
+
+  .aurora-lyric-meta-column {
+    flex: 0 1 38%;
+  }
+
+  .aurora-lyric-track-meta h2 {
+    font-size: clamp(17px, 3vw, 22px);
   }
 
   .lyric-scroll,
   .aurora-lyric-fullscreen .lyric-scroll {
-    flex: 1 1 auto;
-    width: 100%;
-    height: auto;
+    width: auto;
+    height: 100%;
+    padding-inline: 4px;
   }
 }
 
 .aurora-fs-controls {
-  position: absolute;
-  bottom: clamp(12px, 2.5vh, 24px);
-  left: 50%;
-  transform: translateX(-50%);
-  width: min(500px, 62%);
+  flex: 0 0 auto;
+  align-self: center;
+  width: min(500px, 100%);
+  margin-top: 8px;
   padding: 2px 5px;
   box-sizing: border-box;
   z-index: 2;
@@ -684,15 +864,25 @@ export default { name: 'AuroraLyricStage' };
   border-radius: 8px;
   background: color-mix(in srgb, var(--surface-elevated, var(--app-bg)) 20%, transparent);
   backdrop-filter: blur(6px);
-  opacity: 0.7;
-  transition: opacity 0.2s ease, border-color 0.2s ease;
+  opacity: 0;
+  pointer-events: none;
+  transform: translateY(6px);
+  transition: opacity 0.22s ease, transform 0.22s ease, border-color 0.2s ease;
 }
 
+.aurora-fs-controls.controls-visible,
 .aurora-fs-controls:hover,
 .aurora-fs-controls:focus-within,
 .aurora-fs-play:focus-visible {
-  opacity: 1;
+  opacity: 0.82;
+  pointer-events: auto;
+  transform: translateY(0);
   border-color: color-mix(in srgb, var(--text-primary) 26%, transparent);
+}
+
+.aurora-fs-controls:hover,
+.aurora-fs-controls:focus-within {
+  opacity: 1;
 }
 
 .aurora-fs-controls :deep(.progress-time) {
@@ -738,5 +928,12 @@ export default { name: 'AuroraLyricStage' };
 .aurora-fs-play svg {
   width: 16px;
   height: 16px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-fs-controls {
+    transform: none;
+    transition: none;
+  }
 }
 </style>

@@ -1,9 +1,12 @@
 [package]
 name = "ui"
 version = "1.0.0"
-description = "A Tauri App"
-authors = ["you"]
+description = "A dual-interface Windows music player built with Tauri"
+authors = ["Ningbottle"]
 edition = "2021"
+license = "MIT"
+repository = "https://github.com/Ningbottle/BottlePlayer"
+homepage = "https://github.com/Ningbottle/BottlePlayer"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
@@ -20,7 +23,6 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
-tauri-plugin-shell = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 serde = { version = "1", features = ["derive"] }

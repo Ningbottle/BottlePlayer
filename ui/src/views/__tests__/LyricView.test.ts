@@ -1,6 +1,6 @@
 ﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
-import { nextTick } from 'vue';
+import { Fragment, nextTick } from 'vue';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
@@ -176,9 +176,33 @@ describe('LyricView layout', () => {
     const grid = w.find('[data-test="lyric-grid"]');
     expect(grid.exists()).toBe(true);
 
-    expect(w.find('[data-test="lyric-meta"]').exists()).toBe(true);
+    expect(w.find('[data-test="lyric-meta-column"]').exists()).toBe(true);
     expect(w.find('[data-test="lyric-scroll"]').exists()).toBe(true);
     expect(w.find('[data-test="lyric-footer"]').exists()).toBe(true);
+  });
+
+  it('keeps the lyric stage mounted while lyrics for the current track are loading', async () => {
+    let resolveDetail!: (value: { status: number; lyric: string }) => void;
+    const pendingDetail = new Promise<{ status: number; lyric: string }>((resolve) => {
+      resolveDetail = resolve;
+    });
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/search/lyric') {
+        return Promise.resolve({ status: 1, candidates: [{ id: 'pending', accesskey: 'key' }] });
+      }
+      if (path === '/lyric') return pendingDetail;
+      return Promise.resolve({ status: 1 });
+    });
+
+    const w = mountLyric();
+    await flushPromises();
+
+    expect(w.find('[data-test="lyric-grid"]').exists()).toBe(true);
+    expect(w.find('[data-test$="lyric-stage"]').exists()).toBe(true);
+    expect(w.find('[data-test="lyric-loading"]').exists()).toBe(true);
+
+    resolveDetail({ status: 1, lyric: '[00:00.00]Loaded line' });
+    await flushPromises();
   });
 
   it('footer retains height when following (visibility hidden, not display none)', async () => {
@@ -242,6 +266,63 @@ describe('LyricView layout', () => {
     const ar = (cover.element as HTMLElement).style.aspectRatio;
     expect(ar === '1' || ar === '1 / 1').toBe(true);
   });
+
+  it('places the follow footer at the bottom of the lyric column', async () => {
+    const w = mountLyric();
+    await flushPromises();
+
+    const lyricColumn = w.get('[data-test="lyric-content-column"]');
+    const footer = lyricColumn.get('[data-test="lyric-footer"]');
+    expect(footer.element.parentElement).toBe(lyricColumn.element);
+    expect(lyricColumn.element.lastElementChild).toBe(footer.element);
+  });
+
+  it('renders the resume-follow command as an accessible icon button', async () => {
+    const w = mountLyric();
+    await flushPromises();
+    await w.get('[data-test="lyric-scroll"]').trigger('wheel');
+
+    const button = w.get('[data-test="return-to-current"]');
+    expect(button.text().trim()).toBe('');
+    expect(button.find('svg').exists()).toBe(true);
+    expect(button.attributes('aria-label')).toMatch(/[\u3400-\u9fff]/);
+    expect(button.attributes('title')).toMatch(/[\u3400-\u9fff]/);
+  });
+});
+
+describe('LyricView error recovery', () => {
+  beforeEach(() => {
+    (Element.prototype as any).scrollIntoView = vi.fn();
+    playerStore.currentTrack = mkTrack('error-track');
+    playerStore.currentTime = 0;
+    playerStore.queue = [mkTrack('error-track')];
+    playerStore.currentIndex = 0;
+    setLyricFullscreen(false);
+    mockApiGet.mockRejectedValue(new Error('lyric network failed'));
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    delete (Element.prototype as any).scrollIntoView;
+    mockApiGet.mockReset();
+    document.body.innerHTML = '';
+    setLyricFullscreen(false);
+  });
+
+  it('shows a dedicated retry state instead of rendering the error as a lyric line', async () => {
+    const w = mountLyric();
+    await flushPromises();
+
+    const error = w.get('[data-test="lyric-error"]');
+    expect(error.text()).toContain('歌词');
+    expect(w.findAll('[data-test^="lyric-line-"]').some((line) => line.text().includes('lyric network failed'))).toBe(false);
+
+    mockLyricApi();
+    await error.get('[data-test="lyric-retry"]').trigger('click');
+    await flushPromises();
+    expect(mockApiGet).toHaveBeenCalled();
+  });
 });
 
 describe('LyricView empty state', () => {
@@ -277,6 +358,32 @@ describe('LyricView empty state', () => {
   });
 });
 
+describe('LyricView transition contract', () => {
+  beforeEach(() => {
+    mockLyricApi();
+    playerStore.currentTrack = null;
+    playerStore.queue = [];
+    playerStore.currentIndex = -1;
+    setLyricFullscreen(false);
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+    mockApiGet.mockReset();
+    document.body.innerHTML = '';
+    setLyricFullscreen(false);
+  });
+
+  it('exposes one element root for RouterView out-in transitions', async () => {
+    const w = mountLyric();
+    await nextTick();
+
+    expect(w.vm.$.subTree.type).not.toBe(Fragment);
+    expect(w.vm.$.subTree.el).toBeInstanceOf(HTMLElement);
+  });
+});
+
 describe('LyricView fullscreen', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -300,7 +407,7 @@ describe('LyricView fullscreen', () => {
   it('double-clicking the cover area enters fullscreen', async () => {
     const w = mountLyric();
     await flushPromises();
-    await w.find('[data-test="lyric-meta"]').trigger('dblclick');
+    await w.find('[data-test="lyric-meta-column"]').trigger('dblclick');
     expect(lyricFullscreen.value).toBe(true);
   });
 

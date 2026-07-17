@@ -59,6 +59,7 @@ function mkTrack(overrides: Partial<Track> = {}): Track {
 
 describe('usePlayerControls', () => {
   beforeEach(() => {
+    localStorage.clear();
     mocks.store.currentTrack = null;
     mocks.store.isPlaying = false;
     mocks.store.isLoading = false;
@@ -262,6 +263,18 @@ describe('usePlayerControls', () => {
     expect(ctrl.showAddModal).toBe(false);
   });
 
+  it('marks the current track as collected after a successful add and restores the marker', () => {
+    mocks.store.currentTrack = mkTrack({ FileHash: 'favorite-hash' });
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
+
+    expect(ctrl.isFavorite).toBe(false);
+    ctrl.handleFavoriteSuccess('我喜欢');
+    expect(ctrl.isFavorite).toBe(true);
+
+    const restored = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
+    expect(restored.isFavorite).toBe(true);
+  });
+
   // ── handleSelectQuality ──
 
   it('handleSelectQuality calls setQuality when quality differs', () => {
@@ -309,15 +322,15 @@ describe('usePlayerControls', () => {
     expect(ctrl.coverUrl).toBe('http://cover.jpg');
   });
 
-  it('coverUrl returns fallback when track has no Image', () => {
+  it('coverUrl is empty when track has no Image', () => {
     mocks.store.currentTrack = mkTrack({ Image: undefined });
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
-    expect(ctrl.coverUrl).toContain('data:image/svg+xml');
+    expect(ctrl.coverUrl).toBe('');
   });
 
-  it('coverUrl returns fallback when no track', () => {
+  it('coverUrl is empty when no track is active', () => {
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
-    expect(ctrl.coverUrl).toContain('data:image/svg+xml');
+    expect(ctrl.coverUrl).toBe('');
   });
 
   it('progressPercent computes currentTime/duration * 100', () => {

@@ -24,8 +24,9 @@ function handleTitlebarDoubleClick(event: MouseEvent): void {
     <div class="paper-vignette"></div>
 
     <header class="titlebar" data-tauri-drag-region @dblclick="handleTitlebarDoubleClick">
-      <div class="titlebar-logo">
-        <span class="logo"><i>The</i> Player</span>
+      <div class="titlebar-logo" aria-label="BottleMusic 报刊 Newsprint">
+        <span class="newsprint-wordmark" data-test="shell-brand">BottleMusic</span>
+        <span class="newsprint-wordmark-subtitle" data-test="shell-skin-label">报刊 Newsprint</span>
       </div>
       <div class="titlebar-center">
         <slot name="titlebar-center" />

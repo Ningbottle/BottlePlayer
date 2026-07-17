@@ -74,6 +74,7 @@ function handleKeydown(e: KeyboardEvent) {
       :aria-valuemin="isEnabled ? 0 : undefined"
       :aria-valuemax="isEnabled ? duration : undefined"
       :aria-valuenow="isEnabled ? currentTime : undefined"
+      :aria-label="isEnabled ? '播放进度' : undefined"
       :aria-disabled="isEnabled ? undefined : 'true'"
       :style="{ '--progress-pct': progressPct + '%', '--progress-buffered-pct': bufferedPct + '%' }"
       @click="handleClick"

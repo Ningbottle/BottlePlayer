@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 
 /* ── Shared mocks ── */
 
@@ -21,7 +23,14 @@ vi.mock('@tauri-apps/api/window', () => ({
 import AuroraShell from '../AuroraShell.vue';
 import NewsprintShell from '../NewsprintShell.vue';
 
+const newsprintCss = readFileSync(resolve(__dirname, '../../../styles/skins/newsprint.css'), 'utf8');
+
 describe('AuroraShell', () => {
+  it('renders the BottleMusic and Chinese-first Aurora wordmark', () => {
+    const wrapper = mount(AuroraShell);
+    expect(wrapper.get('[data-test="shell-brand"]').text()).toContain('BottleMusic');
+    expect(wrapper.get('[data-test="shell-skin-label"]').text()).toBe('极光 Aurora');
+  });
   it('renders data-shell="aurora"', () => {
     const wrapper = mount(AuroraShell);
     expect(wrapper.find('[data-shell="aurora"]').exists()).toBe(true);
@@ -94,9 +103,27 @@ describe('AuroraShell', () => {
 });
 
 describe('NewsprintShell', () => {
+  it('renders the BottleMusic and Chinese-first Newsprint masthead', () => {
+    const wrapper = mount(NewsprintShell);
+    expect(wrapper.get('[data-test="shell-brand"]').text()).toContain('BottleMusic');
+    expect(wrapper.get('[data-test="shell-skin-label"]').text()).toBe('报刊 Newsprint');
+    expect(wrapper.text()).not.toContain('The Player');
+  });
   it('renders data-shell="newsprint"', () => {
     const wrapper = mount(NewsprintShell);
     expect(wrapper.find('[data-shell="newsprint"]').exists()).toBe(true);
+  });
+
+  it('collapses every shell chrome row in lyric fullscreen mode', () => {
+    expect(newsprintCss).toMatch(
+      /\.app\[data-shell="newsprint"\]\.lyric-fullscreen-active\s*\{[\s\S]*?grid-template-rows:\s*0 0 1fr 0\s*!important;/,
+    );
+    expect(newsprintCss).toMatch(
+      /\.app\[data-shell="newsprint"\]\.lyric-fullscreen-active \.titlebar[\s\S]*?display:\s*none\s*!important;/,
+    );
+    expect(newsprintCss).toMatch(
+      /\.app\[data-shell="newsprint"\]\.lyric-fullscreen-active \.shell-main[\s\S]*?grid-row:\s*1 \/ -1;/,
+    );
   });
 
   it('uses <aside> for sidebar landmark', () => {
@@ -306,7 +333,6 @@ vi.mock('../../../components/Topbar.vue', () => ({
   },
 }));
 vi.mock('../../../components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
-vi.mock('../../../components/Drawer.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../views/SearchView.vue', () => ({ default: { props: ['query'], template: '<main data-test="search-view" />' } }));
 vi.mock('../../../views/PlaylistView.vue', () => ({ default: { template: '<main />' } }));
@@ -319,6 +345,35 @@ vi.mock('../../../views/EqualizerView.vue', () => ({ default: { template: '<main
 
 import { useThemeStore, __resetForTest } from '../../../api/themeStore';
 import App from '../../../App.vue';
+import { createAppRouter } from '../../../navigation/router';
+import { routeNames } from '../../../navigation/routes';
+
+async function mountApp() {
+  const router = createAppRouter();
+  await router.push({ name: routeNames.home });
+  await router.isReady();
+  return {
+    router,
+    wrapper: mount(App, { global: { plugins: [router] } }),
+  };
+}
+
+async function clickAndWaitForNavigation(
+  router: ReturnType<typeof createAppRouter>,
+  wrapper: ReturnType<typeof mount>,
+  selector: string,
+) {
+  const settled = new Promise<void>((resolve) => {
+    const removeAfterEach = router.afterEach(() => {
+      removeAfterEach();
+      resolve();
+    });
+  });
+  await wrapper.get(selector).trigger('click');
+  await settled;
+  await flushPromises();
+  await nextTick();
+}
 
 describe('Skin switch preserves state', () => {
   beforeEach(() => {
@@ -334,12 +389,11 @@ describe('Skin switch preserves state', () => {
   });
 
   it('preserves currentView, searchQuery across skinId switch', async () => {
-    const wrapper = mount(App);
+    const { wrapper, router } = await mountApp();
     await flushPromises();
 
     // Navigate to search view
-    await wrapper.find('[data-test="go-search"]').trigger('click');
-    await nextTick();
+    await clickAndWaitForNavigation(router, wrapper, '[data-test="go-search"]');
     expect(wrapper.find('[data-test="search-view"]').exists()).toBe(true);
 
     // Switch skin from aurora to newsprint

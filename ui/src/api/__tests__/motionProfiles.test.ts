@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getMotionProfile } from '../motionProfiles';
+import { getMotionProfile, type MotionProfile } from '../motionProfiles';
 
 describe('motionProfiles', () => {
   it('aurora controlRelease uses elastic.out', () => {
@@ -30,15 +30,17 @@ describe('motionProfiles', () => {
     expect(profile.cardEnter.ease).toContain('back.out');
   });
 
-  it('newsprint page timings remain serial-friendly and unchanged', () => {
+  it('newsprint page timings stay compact and serial-friendly', () => {
     const profile = getMotionProfile('newsprint');
-    expect(profile.pageEnter).toMatchObject({ duration: 0.3, ease: 'power3.out' });
+    expect(profile.pageEnter).toMatchObject({ duration: 0.24, ease: 'power3.out' });
     expect(profile.pageLeave).toMatchObject({ duration: 0.16, ease: 'power2.in' });
   });
 
-  it('keeps Aurora control release elastic without changing Newsprint', () => {
-    expect(getMotionProfile('aurora').controlRelease).toMatchObject({ duration: 0.46 });
-    expect(getMotionProfile('aurora').controlRelease.ease).toContain('elastic.out');
+  it('keeps Aurora control release elastic while Newsprint stays non-elastic', () => {
+    expect(getMotionProfile('aurora').controlRelease).toMatchObject({
+      duration: 0.58,
+      ease: 'elastic.out(1.12, 0.42)',
+    });
     expect(getMotionProfile('newsprint').controlRelease.ease).toBe('power2.out');
   });
 
@@ -68,5 +70,18 @@ describe('motionProfiles', () => {
     const profile = getMotionProfile('aurora');
     expect(profile.cardEnter.stagger).toBeGreaterThan(0);
     expect(profile.cardEnter.maxItems).toBeGreaterThan(0);
+  });
+
+  it('keeps page-enter travel in the skin profile', () => {
+    expect(getMotionProfile('aurora').pageEnter).toMatchObject({ fromY: 28 });
+    expect(getMotionProfile('newsprint').pageEnter).toMatchObject({ fromY: 8 });
+  });
+
+  it('owns calmer Dock and Cover particle speeds in the Aurora profile', () => {
+    const profile: MotionProfile = getMotionProfile('aurora');
+
+    expect(profile.particles.dock.speed.playing).toBeLessThan(0.85);
+    expect(profile.particles.dock.speed.paused).toBeLessThan(0.65);
+    expect(profile.particles.cover.timeScale.playing).toBeLessThan(0.9);
   });
 });

@@ -1,5 +1,20 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import {
+  PhArrowsOutSimple,
+  PhDisc,
+  PhHeart,
+  PhPause,
+  PhPlay,
+  PhQueue,
+  PhQuotes,
+  PhRepeat,
+  PhRepeatOnce,
+  PhShuffle,
+  PhSkipBack,
+  PhSkipForward,
+  PhSpeakerHigh,
+} from '@phosphor-icons/vue';
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
 import AuroraDockParticles from './AuroraDockParticles.vue';
@@ -72,12 +87,22 @@ function onRelease(e: MouseEvent) {
           type="button"
           class="aurora-pb-cover-btn"
           data-test="aurora-pb-cover-immersion"
+          aria-label="打开歌词"
           title="打开歌词"
           :disabled="!c.currentTrack"
           @click.stop="c.openLyricView"
         >
           <div class="aurora-pb-cover">
-            <img :src="c.coverUrl" alt="cover" />
+            <img v-if="c.coverUrl" :src="c.coverUrl" alt="cover" />
+            <PhDisc
+              v-else
+              class="aurora-pb-cover-placeholder"
+              data-test="player-cover-placeholder"
+              data-icon-family="phosphor"
+              :size="30"
+              weight="duotone"
+              aria-hidden="true"
+            />
           </div>
         </button>
         <button
@@ -85,16 +110,18 @@ function onRelease(e: MouseEvent) {
           class="aurora-pb-enter-fullscreen"
           data-test="aurora-pb-enter-fullscreen"
           aria-label="进入全屏歌词"
+          title="进入全屏歌词"
           :disabled="!c.currentTrack"
           @click.stop="c.openLyricImmersion"
         >
-          进入全屏
+          <PhArrowsOutSimple :size="12" weight="bold" aria-hidden="true" />
         </button>
       </div>
 
       <button
         type="button"
         class="aurora-pb-info-btn"
+        aria-label="查看歌曲歌词"
         title="点击查看歌词"
         :disabled="!c.currentTrack"
         @click.stop="c.openLyricView"
@@ -116,16 +143,13 @@ function onRelease(e: MouseEvent) {
       <button
         type="button"
         class="aurora-pb-fav"
-        :class="{ 'is-disabled': !c.currentTrack }"
-        aria-label="收藏"
-        title="收藏"
+        :class="{ 'is-disabled': !c.currentTrack, 'is-active': c.isFavorite }"
+        :aria-label="c.isFavorite ? '已收藏' : '收藏'"
+        :title="c.isFavorite ? '已收藏' : '收藏'"
         :disabled="!c.currentTrack"
         @click.stop="c.handleFavorite"
       >
-        <!-- outline star matching design -->
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="18" height="18">
-          <path d="M12 3.2l2.35 4.76 5.25.76-3.8 3.7.9 5.24L12 15.9l-4.7 2.46.9-5.24-3.8-3.7 5.25-.76L12 3.2z"/>
-        </svg>
+        <PhHeart :size="18" :weight="c.isFavorite ? 'fill' : 'regular'" aria-hidden="true" />
       </button>
     </div>
 
@@ -144,15 +168,14 @@ function onRelease(e: MouseEvent) {
           class="aurora-pb-btn"
           :class="{ 'is-active': c.loopMode === 'random' }"
           aria-label="随机"
+          :aria-pressed="c.loopMode === 'random'"
           title="随机播放"
           @click="c.toggleShuffle"
           @mousedown="onPress"
           @mouseup="onRelease"
           @mouseleave="onRelease"
         >
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-            <path d="M16 3h5v5M4 20l17-17M21 16v5h-5M15 15l6 6M4 4l5 5"/>
-          </svg>
+          <PhShuffle :size="16" weight="bold" aria-hidden="true" />
         </button>
 
         <button
@@ -165,9 +188,7 @@ function onRelease(e: MouseEvent) {
           @mouseup="onRelease"
           @mouseleave="onRelease"
         >
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <path d="M6 6h2.2v12H6V6zm3.4 6 9.6 6.2V5.8L9.4 12z"/>
-          </svg>
+          <PhSkipBack :size="16" weight="fill" aria-hidden="true" />
         </button>
 
         <button
@@ -180,13 +201,8 @@ function onRelease(e: MouseEvent) {
           @mouseup="onRelease"
           @mouseleave="onRelease"
         >
-          <svg v-if="c.showPauseIcon" viewBox="0 0 24 24" fill="currentColor">
-            <rect x="6" y="4" width="4" height="16" rx="1.5" />
-            <rect x="14" y="4" width="4" height="16" rx="1.5" />
-          </svg>
-          <svg v-else viewBox="0 0 24 24" fill="currentColor">
-            <path d="M8 5.2v13.6c0 .7.75 1.12 1.34.74l10.4-6.8a.88.88 0 0 0 0-1.48l-10.4-6.8A.88.88 0 0 0 8 5.2z"/>
-          </svg>
+          <PhPause v-if="c.showPauseIcon" :size="17" weight="fill" aria-hidden="true" />
+          <PhPlay v-else :size="17" weight="fill" aria-hidden="true" />
         </button>
 
         <button
@@ -199,10 +215,7 @@ function onRelease(e: MouseEvent) {
           @mouseup="onRelease"
           @mouseleave="onRelease"
         >
-          <svg viewBox="0 0 24 24" fill="currentColor">
-            <!-- triangle points right + bar on the right (skip next) -->
-            <path d="M4.8 5.8v12.4L14.4 12 4.8 5.8zM15.8 6H18v12h-2.2V6z"/>
-          </svg>
+          <PhSkipForward :size="16" weight="fill" aria-hidden="true" />
         </button>
 
         <button
@@ -210,19 +223,15 @@ function onRelease(e: MouseEvent) {
           class="aurora-pb-btn"
           :class="{ 'is-active': c.loopMode === 'single' }"
           aria-label="循环"
+          :aria-pressed="c.loopMode === 'single'"
           title="单曲循环"
           @click="c.toggleRepeat"
           @mousedown="onPress"
           @mouseup="onRelease"
           @mouseleave="onRelease"
         >
-          <svg v-if="c.loopMode === 'single'" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-            <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/>
-            <text x="12" y="15.5" font-size="7.5" font-weight="800" fill="currentColor" stroke="none" text-anchor="middle">1</text>
-          </svg>
-          <svg v-else viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7">
-            <path d="M17 1l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 23l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3"/>
-          </svg>
+          <PhRepeatOnce v-if="c.loopMode === 'single'" :size="16" weight="bold" aria-hidden="true" />
+          <PhRepeat v-else :size="16" weight="bold" aria-hidden="true" />
         </button>
       </div>
       <div
@@ -249,11 +258,12 @@ function onRelease(e: MouseEvent) {
           type="button"
           class="aurora-pb-q-btn"
           :class="{ active: c.showQualityMenu }"
+          aria-label="选择音质"
+          :aria-expanded="c.showQualityMenu"
           @click="c.showQualityMenu = !c.showQualityMenu"
           title="音质选择"
         >
           <span class="aurora-pb-q-main">{{ qualityChip }}</span>
-          <span class="aurora-pb-q-sub">切换</span>
         </button>
 
         <transition name="menu-fade">
@@ -279,9 +289,7 @@ function onRelease(e: MouseEvent) {
         title="播放队列"
         @click="emit('toggle-queue')"
       >
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" width="16" height="16">
-          <path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/>
-        </svg>
+        <PhQueue :size="16" weight="regular" aria-hidden="true" />
       </button>
 
       <button
@@ -292,13 +300,11 @@ function onRelease(e: MouseEvent) {
         title="歌词"
         @click="c.toggleLyricView"
       >
-        词
+        <PhQuotes :size="15" weight="bold" aria-hidden="true" />
       </button>
 
       <div class="aurora-pb-volume" title="音量">
-        <svg class="aurora-pb-vol-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6">
-          <path d="M11 5L6 9H2v6h4l5 4zM15.5 9.5a4 4 0 0 1 0 5M18.5 7a7.5 7.5 0 0 1 0 10"/>
-        </svg>
+        <PhSpeakerHigh class="aurora-pb-vol-icon" :size="16" weight="regular" aria-hidden="true" />
         <div class="aurora-pb-vol-bar" @click="handleVolumeClick">
           <div class="aurora-pb-vol-fill" :style="{ width: c.volumePercent + '%' }">
             <i class="aurora-pb-vol-thumb" />
@@ -320,7 +326,7 @@ function onRelease(e: MouseEvent) {
   gap: 6px 12px;
   align-items: center;
   min-height: 72px;
-  padding: 8px 16px 10px;
+  padding: 6px 16px 8px;
   box-sizing: border-box;
   border-radius: 24px;
   border: 1px solid color-mix(in srgb, #fff 8%, transparent);
@@ -398,8 +404,12 @@ function onRelease(e: MouseEvent) {
   margin: 0;
   color: var(--text-muted, #8b9098);
   cursor: pointer;
-  font-size: 10px;
-  line-height: 1.2;
+  width: 16px;
+  height: 12px;
+  display: grid;
+  place-items: center;
+  line-height: 0;
+  flex: 0 0 auto;
   transition: color 0.15s ease;
 }
 
@@ -422,6 +432,8 @@ function onRelease(e: MouseEvent) {
   flex: none;
   background: var(--surface-2);
   box-shadow: 0 4px 14px rgba(0, 0, 0, 0.35);
+  display: grid;
+  place-items: center;
 }
 
 .aurora-pb-cover img {
@@ -480,6 +492,10 @@ function onRelease(e: MouseEvent) {
 .aurora-pb-fav:hover:not(:disabled) {
   color: var(--accent);
   transform: scale(1.06);
+}
+
+.aurora-pb-fav.is-active {
+  color: var(--accent);
 }
 
 .aurora-pb-fav.is-disabled,
@@ -551,6 +567,7 @@ function onRelease(e: MouseEvent) {
   background: transparent;
   border: 1px solid transparent;
   border-radius: 8px;
+  padding: 0;
   box-shadow: none;
   filter: none;
   outline: none;
@@ -593,6 +610,11 @@ function onRelease(e: MouseEvent) {
   display: block;
 }
 
+.aurora-pb-cover-placeholder {
+  color: var(--accent);
+  opacity: 0.68;
+}
+
 .aurora-pb-play {
   width: 40px;
   height: 40px;
@@ -601,8 +623,8 @@ function onRelease(e: MouseEvent) {
   background: var(--accent);
   color: #0a1410;
   box-shadow:
-    0 1px 0 color-mix(in srgb, #fff 22%, transparent) inset,
-    0 3px 10px color-mix(in srgb, var(--accent) 28%, transparent);
+    0 1px 0 color-mix(in srgb, #fff 18%, transparent) inset,
+    0 3px 9px color-mix(in srgb, var(--accent) 20%, transparent);
 }
 
 .aurora-pb-play:hover {
@@ -679,8 +701,7 @@ function onRelease(e: MouseEvent) {
 
 .aurora-pb-q-btn {
   display: inline-flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
   padding: 4px 2px;
   border: 0;
   background: transparent;
@@ -694,12 +715,6 @@ function onRelease(e: MouseEvent) {
   font-size: 12px;
   font-weight: 500;
   color: var(--text-secondary);
-}
-
-.aurora-pb-q-sub {
-  font-size: 10px;
-  color: var(--text-muted);
-  opacity: 0.85;
 }
 
 .aurora-pb-q-btn:hover .aurora-pb-q-main,
@@ -755,6 +770,8 @@ function onRelease(e: MouseEvent) {
   color: var(--text-secondary);
   cursor: pointer;
   box-sizing: border-box;
+  padding: 0;
+  line-height: 0;
   transition: color 0.15s ease, border-color 0.15s ease, background 0.15s ease;
 }
 
@@ -780,7 +797,9 @@ function onRelease(e: MouseEvent) {
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
-  line-height: 1;
+  line-height: 0;
+  display: grid;
+  place-items: center;
 }
 
 .aurora-pb-lyric.active {

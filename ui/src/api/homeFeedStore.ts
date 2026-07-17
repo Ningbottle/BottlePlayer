@@ -19,7 +19,14 @@ export interface HomeSectionState<T> {
   loaded: boolean;
 }
 
-type HomeSection = 'daily' | 'playlists' | 'albums';
+export type HomeSection = 'daily' | 'playlists' | 'albums';
+
+interface SectionRequestSession {
+  generation: number;
+  promise: Promise<void> | null;
+}
+
+const HOME_SECTIONS: HomeSection[] = ['daily', 'playlists', 'albums'];
 
 function createSectionState<T>(): HomeSectionState<T> {
   return {
@@ -35,24 +42,40 @@ const daily = reactive<HomeSectionState<Track>>(createSectionState());
 const playlists = reactive<HomeSectionState<PlaylistInfo>>(createSectionState());
 const albums = reactive<HomeSectionState<PlaylistInfo>>(createSectionState());
 
-let inFlight: Promise<void> | null = null;
+const sessions: Record<HomeSection, SectionRequestSession> = {
+  daily: { generation: 0, promise: null },
+  playlists: { generation: 0, promise: null },
+  albums: { generation: 0, promise: null },
+};
 
-function beginLoad<T>(section: HomeSectionState<T>, refreshing: boolean) {
-  section.error = null;
-  if (refreshing) {
-    section.refreshing = true;
-  } else {
-    section.loading = true;
-  }
+function getSectionState(section: HomeSection): HomeSectionState<Track> | HomeSectionState<PlaylistInfo> {
+  if (section === 'daily') return daily;
+  return section === 'playlists' ? playlists : albums;
 }
 
-function finishLoad<T>(section: HomeSectionState<T>, refreshing: boolean) {
-  section.loaded = true;
-  if (refreshing) {
-    section.refreshing = false;
-  } else {
-    section.loading = false;
-  }
+function isCurrent(section: HomeSection, generation: number): boolean {
+  return sessions[section].generation === generation;
+}
+
+function beginLoad(
+  section: HomeSection,
+  generation: number,
+  refreshing: boolean,
+): void {
+  if (!isCurrent(section, generation)) return;
+
+  const state = getSectionState(section);
+  state.error = null;
+  state.loading = !refreshing;
+  state.refreshing = refreshing;
+}
+
+function finishLoad(section: HomeSection, generation: number): void {
+  if (!isCurrent(section, generation)) return;
+
+  const state = getSectionState(section);
+  state.loading = false;
+  state.refreshing = false;
 }
 
 function normalizePlaylist(playlist: Record<string, unknown>): PlaylistInfo {
@@ -65,67 +88,104 @@ function normalizePlaylist(playlist: Record<string, unknown>): PlaylistInfo {
   return { ...playlist, imgurl } as PlaylistInfo;
 }
 
-async function loadDaily(refreshing: boolean) {
-  beginLoad(daily, refreshing);
+function responseList(response: unknown, keys: readonly string[]): Record<string, unknown>[] {
+  const result = response as { status?: unknown; data?: unknown };
+  if (result.status !== 1) {
+    throw new Error('home_feed_business_failure');
+  }
+
+  const responseData = result.data;
+  const data = responseData && typeof responseData === 'object' && 'data' in responseData
+    ? (responseData as { data?: unknown }).data
+    : responseData;
+  if (!data || typeof data !== 'object') {
+    throw new Error('home_feed_payload_missing');
+  }
+
+  for (const key of keys) {
+    const list = (data as Record<string, unknown>)[key];
+    if (Array.isArray(list)) return list as Record<string, unknown>[];
+  }
+
+  throw new Error('home_feed_list_missing');
+}
+
+async function loadDailyItems(): Promise<Track[]> {
+  const primaryResponse = await apiGet<unknown>('/everyday/recommend', { pagesize: 6 });
+  let primaryItems: Record<string, unknown>[];
   try {
-    const songRes = await apiGet<any>('/everyday/recommend', { pagesize: 6 });
-    const songData = songRes.data?.data || songRes.data || {};
-    const songList = songData.song_list || songData.info || songData.list;
-    if (songRes.status === 1 && songList && songList.length > 0) {
-      daily.items = songList.slice(0, 6).map(normalizeTrack);
-    } else {
-      const fallbackRes = await apiGet<any>('/top/song', { pagesize: 6 });
-      const fallbackData = fallbackRes.data?.data || fallbackRes.data || {};
-      const fallbackList = fallbackData.info || fallbackData.list;
-      if (fallbackRes.status === 1 && fallbackList) {
-        daily.items = fallbackList.slice(0, 6).map(normalizeTrack);
-      }
-    }
-  } catch (error) {
-    daily.error = '加载失败';
-    console.error('Failed to load daily recommendations', error);
-  } finally {
-    finishLoad(daily, refreshing);
+    primaryItems = responseList(primaryResponse, ['song_list', 'info', 'list']);
+  } catch {
+    // The top-song endpoint is the established fallback for unavailable daily recommendations.
+    const fallbackResponse = await apiGet<unknown>('/top/song', { pagesize: 6 });
+    return responseList(fallbackResponse, ['info', 'list']).slice(0, 6).map(normalizeTrack);
+  }
+
+  if (primaryItems.length > 0) {
+    return primaryItems.slice(0, 6).map(normalizeTrack);
+  }
+
+  const fallbackResponse = await apiGet<unknown>('/top/song', { pagesize: 6 });
+  return responseList(fallbackResponse, ['info', 'list']).slice(0, 6).map(normalizeTrack);
+}
+
+async function loadPlaylistItems(sort: number): Promise<PlaylistInfo[]> {
+  const response = await apiGet<unknown>('/top/playlist', { pagesize: 5, sort });
+  return responseList(response, ['info', 'list']).slice(0, 5).map(normalizePlaylist);
+}
+
+async function loadSectionItems(section: HomeSection): Promise<Track[] | PlaylistInfo[]> {
+  if (section === 'daily') return loadDailyItems();
+  return loadPlaylistItems(section === 'playlists' ? 2 : 5);
+}
+
+function commitItems(section: HomeSection, items: Track[] | PlaylistInfo[]): void {
+  if (section === 'daily') {
+    daily.items = items as Track[];
+  } else if (section === 'playlists') {
+    playlists.items = items as PlaylistInfo[];
+  } else {
+    albums.items = items as PlaylistInfo[];
   }
 }
 
-async function loadPlaylistSection(
-  section: HomeSectionState<PlaylistInfo>,
-  sort: number,
-  errorMessage: string,
-  refreshing: boolean,
-) {
-  beginLoad(section, refreshing);
-  try {
-    const response = await apiGet<any>('/top/playlist', { pagesize: 5, sort });
-    const data = response.data?.data || response.data || {};
-    const list = data.info || data.list;
-    if (response.status === 1 && list) {
-      section.items = list.slice(0, 5).map(normalizePlaylist);
-    }
-  } catch (error) {
-    section.error = '加载失败';
-    console.error(errorMessage, error);
-  } finally {
-    finishLoad(section, refreshing);
-  }
-}
+function startSection(
+  section: HomeSection,
+  preferRefreshing: boolean,
+  supersede = false,
+): Promise<void> {
+  const session = sessions[section];
+  if (session.promise && !supersede) return session.promise;
 
-function loadSections(sections: HomeSection[], refreshing: boolean): Promise<void> {
-  return Promise.all(sections.map((section) => {
-    if (section === 'daily') return loadDaily(refreshing);
-    if (section === 'playlists') {
-      return loadPlaylistSection(playlists, 2, 'Failed to load recommended playlists', refreshing);
-    }
-    return loadPlaylistSection(albums, 5, 'Failed to load new albums', refreshing);
-  })).then(() => undefined);
-}
+  const generation = ++session.generation;
+  const state = getSectionState(section);
+  const refreshing = preferRefreshing && (state.loaded || state.items.length > 0);
+  beginLoad(section, generation, refreshing);
 
-function startLoad(sections: HomeSection[], refreshing: boolean): Promise<void> {
-  inFlight = loadSections(sections, refreshing).finally(() => {
-    inFlight = null;
+  const promise = (async () => {
+    try {
+      const items = await loadSectionItems(section);
+      if (!isCurrent(section, generation)) return;
+
+      commitItems(section, items);
+      const currentState = getSectionState(section);
+      currentState.error = null;
+      currentState.loaded = true;
+    } catch {
+      if (!isCurrent(section, generation)) return;
+      getSectionState(section).error = '加载失败';
+    } finally {
+      finishLoad(section, generation);
+    }
+  })();
+
+  session.promise = promise;
+  void promise.finally(() => {
+    if (isCurrent(section, generation) && session.promise === promise) {
+      session.promise = null;
+    }
   });
-  return inFlight;
+  return promise;
 }
 
 /** Dev-only seed for layout screenshots (?layoutDemo=1). Not used in production. */
@@ -135,6 +195,11 @@ function isLayoutDemo(): boolean {
 }
 
 function seedLayoutDemo(): void {
+  for (const session of Object.values(sessions)) {
+    session.generation += 1;
+    session.promise = null;
+  }
+
   const mkTrack = (i: number) =>
     normalizeTrack({
       FileHash: `demo-track-${i}`,
@@ -178,11 +243,11 @@ function ensureLoaded(): Promise<void> {
     seedLayoutDemo();
     return Promise.resolve();
   }
-  if (inFlight) return inFlight;
 
-  const unloaded = (['daily', 'playlists', 'albums'] as HomeSection[])
-    .filter((section) => !({ daily, playlists, albums }[section].loaded));
-  return unloaded.length > 0 ? startLoad(unloaded, false) : Promise.resolve();
+  const unloaded = HOME_SECTIONS.filter((section) => !getSectionState(section).loaded);
+  return unloaded.length > 0
+    ? Promise.all(unloaded.map((section) => startSection(section, false))).then(() => undefined)
+    : Promise.resolve();
 }
 
 function refresh(): Promise<void> {
@@ -190,23 +255,34 @@ function refresh(): Promise<void> {
     seedLayoutDemo();
     return Promise.resolve();
   }
-  if (inFlight) return inFlight;
-  return startLoad(['daily', 'playlists', 'albums'], true);
+  return Promise.all(HOME_SECTIONS.map((section) => startSection(section, true, true))).then(() => undefined);
 }
 
-const homeFeedStore = { daily, playlists, albums, ensureLoaded, refresh };
+function retrySection(section: HomeSection): Promise<void> {
+  if (isLayoutDemo()) {
+    seedLayoutDemo();
+    return Promise.resolve();
+  }
+  return startSection(section, true, true);
+}
+
+const homeFeedStore = { daily, playlists, albums, ensureLoaded, refresh, retrySection };
 
 export function useHomeFeedStore() {
   return homeFeedStore;
 }
 
 export function __resetHomeFeedForTest() {
-  inFlight = null;
-  for (const section of [daily, playlists, albums]) {
-    section.items = [];
-    section.loading = false;
-    section.refreshing = false;
-    section.error = null;
-    section.loaded = false;
+  for (const section of HOME_SECTIONS) {
+    const session = sessions[section];
+    session.generation += 1;
+    session.promise = null;
+
+    const state = getSectionState(section);
+    state.items = [];
+    state.loading = false;
+    state.refreshing = false;
+    state.error = null;
+    state.loaded = false;
   }
 }

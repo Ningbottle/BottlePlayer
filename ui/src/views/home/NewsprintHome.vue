@@ -2,7 +2,8 @@
 import { computed } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../api/normalizer';
-import type { PlaylistInfo } from '../../api/homeFeedStore';
+import type { HomeSection, PlaylistInfo } from '../../api/homeFeedStore';
+import { ArrowRight } from '@lucide/vue';
 
 const props = defineProps<{ model: HomeViewModel }>();
 
@@ -26,9 +27,10 @@ const timeOfDayPhrase = computed(() => {
 });
 
 const recommendations = computed(() => props.model.dailyTracks.slice(0, 10));
+const featureTrack = computed(() => props.model.dailyTracks[0] ?? props.model.heroTrack);
 
 function onHeroPlay() {
-  const t = props.model.heroTrack ?? props.model.dailyTracks[0];
+  const t = featureTrack.value;
   if (t) emit('play-track', t);
 }
 
@@ -56,6 +58,18 @@ function formatDate(): string {
   const days = ['日', '一', '二', '三', '四', '五', '六'];
   return `星期${days[new Date().getDay()]} · ${new Date().toLocaleDateString('zh-CN', { month: 'long', day: 'numeric' })}`;
 }
+
+function sectionStatus(section: HomeSection, idle: string): string {
+  const state = props.model.sections[section];
+  if (state.error) return '重试';
+  if (state.loading) return '加载中…';
+  if (state.refreshing) return '刷新中…';
+  return state.isEmpty ? '暂无内容' : idle;
+}
+
+function retrySection(section: HomeSection): void {
+  void props.model.sections[section].retry();
+}
 </script>
 
 <template>
@@ -63,7 +77,7 @@ function formatDate(): string {
   <div class="np-home list-view" data-test="newsprint-home">
     <div class="page-head np-masthead">
       <div>
-        <div class="kicker">Late Edition · 晚刊</div>
+        <div class="kicker">晚刊 · Late Edition</div>
         <h1>为你精选<i>For You</i></h1>
       </div>
       <div class="date">
@@ -84,15 +98,58 @@ function formatDate(): string {
       </button>
     </div>
 
-    <div class="feature">
+    <div
+      v-if="!model.heroTrack && !model.dailyTracks.length && model.sections.daily.loading"
+      class="newsprint-stage-loading"
+      data-test="newsprint-stage-loading"
+      aria-busy="true"
+      aria-live="polite"
+      aria-label="正在加载每日推荐"
+    >
+      <div class="newsprint-skeleton-masthead" aria-hidden="true" />
+      <div class="newsprint-skeleton-copy" aria-hidden="true">
+        <span class="newsprint-skeleton-line newsprint-skeleton-title" />
+        <span class="newsprint-skeleton-line" />
+        <span class="newsprint-skeleton-line newsprint-skeleton-short" />
+      </div>
+    </div>
+
+    <div
+      v-else-if="!model.heroTrack && !model.dailyTracks.length"
+      class="newsprint-stage-empty"
+      data-test="newsprint-stage-empty"
+    >
+      <div class="label">今日无推荐 · 私荐</div>
+      <h2>还没有可播放的歌曲</h2>
+      <p>刷新每日推荐，找到下一首适合此刻的歌。</p>
+      <div class="newsprint-empty-actions">
+        <button
+          type="button"
+          class="play-cta"
+          data-test="hero-play"
+          disabled
+        >暂无推荐可播放</button>
+        <button
+          type="button"
+          class="more"
+          data-test="newsprint-empty-retry"
+          :disabled="model.sections.daily.loading || model.sections.daily.refreshing"
+          @click="retrySection('daily')"
+        >
+          {{ model.sections.daily.error ? '重试' : model.sections.daily.refreshing ? '刷新中…' : '刷新推荐' }}
+        </button>
+      </div>
+    </div>
+
+    <div v-else class="feature">
       <div class="hero">
         <div>
-          <div class="label">Daily Picks · 私荐</div>
+          <div class="label">私荐 · Daily Picks</div>
           <h2>今日适合这几首</h2>
           <p>
             {{
-              model.heroTrack
-                ? `根据每日推荐为你排好一组歌。想少一点选择困难，就从「${model.heroTrack.SongName}」开始慢慢听。`
+              featureTrack
+                ? `根据每日推荐为你排好一组歌。想少一点选择困难，就从「${featureTrack.SongName}」开始慢慢听。`
                 : '根据每日推荐为你排好一组歌。想少一点选择困难，就从第一首开始慢慢听。'
             }}
           </p>
@@ -101,7 +158,7 @@ function formatDate(): string {
           type="button"
           class="play-cta"
           data-test="hero-play"
-          :disabled="!model.heroTrack && !model.dailyTracks.length"
+          :disabled="!featureTrack"
           @click="onHeroPlay"
         >
           <span class="pp">
@@ -109,7 +166,7 @@ function formatDate(): string {
               <polygon points="6,4 20,12 6,20" />
             </svg>
           </span>
-          {{ model.heroTrack || model.dailyTracks.length ? '立即收听 · 每日推荐' : '暂无推荐可播放' }}
+          {{ featureTrack ? '立即收听 · 每日推荐' : '暂无推荐可播放' }}
         </button>
         <svg class="hero-art" viewBox="0 0 200 200" fill="none" aria-hidden="true">
           <defs>
@@ -137,13 +194,13 @@ function formatDate(): string {
           </h3>
           <span
             class="more"
-            data-test="refresh"
             role="button"
             tabindex="0"
-            @click="emit('refresh')"
-            @keydown.enter="emit('refresh')"
+            data-test="daily-section-status"
+            @click="retrySection('daily')"
+            @keydown.enter="retrySection('daily')"
           >
-            {{ model.isRefreshing ? '刷新中…' : '刷新推荐 ↻' }}
+            {{ sectionStatus('daily', '刷新推荐 ↻') }}
           </span>
         </div>
 
@@ -162,15 +219,22 @@ function formatDate(): string {
             <span class="dur">{{ formatDuration(song.Duration) }}</span>
           </li>
           <li v-if="!recommendations.length" style="padding: 10px; font-style: italic; color: var(--ink-mute); cursor: default">
-            暂时没有推荐歌曲
+            {{ sectionStatus('daily', '暂时没有推荐歌曲') }}
           </li>
         </ol>
       </div>
     </div>
 
-    <div v-if="model.playlists.length" class="section-bar">
+    <div v-if="model.playlists.length || model.sections.playlists.loading || model.sections.playlists.error || model.sections.playlists.isEmpty" class="section-bar">
       <h2>编辑推荐<i>Editor's Picks</i></h2>
-      <span class="more">{{ model.isRefreshing ? '刷新中…' : '本周精选' }}</span>
+      <button
+        v-if="model.sections.playlists.error"
+        type="button"
+        class="more"
+        data-test="playlists-section-retry"
+        @click="retrySection('playlists')"
+      >重试</button>
+      <span v-else class="more" data-test="playlists-section-status">{{ sectionStatus('playlists', '本周精选') }}</span>
     </div>
     <div v-if="model.playlists.length" class="grid">
       <article
@@ -187,10 +251,15 @@ function formatDate(): string {
             <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="24" fill="#221b12">歌单</text>
           </svg>
           <div class="corner">精品</div>
-          <button type="button" class="play" aria-label="play" @click.stop="onPlaylistClick(pl)">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-              <polygon points="6,4 20,12 6,20" />
-            </svg>
+          <button
+            type="button"
+            class="play"
+            :data-test="`playlist-open-${pl.specialid}`"
+            :aria-label="`打开歌单：${pl.specialname}`"
+            :title="`打开歌单：${pl.specialname}`"
+            @click.stop="onPlaylistClick(pl)"
+          >
+            <ArrowRight :size="14" :stroke-width="1.8" aria-hidden="true" />
           </button>
         </div>
         <div class="meta-row">
@@ -203,9 +272,16 @@ function formatDate(): string {
       </article>
     </div>
 
-    <div v-if="model.albums.length" class="section-bar" style="margin-top: 34px">
+    <div v-if="model.albums.length || model.sections.albums.loading || model.sections.albums.error || model.sections.albums.isEmpty" class="section-bar" style="margin-top: 34px">
       <h2>最新歌单<i>Newly Pressed</i></h2>
-      <span class="more">{{ model.isRefreshing ? '刷新中…' : '全部歌单' }}</span>
+      <button
+        v-if="model.sections.albums.error"
+        type="button"
+        class="more"
+        data-test="albums-section-retry"
+        @click="retrySection('albums')"
+      >重试</button>
+      <span v-else class="more" data-test="albums-section-status">{{ sectionStatus('albums', '全部歌单') }}</span>
     </div>
     <div v-if="model.albums.length" class="grid">
       <article
@@ -222,10 +298,15 @@ function formatDate(): string {
             <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="24" fill="#3b5a3a">新碟</text>
           </svg>
           <div class="corner">NEW</div>
-          <button type="button" class="play" aria-label="play" @click.stop="onPlaylistClick(pl)">
-            <svg viewBox="0 0 24 24" fill="currentColor" width="14" height="14">
-              <polygon points="6,4 20,12 6,20" />
-            </svg>
+          <button
+            type="button"
+            class="play"
+            :data-test="`album-open-${pl.specialid}`"
+            :aria-label="`打开歌单：${pl.specialname}`"
+            :title="`打开歌单：${pl.specialname}`"
+            @click.stop="onPlaylistClick(pl)"
+          >
+            <ArrowRight :size="14" :stroke-width="1.8" aria-hidden="true" />
           </button>
         </div>
         <div class="meta-row">

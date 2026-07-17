@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { ref, watch, onMounted, computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { check } from '@tauri-apps/plugin-updater';
 import { apiGet } from '../api/backend';
 import { userStore } from '../api/userStore';
@@ -7,16 +8,14 @@ import { normalizePlaylists, UserPlaylist } from '../api/favorite';
 import { useSkippedVersion, getSkippedVersion } from '../api/skippedVersion';
 import { useThemeStore } from '../api/themeStore';
 
-defineProps<{
-  activeView: string;
-}>();
-
 const emit = defineEmits<{
   (e: 'navigate', view: string, params?: any): void;
 }>();
 
 const themeStore = useThemeStore();
 const skinId = themeStore.skinId;
+const route = useRoute();
+const activeView = computed(() => route.name);
 
 const sidebarNav = [
   { id: 'home', name: '首页', icon: 'M3 11l9-8 9 8v10a2 2 0 0 1-2 2h-4v-7h-6v7H5a2 2 0 0 1-2-2V11z' },
@@ -113,9 +112,14 @@ function handlePlaylist(playlist: { id: string; name: string }) {
   >
     <!-- Logo Section -->
     <div class="masthead">
-      <span v-if="skinId === 'newsprint'" class="logo"><i>The</i> Player</span>
+      <div class="sidebar-wordmark">
+        <span class="sidebar-brand" data-test="sidebar-brand">BottleMusic</span>
+        <span class="sidebar-skin-label" data-test="sidebar-skin-label">
+          {{ skinId === 'aurora' ? '极光 Aurora' : '报刊 Newsprint' }}
+        </span>
+      </div>
       <span
-        v-else
+        v-if="skinId === 'aurora'"
         class="aurora-nav-label"
         data-test="aurora-nav-label"
       >导航</span>
@@ -200,7 +204,7 @@ function handlePlaylist(playlist: { id: string; name: string }) {
       data-test="newsprint-stamp"
     >
       <div class="stamp">印</div>
-      <div>Printed daily<br/>since 2026</div>
+      <div>每日刊印<br/>始于 2026</div>
     </div>
   </aside>
 </template>

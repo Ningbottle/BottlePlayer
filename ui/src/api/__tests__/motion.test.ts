@@ -99,7 +99,7 @@ describe('motion.ts', () => {
     expect(gsap.killTweensOf).toHaveBeenCalledWith(el);
   });
 
-  it('transitionEnter uses deeper travel and power3.out for aurora', async () => {
+  it('transitionEnter uses the Aurora pageEnter profile', async () => {
     const { gsap } = await import('gsap');
     const el = document.createElement('div');
     const done = vi.fn();
@@ -109,7 +109,7 @@ describe('motion.ts', () => {
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
       { opacity: 0, y: 28 },
-      expect.objectContaining({ opacity: 1, y: 0, ease: 'power3.out', duration: 0.56 }),
+      expect.objectContaining({ opacity: 1, y: 0, ease: 'expo.out', duration: 0.56 }),
     );
     expect(done).toHaveBeenCalledTimes(1);
   });
@@ -223,8 +223,8 @@ describe('motion.ts', () => {
 
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
-      { opacity: 0, y: 16 },
-      expect.objectContaining({ ease: 'power3.out', duration: 0.3 }),
+      { opacity: 0, y: 8 },
+      expect.objectContaining({ ease: 'power3.out', duration: 0.24 }),
     );
   });
 
@@ -281,7 +281,7 @@ describe('motion.ts', () => {
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
       { opacity: 0 },
-      expect.objectContaining({ ease: 'elastic.out(1, 0.4)' }),
+      expect.objectContaining({ ease: 'elastic.out(1.12, 0.42)' }),
     );
   });
 
@@ -344,12 +344,24 @@ describe('motion.ts', () => {
     pressBounceDown(el);
     expect(gsap.to).toHaveBeenCalledWith(
       el,
-      expect.objectContaining({ scale: 0.86, duration: 0.09 }),
+      expect.objectContaining({ scale: 0.86, duration: 0.08 }),
     );
     pressBounceUp(el);
     expect(gsap.to).toHaveBeenCalledWith(
       el,
       expect.objectContaining({ scale: 1, ease: expect.stringContaining('elastic') }),
+    );
+  });
+
+  it('pressBounceUp uses the interruptible Aurora controlRelease profile', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('button');
+
+    pressBounceUp(el);
+
+    expect(gsap.to).toHaveBeenLastCalledWith(
+      el,
+      expect.objectContaining({ duration: 0.58, ease: 'elastic.out(1.12, 0.42)' }),
     );
   });
 

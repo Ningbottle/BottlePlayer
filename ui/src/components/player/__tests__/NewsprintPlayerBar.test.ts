@@ -39,6 +39,7 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     progressPercent: 0,
     volumePercent: 70,
     isLyricView: false,
+    isFavorite: false,
     showQualityMenu: false,
     showAddModal: false,
     toastMsg: '',
@@ -111,15 +112,17 @@ describe('NewsprintPlayerBar', () => {
     expect(openLyricImmersion).not.toHaveBeenCalled();
   });
 
-  it('renders a fullscreen text entry button and opens lyrics when clicked', async () => {
+  it('renders an icon-only fullscreen command and opens lyric immersion', async () => {
     const openLyricImmersion = vi.fn();
     const wrapper = mount(NewsprintPlayerBar, {
       props: { controller: createStubController({ currentTrack: mkTrack(), openLyricImmersion }) },
     });
 
     const entry = wrapper.get('[data-test="np-pb-enter-fullscreen"]');
-    expect(entry.text()).toBe('进入全屏');
+    expect(entry.text().trim()).toBe('');
+    expect(entry.find('svg').exists()).toBe(true);
     expect(entry.attributes('aria-label')).toBe('进入全屏歌词');
+    expect(entry.attributes('title')).toBe('进入全屏歌词');
     await entry.trigger('click');
     expect(openLyricImmersion).toHaveBeenCalledOnce();
   });
@@ -168,14 +171,44 @@ describe('NewsprintPlayerBar', () => {
     expect(wrapper.find('[aria-label="循环"]').exists()).toBe(true);
   });
 
-  it('uses Chinese visible labels for the playback controls', () => {
+  it('keeps previous, play/pause, and next in the core transport order', () => {
     const wrapper = mount(NewsprintPlayerBar, {
       props: { controller: createStubController({ currentTrack: mkTrack() }) },
     });
 
-    const labels = wrapper.findAll('.np-pb-btn-label').map((node) => node.text());
-    expect(labels).toEqual(expect.arrayContaining(['随机', '播放', '循环', '队列']));
-    expect(wrapper.find('.np-pb-vol-label').text()).toBe('音量');
+    const labels = wrapper.get('[data-test="newsprint-player-transport"]')
+      .findAll('button')
+      .map((button) => button.attributes('aria-label'))
+      .filter((label): label is string =>
+        typeof label === 'string' && ['上一首', '播放', '暂停', '下一首'].includes(label));
+
+    expect(labels).toEqual(['上一首', '播放', '下一首']);
+  });
+
+  it('uses accessible icon commands without visible command words', () => {
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: { controller: createStubController({ currentTrack: mkTrack() }) },
+    });
+
+    for (const button of wrapper.findAll('button')) {
+      const ariaLabel = button.attributes('aria-label');
+      const title = button.attributes('title');
+      expect(ariaLabel).toBeDefined();
+      expect(title).toBeDefined();
+      if (!ariaLabel || !title) continue;
+      expect(ariaLabel).toMatch(/[\u3400-\u9fff]/);
+      expect(title).toMatch(/[\u3400-\u9fff]/);
+    }
+
+    const iconCommands = [
+      wrapper.get('[data-test="np-pb-enter-fullscreen"]'),
+      ...wrapper.get('[data-test="newsprint-player-transport"]').findAll('button'),
+      wrapper.get('.np-pb-icon[aria-label="队列"]'),
+      wrapper.get('.np-pb-lyric'),
+    ];
+    for (const command of iconCommands) {
+      expect(command.text().trim()).toBe('');
+    }
   });
 
   // ── Calls controller commands ──
@@ -219,7 +252,8 @@ describe('NewsprintPlayerBar', () => {
     });
 
     expect(wrapper.text()).toContain('未播放歌曲');
-    expect(wrapper.find('.np-pb-cover img').exists()).toBe(true);
+    expect(wrapper.find('.np-pb-cover img').exists()).toBe(false);
+    expect(wrapper.find('[data-test="player-cover-placeholder"]').exists()).toBe(true);
     expect(wrapper.find('.np-pb-info').exists()).toBe(true);
   });
 
@@ -236,6 +270,22 @@ describe('NewsprintPlayerBar', () => {
     expect(wrapper.find('[aria-label="暂停"]').exists()).toBe(true);
   });
 
+  it('shows a persistent collected state on the favorite icon', () => {
+    const wrapper = mount(NewsprintPlayerBar, {
+      props: {
+        controller: createStubController({
+          currentTrack: mkTrack(),
+          isFavorite: true,
+        }),
+      },
+    });
+
+    const favorite = wrapper.get('.np-pb-fav');
+    expect(favorite.classes()).toContain('is-active');
+    expect(favorite.attributes('aria-label')).toBe('已收藏');
+    expect(favorite.get('svg').attributes('fill')).toBe('currentColor');
+  });
+
   it('long song name does not overflow (has truncation)', () => {
     const longName = '这是一首非常非常非常非常非常非常长的歌曲名称'.repeat(5);
     const ctrl = createStubController({
@@ -249,17 +299,19 @@ describe('NewsprintPlayerBar', () => {
     expect(wrapper.find('.np-pb-info').exists()).toBe(true);
   });
 
-  it('no cover uses fallback coverUrl', () => {
-    const fallbackUrl = 'data:image/svg+xml;utf8,fallback';
+  it('no cover renders the Newsprint icon placeholder without an empty image', () => {
     const ctrl = createStubController({
       currentTrack: mkTrack({ Image: undefined }),
-      coverUrl: fallbackUrl,
+      coverUrl: '',
     });
     const wrapper = mount(NewsprintPlayerBar, {
       props: { controller: ctrl },
     });
 
-    expect(wrapper.find('.np-pb-cover img').attributes('src')).toBe(fallbackUrl);
+    expect(wrapper.find('.np-pb-cover img').exists()).toBe(false);
+    const placeholder = wrapper.get('[data-test="player-cover-placeholder"]');
+    expect(placeholder.attributes('data-icon-family')).toBe('lucide');
+    expect(placeholder.attributes('aria-hidden')).toBe('true');
   });
 
   // ── DOM structure (Newsprint-specific) ──

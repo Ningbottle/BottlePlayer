@@ -2,9 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import AuroraHome from '../AuroraHome.vue';
-import type { HomeViewModel, HomeSectionError } from '../homeViewModel';
+import type { HomeSectionError, HomeSectionViewState, HomeViewModel } from '../homeViewModel';
 import type { Track } from '../../../api/normalizer';
-import type { PlaylistInfo } from '../../../api/homeFeedStore';
+import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
 import { animateStagger } from '../../../api/motion';
 
 vi.mock('gsap', () => {
@@ -43,6 +43,23 @@ function createPlaylist(overrides: Partial<PlaylistInfo> = {}): PlaylistInfo {
   };
 }
 
+function createSectionStates(
+  overrides: Partial<Record<HomeSection, Partial<HomeSectionViewState>>> = {},
+): Record<HomeSection, HomeSectionViewState> {
+  const base = (): HomeSectionViewState => ({
+    loading: false,
+    refreshing: false,
+    error: null,
+    isEmpty: false,
+    retry: () => Promise.resolve(),
+  });
+  return {
+    daily: { ...base(), ...overrides.daily },
+    playlists: { ...base(), ...overrides.playlists },
+    albums: { ...base(), ...overrides.albums },
+  };
+}
+
 function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel {
   const { queueWindowStart = 0, ...rest } = overrides;
   return {
@@ -57,6 +74,7 @@ function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel 
     isPlaying: false,
     isInitialLoading: false,
     isRefreshing: false,
+    sections: createSectionStates(),
     errors: [] as readonly HomeSectionError[],
     errorSummary: '',
     heroQualityChips: [],
@@ -74,6 +92,53 @@ describe('AuroraHome', () => {
 
   afterEach(() => {
     getContextSpy.mockReset();
+  });
+
+  it('keeps daily loading, playlist refresh, and album retry scoped to their sections', async () => {
+    const retryDaily = vi.fn().mockResolvedValue(undefined);
+    const retryAlbums = vi.fn().mockResolvedValue(undefined);
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: null,
+          dailyTracks: [],
+          playlists: [createPlaylist({ specialid: 2 })],
+          albums: [],
+          sections: createSectionStates({
+            daily: { loading: true, retry: retryDaily },
+            playlists: { refreshing: true },
+            albums: { error: '加载失败', retry: retryAlbums },
+          }),
+        }),
+      },
+    });
+
+    expect(wrapper.find('[data-test="aurora-stage-loading"]').exists()).toBe(true);
+    expect(wrapper.get('[data-test="playlists-section-status"]').text()).toContain('刷新中…');
+    expect(wrapper.find('[data-test="albums-section-retry"]').exists()).toBe(true);
+
+    await wrapper.get('[data-test="albums-section-retry"]').trigger('click');
+    expect(retryAlbums).toHaveBeenCalledTimes(1);
+    expect(retryDaily).not.toHaveBeenCalled();
+  });
+
+  it('shows playlist loading without putting daily or albums into loading state', () => {
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          dailyTracks: [createTrack({ FileHash: 'daily-ready' })],
+          albums: [createPlaylist({ specialid: 3 })],
+          isRefreshing: true,
+          sections: createSectionStates({ playlists: { loading: true } }),
+        }),
+      },
+    });
+
+    expect(wrapper.find('[data-test="aurora-stage-loading"]').exists()).toBe(false);
+    expect(wrapper.find('[data-test="daily-track-daily-ready"]').exists()).toBe(true);
+    expect(wrapper.get('[data-test="playlists-section-status"]').text()).toContain('加载中…');
+    expect(wrapper.get('[data-test="albums-section-status"]').text()).toContain('全部歌单');
+    expect(wrapper.get('[data-test="refresh"]').attributes('disabled')).toBeUndefined();
   });
 
   it('displays hero track with cover, song name, artist, and play button', () => {
@@ -189,6 +254,7 @@ describe('AuroraHome', () => {
   });
 
   it('uses an actionable empty stage instead of fabricated playback metadata', async () => {
+    const retryDaily = vi.fn().mockResolvedValue(undefined);
     const wrapper = mount(AuroraHome, {
       props: {
         model: createViewModel({
@@ -196,6 +262,7 @@ describe('AuroraHome', () => {
           dailyTracks: [],
           queuePreview: [],
           queueTotal: 0,
+          sections: createSectionStates({ daily: { retry: retryDaily } }),
         }),
       },
     });
@@ -206,7 +273,7 @@ describe('AuroraHome', () => {
     expect(wrapper.find('[data-test="hero-play"]').exists()).toBe(false);
 
     await wrapper.get('[data-test="empty-stage-refresh"]').trigger('click');
-    expect(wrapper.emitted('refresh')).toBeTruthy();
+    expect(retryDaily).toHaveBeenCalledTimes(1);
   });
 
   it('provides a particle environment with an explicit playback state', () => {
@@ -456,8 +523,8 @@ describe('AuroraHome', () => {
 
   it('shows loading state during initial load', () => {
     const vm = createViewModel({
-      isInitialLoading: true,
       heroTrack: null,
+      sections: createSectionStates({ daily: { loading: true } }),
     });
 
     const wrapper = mount(AuroraHome, {
@@ -468,6 +535,25 @@ describe('AuroraHome', () => {
     expect(wrapper.find('[data-test="hero-play"]').exists()).toBe(false);
     expect(wrapper.text()).not.toContain('正在播放');
     expect(wrapper.text()).not.toContain('96kHz');
+  });
+
+  it('renders the current track immediately while the daily feed is still loading', () => {
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: createTrack({ SongName: '立即显示的歌曲' }),
+          sections: createSectionStates({ daily: { loading: true } }),
+        }),
+      },
+    });
+
+    expect(wrapper.get('[data-test="aurora-stage"]').text()).toContain('立即显示的歌曲');
+    expect(wrapper.find('[data-test="aurora-stage-loading"]').exists()).toBe(false);
+  });
+
+  it('keeps Chinese as the primary heading language', () => {
+    const wrapper = mount(AuroraHome, { props: { model: createViewModel() } });
+    expect(wrapper.get('[data-test="daily-picks"] h2').text()).toMatch(/^今日推荐/);
   });
 
   describe('home enter cold / return budgets', () => {

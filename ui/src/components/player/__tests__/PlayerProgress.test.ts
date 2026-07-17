@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import PlayerProgress from '../PlayerProgress.vue';
+
+const tokensCss = readFileSync(resolve(process.cwd(), 'src/styles/tokens.css'), 'utf8');
 
 function mockRect(el: Element, width: number, left = 0) {
   vi.spyOn(el, 'getBoundingClientRect').mockReturnValue({
@@ -19,6 +23,9 @@ function mockRect(el: Element, width: number, left = 0) {
 describe('PlayerProgress', () => {
   beforeEach(() => {
     document.body.innerHTML = '';
+    document.head.querySelector('[data-test="progress-token-contract"]')?.remove();
+    document.documentElement.removeAttribute('data-skin');
+    document.documentElement.removeAttribute('data-mode');
   });
 
   // ── ARIA ──
@@ -121,6 +128,32 @@ describe('PlayerProgress', () => {
     expect(html).not.toContain('data-skin');
     expect(html).not.toContain('aurora');
     expect(html).not.toContain('newsprint');
+  });
+
+  it.each([
+    [":root[data-skin='aurora'][data-mode='light']", 'Aurora light'],
+    [":root[data-skin='aurora'][data-mode='dark']", 'Aurora dark'],
+    [":root[data-skin='newsprint'][data-mode='light']", 'Newsprint light'],
+    [":root[data-skin='newsprint'][data-mode='dark']", 'Newsprint dark'],
+  ])('defines opaque progress tokens for %s', (selector) => {
+    const skin = selector.match(/data-skin='([^']+)'/)?.[1];
+    const mode = selector.match(/data-mode='([^']+)'/)?.[1];
+    expect(skin).toBeTruthy();
+    expect(mode).toBeTruthy();
+
+    const style = document.createElement('style');
+    style.dataset.test = 'progress-token-contract';
+    style.textContent = tokensCss;
+    document.head.appendChild(style);
+    document.documentElement.dataset.skin = skin!;
+    document.documentElement.dataset.mode = mode!;
+    const computed = getComputedStyle(document.documentElement);
+
+    for (const token of ['--progress-track', '--progress-fill']) {
+      const value = computed.getPropertyValue(token).trim();
+      expect(value).toBeTruthy();
+      expect(value).not.toMatch(/transparent|rgba?\([^)]*,\s*0(?:\.0+)?\s*\)/i);
+    }
   });
 
   // ── duration = 0 edge case ──

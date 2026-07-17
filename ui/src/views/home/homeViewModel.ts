@@ -1,11 +1,24 @@
 import { computed, type ComputedRef } from 'vue';
-import { useHomeFeedStore, type PlaylistInfo } from '../../api/homeFeedStore';
+import {
+  useHomeFeedStore,
+  type HomeSection,
+  type HomeSectionState,
+  type PlaylistInfo,
+} from '../../api/homeFeedStore';
 import { playerStore } from '../../api/playerStore';
 import type { Track } from '../../api/normalizer';
 
 export interface HomeSectionError {
   section: string;
   message: string;
+}
+
+export interface HomeSectionViewState {
+  loading: boolean;
+  refreshing: boolean;
+  error: string | null;
+  isEmpty: boolean;
+  retry: () => Promise<void>;
 }
 
 export interface HomeViewModel {
@@ -21,6 +34,7 @@ export interface HomeViewModel {
   isPlaying: boolean;
   isInitialLoading: boolean;
   isRefreshing: boolean;
+  sections: Readonly<Record<HomeSection, HomeSectionViewState>>;
   errors: readonly HomeSectionError[];
   /** Named column summary, e.g. "每日推荐、专辑加载失败". Empty when no errors. */
   errorSummary: string;
@@ -53,6 +67,20 @@ function collectErrors(homeFeed: ReturnType<typeof useHomeFeedStore>): HomeSecti
   if (homeFeed.playlists.error) errors.push({ section: 'playlists', message: homeFeed.playlists.error });
   if (homeFeed.albums.error) errors.push({ section: 'albums', message: homeFeed.albums.error });
   return errors;
+}
+
+function createSectionViewState<T>(
+  section: HomeSection,
+  state: HomeSectionState<T>,
+  retrySection: (section: HomeSection) => Promise<void>,
+): HomeSectionViewState {
+  return {
+    loading: state.loading,
+    refreshing: state.refreshing,
+    error: state.error,
+    isEmpty: state.loaded && state.items.length === 0,
+    retry: () => retrySection(section),
+  };
 }
 
 export function formatHomeErrorSummary(errors: readonly HomeSectionError[]): string {
@@ -103,6 +131,11 @@ export function useHomeViewModel(): ComputedRef<HomeViewModel> {
   return computed<HomeViewModel>(() => {
     const heroTrack = playerStore.currentTrack ?? homeFeed.daily.items[0] ?? null;
     const errors = collectErrors(homeFeed);
+    const sections = {
+      daily: createSectionViewState('daily', homeFeed.daily, homeFeed.retrySection),
+      playlists: createSectionViewState('playlists', homeFeed.playlists, homeFeed.retrySection),
+      albums: createSectionViewState('albums', homeFeed.albums, homeFeed.retrySection),
+    };
     const queueWindowStart = getQueueWindowStart(
       playerStore.queue,
       playerStore.currentIndex,
@@ -126,6 +159,7 @@ export function useHomeViewModel(): ComputedRef<HomeViewModel> {
         homeFeed.daily.refreshing ||
         homeFeed.playlists.refreshing ||
         homeFeed.albums.refreshing,
+      sections,
       errors,
       errorSummary: formatHomeErrorSummary(errors),
       heroQualityChips: buildHeroQualityChips(

@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { Minimize2, Minus } from '@lucide/vue';
 import { setLyricFullscreen } from '../../api/lyricFullscreen';
 
 async function minimize(): Promise<void> {
@@ -28,9 +29,7 @@ function exitFullscreen(): void {
       title="最小化"
       aria-label="最小化"
     >
-      <svg viewBox="0 0 10 10">
-        <line x1="1" y1="5" x2="9" y2="5" stroke="currentColor" stroke-width="1.2" />
-      </svg>
+      <Minus :size="13" :stroke-width="1.7" aria-hidden="true" />
     </button>
     <button
       class="control-btn exit-fs"
@@ -43,9 +42,7 @@ function exitFullscreen(): void {
       title="退出全屏"
       aria-label="退出全屏"
     >
-      <svg viewBox="0 0 10 10">
-        <path d="M 1 3.5 L 1 1 L 3.5 1 M 6.5 1 L 9 1 L 9 3.5 M 9 6.5 L 9 9 L 6.5 9 M 3.5 9 L 1 9 L 1 6.5" fill="none" stroke="currentColor" stroke-width="1.2" />
-      </svg>
+      <Minimize2 :size="13" :stroke-width="1.7" aria-hidden="true" />
     </button>
   </div>
 </template>

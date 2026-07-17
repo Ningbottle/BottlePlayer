@@ -269,17 +269,16 @@ function formatDuration(sec: number): string {
               <button
                 class="aurora-refresh"
                 data-test="refresh"
-                :disabled="model.isRefreshing"
                 @click="emit('refresh')"
               >
-                {{ model.isRefreshing ? '刷新中…' : '刷新' }}
+                刷新
               </button>
             </div>
           </div>
         </div>
 
         <div
-          v-else-if="model.isInitialLoading"
+          v-else-if="model.sections.daily.loading"
           class="aurora-stage-main aurora-stage-loading"
           data-test="aurora-stage-loading"
           aria-busy="true"
@@ -301,10 +300,10 @@ function formatDuration(sec: number): string {
             type="button"
             class="aurora-play"
             data-test="empty-stage-refresh"
-            :disabled="model.isRefreshing"
-            @click="emit('refresh')"
+            :disabled="model.sections.daily.loading || model.sections.daily.refreshing"
+            @click="model.sections.daily.retry()"
           >
-            {{ model.isRefreshing ? '加载中…' : '刷新推荐' }}
+            {{ model.sections.daily.error ? '重试' : model.sections.daily.refreshing ? '刷新中…' : '刷新推荐' }}
           </button>
         </div>
 
@@ -364,13 +363,13 @@ function formatDuration(sec: number): string {
     </section>
 
     <section
-      v-if="model.dailyTracks.length > 0"
+      v-if="model.dailyTracks.length > 0 || model.sections.daily.loading || model.sections.daily.error || model.sections.daily.isEmpty"
       class="aurora-recommendations"
       data-test="daily-picks"
     >
       <div class="aurora-section-head">
         <div class="aurora-section-head-copy">
-          <h2>DAILY PICKS · 今日推荐</h2>
+          <h2>今日推荐 · DAILY PICKS</h2>
           <p class="aurora-section-sub">
             根据你与「{{ model.heroTrack?.SingerName || '收藏' }}」的收听偏好精选
           </p>
@@ -378,10 +377,11 @@ function formatDuration(sec: number): string {
         <button
           type="button"
           class="aurora-picks-refresh"
-          :disabled="model.isRefreshing"
-          @click="emit('refresh')"
+          data-test="daily-section-retry"
+          :disabled="model.sections.daily.loading || model.sections.daily.refreshing"
+          @click="model.sections.daily.retry()"
         >
-          {{ model.isRefreshing ? '刷新中…' : '刷新' }}
+          {{ model.sections.daily.error ? '重试' : model.sections.daily.loading ? '加载中…' : model.sections.daily.refreshing ? '刷新中…' : model.sections.daily.isEmpty ? '暂无内容' : '刷新' }}
         </button>
       </div>
       <div class="aurora-recommendation-grid">
@@ -421,10 +421,19 @@ function formatDuration(sec: number): string {
       </button>
     </div>
 
-    <section v-if="model.playlists.length > 0" class="aurora-section">
+    <section v-if="model.playlists.length > 0 || model.sections.playlists.loading || model.sections.playlists.error || model.sections.playlists.isEmpty" class="aurora-section">
       <div class="aurora-section-head">
         <h2>编辑推荐</h2>
-        <span>{{ model.isRefreshing ? '刷新中…' : '本周精选' }}</span>
+        <button
+          v-if="model.sections.playlists.error"
+          type="button"
+          class="aurora-picks-refresh"
+          data-test="playlists-section-retry"
+          @click="model.sections.playlists.retry()"
+        >重试</button>
+        <span v-else data-test="playlists-section-status">
+          {{ model.sections.playlists.loading ? '加载中…' : model.sections.playlists.refreshing ? '刷新中…' : model.sections.playlists.isEmpty ? '暂无内容' : '本周精选' }}
+        </span>
       </div>
       <div class="aurora-grid">
         <button
@@ -447,10 +456,19 @@ function formatDuration(sec: number): string {
       </div>
     </section>
 
-    <section v-if="model.albums.length > 0" class="aurora-section">
+    <section v-if="model.albums.length > 0 || model.sections.albums.loading || model.sections.albums.error || model.sections.albums.isEmpty" class="aurora-section">
       <div class="aurora-section-head">
         <h2>最新歌单</h2>
-        <span>{{ model.isRefreshing ? '刷新中…' : '全部歌单' }}</span>
+        <button
+          v-if="model.sections.albums.error"
+          type="button"
+          class="aurora-picks-refresh"
+          data-test="albums-section-retry"
+          @click="model.sections.albums.retry()"
+        >重试</button>
+        <span v-else data-test="albums-section-status">
+          {{ model.sections.albums.loading ? '加载中…' : model.sections.albums.refreshing ? '刷新中…' : model.sections.albums.isEmpty ? '暂无内容' : '全部歌单' }}
+        </span>
       </div>
       <div class="aurora-grid">
         <button

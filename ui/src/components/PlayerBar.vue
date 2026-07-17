@@ -1,14 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
+import { useRoute } from 'vue-router';
 import { useThemeStore } from '../api/themeStore';
 import { usePlayerControls } from './player/usePlayerControls';
 import AuroraPlayerBar from './player/AuroraPlayerBar.vue';
 import NewsprintPlayerBar from './player/NewsprintPlayerBar.vue';
 import AddToPlaylistModal from './AddToPlaylistModal.vue';
-
-const props = defineProps<{
-  activeView: string;
-}>();
 
 const emit = defineEmits<{
   (e: 'navigate', view: string): void;
@@ -16,9 +13,10 @@ const emit = defineEmits<{
 }>();
 
 const { skinId } = useThemeStore();
+const route = useRoute();
 
 const controller = usePlayerControls({
-  activeView: () => props.activeView,
+  activeView: () => route.name as string,
   onNavigate: (view: string) => emit('navigate', view),
 });
 

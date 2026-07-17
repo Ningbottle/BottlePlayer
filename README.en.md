@@ -4,6 +4,8 @@
 
 English | [中文](./README.md)
 
+[Privacy (Chinese)](./PRIVACY.md) | [Security (Chinese)](./SECURITY.md)
+
 <!-- logo -->
 
 ![CI](https://img.shields.io/github/actions/workflow/status/Ningbottle/BottlePlayer/ci.yml?label=CI)
@@ -11,7 +13,9 @@ English | [中文](./README.md)
 ![License](https://img.shields.io/github/license/Ningbottle/BottlePlayer)
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11%20x64-blue)
 
-KuGou Concept Edition has no official website or PC client. BottleMusic brings the Concept Edition experience to PC with dual-skin visuals (Aurora immersive + Newsprint editorial) and full playback, equalizer, and statistics features.
+BottleMusic is an unofficial Windows desktop client. It is not affiliated with or endorsed by KuGou or any other service provider, and it does not claim to have obtained KuGou authorization. It provides dual-skin visuals (Aurora immersive + Newsprint editorial) together with playback, equalizer, and statistics features.
+
+> Important: Any public listing, distribution, or commercial use requires the necessary authorization from the relevant third-party service providers and music rightsholders. A disclaimer does not replace that authorization.
 
 ## Screenshots
 
@@ -46,7 +50,7 @@ KuGou Concept Edition has no official website or PC client. BottleMusic brings t
 - Play history dashboard: total plays, actual listening time, completion rate, unique songs/artists
 - Top lists: most-played songs / artists / albums (grouped by album_id)
 - Timeline chart: daily play counts
-- DeepSeek AI analysis: personalized listening report based on local play data
+- Optional DeepSeek AI analysis: a listening summary is sent to DeepSeek only after the user explicitly clicks AI analysis; the API key is used for the current page session only and is not persisted to disk
 
 ### Search
 - Song / artist / album search with direct playback or add-to-queue
@@ -56,7 +60,7 @@ KuGou Concept Edition has no official website or PC client. BottleMusic brings t
 
 ### Login
 - QR code login, user info / VIP status display
-- Daily free VIP claim (listen / ad)
+- Account features and third-party service entry points depend on actual availability and the applicable third-party terms
 
 ### Auto-Update
 - Built-in Tauri updater, checks GitHub Releases for new versions on launch
@@ -67,7 +71,7 @@ Download the latest release from the [Releases page](https://github.com/Ningbott
 
 **Requirements**: Windows 10/11 x64
 
-Installation: NSIS installer (supports per-user and per-machine install). Launch after installation and future updates will be detected and installed automatically.
+Installation: NSIS per-user installer only. It writes within the current Windows user's scope. Launch after installation; future updates will be checked and installation prompts will be shown when available.
 
 ## Skins
 
@@ -129,4 +133,6 @@ For full development documentation, see [CONTEXT.md](./CONTEXT.md).
 
 ## Disclaimer
 
-This project is for personal learning and technical research only. Music data and copyrights belong to the original platform and copyright holders. Please respect intellectual property and support legitimate music.
+This is unofficial software and is not affiliated with or endorsed by KuGou or any other third-party service provider. It does not claim to have obtained third-party service or content authorization. The project is for personal learning and technical research only. Rights in music data, metadata, artwork, lyrics, and audio belong to the relevant platforms and rightsholders. Any public listing, distribution, or commercial use requires the necessary authorization from those parties. This disclaimer does not replace authorization or waive third-party terms. Follow applicable law, platform rules, and service terms.
+
+See [PRIVACY.md](./PRIVACY.md) and [SECURITY.md](./SECURITY.md) for privacy and security information.

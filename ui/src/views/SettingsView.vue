@@ -4,8 +4,8 @@ import { apiGet } from '../api/backend';
 import { checkLoginStatus } from '../api/userStore';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
-import { useThemeStore, type SkinId, type Mode } from '../api/themeStore';
-import { useLyricFocusStore } from '../api/lyricFocusStore';
+import { openUrl } from '@tauri-apps/plugin-opener';
+import { useAppearanceStore, type AppearanceSettings } from '../api/appearanceStore';
 import { setSkippedVersion } from '../api/skippedVersion';
 import { playbackDiagnostics, type DiagEvent } from '../api/playbackDiagnostics';
 import { crossfadeTheme, transitionEnter, transitionLeave } from '../api/motion';
@@ -13,17 +13,26 @@ import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 import SkinButton from '../components/primitives/SkinButton.vue';
 import SkinEmptyState from '../components/primitives/SkinEmptyState.vue';
 
-const themeStore = useThemeStore();
-const lyricFocus = useLyricFocusStore();
+const appearanceStore = useAppearanceStore();
+appearanceStore.init();
 
 type SectionId = 'appearance' | 'device' | 'vip' | 'update' | 'storage' | 'diagnostics';
 const activeSection = ref<SectionId>('appearance');
 
-async function selectSkin(id: SkinId) {
-  await crossfadeTheme(() => themeStore.setSkin(id));
+async function selectSkin(id: AppearanceSettings['skin']) {
+  await crossfadeTheme(() => appearanceStore.setSkin(id));
 }
-async function selectMode(m: Mode) {
-  await crossfadeTheme(() => themeStore.setMode(m));
+async function selectMode(m: AppearanceSettings['mode']) {
+  await crossfadeTheme(() => appearanceStore.setMode(m));
+}
+function selectAccent(event: Event) {
+  appearanceStore.setAccent((event.target as HTMLInputElement).value);
+}
+function selectCompactList(event: Event) {
+  appearanceStore.setCompactList((event.target as HTMLInputElement).checked);
+}
+function selectLyricAlign(value: AppearanceSettings['lyricAlign']) {
+  appearanceStore.setLyricAlign(value);
 }
 
 interface MemoryData {
@@ -210,6 +219,14 @@ async function resetDevice() {
   }
 }
 
+async function openDeviceHelp() {
+  try {
+    await openUrl('https://m.kugou.com/');
+  } catch (e: any) {
+    deviceStatus.value = '无法打开系统浏览器：' + (e?.message || String(e));
+  }
+}
+
 // Probe whether KuGou trusts the current saved device. Calls /song/url with a
 // well-known free song hash; analyzes the upstream response to tell the user
 // instantly if the dfid is registered (status:1 + /full/), risk-controlled
@@ -289,13 +306,6 @@ function formatBytes(bytes: number) {
   return `${(bytes / (1024 * 1024)).toFixed(2)} MB`;
 }
 
-const showClearConfirm = ref(false);
-const cacheStatus = ref('');
-function clearCache() {
-  cacheStatus.value = '✓ 本地 SQLite3 设置缓存与图片 LRU 缓存已执行清理回收！';
-  showClearConfirm.value = false;
-}
-
 // ── Playback diagnostics (frontend event ring buffer) ──
 const diagEvents = ref<DiagEvent[]>([]);
 function refreshDiag() {
@@ -332,71 +342,102 @@ async function copyDiag() {
         <Transition :css="false" @enter="transitionEnter" @leave="transitionLeave">
           <!-- ── Appearance ── -->
           <section v-if="activeSection === 'appearance'" key="appearance" data-test="settings-section-appearance">
-            <h3 class="settings-section-title">外观 · Skin &amp; Mode</h3>
-            <p class="settings-hint">选择皮肤和明暗模式。Newsprint 是 v1 报纸风；Aurora 是 v2 全新苹果风。</p>
-            <div class="settings-row">
-              <SkinButton
-                data-test="select-skin-aurora"
-                :variant="themeStore.skinId.value === 'aurora' ? 'primary' : 'secondary'"
-                size="md"
-                @click="selectSkin('aurora')"
-              >Aurora (v2)</SkinButton>
-              <SkinButton
-                data-test="select-skin-newsprint"
-                :variant="themeStore.skinId.value === 'newsprint' ? 'primary' : 'secondary'"
-                size="md"
-                @click="selectSkin('newsprint')"
-              >Newsprint (v1)</SkinButton>
-            </div>
-            <div class="settings-row">
-              <SkinButton
-                data-test="select-mode-light"
-                :variant="themeStore.mode.value === 'light' ? 'primary' : 'secondary'"
-                size="md"
-                @click="selectMode('light')"
-              >☀️ 浅色</SkinButton>
-              <SkinButton
-                data-test="select-mode-dark"
-                :variant="themeStore.mode.value === 'dark' ? 'primary' : 'secondary'"
-                size="md"
-                @click="selectMode('dark')"
-              >🌙 深色</SkinButton>
+            <h3 class="settings-section-title">外观设置 <span class="settings-control-secondary">Appearance</span></h3>
+            <p class="settings-hint">选择皮肤、光感、强调色、列表密度和歌词对齐方式。</p>
+
+            <div class="settings-control-group" role="group" aria-labelledby="settings-skin-label" data-test="settings-skin-group">
+              <span id="settings-skin-label" class="settings-field-label">
+                皮肤 <span class="settings-control-secondary">Skin</span>
+              </span>
+              <div class="settings-row">
+                <SkinButton
+                  data-test="select-skin-aurora"
+                  :aria-pressed="appearanceStore.skin.value === 'aurora'"
+                  :variant="appearanceStore.skin.value === 'aurora' ? 'primary' : 'secondary'"
+                  size="md"
+                  @click="selectSkin('aurora')"
+                ><span>极光</span><span class="settings-control-secondary">Aurora</span></SkinButton>
+                <SkinButton
+                  data-test="select-skin-newsprint"
+                  :aria-pressed="appearanceStore.skin.value === 'newsprint'"
+                  :variant="appearanceStore.skin.value === 'newsprint' ? 'primary' : 'secondary'"
+                  size="md"
+                  @click="selectSkin('newsprint')"
+                ><span>报刊</span><span class="settings-control-secondary">Newsprint</span></SkinButton>
+              </div>
             </div>
 
-            <section class="settings-row" data-test="settings-lyric-focus">
+            <div class="settings-control-group" role="group" aria-labelledby="settings-mode-label" data-test="settings-mode-group">
+              <span id="settings-mode-label" class="settings-field-label">
+                光感 <span class="settings-control-secondary">Mode</span>
+              </span>
+              <div class="settings-row">
+                <SkinButton
+                  data-test="select-mode-light"
+                  :aria-pressed="appearanceStore.mode.value === 'light'"
+                  :variant="appearanceStore.mode.value === 'light' ? 'primary' : 'secondary'"
+                  size="md"
+                  @click="selectMode('light')"
+                ><span>浅色</span><span class="settings-control-secondary">Light</span></SkinButton>
+                <SkinButton
+                  data-test="select-mode-dark"
+                  :aria-pressed="appearanceStore.mode.value === 'dark'"
+                  :variant="appearanceStore.mode.value === 'dark' ? 'primary' : 'secondary'"
+                  size="md"
+                  @click="selectMode('dark')"
+                ><span>深色</span><span class="settings-control-secondary">Dark</span></SkinButton>
+              </div>
+            </div>
+
+            <div class="settings-field" data-test="settings-appearance-accent">
+              <label class="settings-field-label" for="settings-accent">强调色 <span class="settings-control-secondary">Accent</span></label>
+              <input
+                id="settings-accent"
+                class="settings-input settings-color-input"
+                data-test="settings-accent-input"
+                type="color"
+                :value="appearanceStore.accent.value"
+                @input="selectAccent"
+              />
+            </div>
+
+            <label class="settings-field settings-toggle" data-test="settings-appearance-compact-list">
+              <span class="settings-field-label">紧凑列表 <span class="settings-control-secondary">Compact List</span></span>
+              <input
+                data-test="settings-compact-list"
+                type="checkbox"
+                :checked="appearanceStore.compactList.value"
+                @change="selectCompactList"
+              />
+            </label>
+
+            <section class="settings-row" data-test="settings-appearance-lyric-align">
               <div
                 role="group"
                 class="settings-segment"
-                aria-labelledby="settings-lyric-focus-label"
-                aria-describedby="settings-lyric-focus-hint"
+                aria-labelledby="settings-lyric-align-label"
               >
-                <span id="settings-lyric-focus-label" class="settings-field-label">歌词显示</span>
-                <p id="settings-lyric-focus-hint" class="settings-hint">
-                  默认清晰可读，可扫读全部歌词；舞台模式增强远近层次。
-                </p>
+                <span id="settings-lyric-align-label" class="settings-field-label">歌词对齐 <span class="settings-control-secondary">Lyric Alignment</span></span>
                 <div class="settings-segment-buttons">
                   <button
                     type="button"
-                    data-test="settings-lyric-focus-readable"
-                    :aria-pressed="lyricFocus.mode.value === 'readable'"
-                    :data-active="lyricFocus.mode.value === 'readable'"
-                    @click="lyricFocus.setMode('readable')"
+                    data-test="settings-lyric-align-left"
+                    :aria-pressed="appearanceStore.lyricAlign.value === 'left'"
+                    :data-active="appearanceStore.lyricAlign.value === 'left'"
+                    @click="selectLyricAlign('left')"
                   >
-                    清晰可读
+                    <span>左对齐</span><span class="settings-control-secondary">Left</span>
                   </button>
                   <button
                     type="button"
-                    data-test="settings-lyric-focus-stage"
-                    :aria-pressed="lyricFocus.mode.value === 'stage'"
-                    :data-active="lyricFocus.mode.value === 'stage'"
-                    @click="lyricFocus.setMode('stage')"
+                    data-test="settings-lyric-align-center"
+                    :aria-pressed="appearanceStore.lyricAlign.value === 'center'"
+                    :data-active="appearanceStore.lyricAlign.value === 'center'"
+                    @click="selectLyricAlign('center')"
                   >
-                    舞台渐隐
+                    <span>居中</span><span class="settings-control-secondary">Center</span>
                   </button>
                 </div>
-                <p class="sr-only" aria-live="polite" data-test="settings-lyric-focus-live">
-                  当前：{{ lyricFocus.mode.value === 'readable' ? '清晰可读' : '舞台渐隐' }}
-                </p>
               </div>
             </section>
           </section>
@@ -411,7 +452,14 @@ async function copyDiag() {
             <p class="settings-hint">
               登录后 App 会自动生成并通过 <code>/register/dev</code> 注册设备指纹（dfid / mid / uuid），正常播放 VIP 音频与歌单<strong>无需手动设置</strong>。下面三个框是<strong>可选的高级覆盖</strong>——若你想用从酷狗官方 App / 网页抓到的真实指纹替代自动生成的，填进去即可，所有 KuGou API 调用都会改用你输入的指纹。（格式：dfid 24 位 base64，mid 约 32–40 位 hex，uuid 32 位 hex / GUID）
               <br>
-              <strong>怎么获取</strong>：浏览器打开 <a href="https://m.kugou.com/" target="_blank">m.kugou.com</a> → F12 → Network → 找任意请求里的 query 字符串 → 复制 <code>dfid=</code><code>mid=</code><code>uuid=</code> 三个字段。
+              <strong>怎么获取</strong>：浏览器打开
+              <button
+                type="button"
+                class="settings-inline-link"
+                data-test="open-device-help"
+                @click="openDeviceHelp"
+              >m.kugou.com</button>
+              → F12 → Network → 找任意请求里的 query 字符串 → 复制 <code>dfid=</code><code>mid=</code><code>uuid=</code> 三个字段。
               <br>
               <strong class="settings-warn">注意</strong>：三个框留空即用 App 自动生成 / 注册的指纹，绝大多数情况够用——随机生成的 dfid 也能正常领 VIP 与播放。仅当个别接口因风控偶发受限（如歌单 20017、song/url 只给 60s 试听）时，再尝试填入官方渠道抓到的真实指纹覆盖。
             </p>
@@ -508,17 +556,6 @@ async function copyDiag() {
             <p class="settings-hint">
               项目当前把缓存记录在 SQLite3 中。图片解码走 WIC 缓存通道，内存 LRU 自动在 16MB 满额时启动淘汰。
             </p>
-            <div class="settings-row">
-              <SkinButton variant="secondary" size="md" @click="showClearConfirm = true">清理本地数据缓存</SkinButton>
-              <span v-if="cacheStatus" class="settings-status">{{ cacheStatus }}</span>
-            </div>
-            <div v-if="showClearConfirm" class="settings-confirm">
-              <p>确认清理本地数据缓存？</p>
-              <div class="settings-row">
-                <SkinButton variant="primary" size="md" @click="clearCache">确认清理</SkinButton>
-                <SkinButton variant="ghost" size="md" @click="showClearConfirm = false">取消</SkinButton>
-              </div>
-            </div>
           </section>
 
           <!-- ── Diagnostics (native memory + frontend playback merged) ── -->
@@ -598,6 +635,35 @@ async function copyDiag() {
 .settings-header-meta {
   font-size: 13px;
   color: var(--text-muted);
+}
+.settings-control-secondary {
+  display: block;
+  font-size: 0.72em;
+  font-weight: 500;
+  letter-spacing: 0.03em;
+  opacity: 0.72;
+}
+.settings-inline-link {
+  border: 0;
+  border-bottom: 1px solid currentColor;
+  background: transparent;
+  color: var(--accent);
+  cursor: pointer;
+  font: inherit;
+  padding: 0;
+}
+.settings-inline-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+.settings-section-title > .settings-control-secondary {
+  display: inline;
+  margin-left: 4px;
+}
+.settings-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
 }
 .diag-stall {
   background: rgba(220, 50, 47, 0.08) !important;

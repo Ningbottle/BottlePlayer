@@ -182,8 +182,29 @@ describe('StatsView data loading', () => {
 describe('StatsView component rendering', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    localStorage.clear();
     playAllMock.mockClear();
     isReducedMotionMock.mockReturnValue(false);
+  });
+
+  it('never restores or persists the DeepSeek API key in web storage', async () => {
+    localStorage.setItem('deepseek_api_key', 'legacy-secret');
+    const wrapper = mount(StatsView);
+    await flushPromises();
+
+    const input = wrapper.get('.ai-key-input');
+    expect((input.element as HTMLInputElement).value).toBe('');
+    expect(localStorage.getItem('deepseek_api_key')).toBeNull();
+
+    await input.setValue('session-secret');
+    await wrapper.get('.stats-ai button').trigger('click');
+    await flushPromises();
+
+    expect(localStorage.getItem('deepseek_api_key')).toBeNull();
+    expect(vi.mocked(invoke)).toHaveBeenCalledWith(
+      'ai_analyze',
+      expect.objectContaining({ apiKey: 'session-secret' }),
+    );
   });
 
   it('renders overview cards after loading', async () => {

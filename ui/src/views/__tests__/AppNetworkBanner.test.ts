@@ -88,7 +88,6 @@ vi.mock('../../components/Topbar.vue', () => ({
   },
 }));
 vi.mock('../../components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
-vi.mock('../../components/Drawer.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../SearchView.vue', () => ({ default: { props: ['query'], template: '<main data-test="search-view" />' } }));
 vi.mock('../PlaylistView.vue', () => ({ default: { template: '<main />' } }));
@@ -101,6 +100,35 @@ vi.mock('../EqualizerView.vue', () => ({ default: { template: '<main />' } }));
 
 import App from '../../App.vue';
 import { useThemeStore, __resetForTest as resetTheme } from '../../api/themeStore';
+import { createAppRouter } from '../../navigation/router';
+import { routeNames } from '../../navigation/routes';
+
+async function mountApp() {
+  const router = createAppRouter();
+  await router.push({ name: routeNames.home });
+  await router.isReady();
+  return {
+    router,
+    wrapper: mount(App, { global: { plugins: [router] } }),
+  };
+}
+
+async function clickAndWaitForNavigation(
+  router: ReturnType<typeof createAppRouter>,
+  wrapper: ReturnType<typeof mount>,
+  selector: string,
+) {
+  const settled = new Promise<void>((resolve) => {
+    const removeAfterEach = router.afterEach(() => {
+      removeAfterEach();
+      resolve();
+    });
+  });
+  await wrapper.get(selector).trigger('click');
+  await settled;
+  await flushPromises();
+  await nextTick();
+}
 
 describe('App network banner', () => {
   beforeEach(() => {
@@ -120,7 +148,7 @@ describe('App network banner', () => {
   it('does not show offline browsing when the Tauri shell is reachable', async () => {
     backendHealthMock.mockResolvedValue({ ok: false, status: 0, text: 'request_timeout' });
 
-    const wrapper = mount(App);
+    const { wrapper } = await mountApp();
 
     await vi.advanceTimersByTimeAsync(1_000);
     await flushPromises();
@@ -133,7 +161,7 @@ describe('App network banner', () => {
   it('shows a backend banner when the Tauri shell is unreachable', async () => {
     pingMock.mockRejectedValue(new Error('tauri unavailable'));
 
-    const wrapper = mount(App);
+    const { wrapper } = await mountApp();
 
     await vi.advanceTimersByTimeAsync(1_000);
     await flushPromises();
@@ -144,7 +172,7 @@ describe('App network banner', () => {
   it('keeps the backend banner below the titlebar controls', async () => {
     pingMock.mockRejectedValue(new Error('tauri unavailable'));
 
-    const wrapper = mount(App);
+    const { wrapper } = await mountApp();
 
     await vi.advanceTimersByTimeAsync(1_000);
     await flushPromises();
@@ -158,8 +186,8 @@ describe('App network banner', () => {
     expect(wrapper.find('.titlebar-controls .close').exists()).toBe(true);
   });
 
-  it('wraps the main scroll view in JS transition hooks', () => {
-    const wrapper = mount(App);
+  it('wraps the main scroll view in JS transition hooks', async () => {
+    const { wrapper } = await mountApp();
 
     const transition = wrapper.findComponent({ name: 'Transition' });
 
@@ -176,7 +204,7 @@ describe('App network banner', () => {
     const { setSkin } = useThemeStore();
     setSkin('newsprint');
 
-    const wrapper = mount(App);
+    const { wrapper } = await mountApp();
     await nextTick();
 
     const transition = wrapper.findComponent({ name: 'Transition' });
@@ -193,7 +221,7 @@ describe('App network banner', () => {
     expect(appSource).toMatch(/grid-area:\s*1\s*\/\s*1/);
     expect(appSource).toMatch(/page-transition-stack':\s*isAuroraOverlap/);
 
-    const wrapper = mount(App);
+    const { wrapper } = await mountApp();
     const scroll = wrapper.get('.scroll').element as HTMLElement;
     expect(scroll.classList.contains('page-transition-stack')).toBe(true);
 
@@ -234,10 +262,9 @@ describe('App network banner', () => {
   });
 
   it('does not remount SearchView while the query input changes', async () => {
-    const wrapper = mount(App);
+    const { wrapper, router } = await mountApp();
 
-    await wrapper.find('[data-test="go-search"]').trigger('click');
-    await nextTick();
+    await clickAndWaitForNavigation(router, wrapper, '[data-test="go-search"]');
     const firstSearchElement = wrapper.find('[data-test="search-view"]').element;
 
     await wrapper.find('[data-test="edit-search"]').trigger('click');
@@ -247,7 +274,7 @@ describe('App network banner', () => {
   });
 
   it('keeps the same HomeView instance when navigating away and back', async () => {
-    const wrapper = mount(App);
+    const { wrapper, router } = await mountApp();
     await flushPromises();
 
     expect(homeFeedStoreMock.ensureLoaded).toHaveBeenCalledTimes(1);
@@ -255,13 +282,10 @@ describe('App network banner', () => {
     const scroll = wrapper.get('.scroll').element as HTMLElement;
     scroll.scrollTop = 146;
 
-    await wrapper.get('[data-test="go-stats"]').trigger('click');
-    await nextTick();
+    await clickAndWaitForNavigation(router, wrapper, '[data-test="go-stats"]');
     scroll.scrollTop = 0;
 
-    await wrapper.get('[data-test="go-back"]').trigger('click');
-    await nextTick();
-    await nextTick();
+    await clickAndWaitForNavigation(router, wrapper, '[data-test="go-back"]');
 
     expect(homeFeedStoreMock.ensureLoaded).toHaveBeenCalledTimes(1);
     expect(scroll.scrollTop).toBe(146);

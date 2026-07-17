@@ -23,11 +23,11 @@ const stageComponent = computed(() =>
 </script>
 
 <template>
-  <!--
-    No separate page curtain — stage enter lives only in AuroraLyricStage
-    (one coordinated open). Extra overlay felt disconnected and double-fired.
-  -->
   <div class="list-view lyric-view">
+    <!--
+      No separate page curtain — stage enter lives only in AuroraLyricStage
+      (one coordinated open). Extra overlay felt disconnected and double-fired.
+    -->
     <div v-if="!model.currentTrack" class="lyric-empty-state" data-test="lyric-empty-state">
       <p class="lyric-empty-kicker">LYRICS</p>
       <h1>选择一首歌，歌词会在这里展开</h1>
@@ -36,14 +36,6 @@ const stageComponent = computed(() =>
         <button type="button" data-test="lyric-empty-home" @click="emit('navigate', 'home')">回到首页</button>
         <button type="button" data-test="lyric-empty-search" @click="emit('navigate', 'search')">搜索歌曲</button>
       </div>
-    </div>
-
-    <div v-else-if="model.loading" class="spinner">
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <circle cx="12" cy="12" r="10" stroke="rgba(34,27,18,0.1)"></circle>
-        <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
-      </svg>
-      译稿编撰中…
     </div>
 
     <div
@@ -61,12 +53,30 @@ const stageComponent = computed(() =>
         @user-scroll="commands.onUserScroll"
         @seek-line="commands.seekToLine"
         @seek="commands.seekToLine"
-      />
-      <LyricFollowFooter
-        v-if="!model.fullscreen"
-        :auto-following="model.autoFollowing"
-        @resume="commands.resumeFollow"
-      />
+      >
+        <template #loading>
+          <div class="spinner" data-test="lyric-loading" role="status" aria-live="polite">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true">
+              <circle cx="12" cy="12" r="10" stroke="rgba(34,27,18,0.1)"></circle>
+              <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
+            </svg>
+            译稿编撰中…
+          </div>
+        </template>
+        <template #error>
+          <div class="lyric-error-state" data-test="lyric-error" role="alert">
+            <strong>歌词暂时无法加载</strong>
+            <span>连接恢复后可以重新获取当前歌曲的歌词。</span>
+            <button type="button" data-test="lyric-retry" @click="commands.retryLyrics">重试歌词</button>
+          </div>
+        </template>
+        <template v-if="!model.fullscreen && !model.loading" #footer>
+          <LyricFollowFooter
+            :auto-following="model.autoFollowing"
+            @resume="commands.resumeFollow"
+          />
+        </template>
+      </component>
     </div>
   </div>
 </template>
@@ -83,12 +93,52 @@ const stageComponent = computed(() =>
 
 .lyric-view-grid {
   display: grid;
-  grid-template-rows: 1fr auto;
+  grid-template-rows: minmax(0, 1fr);
   height: calc(100vh - 160px);
   min-height: 420px;
   transition: padding-right 0.2s ease;
   min-width: 0;
   width: 100%;
+}
+
+.lyric-error-state {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 24px;
+  text-align: center;
+  color: var(--text-secondary, var(--ink-soft));
+}
+
+.lyric-error-state strong {
+  color: var(--text-primary, var(--ink));
+  font-size: 16px;
+}
+
+.lyric-error-state span {
+  max-width: 32ch;
+  font-size: 12px;
+  line-height: 1.6;
+}
+
+.lyric-error-state button {
+  margin-top: 4px;
+  padding: 7px 14px;
+  border: 1px solid color-mix(in srgb, var(--accent) 45%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-primary, var(--ink));
+  cursor: pointer;
+  font: inherit;
+}
+
+.lyric-error-state button:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
 }
 
 .lyric-view-grid.queue-open {
@@ -174,12 +224,13 @@ const stageComponent = computed(() =>
 }
 
 .spinner {
+  flex: 1 1 0;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
   gap: 12px;
-  min-height: 240px;
   color: var(--text-muted);
 }
 
