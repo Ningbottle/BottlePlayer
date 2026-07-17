@@ -1,8 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockApiGet = vi.fn();
+const mockApiPost = vi.fn();
 vi.mock('../backend', () => ({
   apiGet: (...args: any[]) => mockApiGet(...args),
+  apiPost: (...args: any[]) => mockApiPost(...args),
 }));
 
 import { checkLoginStatus, logoutLocal, userStore } from '../userStore';
@@ -34,6 +36,8 @@ function resetUserStore() {
 describe('userStore login refresh', () => {
   beforeEach(() => {
     mockApiGet.mockReset();
+    mockApiPost.mockReset();
+    mockApiPost.mockResolvedValue({ status: 1 });
     resetUserStore();
     recentPlayedStore.reset();
   });
@@ -56,9 +60,6 @@ describe('userStore login refresh', () => {
             pic: 'http://img/avatar.png',
           },
         };
-      }
-      if (path === '/register/dev') {
-        return { status: 1 };
       }
       if (path === '/user/vip/detail') {
         throw new Error('vip detail timeout');

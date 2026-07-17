@@ -190,17 +190,18 @@ unsigned MethodBit(const std::string& method) {
   return 0;
 }
 
-// Write routes that mutate state / hit upstream with side effects.
-// Must include kMethodGet while the frontend still uses GET for writes.
+// Write-only routes (POST). Dual-purpose /settings/device still allows GET
+// for device load; mutations use POST. Frontend write callers use apiPost.
 unsigned AllowedMethods(const std::string& path) {
   static const std::unordered_map<std::string, unsigned> kWriteRoutes = {
-      {"/auth/logout", kMethodGet | kMethodPost},
-      {"/playlist/add", kMethodGet | kMethodPost},
-      {"/playlist/del", kMethodGet | kMethodPost},
-      {"/playlist/tracks/add", kMethodGet | kMethodPost},
-      {"/playlist/tracks/del", kMethodGet | kMethodPost},
-      {"/playhistory/upload", kMethodGet | kMethodPost},
-      {"/register/dev", kMethodGet | kMethodPost},
+      {"/auth/logout", kMethodPost},
+      {"/playlist/add", kMethodPost},
+      {"/playlist/del", kMethodPost},
+      {"/playlist/tracks/add", kMethodPost},
+      {"/playlist/tracks/del", kMethodPost},
+      {"/playhistory/upload", kMethodPost},
+      {"/register/dev", kMethodPost},
+      // Read fingerprint + write overrides share one path.
       {"/settings/device", kMethodGet | kMethodPost},
   };
   auto it = kWriteRoutes.find(path);

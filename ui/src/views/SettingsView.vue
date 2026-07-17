@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { apiGet } from '../api/backend';
+import { apiGet, apiPost } from '../api/backend';
 import { checkLoginStatus } from '../api/userStore';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
@@ -188,7 +188,7 @@ async function saveDevice() {
     if (dfidInput.value.trim()) query.dfid = dfidInput.value.trim();
     if (midInput.value.trim()) query.mid = midInput.value.trim();
     if (uuidInput.value.trim()) query.uuid = uuidInput.value.trim();
-    const res = await apiGet<{ status: number; data: DeviceInfo; updated: boolean }>('/settings/device', query);
+    const res = await apiPost<{ status: number; data: DeviceInfo; updated: boolean }>('/settings/device', undefined, query);
     if (res.status === 1) {
       device.value = res.data;
       deviceStatus.value = res.updated
@@ -206,7 +206,7 @@ async function resetDevice() {
   if (!confirm('清除设备指纹？将删除当前自定义 dfid/mid/uuid，退化为未注册占位。')) return;
   deviceStatus.value = '重置中…';
   try {
-    const res = await apiGet<{ status: number; data: DeviceInfo }>('/settings/device', { clear: '1' });
+    const res = await apiPost<{ status: number; data: DeviceInfo }>('/settings/device', undefined, { clear: '1' });
     if (res.status === 1) {
       device.value = res.data;
       dfidInput.value = res.data.dfid || '';

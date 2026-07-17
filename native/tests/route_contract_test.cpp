@@ -163,14 +163,22 @@ int main() {
     auto getHealth = api.Handle("GET", "/health", {}, {}, "");
     assert(getHealth.httpStatus == 200);
 
-    // Write routes stay GET-callable (frontend still uses GET for writes).
+    // Pure write routes: GET → 405, POST allowed (not 405).
     auto getLogout = api.Handle("GET", "/auth/logout", {}, {}, "");
-    assert(getLogout.httpStatus != 405);
+    assert(getLogout.httpStatus == 405);
+    auto postLogout = api.Handle("POST", "/auth/logout", {}, {}, "");
+    assert(postLogout.httpStatus != 405);
 
     auto getUpload = api.Handle("GET", "/playhistory/upload", {}, {}, "");
-    assert(getUpload.httpStatus != 405);
+    assert(getUpload.httpStatus == 405);
+    auto postUpload = api.Handle("POST", "/playhistory/upload", {}, {}, "");
+    assert(postUpload.httpStatus != 405);
 
-    std::cout << "  [ok] POST /health → 405; GET /health → 200; write GET not 405"
+    // Dual-purpose device settings: GET load still allowed.
+    auto getDevice = api.Handle("GET", "/settings/device", {}, {}, "");
+    assert(getDevice.httpStatus != 405);
+
+    std::cout << "  [ok] method binding: read POST 405; write GET 405; device GET ok"
               << std::endl;
   }
 
