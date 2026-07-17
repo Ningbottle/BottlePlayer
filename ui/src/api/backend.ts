@@ -6,14 +6,47 @@ import { CircuitBreaker } from './circuitBreaker';
 // 设计：
 //   - 后端已演进为直接通过 FFI 调用 C++ EchoCAPI.dll (native_request)。
 //   - 唯一重试负责人 = C++ HttpClient（GET 预算重试）。
-//   - 前端仅保留：熔断 + 单次超时（不重试）。
+//   - 前端仅保留：按路径分桶的熔断 + 单次超时（不重试）。
 
 const FRONTEND_TIMEOUT_MS = 14_000;
 
-const circuitBreaker = new CircuitBreaker({
-  failureThreshold: 5,
-  openDurationMs: 30_000,
-});
+export type CircuitBucket = 'playback' | 'lyric' | 'search' | 'generic';
+
+function makeBreaker(): CircuitBreaker {
+  return new CircuitBreaker({
+    failureThreshold: 5,
+    openDurationMs: 30_000,
+  });
+}
+
+const buckets: Record<CircuitBucket, CircuitBreaker> = {
+  playback: makeBreaker(),
+  lyric: makeBreaker(),
+  search: makeBreaker(),
+  generic: makeBreaker(),
+};
+
+/** Test-only: recreate breakers so cases do not leak open circuits. */
+export function __resetCircuitBucketsForTests(): void {
+  buckets.playback = makeBreaker();
+  buckets.lyric = makeBreaker();
+  buckets.search = makeBreaker();
+  buckets.generic = makeBreaker();
+}
+
+/** Longest-prefix style: more specific paths before generic /search. */
+export function pickBucket(path: string): CircuitBucket {
+  if (path.startsWith('/song/url') || path.startsWith('/personal/fm')) {
+    return 'playback';
+  }
+  if (path.startsWith('/search/lyric') || path.startsWith('/lyric')) {
+    return 'lyric';
+  }
+  if (path.startsWith('/search')) {
+    return 'search';
+  }
+  return 'generic';
+}
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return Promise.race([
@@ -75,21 +108,22 @@ async function apiGetOnce<T = unknown>(
   return r.body as T;
 }
 
-/** GET：熔断 + 单次调用（不重试；重试由 C++ HttpClient 负责）。 */
+/** GET：分桶熔断 + 单次调用（不重试；重试由 C++ HttpClient 负责）。 */
 async function apiGetNoRetry<T = unknown>(
   path: string,
   query?: Record<string, string | number>
 ): Promise<T> {
-  if (!circuitBreaker.isClosed()) {
+  const cb = buckets[pickBucket(path)];
+  if (!cb.isClosed()) {
     throw new Error('circuit_open');
   }
 
   try {
     const result = await apiGetOnce<T>(path, query);
-    circuitBreaker.recordSuccess();
+    cb.recordSuccess();
     return result;
   } catch (e) {
-    circuitBreaker.recordFailure();
+    cb.recordFailure();
     throw e;
   }
 }
@@ -98,8 +132,9 @@ export async function ping(): Promise<string> {
   return invoke<string>('ping');
 }
 
-export function isCircuitOpen(): boolean {
-  return !circuitBreaker.isClosed();
+/** Default bucket is playback so existing callers stay safe for play UX. */
+export function isCircuitOpen(bucket: CircuitBucket = 'playback'): boolean {
+  return !buckets[bucket].isClosed();
 }
 
 /** 探测后端是否就绪（轮询用）。后端约定有 /healthz；若无则用 / 兜底。 */
@@ -130,7 +165,8 @@ export async function apiPost<T = unknown>(
   body?: string,
   query?: Record<string, string | number>
 ): Promise<T> {
-  if (!circuitBreaker.isClosed()) {
+  const cb = buckets[pickBucket(path)];
+  if (!cb.isClosed()) {
     throw new Error('circuit_open');
   }
   try {
@@ -138,10 +174,10 @@ export async function apiPost<T = unknown>(
     if (r.status < 200 || r.status >= 300) {
       throw new Error('HTTP ' + r.status + ' (via IPC)');
     }
-    circuitBreaker.recordSuccess();
+    cb.recordSuccess();
     return r.body as T;
   } catch (e) {
-    circuitBreaker.recordFailure();
+    cb.recordFailure();
     throw e;
   }
 }
