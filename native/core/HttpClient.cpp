@@ -1,4 +1,5 @@
 #include "echo/core/HttpClient.h"
+#include "echo/async/RequestWatchdog.h"
 
 #include <windows.h>
 #include <winhttp.h>
@@ -7,12 +8,8 @@
 #include <atomic>
 #include <cctype>
 #include <chrono>
-#include <condition_variable>
-#include <cstdint>
-#include <functional>
 #include <memory>
 #include <mutex>
-#include <queue>
 #include <sstream>
 #include <string>
 #include <thread>
@@ -56,126 +53,13 @@ bool IsCancelled(const std::atomic_bool* cancelled) {
   return false;
 }
 
-// ─────────────────────────────────────────────────────────────────────────
-// Process-wide request watchdog (action-typed entries)
-//
-// Single worker + min-heap of (deadline, action). Owner CAS-claims the shared
-// atomic so only the winner runs action(). Expired-but-completed entries are
-// lazy-dropped (claimed already true). Flag-only entries (scheduler) use
-// actions that never touch HINTERNET — compile-time separation from close.
-// ─────────────────────────────────────────────────────────────────────────
-
-struct WatchdogEntry {
-  std::chrono::steady_clock::time_point deadline;
-  std::uint64_t seq = 0;
-  std::shared_ptr<std::atomic_bool> claimed;
-  std::function<void()> action;
-};
-
-// Min-heap by deadline (earliest first).
-struct WatchdogCmp {
-  bool operator()(const WatchdogEntry& a, const WatchdogEntry& b) const {
-    if (a.deadline != b.deadline) return a.deadline > b.deadline;
-    return a.seq > b.seq;
-  }
-};
-
-class RequestWatchdog {
- public:
-  static RequestWatchdog& Instance() {
-    static RequestWatchdog wd;
-    return wd;
-  }
-
-  // Generic arm: on deadline, if CAS claims, run action().
-  void Arm(long timeoutMs, std::shared_ptr<std::atomic_bool> claimed,
-           std::function<void()> action) {
-    if (timeoutMs <= 0 || !claimed || !action) return;
-    WatchdogEntry entry;
-    entry.deadline = std::chrono::steady_clock::now() +
-                     std::chrono::milliseconds(timeoutMs);
-    entry.seq = nextSeq_.fetch_add(1, std::memory_order_relaxed);
-    entry.claimed = std::move(claimed);
-    entry.action = std::move(action);
-    {
-      std::lock_guard<std::mutex> lock(mu_);
-      EnsureWorkerLocked();
-      heap_.push(std::move(entry));
-    }
-    cv_.notify_one();
-  }
-
-  // WinHTTP thin wrapper: action closes the request handle.
-  void Arm(HINTERNET request, long timeoutMs,
-           std::shared_ptr<std::atomic_bool> claimed) {
-    if (!request) return;
-    Arm(timeoutMs, std::move(claimed), [request]() {
-      CloseRequestHandle(request);
-    });
-  }
-
-  RequestWatchdog(const RequestWatchdog&) = delete;
-  RequestWatchdog& operator=(const RequestWatchdog&) = delete;
-
- private:
-  RequestWatchdog() = default;
-
-  ~RequestWatchdog() {
-    {
-      std::lock_guard<std::mutex> lock(mu_);
-      stop_ = true;
-    }
-    cv_.notify_all();
-    if (worker_.joinable()) worker_.join();
-  }
-
-  void EnsureWorkerLocked() {
-    if (workerStarted_) return;
-    workerStarted_ = true;
-    worker_ = std::thread([this] { Loop(); });
-  }
-
-  void Loop() {
-    for (;;) {
-      WatchdogEntry expired;
-      {
-        std::unique_lock<std::mutex> lock(mu_);
-        for (;;) {
-          if (stop_) return;
-          if (heap_.empty()) {
-            cv_.wait(lock, [this] { return stop_ || !heap_.empty(); });
-            if (stop_) return;
-            continue;
-          }
-          const auto now = std::chrono::steady_clock::now();
-          if (heap_.top().deadline > now) {
-            cv_.wait_until(lock, heap_.top().deadline);
-            continue;
-          }
-          expired = heap_.top();
-          heap_.pop();
-          break;
-        }
-      }
-      // Outside the lock: winner of CAS runs action once.
-      bool expected = false;
-      if (expired.claimed &&
-          expired.claimed->compare_exchange_strong(
-              expected, true, std::memory_order_acq_rel)) {
-        if (expired.action) expired.action();
-      }
-    }
-  }
-
-  std::mutex mu_;
-  std::condition_variable cv_;
-  std::priority_queue<WatchdogEntry, std::vector<WatchdogEntry>, WatchdogCmp>
-      heap_;
-  std::thread worker_;
-  bool workerStarted_ = false;
-  bool stop_ = false;
-  std::atomic<std::uint64_t> nextSeq_{1};
-};
+// Thin WinHTTP arm: winhttp close stays in this TU's lambda (core → async).
+void ArmRequestHandleWatchdog(HINTERNET request, long timeoutMs,
+                              std::shared_ptr<std::atomic_bool> claimed) {
+  if (!request || timeoutMs <= 0 || !claimed) return;
+  echo::async::RequestWatchdog::Instance().Arm(
+      timeoutMs, std::move(claimed), [request]() { CloseRequestHandle(request); });
+}
 
 std::string Lower(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
@@ -388,7 +272,7 @@ HttpResult ExecuteRequest(
   // the final close — leaking every successful request handle (P0-A).
   auto watchdogCancelled = std::make_shared<std::atomic_bool>(false);
   if (totalTimeoutMs > 0) {
-    RequestWatchdog::Instance().Arm(request, totalTimeoutMs, watchdogCancelled);
+    ArmRequestHandleWatchdog(request, totalTimeoutMs, watchdogCancelled);
   }
 
   // CDN 30x 跳转必须显式跟随，否则封面/签名媒体 URL 会静默退化为占位/播放失败。

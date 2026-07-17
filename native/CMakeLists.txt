@@ -61,6 +61,7 @@ add_library(EchoAsync STATIC
   async/EventQueue.cpp
   async/TaskScheduler.cpp
   async/RequestScheduler.cpp
+  async/RequestWatchdog.cpp
 )
 target_include_directories(EchoAsync PUBLIC include)
 
