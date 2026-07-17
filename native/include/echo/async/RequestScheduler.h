@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "echo/async/TaskScheduler.h"
+#include "echo/async/RequestWatchdog.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 #include "echo/diagnostics/ScopedTimer.h"
 
@@ -149,17 +150,22 @@ auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadline
   auto enqueueStopwatch = std::make_shared<diagnostics::Stopwatch>(diagnostics::Stopwatch::Start());
   auto promiseForWatcher = promise;
 
+  // Separate claimed flag for the process watchdog (lazy-drop protocol).
+  // On deadline: flip tokenFlag for cooperative cancel + set_exception.
+  auto watchdogClaimed = std::make_shared<std::atomic_bool>(false);
   if (deadlineMs > 0) {
-    std::thread([promiseForWatcher, deadlineMs]() {
-      std::this_thread::sleep_for(std::chrono::milliseconds(deadlineMs));
-      try {
-        promiseForWatcher->set_exception(
-            std::make_exception_ptr(std::runtime_error("job_deadline")));
-      } catch (...) {}
-    }).detach();
+    RequestWatchdog::Instance().Arm(
+        deadlineMs, watchdogClaimed,
+        [tokenFlag, promiseForWatcher]() {
+          tokenFlag->store(true, std::memory_order_release);
+          try {
+            promiseForWatcher->set_exception(
+                std::make_exception_ptr(std::runtime_error("job_deadline")));
+          } catch (...) {}
+        });
   }
 
-  auto execute = [fn = std::move(fn), promise, tokenFlag, kind,
+  auto execute = [fn = std::move(fn), promise, tokenFlag, kind, watchdogClaimed,
                   enqueueStopwatch = std::move(enqueueStopwatch)]() mutable {
     const auto queueWaitMs = enqueueStopwatch->ElapsedMs();
     const bool canceled = tokenFlag->load(std::memory_order_acquire);
@@ -175,6 +181,13 @@ auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadline
       }
     } catch (...) {
       try { promise->set_exception(std::current_exception()); } catch (...) {}
+    }
+
+    // Mark complete so a late watchdog entry is lazy-dropped (no action).
+    if (watchdogClaimed) {
+      bool expected = false;
+      watchdogClaimed->compare_exchange_strong(
+          expected, true, std::memory_order_acq_rel);
     }
 
     const auto runMs = runStopwatch.ElapsedMs();

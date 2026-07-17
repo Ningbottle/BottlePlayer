@@ -7,33 +7,16 @@
 namespace echo::stats {
 
 using nlohmann::json;
+using echo::storage::BindValue;
 
 constexpr double kMinCountedListenedSeconds = 60.0;
 
-static std::string MinCountedListenedSecondsSql() {
-  return std::to_string(kMinCountedListenedSeconds);
-}
-
-static std::string StatsWhere(long long since) {
-  std::string where = "WHERE listened_seconds > " + MinCountedListenedSecondsSql();
-  if (since > 0) where += " AND played_at >= " + std::to_string(since);
-  return where;
-}
-
-static std::string StatsAliasPredicate(const std::string& alias, long long since) {
-  std::string where = alias + ".listened_seconds > " + MinCountedListenedSecondsSql();
-  if (since > 0) where += " AND " + alias + ".played_at >= " + std::to_string(since);
-  return where;
-}
-
-static std::string SqlEscape(const std::string& s) {
-  std::string out;
-  out.reserve(s.size() + 8);
-  for (char c : s) {
-    if (c == '\'') out += "''";
-    else out += c;
-  }
-  return out;
+// Column names for GROUP BY / SELECT must stay on a switch whitelist —
+// SQLite cannot bind identifiers, only values.
+static const char* DimGroupCol(const std::string& dim) {
+  if (dim == "song") return "song_hash";
+  if (dim == "artist") return "singer_name";
+  return "album_id";
 }
 
 static double SafeStod(const std::string& s) {
@@ -65,18 +48,26 @@ long long PlayStatsService::RangeToTimestamp(const std::string& range) {
 bool PlayStatsService::RecordPlay(const PlayRecord& r) {
   if (r.listenedSeconds <= kMinCountedListenedSeconds) return false;
 
-  std::string sql = std::string("INSERT INTO play_history_v2 "
-                    "(song_hash, song_name, singer_name, album_id, album_name, cover_url, "
-                    "duration_seconds, completed, listened_seconds, quality, played_at) VALUES (") +
-                    "'" + SqlEscape(r.songHash) + "','" + SqlEscape(r.songName) + "','" +
-                    SqlEscape(r.singerName) + "','" + SqlEscape(r.albumId) + "','" +
-                    SqlEscape(r.albumName) + "','" + SqlEscape(r.coverUrl) + "'," +
-                    std::to_string(r.durationSeconds) + "," +
-                    (r.completed ? "1" : "0") + "," +
-                    std::to_string(r.listenedSeconds) + ",'" + SqlEscape(r.quality) + "'," +
-                    std::to_string(r.playedAtMs) + ")";
+  static const char* kSql =
+      "INSERT INTO play_history_v2 "
+      "(song_hash, song_name, singer_name, album_id, album_name, cover_url, "
+      "duration_seconds, completed, listened_seconds, quality, played_at) "
+      "VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11)";
   try {
-    db_.Execute(sql);
+    std::vector<BindValue> params = {
+        r.songHash,
+        r.songName,
+        r.singerName,
+        r.albumId,
+        r.albumName,
+        r.coverUrl,
+        r.durationSeconds,
+        static_cast<std::int64_t>(r.completed ? 1 : 0),
+        r.listenedSeconds,
+        r.quality,
+        static_cast<std::int64_t>(r.playedAtMs),
+    };
+    db_.ExecuteBound(kSql, params);
     return true;
   } catch (...) {
     return false;
@@ -85,12 +76,24 @@ bool PlayStatsService::RecordPlay(const PlayRecord& r) {
 
 std::string PlayStatsService::GetSummary(const std::string& range) {
   long long since = RangeToTimestamp(range);
-  std::string where = StatsWhere(since);
-  auto rows = db_.ExecuteQuery(
-      "SELECT COUNT(*), COALESCE(SUM(listened_seconds),0), "
-      "COUNT(DISTINCT song_hash), COUNT(DISTINCT singer_name), "
-      "COALESCE(CAST(SUM(CASE WHEN completed=1 THEN 1 ELSE 0 END) AS FLOAT) / NULLIF(COUNT(*), 0), 0) "
-      "FROM play_history_v2 " + where);
+  std::vector<std::vector<std::string>> rows;
+  if (since > 0) {
+    rows = db_.ExecuteQueryBound(
+        "SELECT COUNT(*), COALESCE(SUM(listened_seconds),0), "
+        "COUNT(DISTINCT song_hash), COUNT(DISTINCT singer_name), "
+        "COALESCE(CAST(SUM(CASE WHEN completed=1 THEN 1 ELSE 0 END) AS FLOAT) / "
+        "NULLIF(COUNT(*), 0), 0) "
+        "FROM play_history_v2 WHERE listened_seconds > ?1 AND played_at >= ?2",
+        {kMinCountedListenedSeconds, static_cast<std::int64_t>(since)});
+  } else {
+    rows = db_.ExecuteQueryBound(
+        "SELECT COUNT(*), COALESCE(SUM(listened_seconds),0), "
+        "COUNT(DISTINCT song_hash), COUNT(DISTINCT singer_name), "
+        "COALESCE(CAST(SUM(CASE WHEN completed=1 THEN 1 ELSE 0 END) AS FLOAT) / "
+        "NULLIF(COUNT(*), 0), 0) "
+        "FROM play_history_v2 WHERE listened_seconds > ?1",
+        {kMinCountedListenedSeconds});
+  }
   json j;
   if (!rows.empty()) {
     auto& r = rows[0];
@@ -112,31 +115,53 @@ std::string PlayStatsService::GetSummary(const std::string& range) {
 
 std::string PlayStatsService::GetTop(const std::string& dim, const std::string& range, int limit) {
   long long since = RangeToTimestamp(range);
-  std::string where = StatsWhere(since);
-  std::string groupCol, nameCol;
+  // groupCol/nameCol from whitelist only — identifiers cannot be bound.
+  const char* groupCol = DimGroupCol(dim);
+
+  std::string nameCol;
+  std::string sql;
+  std::vector<BindValue> params;
+
   if (dim == "song") {
-    groupCol = "song_hash";
     nameCol = "song_hash, song_name, singer_name, album_name, cover_url";
   } else if (dim == "artist") {
-    groupCol = "singer_name";
-    nameCol =
-        "singer_name, COALESCE((SELECT h2.cover_url FROM play_history_v2 h2 "
-        "WHERE h2.singer_name = play_history_v2.singer_name "
-        "AND h2.cover_url <> '' AND " +
-        StatsAliasPredicate("h2", since) +
-        " GROUP BY h2.cover_url ORDER BY COUNT(*) DESC, MAX(h2.played_at) DESC LIMIT 1), '')";
+    if (since > 0) {
+      nameCol =
+          "singer_name, COALESCE((SELECT h2.cover_url FROM play_history_v2 h2 "
+          "WHERE h2.singer_name = play_history_v2.singer_name "
+          "AND h2.cover_url <> '' AND h2.listened_seconds > ?1 "
+          "AND h2.played_at >= ?2 "
+          "GROUP BY h2.cover_url ORDER BY COUNT(*) DESC, MAX(h2.played_at) DESC LIMIT 1), '')";
+    } else {
+      nameCol =
+          "singer_name, COALESCE((SELECT h2.cover_url FROM play_history_v2 h2 "
+          "WHERE h2.singer_name = play_history_v2.singer_name "
+          "AND h2.cover_url <> '' AND h2.listened_seconds > ?1 "
+          "GROUP BY h2.cover_url ORDER BY COUNT(*) DESC, MAX(h2.played_at) DESC LIMIT 1), '')";
+    }
   } else {
-    // #4: group by album_id, not album_name — two different albums with the
-    // same name from different artists must not be merged in the stats.
-    groupCol = "album_id";
     nameCol = "album_id, album_name, singer_name, cover_url";
   }
 
-  std::string sql = "SELECT " + nameCol + ", COUNT(*) as cnt, "
-                    "COALESCE(SUM(listened_seconds),0) as total_sec "
-                    "FROM play_history_v2 " + where + " GROUP BY " + groupCol +
-                    " ORDER BY cnt DESC LIMIT " + std::to_string(limit);
-  auto rows = db_.ExecuteQuery(sql);
+  if (since > 0) {
+    sql = "SELECT " + nameCol + ", COUNT(*) as cnt, "
+          "COALESCE(SUM(listened_seconds),0) as total_sec "
+          "FROM play_history_v2 WHERE listened_seconds > ?1 AND played_at >= ?2 "
+          "GROUP BY " +
+          std::string(groupCol) + " ORDER BY cnt DESC LIMIT ?3";
+    // Artist subquery also uses ?1/?2 for min listen + since.
+    params = {kMinCountedListenedSeconds, static_cast<std::int64_t>(since),
+              static_cast<std::int64_t>(limit)};
+  } else {
+    sql = "SELECT " + nameCol + ", COUNT(*) as cnt, "
+          "COALESCE(SUM(listened_seconds),0) as total_sec "
+          "FROM play_history_v2 WHERE listened_seconds > ?1 "
+          "GROUP BY " +
+          std::string(groupCol) + " ORDER BY cnt DESC LIMIT ?2";
+    params = {kMinCountedListenedSeconds, static_cast<std::int64_t>(limit)};
+  }
+
+  auto rows = db_.ExecuteQueryBound(sql, params);
   json items = json::array();
   for (auto& r : rows) {
     json item;
@@ -154,8 +179,8 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
       item["play_count"] = SafeStoi(r[2]);
       item["total_listened_seconds"] = SafeStod(r[3]);
     } else {
-      item["name"] = r[1];          // album_name (display)
-      item["album_id"] = r[0];      // for client-side dedup/routing
+      item["name"] = r[1];
+      item["album_id"] = r[0];
       item["singer"] = r[2];
       item["cover_url"] = r[3];
       item["play_count"] = SafeStoi(r[4]);
@@ -171,11 +196,22 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
 
 std::string PlayStatsService::GetTimeline(const std::string& range) {
   long long since = RangeToTimestamp(range);
-  std::string where = StatsWhere(since);
-  auto rows = db_.ExecuteQuery(
-      "SELECT date(played_at/1000, 'unixepoch', 'localtime') AS date, "
-      "COUNT(*) AS count FROM play_history_v2 " + where +
-      " GROUP BY date ORDER BY date ASC");
+  std::vector<std::vector<std::string>> rows;
+  if (since > 0) {
+    rows = db_.ExecuteQueryBound(
+        "SELECT date(played_at/1000, 'unixepoch', 'localtime') AS date, "
+        "COUNT(*) AS count FROM play_history_v2 "
+        "WHERE listened_seconds > ?1 AND played_at >= ?2 "
+        "GROUP BY date ORDER BY date ASC",
+        {kMinCountedListenedSeconds, static_cast<std::int64_t>(since)});
+  } else {
+    rows = db_.ExecuteQueryBound(
+        "SELECT date(played_at/1000, 'unixepoch', 'localtime') AS date, "
+        "COUNT(*) AS count FROM play_history_v2 "
+        "WHERE listened_seconds > ?1 "
+        "GROUP BY date ORDER BY date ASC",
+        {kMinCountedListenedSeconds});
+  }
   json items = json::array();
   for (auto& r : rows) {
     json item;
@@ -189,12 +225,13 @@ std::string PlayStatsService::GetTimeline(const std::string& range) {
 }
 
 std::string PlayStatsService::GetRecent(int limit, int offset) {
-  auto rows = db_.ExecuteQuery(
+  auto rows = db_.ExecuteQueryBound(
       "SELECT song_hash, song_name, singer_name, album_name, cover_url, "
       "duration_seconds, listened_seconds, completed, quality, played_at "
-      "FROM play_history_v2 WHERE listened_seconds > " + MinCountedListenedSecondsSql() +
-      " ORDER BY played_at DESC LIMIT " +
-      std::to_string(limit) + " OFFSET " + std::to_string(offset));
+      "FROM play_history_v2 WHERE listened_seconds > ?1 "
+      "ORDER BY played_at DESC LIMIT ?2 OFFSET ?3",
+      {kMinCountedListenedSeconds, static_cast<std::int64_t>(limit),
+       static_cast<std::int64_t>(offset)});
   json items = json::array();
   for (auto& r : rows) {
     json item;
@@ -216,10 +253,11 @@ std::string PlayStatsService::GetRecent(int limit, int offset) {
 }
 
 std::string PlayStatsService::GetRecommendations(int limit) {
-  auto rows = db_.ExecuteQuery(
+  auto rows = db_.ExecuteQueryBound(
       "SELECT singer_name, COUNT(*) as cnt FROM play_history_v2 "
-      "WHERE listened_seconds > " + MinCountedListenedSecondsSql() +
-      " GROUP BY singer_name ORDER BY cnt DESC LIMIT " + std::to_string(limit));
+      "WHERE listened_seconds > ?1 "
+      "GROUP BY singer_name ORDER BY cnt DESC LIMIT ?2",
+      {kMinCountedListenedSeconds, static_cast<std::int64_t>(limit)});
   json items = json::array();
   for (auto& r : rows) {
     json item;

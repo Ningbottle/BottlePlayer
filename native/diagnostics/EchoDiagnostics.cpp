@@ -1,4 +1,5 @@
 #include "echo/diagnostics/EchoDiagnostics.h"
+#include "echo/diagnostics/Redaction.h"
 
 #if defined(_WIN32)
 #include <windows.h>
@@ -21,16 +22,17 @@ void SetLogCallback(LogCallback cb, void* user_data) {
 }
 
 void LogDebug(std::string_view tag, std::string_view message) {
+  // P2-O: force redaction at the sink so every log path is scrubbed.
+  const std::string redactedMessage = RedactSensitive(message);
   std::ostringstream stream;
-  stream << "[" << tag << "] " << message;
+  stream << "[" << tag << "] " << redactedMessage;
   const std::string line = stream.str();
 
   // Forward to FFI callback if installed
   if (LogCallback cb = g_log_callback.load(std::memory_order_acquire)) {
     void* ud = g_log_user_data.load(std::memory_order_acquire);
     std::string tagStr(tag);
-    std::string msgStr(message);
-    cb(0, tagStr.c_str(), msgStr.c_str(), ud);
+    cb(0, tagStr.c_str(), redactedMessage.c_str(), ud);
     return;
   }
 

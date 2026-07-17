@@ -1,5 +1,74 @@
 use std::env;
+use std::fs;
 use std::path::PathBuf;
+
+/// Extract `inline constexpr long kName = N;` from RequestDeadlines.h.
+fn generate_deadlines_rs() {
+    let manifest_dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap_or_default());
+    let header = manifest_dir.join("../../native/include/echo/core/RequestDeadlines.h");
+    println!("cargo:rerun-if-changed={}", header.display());
+
+    let text = fs::read_to_string(&header).unwrap_or_else(|e| {
+        panic!(
+            "Failed to read RequestDeadlines.h at {}: {}",
+            header.display(),
+            e
+        );
+    });
+
+    let mut constants: Vec<(String, u64)> = Vec::new();
+    for line in text.lines() {
+        let line = line.trim();
+        // inline constexpr long kDeadlineSongUrlMs = 10000;
+        if !line.contains("inline constexpr long k") {
+            continue;
+        }
+        let Some(name_start) = line.find('k') else {
+            continue;
+        };
+        let rest = &line[name_start..];
+        let Some(eq) = rest.find('=') else {
+            continue;
+        };
+        let name = rest[..eq].trim().to_string();
+        let val_part = rest[eq + 1..].trim().trim_end_matches(';').trim();
+        let Ok(val) = val_part.parse::<u64>() else {
+            continue;
+        };
+        if name.starts_with('k') {
+            constants.push((name, val));
+        }
+    }
+
+    let required = [
+        "kDeadlineSongUrlMs",
+        "kDeadlineImageMs",
+        "kDeadlineLoginPollMs",
+        "kDeadlineSearchMs",
+        "kDeadlinePlaylistMs",
+        "kDeadlineGenericMs",
+        "kFrontendTimeoutMs",
+    ];
+    for req in required {
+        if !constants.iter().any(|(n, _)| n == req) {
+            panic!(
+                "RequestDeadlines.h missing required constant {}; extract failed",
+                req
+            );
+        }
+    }
+
+    let mut out = String::from(
+        "// @generated from native/include/echo/core/RequestDeadlines.h — do not edit\n",
+    );
+    for (name, val) in &constants {
+        out.push_str(&format!("pub const {}: u64 = {};\n", name, val));
+    }
+
+    let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
+    let out_path = out_dir.join("deadlines_generated.rs");
+    fs::write(&out_path, out).expect("write deadlines_generated.rs");
+}
 
 fn copy_runtime_dll(src: &PathBuf, dst: &PathBuf, name: &str) {
     if dst.exists() {
@@ -19,6 +88,8 @@ fn copy_runtime_dll(src: &PathBuf, dst: &PathBuf, name: &str) {
 }
 
 fn main() {
+    generate_deadlines_rs();
+
     let dll_name = if cfg!(target_os = "windows") {
         "EchoCAPI.dll"
     } else {

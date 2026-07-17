@@ -1,9 +1,11 @@
 #include "echo/core/HttpClient.h"
+#include "echo/async/RequestWatchdog.h"
 
 #include <windows.h>
 #include <winhttp.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <memory>
@@ -15,7 +17,49 @@
 #include <vector>
 
 namespace echo::core {
+
+// Tracks WinHTTP request handles that were OpenRequest'd but not yet
+// WinHttpCloseHandle'd. Used by resilience tests (P0-A) because
+// GetProcessHandleCount does not reliably observe HINTERNET objects.
+static std::atomic<long> g_liveRequestHandles{0};
+
+// Thread-local cancel flag installed by HttpClientCancellationScope so
+// nested service → HttpClient calls observe scheduler deadline cancel.
+static thread_local const std::atomic_bool* t_threadCancelled = nullptr;
+
+HttpClientCancellationScope::HttpClientCancellationScope(
+    const std::atomic_bool* cancelled)
+    : previous_(t_threadCancelled) {
+  t_threadCancelled = cancelled;
+}
+
+HttpClientCancellationScope::~HttpClientCancellationScope() {
+  t_threadCancelled = previous_;
+}
+
 namespace {
+
+void CloseRequestHandle(HINTERNET request) {
+  if (!request) return;
+  WinHttpCloseHandle(request);
+  g_liveRequestHandles.fetch_sub(1, std::memory_order_relaxed);
+}
+
+bool IsCancelled(const std::atomic_bool* cancelled) {
+  if (cancelled && cancelled->load(std::memory_order_acquire)) return true;
+  if (t_threadCancelled && t_threadCancelled->load(std::memory_order_acquire)) {
+    return true;
+  }
+  return false;
+}
+
+// Thin WinHTTP arm: winhttp close stays in this TU's lambda (core → async).
+void ArmRequestHandleWatchdog(HINTERNET request, long timeoutMs,
+                              std::shared_ptr<std::atomic_bool> claimed) {
+  if (!request || timeoutMs <= 0 || !claimed) return;
+  echo::async::RequestWatchdog::Instance().Arm(
+      timeoutMs, std::move(claimed), [request]() { CloseRequestHandle(request); });
+}
 
 std::string Lower(std::string value) {
   std::transform(value.begin(), value.end(), value.begin(), [](unsigned char c) {
@@ -213,42 +257,22 @@ HttpResult ExecuteRequest(
     result.error = LastErrorText("WinHttpOpenRequest");
     return result;  // conn lease 由 shared_ptr 管理，析构时自动回收
   }
+  g_liveRequestHandles.fetch_add(1, std::memory_order_relaxed);
 
   // Watchdog: WinHttpSendRequest/WinHttpReceiveResponse don't always honor
-  // per-op timeouts on older Windows. To guarantee the total budget is
-  // respected, spawn a detached thread that calls WinHttpCloseHandle on
-  // the request handle after the deadline. The close aborts any
-  // in-flight WinHTTP call, returning an error we can detect as a
-  // timeout. On normal completion we set watchdogCancelled = true so
-  // the watchdog is a no-op.
+  // per-op timeouts on older Windows. A process-wide RequestWatchdog owns a
+  // min-heap of (deadline, HINTERNET) and aborts hung calls via close.
   //
-  // RACE-CRITICAL ordering: the watchdog sets watchdogCancelled = true
-  // BEFORE calling WinHttpCloseHandle, AND the main thread skips its
-  // own WinHttpCloseHandle when it sees the flag was set. This
-  // prevents a double-close on the same HINTERNET (which can crash
-  // inside winhttp.dll on older Windows).
+  // RACE-CRITICAL ordering: the watchdog CAS-sets claimed = true BEFORE
+  // WinHttpCloseHandle, AND the main thread skips its own close when it
+  // loses the CAS. Prevents double-close (can crash winhttp.dll on older OS).
   //
-  // TODO(performance): at the current 4-worker scheduler + 9s default
-  // budget, peak watchdog thread count is ~36 (4 workers × 3 retry
-  // attempts × 3 nested calls per request, in the worst case). At a
-  // music player QPS this is fine, but for bursty thumbnail loads
-  // consider replacing with a single process-wide watchdog thread that
-  // owns a min-heap of (deadline, HINTERNET) entries (the same design
-  // as tokio timeouts or Go's net/http Server.IdleTimeout).
+  // IMPORTANT: disarm ONLY once, at final cleanup (after body read or on
+  // send/receive failure). Early disarm after ReceiveResponse used to skip
+  // the final close — leaking every successful request handle (P0-A).
   auto watchdogCancelled = std::make_shared<std::atomic_bool>(false);
   if (totalTimeoutMs > 0) {
-    std::thread([request, totalTimeoutMs, watchdogCancelled]() {
-      std::this_thread::sleep_for(std::chrono::milliseconds(totalTimeoutMs));
-      // Try to claim the right to close. If watchdogCancelled was
-      // already true (normal completion), the main thread closed and
-      // we must NOT close again. If we successfully flip the flag from
-      // false -> true, we own the close.
-      bool expected = false;
-      if (watchdogCancelled->compare_exchange_strong(
-              expected, true, std::memory_order_acq_rel)) {
-        WinHttpCloseHandle(request);
-      }
-    }).detach();
+    ArmRequestHandleWatchdog(request, totalTimeoutMs, watchdogCancelled);
   }
 
   // CDN 30x 跳转必须显式跟随，否则封面/签名媒体 URL 会静默退化为占位/播放失败。
@@ -314,17 +338,11 @@ HttpResult ExecuteRequest(
     result.error = LastErrorText("WinHttpSendRequest/WinHttpReceiveResponse");
     if (!watchdogFired) {
       // We own the close.
-      WinHttpCloseHandle(request);
+      CloseRequestHandle(request);
     }
     pool.Evict(url.host, url.port);  // 剔除坏 connect，避免永久复用中毒句柄
     return result;
   }
-  // Normal completion: disarm the watchdog. Use CAS so we never
-  // overwrite the watchdog's "true" — if the watchdog already
-  // claim-closed, the main thread skips its own close (line above).
-  bool expected = false;
-  watchdogCancelled->compare_exchange_strong(
-      expected, true, std::memory_order_acq_rel);
 
   DWORD statusCode = 0;
   DWORD statusSize = sizeof(statusCode);
@@ -361,11 +379,12 @@ HttpResult ExecuteRequest(
 
   // Disarm the watchdog (CAS to avoid overwriting a watchdog-claimed
   // true) and only close if the watchdog didn't already close.
+  // This is the SOLE success-path close — do not CAS-disarm earlier.
   bool expectedFinal = false;
   bool watchdogClaimed = !watchdogCancelled->compare_exchange_strong(
       expectedFinal, true, std::memory_order_acq_rel);
   if (!watchdogClaimed) {
-    WinHttpCloseHandle(request);  // 仅关 request；connect/session 由池管理
+    CloseRequestHandle(request);  // 仅关 request；connect/session 由池管理
   }
   return result;
 }
@@ -376,11 +395,16 @@ void CloseHttpConnectionPool() {
   HttpConnectionPool::Instance().CloseAll();
 }
 
+long HttpClientLiveRequestHandleCount() {
+  return g_liveRequestHandles.load(std::memory_order_relaxed);
+}
+
 HttpResult HttpClient::Get(
     const std::string& url,
     const std::unordered_map<std::string, std::string>& headers,
     long totalTimeoutMs,
-    std::size_t maxBodyBytes) const {
+    std::size_t maxBodyBytes,
+    const std::atomic_bool* cancelled) const {
   ParsedUrl parsed;
   if (!CrackUrl(ToWide(url), parsed)) {
     HttpResult r;
@@ -389,10 +413,16 @@ HttpResult HttpClient::Get(
   }
   // Bounded retry with shared budget: the totalTimeoutMs is the *entire*
   // budget across all attempts + backoff, not per-attempt. This prevents
-  // retry from amplifying 9s into 27s+.
+  // retry from amplifying 9s into 27s+. GET only — unique retry owner.
   auto budgetStart = std::chrono::steady_clock::now();
   static const long backoffMs[] = {500, 2000};
   for (int attempt = 0; attempt <= 2; ++attempt) {
+    if (IsCancelled(cancelled)) {
+      HttpResult r;
+      r.timedOut = true;
+      r.error = "cancelled";
+      return r;
+    }
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - budgetStart).count();
     long remaining = totalTimeoutMs - static_cast<long>(elapsed);
@@ -409,6 +439,11 @@ HttpResult HttpClient::Get(
     auto res = ExecuteRequest(parsed, L"GET", headers, nullptr, 0,
                               /*ensureJsonContentType=*/false,
                               remaining, maxBodyBytes);
+    if (IsCancelled(cancelled)) {
+      res.timedOut = true;
+      res.error = "cancelled";
+      return res;
+    }
     bool transient = res.timedOut ||
                      (!res.error.empty() && res.statusCode == 0);
     if (!transient || attempt == 2) return res;
@@ -424,38 +459,27 @@ HttpResult HttpClient::Post(
     const std::string& body,
     const std::unordered_map<std::string, std::string>& headers,
     long totalTimeoutMs,
-    std::size_t maxBodyBytes) const {
+    std::size_t maxBodyBytes,
+    const std::atomic_bool* cancelled) const {
   ParsedUrl parsed;
   if (!CrackUrl(ToWide(url), parsed)) {
     HttpResult r;
     r.error = LastErrorText("WinHttpCrackUrl");
     return r;
   }
-  auto budgetStart = std::chrono::steady_clock::now();
-  static const long backoffMs[] = {500, 2000};
-  for (int attempt = 0; attempt <= 2; ++attempt) {
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
-        std::chrono::steady_clock::now() - budgetStart).count();
-    long remaining = totalTimeoutMs - static_cast<long>(elapsed);
-    if (attempt > 0 && remaining < totalTimeoutMs / 3 + 100) {
-      HttpResult r;
-      r.timedOut = true;
-      r.error = "total_budget_exhausted";
-      return r;
-    }
-    if (remaining < 100) remaining = 100;
-    auto res = ExecuteRequest(
-        parsed, L"POST", headers, body.data(), static_cast<DWORD>(body.size()),
-        /*ensureJsonContentType=*/true,
-        remaining, maxBodyBytes);
-    bool transient = res.timedOut ||
-                     (!res.error.empty() && res.statusCode == 0);
-    if (!transient || attempt == 2) return res;
-    std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs[attempt]));
+  // P1-F: Post is non-idempotent (e.g. /playhistory/upload). Single attempt only.
+  if (IsCancelled(cancelled)) {
+    HttpResult r;
+    r.timedOut = true;
+    r.error = "cancelled";
+    return r;
   }
-  HttpResult r;
-  r.error = "retry_exhausted";
-  return r;
+  long remaining = totalTimeoutMs > 0 ? totalTimeoutMs : 9000;
+  if (remaining < 100) remaining = 100;
+  return ExecuteRequest(
+      parsed, L"POST", headers, body.data(), static_cast<DWORD>(body.size()),
+      /*ensureJsonContentType=*/true,
+      remaining, maxBodyBytes);
 }
 
 }  // namespace echo::core

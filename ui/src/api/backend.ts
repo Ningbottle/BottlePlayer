@@ -5,23 +5,47 @@ import { CircuitBreaker } from './circuitBreaker';
 //
 // 设计：
 //   - 后端已演进为直接通过 FFI 调用 C++ EchoCAPI.dll (native_request)。
-//   - 接口保持原样，不搞乱原有代码逻辑。
-//   - S1 增加：前端 timeout、幂等 GET 重试、熔断器。
+//   - 唯一重试负责人 = C++ HttpClient（GET 预算重试）。
+//   - 前端仅保留：按路径分桶的熔断 + 单次超时（不重试）。
 
 const FRONTEND_TIMEOUT_MS = 14_000;
 
-const circuitBreaker = new CircuitBreaker({
-  failureThreshold: 5,
-  openDurationMs: 30_000,
-});
+export type CircuitBucket = 'playback' | 'lyric' | 'search' | 'generic';
 
-const IDEMPOTENT_GETS =
-  /^\/(healthz|song\/url|personal\/fm|search|playlist|rank|top|album|artist|images\/audio|user\/history)/;
+function makeBreaker(): CircuitBreaker {
+  return new CircuitBreaker({
+    failureThreshold: 5,
+    openDurationMs: 30_000,
+  });
+}
 
-const RETRY_DELAYS_MS = [500, 2_000];
+const buckets: Record<CircuitBucket, CircuitBreaker> = {
+  playback: makeBreaker(),
+  lyric: makeBreaker(),
+  search: makeBreaker(),
+  generic: makeBreaker(),
+};
 
-function sleep(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+/** Test-only: recreate breakers so cases do not leak open circuits. */
+export function __resetCircuitBucketsForTests(): void {
+  buckets.playback = makeBreaker();
+  buckets.lyric = makeBreaker();
+  buckets.search = makeBreaker();
+  buckets.generic = makeBreaker();
+}
+
+/** Longest-prefix style: more specific paths before generic /search. */
+export function pickBucket(path: string): CircuitBucket {
+  if (path.startsWith('/song/url') || path.startsWith('/personal/fm')) {
+    return 'playback';
+  }
+  if (path.startsWith('/search/lyric') || path.startsWith('/lyric')) {
+    return 'lyric';
+  }
+  if (path.startsWith('/search')) {
+    return 'search';
+  }
+  return 'generic';
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
@@ -84,38 +108,33 @@ async function apiGetOnce<T = unknown>(
   return r.body as T;
 }
 
-async function apiGetWithRetry<T = unknown>(
+/** GET：分桶熔断 + 单次调用（不重试；重试由 C++ HttpClient 负责）。 */
+async function apiGetNoRetry<T = unknown>(
   path: string,
   query?: Record<string, string | number>
 ): Promise<T> {
-  if (!circuitBreaker.isClosed()) {
+  const cb = buckets[pickBucket(path)];
+  if (!cb.isClosed()) {
     throw new Error('circuit_open');
   }
 
-  const canRetry = IDEMPOTENT_GETS.test(path);
-  const attempts = canRetry ? 1 + RETRY_DELAYS_MS.length : 1;
-
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    try {
-      const result = await apiGetOnce<T>(path, query);
-      circuitBreaker.recordSuccess();
-      return result;
-    } catch (e) {
-      circuitBreaker.recordFailure();
-      if (attempt === attempts - 1) throw e;
-      await sleep(RETRY_DELAYS_MS[attempt]);
-    }
+  try {
+    const result = await apiGetOnce<T>(path, query);
+    cb.recordSuccess();
+    return result;
+  } catch (e) {
+    cb.recordFailure();
+    throw e;
   }
-
-  throw new Error('unreachable');
 }
 
 export async function ping(): Promise<string> {
   return invoke<string>('ping');
 }
 
-export function isCircuitOpen(): boolean {
-  return !circuitBreaker.isClosed();
+/** Default bucket is playback so existing callers stay safe for play UX. */
+export function isCircuitOpen(bucket: CircuitBucket = 'playback'): boolean {
+  return !buckets[bucket].isClosed();
 }
 
 /** 探测后端是否就绪（轮询用）。后端约定有 /healthz；若无则用 / 兜底。 */
@@ -137,7 +156,7 @@ export async function apiGet<T = unknown>(
   path: string,
   query?: Record<string, string | number>
 ): Promise<T> {
-  return apiGetWithRetry<T>(path, query);
+  return apiGetNoRetry<T>(path, query);
 }
 
 /** 通用 POST（返回 JSON）。 */
@@ -146,9 +165,19 @@ export async function apiPost<T = unknown>(
   body?: string,
   query?: Record<string, string | number>
 ): Promise<T> {
-  const r = await ipcRequest('POST', path, query, undefined, body);
-  if (r.status < 200 || r.status >= 300) {
-    throw new Error('HTTP ' + r.status + ' (via IPC)');
+  const cb = buckets[pickBucket(path)];
+  if (!cb.isClosed()) {
+    throw new Error('circuit_open');
   }
-  return r.body as T;
+  try {
+    const r = await ipcRequest('POST', path, query, undefined, body);
+    if (r.status < 200 || r.status >= 300) {
+      throw new Error('HTTP ' + r.status + ' (via IPC)');
+    }
+    cb.recordSuccess();
+    return r.body as T;
+  } catch (e) {
+    cb.recordFailure();
+    throw e;
+  }
 }

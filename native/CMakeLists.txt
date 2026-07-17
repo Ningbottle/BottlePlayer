@@ -57,9 +57,18 @@ add_library(EchoDiagnostics STATIC
 target_include_directories(EchoDiagnostics PUBLIC include)
 target_link_libraries(EchoDiagnostics PRIVATE psapi)
 
+add_library(EchoAsync STATIC
+  async/EventQueue.cpp
+  async/TaskScheduler.cpp
+  async/RequestScheduler.cpp
+  async/RequestWatchdog.cpp
+)
+target_include_directories(EchoAsync PUBLIC include)
+
+# EchoCore: services + CompatApi only. C_API.cpp lives solely in EchoCAPI
+# (was dual-compiled in EchoCore + EchoCAPI — P2-L).
 add_library(EchoCore STATIC
   core/Authorization.cpp
-  core/BackendFacade.cpp
   core/CatalogService.cpp
   core/CompatApi.cpp
   core/CompatRequestContext.cpp
@@ -93,7 +102,6 @@ add_library(EchoCore STATIC
   core/PlayHistoryService.cpp
   core/UserCloudService.cpp
   stats/PlayStatsService.cpp
-  core/C_API.cpp
 )
 target_include_directories(EchoCore PUBLIC include)
 target_link_libraries(EchoCore
@@ -103,27 +111,7 @@ target_link_libraries(EchoCore
 
 add_library(EchoCAPI SHARED core/C_API.cpp)
 target_include_directories(EchoCAPI PUBLIC include)
-target_link_libraries(EchoCAPI PUBLIC EchoCore EchoPlayback)
-
-add_library(EchoPlayback STATIC
-  playback/PlaybackController.cpp
-  playback/PlaybackControllerMFP.cpp
-  playback/PlaybackControllerMFS.cpp
-  playback/BiquadFilter.cpp
-  playback/EqualizerMFT.cpp
-)
-target_include_directories(EchoPlayback PUBLIC include)
-target_link_libraries(EchoPlayback
-  PUBLIC nlohmann_json::nlohmann_json
-  PRIVATE mf mfplat mfplay mfreadwrite mfuuid
-)
-
-add_library(EchoAsync STATIC
-  async/EventQueue.cpp
-  async/TaskScheduler.cpp
-  async/RequestScheduler.cpp
-)
-target_include_directories(EchoAsync PUBLIC include)
+target_link_libraries(EchoCAPI PUBLIC EchoCore)
 
 add_library(EchoImage STATIC
   image/ImageCache.cpp
@@ -135,20 +123,13 @@ target_link_libraries(EchoImage PUBLIC EchoAsync PRIVATE windowscodecs ole32)
 if(ECHO_NATIVE_BUILD_TESTS)
   enable_testing()
 
-  # Full smoke test (covers route/crypto/service contracts; the former
-  # win32_app layout/view-model sections were removed with EchoWin32).
+  # Full smoke test (covers route/crypto/service contracts).
   add_executable(EchoNativeSmokeTests tests/basic_contract_tests.cpp)
   target_include_directories(EchoNativeSmokeTests PRIVATE include)
-  target_link_libraries(EchoNativeSmokeTests PRIVATE EchoCore EchoPlayback EchoAsync EchoImage EchoDiagnostics)
+  target_link_libraries(EchoNativeSmokeTests PRIVATE EchoCore EchoAsync EchoImage EchoDiagnostics)
   add_test(NAME EchoNativeSmokeTests COMMAND EchoNativeSmokeTests)
 
-  # PlaybackControllerMFS contract test (S4 Phase 4.1a checkpoint).
-  add_executable(EchoPlaybackMfsTest tests/playback_controller_mfs_test.cpp)
-  target_include_directories(EchoPlaybackMfsTest PRIVATE include)
-  target_link_libraries(EchoPlaybackMfsTest PRIVATE EchoCore EchoPlayback)
-  add_test(NAME EchoPlaybackMfsTest COMMAND EchoPlaybackMfsTest)
-
-  # Independent contract test targets (P1: split from smoke for faster feedback)
+  # Independent contract test targets
   add_executable(EchoRouteContractTest tests/route_contract_test.cpp)
   target_include_directories(EchoRouteContractTest PRIVATE include)
   target_link_libraries(EchoRouteContractTest PRIVATE EchoCore EchoStorage)
@@ -184,14 +165,9 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoRequestSchedulerResilienceTest PRIVATE EchoCore EchoAsync)
   add_test(NAME EchoRequestSchedulerResilienceTest COMMAND EchoRequestSchedulerResilienceTest)
 
-  add_executable(EchoBiquadFilterTest tests/biquad_filter_test.cpp)
-  target_include_directories(EchoBiquadFilterTest PRIVATE include)
-  target_link_libraries(EchoBiquadFilterTest PRIVATE EchoCore EchoPlayback)
-  add_test(NAME EchoBiquadFilterTest COMMAND EchoBiquadFilterTest)
-
   add_executable(EchoPlayStatsTest tests/play_stats_test.cpp)
   target_include_directories(EchoPlayStatsTest PRIVATE include)
-  target_link_libraries(EchoPlayStatsTest PRIVATE EchoCore EchoPlayback)
+  target_link_libraries(EchoPlayStatsTest PRIVATE EchoCore EchoCAPI)
   add_test(NAME EchoPlayStatsTest COMMAND EchoPlayStatsTest)
 
   set(ECHO_NATIVE_TESTS
@@ -201,10 +177,8 @@ if(ECHO_NATIVE_BUILD_TESTS)
     EchoPlaylistContractTest
     EchoProfileSignatureContractTest
     EchoHomeContractTest
-    EchoPlaybackMfsTest
     EchoHttpClientResilienceTest
     EchoRequestSchedulerResilienceTest
-    EchoBiquadFilterTest
     EchoPlayStatsTest
   )
   # 测试进程也需要找到 vcpkg 的动态库；把 bin 目录临时挂到 PATH，

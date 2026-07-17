@@ -20,6 +20,26 @@ static std::size_t ci_find(const std::string& haystack, const std::string& needl
   return it == haystack.end() ? std::string::npos : static_cast<std::size_t>(std::distance(haystack.begin(), it));
 }
 
+// Mask "Header: value" / "Header:value" forms (Cookie / Authorization).
+static void mask_header_line(std::string& text, const std::string& headerName) {
+  const std::string needle = headerName + ":";
+  std::size_t pos = 0;
+  while (true) {
+    std::size_t found = ci_find(text.substr(pos), needle);
+    if (found == std::string::npos) break;
+    pos += found + needle.size();
+    while (pos < text.size() && (text[pos] == ' ' || text[pos] == '\t')) ++pos;
+    std::size_t end = text.find_first_of("\r\n", pos);
+    if (end == std::string::npos) end = text.size();
+    if (end > pos) {
+      text.replace(pos, end - pos, "***");
+      pos += 3;
+    } else {
+      break;
+    }
+  }
+}
+
 // Find value after key= (up to space, &, ; or end). When prefix==suffix==0
 // the caller wants total masking; MaskMiddle would yield "..." (empty prefix
 // + "..." + empty suffix) which looks like truncation, so return "***" to
@@ -130,8 +150,10 @@ std::string RedactSensitive(std::string_view text) {
       if (pos != std::string::npos) pos += q1 + 3;
     }
   }
-  // Cookie=...
+  // Cookie=... and Cookie: ... / Authorization: Bearer ...
   mask_param(out, "Cookie", 0, 0);
+  mask_header_line(out, "Cookie");
+  mask_header_line(out, "Authorization");
   // KugooID=...
   mask_param(out, "KugooID", 0, 0);
   // dfid=... (prefix 3, suffix 3)

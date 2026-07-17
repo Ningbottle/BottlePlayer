@@ -246,6 +246,25 @@ describe('playerStore integration', () => {
     expect(mod.playerStore.eqBands).toEqual([0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
   });
 
+  it.each([
+    ['abc', 0.7],
+    ['', 0.7],
+    ['5', 1],
+    ['-1', 0],
+  ] as const)(
+    'loadNumber clamps or falls back for player_volume=%j → %s',
+    async (raw, expected) => {
+      vi.resetModules();
+      localStorage.clear();
+      localStorage.setItem('player_volume', raw);
+      const mod = await import('../playerStore');
+      expect(Number.isFinite(mod.playerStore.volume)).toBe(true);
+      expect(mod.playerStore.volume).toBe(expected);
+      expect(mod.playerStore.volume).toBeGreaterThanOrEqual(0);
+      expect(mod.playerStore.volume).toBeLessThanOrEqual(1);
+    },
+  );
+
   it('personal FM appends fresh recommendations instead of wrapping at the queue tail', async () => {
     initPlayer();
     initPlayerBackend();

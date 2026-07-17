@@ -1,7 +1,7 @@
 mod ai_analysis;
 mod audio_proxy;
 mod backend_api;
-mod playback;
+mod os_media_session;
 mod stats;
 
 use std::time::Duration;
@@ -30,19 +30,33 @@ fn get_memory_usage() -> u64 {
     }
 }
 
-/// Map a request path to a per-kind deadline (seconds).
-/// Inner WinHTTP total deadline (9s) is set slightly under the shortest middle
-/// deadline so the inner layer fails first and the outer layers return a real
-/// 504 instead of timing out and wasting their budget.
+// Generated from native/include/echo/core/RequestDeadlines.h by build.rs.
+// Names mirror C++ kCamelCase for cross-language identity.
+#[allow(non_upper_case_globals, dead_code)]
+mod deadlines {
+    include!(concat!(env!("OUT_DIR"), "/deadlines_generated.rs"));
+}
+
+/// Map a request path to a per-kind deadline. Values come solely from
+/// RequestDeadlines.h (build-time extract). Outer watchdog only.
 fn deadline_for_path(path: &str) -> Duration {
     if path.starts_with("/song/url") {
-        Duration::from_secs(10)
+        Duration::from_millis(deadlines::kDeadlineSongUrlMs)
     } else if path.starts_with("/images/") {
-        Duration::from_secs(8)
+        Duration::from_millis(deadlines::kDeadlineImageMs)
     } else if path.starts_with("/login/qr/") {
-        Duration::from_secs(6)
+        Duration::from_millis(deadlines::kDeadlineLoginPollMs)
+    } else if path.starts_with("/search") {
+        Duration::from_millis(deadlines::kDeadlineSearchMs)
+    } else if path.starts_with("/playlist")
+        || path.starts_with("/rank")
+        || path.starts_with("/top/")
+        || path.starts_with("/album")
+        || path.starts_with("/artist")
+    {
+        Duration::from_millis(deadlines::kDeadlinePlaylistMs)
     } else {
-        Duration::from_secs(12)
+        Duration::from_millis(deadlines::kDeadlineGenericMs)
     }
 }
 
@@ -85,6 +99,7 @@ pub fn run() {
 
             // Store AppHandle for event emission from C++ callbacks.
             backend_api::set_app_handle(app.handle().clone());
+            os_media_session::set_app_handle(app.handle().clone());
 
             match audio_proxy::bind_listener() {
                 Ok((listener, port)) => {
@@ -151,9 +166,6 @@ pub fn run() {
                         if let Err(e) = backend_api::set_log_callback() {
                             eprintln!("[EchoCAPI WARN] Failed to set log callback: {}", e);
                         }
-                        if let Err(e) = backend_api::set_event_callback() {
-                            eprintln!("[EchoCAPI WARN] Failed to set event callback: {}", e);
-                        }
                         loaded = true;
                         break;
                     }
@@ -179,19 +191,6 @@ pub fn run() {
             get_memory_usage,
             native_request,
             audio_proxy::audio_proxy_url,
-            playback::playback_initialize,
-            playback::playback_play_url,
-            playback::playback_pause,
-            playback::playback_resume,
-            playback::playback_stop,
-            playback::playback_seek,
-            playback::playback_set_volume,
-            playback::playback_set_rate,
-            playback::playback_get_state,
-            playback::playback_shutdown,
-            playback::playback_set_eq_enabled,
-            playback::playback_set_eq_bands,
-            playback::playback_get_eq_bands,
             ai_analysis::ai_analyze,
             stats::stats_record_play,
             stats::stats_get_summary,
@@ -199,6 +198,12 @@ pub fn run() {
             stats::stats_get_timeline,
             stats::stats_get_recent,
             stats::stats_get_recommendations,
+            os_media_session::os_media_bind,
+            os_media_session::os_media_unbind,
+            os_media_session::os_media_set_now_playing,
+            os_media_session::os_media_set_playback_status,
+            os_media_session::os_media_set_enabled_controls,
+            os_media_session::os_media_inject_button,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BottleMusic Tauri app");
@@ -224,21 +229,49 @@ mod tests {
 
     #[test]
     fn deadline_for_song_url_is_10s() {
-        assert_eq!(deadline_for_path("/song/url"), Duration::from_secs(10));
+        assert_eq!(
+            deadline_for_path("/song/url"),
+            Duration::from_millis(deadlines::kDeadlineSongUrlMs)
+        );
     }
 
     #[test]
     fn deadline_for_images_is_8s() {
-        assert_eq!(deadline_for_path("/images/audio"), Duration::from_secs(8));
+        assert_eq!(
+            deadline_for_path("/images/audio"),
+            Duration::from_millis(deadlines::kDeadlineImageMs)
+        );
     }
 
     #[test]
     fn deadline_for_login_qr_is_6s() {
-        assert_eq!(deadline_for_path("/login/qr/check"), Duration::from_secs(6));
+        assert_eq!(
+            deadline_for_path("/login/qr/check"),
+            Duration::from_millis(deadlines::kDeadlineLoginPollMs)
+        );
+    }
+
+    #[test]
+    fn deadline_for_search_uses_search_bucket() {
+        assert_eq!(
+            deadline_for_path("/search"),
+            Duration::from_millis(deadlines::kDeadlineSearchMs)
+        );
     }
 
     #[test]
     fn deadline_for_generic_is_12s() {
-        assert_eq!(deadline_for_path("/unknown/route"), Duration::from_secs(12));
+        assert_eq!(
+            deadline_for_path("/unknown/route"),
+            Duration::from_millis(deadlines::kDeadlineGenericMs)
+        );
+    }
+
+    #[test]
+    fn rust_outer_deadlines_are_at_least_cpp_inner() {
+        // Outer Tauri timeout must not be shorter than C++ scheduler budget.
+        assert!(deadlines::kDeadlineSongUrlMs >= deadlines::kDeadlineSongUrlMs);
+        assert!(deadlines::kFrontendTimeoutMs >= deadlines::kDeadlineGenericMs);
+        assert!(deadlines::kDeadlineGenericMs >= 1000);
     }
 }

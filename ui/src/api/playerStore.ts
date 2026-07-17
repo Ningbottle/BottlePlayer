@@ -1,58 +1,39 @@
 import { reactive, watch } from 'vue';
-import { apiGet } from './backend';
-import { Track, normalizeTrack, fetchCoverImage } from './normalizer';
-import { userStore } from './userStore';
+import { Track, fetchCoverImage } from './normalizer';
 import { Html5AudioBackend } from './html5Backend';
 import type { PlayerBackend, PlaybackEvent } from './playerBackend';
 import { invoke } from '@tauri-apps/api/core';
 import { PlaySessionTracker, type PlayRecord } from './playSessionTracker';
-import { WebAudioEq } from './webAudioEq';
 import { normalizeEqBands } from './equalizerConfig';
-import { prepareAudioSourceUrl } from './audioProxy';
 import { recentPlayedStore } from './recentPlayedStore';
 import { playbackDiagnostics } from './playbackDiagnostics';
 import {
   PlaybackOrchestrator,
   type QualityOption,
-  type ResolveTrackResult,
 } from './playbackOrchestrator';
+import { loadNumber } from './safeStorage';
+import {
+  loadJSON,
+  bindQueuePersistence,
+  saveQueue,
+} from './playerPersistence';
+import { appendPersonalFmRecommendations as appendFm } from './fmSession';
+import {
+  playAll as playAllImpl,
+  playPersonalFm as playPersonalFmImpl,
+  addToQueue as addToQueueImpl,
+  removeFromQueue as removeFromQueueImpl,
+  clearQueue as clearQueueImpl,
+} from './playbackQueue';
+import { resolveTrack } from './songUrlResolver';
+import { uploadPlayHistory } from './playHistory';
+import { createPlayerEq } from './usePlayerEq';
 
 export type { Track };
+export { loadNumber } from './safeStorage';
 
 export type LoopMode = 'list' | 'single' | 'random';
 export type QueueMode = 'normal' | 'personalFm';
-
-/** 上传播放历史到酷狗服务器（静默失败，不影响播放） */
-async function uploadPlayHistory(track: Track) {
-  try {
-    if (!userStore.isLoggedIn) return; // 未登录不上传
-    const mxid = track.AlbumAudioID || track.MixSongID;
-    if (!mxid) return;
-    const numMxid = Number(mxid);
-    if (!Number.isFinite(numMxid) || numMxid <= 0) return;
-    await apiGet('/playhistory/upload', {
-      mxid: numMxid,
-      time: Math.floor(Date.now() / 1000),
-      pc: 1
-    });
-  } catch (e) {
-    // 静默失败：播放历史上传不是关键路径，网络错误不应打断用户体验
-    console.warn('播放历史上传失败（可忽略）:', e);
-  }
-}
-
-// ── Safe localStorage JSON parse (#14) ──
-// Module-level JSON.parse of localStorage used to throw on corrupt data and
-// blank-screen the app at import time. Swallow and fall back to defaults.
-function loadJSON<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw == null) return fallback;
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
 
 // ── Stats play session tracking (#5 #6 #7 #8 #12) ──
 // Fire-and-forget: failures are silently ignored (stats are non-critical).
@@ -70,22 +51,6 @@ const playSession = new PlaySessionTracker(
   () => playerStore.quality || '',
   () => Date.now(),
 );
-
-// ── Web Audio API EQ chain (#1 #4 #9 #10) ──
-// Routes the <audio> element through a BiquadFilter chain so EQ works for the
-// HTML5 backend. See webAudioEq.ts for graph-build-order / CORS / close logic.
-//
-// CORS note (#1): KuGou's media CDN sends no Access-Control-Allow-Origin
-// (verified 2026-06-25). createMediaElementSource on a non-CORS cross-origin
-// source taints (silent PCM), and setting crossOrigin='anonymous' on the raw
-// CDN URL makes the load fail entirely. HTML5 playback therefore first asks
-// the Tauri local audio proxy for a CORS-safe 127.0.0.1 URL. Only proxy-backed
-// media is routed through WebAudio; direct fallback remains EQ-unavailable.
-const webAudioEq = new WebAudioEq(() => {
-  const Ctx = window.AudioContext
-    || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  return Ctx ? new Ctx() : null;
-});
 
 interface PlayerState {
   currentTrack: Track | null;
@@ -106,7 +71,7 @@ interface PlayerState {
   quality: string;
   /** 当前歌曲可用的音质选项列表 */
   availableQualities: QualityOption[];
-  backend: 'html5' | 'native' | null;
+  backend: 'html5' | null;
   eqEnabled: boolean;
   eqBands: number[];
   activePreset: string;
@@ -120,7 +85,6 @@ type BottleMusicAudioGlobal = Window & {
 let activeBackend: PlayerBackend | null = null;
 export let eventUnsub: (() => void) | null = null;
 let initListenerCleanup: (() => void) | null = null;
-let currentEqSafeSource = '';
 let endedAdvanceInFlight = false;
 
 function audioGlobal(): BottleMusicAudioGlobal {
@@ -134,7 +98,7 @@ function cleanupCurrentModuleForHmr() {
   eventUnsub = null;
   activeBackend = null;
   if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
-  webAudioEq.close();
+  closeWebAudioEq();
 }
 
 function publishPlayerCleanup() {
@@ -156,7 +120,7 @@ export const playerStore = reactive<PlayerState>({
   isPlaying: false,
   currentTime: 0,
   duration: 0,
-  volume: parseFloat(localStorage.getItem('player_volume') || '0.7'),
+  volume: loadNumber('player_volume', 0.7, 0, 1),
   queue: loadJSON<Track[]>('player_queue', []),
   currentIndex: parseInt(localStorage.getItem('player_index') || '-1', 10),
   loopMode: (localStorage.getItem('player_loop_mode') || 'list') as LoopMode,
@@ -174,151 +138,21 @@ export const playerStore = reactive<PlayerState>({
   activePreset: localStorage.getItem('player_eq_preset') || 'Flat',
 });
 
-// ── EQ public API (delegates to webAudioEq) ──
-/** Whether the EQ graph is actually active (rerouted through Web Audio API).
- *  False when the source is cross-origin non-CORS (KuGou CDN) — sliders do
- *  nothing in that state. Exposed for the UI to show a degradation notice. */
-export const eqState = reactive({
-  available: false,
-  reason: '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。',
-  retryFailCount: 0,
-  retryDisabled: false,
-});
-
-/** Test-only seam: tear down the EQ graph between tests. */
-export function __resetWebAudioEqForTests() {
-  webAudioEq.close();
-}
-
-const EQ_UNAVAILABLE_REASON = '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。';
-
-const EQ_DEGRADED_REASON = 'EQ 暂不可用，点击重试';
-
-function getAudioSource(audio: HTMLAudioElement): string {
-  return audio.getAttribute('src') || audio.currentSrc || audio.src || '';
-}
-
-function isLocalAudioProxySource(src: string): boolean {
-  if (!src) return false;
-  try {
-    const url = new URL(src, window.location.href);
-    return url.protocol === 'http:'
-      && url.hostname === '127.0.0.1'
-      && url.pathname.startsWith('/audio/');
-  } catch {
-    return false;
-  }
-}
-
-async function preparePlaybackAudioSourceUrl(url: string) {
-  if (!playerStore.eqEnabled) {
-    return { url, crossOriginSafe: false };
-  }
-  return prepareAudioSourceUrl(url);
-}
-
-function syncEqAvailabilityFromReroute() {
-  eqState.available = webAudioEq.isRerouted;
-  eqState.reason = eqState.available ? '' : EQ_UNAVAILABLE_REASON;
-}
-
-/** Build the long-lived worklet graph once at app startup (spec §5.1). */
-export function initWebAudioEQ() {
-  webAudioEq.init({
-    enabled: playerStore.eqEnabled,
-    bands: playerStore.eqBands,
-    onDegraded: () => {
-      eqState.available = false;
-      eqState.reason = EQ_DEGRADED_REASON;
-    },
-    onRecovered: () => {
-      syncEqAvailabilityFromReroute();
-    },
-  });
-}
-
-/** Post-play attach: captureStream → worklet (spec §5.2). Skips when not CORS-safe. */
-export async function attachWebAudioEqSource(
-  audio: HTMLAudioElement,
-  crossOriginSafe = false,
-  isCurrent: () => boolean = () => true,
-) {
-  if (!isCurrent()) return;
-  currentEqSafeSource = crossOriginSafe ? getAudioSource(audio) : '';
-  if (!crossOriginSafe) {
-    eqState.available = false;
-    eqState.reason = EQ_UNAVAILABLE_REASON;
-    audio.volume = playerStore.volume;
-    return;
-  }
-
-  await webAudioEq.awaitReady();
-  if (!isCurrent()) return;
-  webAudioEq.attachSource(audio);
-  if (!isCurrent()) return;
-  syncEqAvailabilityFromReroute();
-  if (!isCurrent()) return;
-  setWebAudioEqVolume(playerStore.volume);
-}
-
-export function disconnectWebAudioEqSource() {
-  currentEqSafeSource = '';
-  webAudioEq.disconnectSource();
-  syncEqAvailabilityFromReroute();
-}
-
-export function setWebAudioEqVolume(vol: number) {
-  webAudioEq.setVolume(vol);
-}
-
-export function setWebAudioEqBand(index: number, gainDb: number) {
-  webAudioEq.setBand(index, gainDb, playerStore.eqEnabled);
-}
-
-export function setWebAudioEqEnabled(enabled: boolean) {
-  webAudioEq.setEnabled(enabled, playerStore.eqBands);
-  if (!enabled) {
-    webAudioEq.disconnectSource();
-    if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
-    syncEqAvailabilityFromReroute();
-    return;
-  }
-  const audio = playerStore.audio;
-  const source = audio ? getAudioSource(audio) : '';
-  const sourceSafe = source
-    && (source === currentEqSafeSource || isLocalAudioProxySource(source));
-  if (audio && !webAudioEq.isRerouted && sourceSafe) {
-    void attachWebAudioEqSource(audio, true);
-  } else {
-    syncEqAvailabilityFromReroute();
-  }
-}
-
-/** Resume the AudioContext after a user gesture (autoplay policy). */
-export function resumeAudioContext() {
-  void webAudioEq.resume().catch(() => {
-    if (playerStore.audio && webAudioEq.isRerouted) {
-      webAudioEq.enterDegradation(playerStore.audio, playerStore.volume);
-    }
-  });
-}
-
-/** Retry EQ after suspend degradation (spec §4.4, §6.3). */
-export async function retryEq() {
-  if (eqState.retryDisabled || !playerStore.audio) return;
-  try {
-    await webAudioEq.resume();
-    webAudioEq.recoverFromDegradation(playerStore.audio);
-    eqState.available = true;
-    eqState.reason = '';
-    eqState.retryFailCount = 0;
-  } catch {
-    eqState.retryFailCount++;
-    if (eqState.retryFailCount >= 3) {
-      eqState.retryDisabled = true;
-    }
-  }
-}
+// ── EQ leaf (usePlayerEq) — barrel re-exports keep public API stable ──
+const playerEq = createPlayerEq(() => playerStore);
+export const {
+  eqState,
+  __resetWebAudioEqForTests,
+  initWebAudioEQ,
+  attachWebAudioEqSource,
+  disconnectWebAudioEqSource,
+  setWebAudioEqVolume,
+  setWebAudioEqBand,
+  setWebAudioEqEnabled,
+  resumeAudioContext,
+  retryEq,
+} = playerEq;
+const { closeWebAudioEq, makeBackendEqHooks, resetRetryState } = playerEq;
 
 // Setup audio listeners
 export function initPlayer() {
@@ -413,26 +247,9 @@ export async function initPlayerBackend() {
   }
   initWebAudioEQ();
   activeBackend = new Html5AudioBackend(playerStore.audio, {
-    prepareSourceUrl: preparePlaybackAudioSourceUrl,
+    ...makeBackendEqHooks(),
     getAttachTransitionSeq: () => playbackOrchestrator.getTransitionSeq(),
     isAttachTransitionCurrent: (seq) => playbackOrchestrator.isTransitionCurrent(seq),
-    initEq: async (audio, crossOriginSafe, isCurrent) => {
-      if (!isCurrent()) return;
-      if (!playerStore.eqEnabled) {
-        if (!isCurrent()) return;
-        currentEqSafeSource = crossOriginSafe ? getAudioSource(audio) : '';
-        if (!isCurrent()) return;
-        eqState.available = false;
-        eqState.reason = EQ_UNAVAILABLE_REASON;
-        if (!isCurrent()) return;
-        audio.volume = playerStore.volume;
-        return;
-      }
-      await attachWebAudioEqSource(audio, crossOriginSafe, isCurrent);
-    },
-    disconnectEq: disconnectWebAudioEqSource,
-    isEqRerouted: () => webAudioEq.isRerouted,
-    setEqVolume: setWebAudioEqVolume,
     recordDiagnostic: (e) => playbackDiagnostics.recordEvent(e),
   });
   playerStore.backend = 'html5';
@@ -508,19 +325,10 @@ watch(() => playerStore.queueMode, (newMode) => {
   localStorage.setItem('player_queue_mode', newMode);
 });
 
-function saveQueue() {
-  localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
-  localStorage.setItem('player_index', String(playerStore.currentIndex));
-}
-
-function resolveTrack(track: Track, quality: string): Promise<ResolveTrackResult> {
-  return apiGet<ResolveTrackResult>('/song/url', {
-    hash: track.FileHash,
-    album_id: track.AlbumID || '',
-    album_audio_id: track.AlbumAudioID || '',
-    quality,
-  });
-}
+bindQueuePersistence(() => ({
+  queue: playerStore.queue,
+  currentIndex: playerStore.currentIndex,
+}));
 
 const playbackOrchestrator = new PlaybackOrchestrator({
   backend: () => activeBackend!,
@@ -537,8 +345,7 @@ const playbackOrchestrator = new PlaybackOrchestrator({
 
 // Actions
 export async function playTrack(track: Track) {
-  eqState.retryFailCount = 0;
-  eqState.retryDisabled = false;
+  resetRetryState();
   initPlayer();
   // Ensure the backend exists — native is disabled, so HTML5 always initializes
   // synchronously here. This keeps playTrack a single code path (no legacy
@@ -562,86 +369,11 @@ export function setQuality(quality: string) {
   }
 }
 
-function extractSongList(payload: any): any[] {
-  const data = payload?.data?.data || payload?.data || payload || {};
-  const list = data.song_list || data.info || data.list || data.songs || [];
-  return Array.isArray(list) ? list : [];
-}
-
-function isPersonalFmFailure(payload: any): boolean {
-  return payload?.status === 0;
-}
-
-async function fetchPersonalFmRecommendations(query: Record<string, string | number>): Promise<any> {
-  let lastResponse: any;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    lastResponse = await apiGet<any>('/personal/fm', query);
-    if (!isPersonalFmFailure(lastResponse)) return lastResponse;
-  }
-  return lastResponse;
-}
-
 async function appendPersonalFmRecommendations(): Promise<boolean> {
-  const current = playerStore.currentTrack;
-  const remain = Math.max(0, playerStore.queue.length - playerStore.currentIndex - 1);
-  const trackKey = current?.FileHash || '';
-  playbackDiagnostics.recordEvent({
-    kind: 'fm_fetch',
-    phase: 'start',
-    detail: `remain=${remain}; is_overplay=${remain === 0 ? 1 : 0}`,
-    trackKey,
+  return appendFm({
+    getState: () => playerStore,
+    saveQueue,
   });
-  let response: any;
-  try {
-    response = await fetchPersonalFmRecommendations({
-      hash: current?.FileHash || '',
-      songid: current?.AlbumAudioID || current?.MixSongID || '',
-      playtime: Math.floor(playerStore.currentTime || 0),
-      remain_songcnt: remain,
-      is_overplay: remain === 0 ? 1 : 0,
-    });
-  } catch (e) {
-    playbackDiagnostics.recordEvent({
-      kind: 'fm_fetch',
-      phase: 'fail',
-      detail: `fetch threw: ${e instanceof Error ? e.message : String(e)}`,
-      trackKey,
-    });
-    return false;
-  }
-  if (isPersonalFmFailure(response)) {
-    playbackDiagnostics.recordEvent({
-      kind: 'fm_fetch',
-      phase: 'fail',
-      detail: `status=0: ${response?.error || ''}`,
-      trackKey,
-    });
-    console.warn('Personal FM recommendation returned an error:', response?.error || response);
-    return false;
-  }
-  const existing = new Set(playerStore.queue.map((track) => track.FileHash).filter(Boolean));
-  const fresh = extractSongList(response)
-    .map(normalizeTrack)
-    .filter((track) => track.FileHash && !existing.has(track.FileHash));
-
-  if (fresh.length === 0) {
-    playbackDiagnostics.recordEvent({
-      kind: 'fm_fetch',
-      phase: 'noop',
-      detail: 'no fresh songs after dedupe',
-      trackKey,
-    });
-    return false;
-  }
-  playerStore.queue.push(...fresh);
-  saveQueue();
-  playbackDiagnostics.recordEvent({
-    kind: 'fm_fetch',
-    phase: 'ok',
-    detail: `appended ${fresh.length} songs`,
-    trackKey,
-  });
-  return true;
 }
 
 export async function togglePlay() {
@@ -713,80 +445,36 @@ export async function setVolume(vol: number) {
   playerStore.volume = Math.max(0, Math.min(1, vol));
 }
 
+function queueDeps() {
+  return {
+    getState: () => playerStore,
+    saveQueue,
+    playTrack,
+    skipSession: () => playSession.skip(),
+    invalidatePlaybackIntent: () => playbackOrchestrator.invalidatePlaybackIntent(),
+    stopInvalidatedPlayback: (seq: number) =>
+      playbackOrchestrator.stopInvalidatedPlayback(seq),
+    hasBackend: () => !!activeBackend,
+  };
+}
+
 export function playAll(tracks: Track[], startIndex = 0) {
-  playerStore.queue = tracks.map(normalizeTrack);
-  playerStore.currentIndex = startIndex;
-  playerStore.queueMode = 'normal';
-  saveQueue();
-  if (playerStore.queue.length > startIndex) {
-    playTrack(playerStore.queue[startIndex]);
-  }
+  playAllImpl(queueDeps(), tracks, startIndex);
 }
 
 export function playPersonalFm(tracks: Track[], startIndex = 0) {
-  playerStore.queue = tracks.map(normalizeTrack);
-  playerStore.currentIndex = startIndex;
-  playerStore.queueMode = 'personalFm';
-  saveQueue();
-  if (playerStore.queue.length > startIndex) {
-    playTrack(playerStore.queue[startIndex]);
-  }
+  playPersonalFmImpl(queueDeps(), tracks, startIndex);
 }
 
 export function addToQueue(track: Track) {
-  const normalized = normalizeTrack(track);
-  const exists = playerStore.queue.some(t => t.FileHash === normalized.FileHash);
-  if (!exists) {
-    playerStore.queue.push(normalized);
-    saveQueue();
-  }
+  addToQueueImpl(queueDeps(), track);
 }
 
 export function removeFromQueue(index: number) {
-  if (index < 0 || index >= playerStore.queue.length) return;
-
-  playerStore.queue.splice(index, 1);
-
-  if (playerStore.currentIndex === index) {
-    if (playerStore.queue.length === 0) {
-      playSession.skip();
-      playerStore.currentIndex = -1;
-      playerStore.currentTrack = null;
-      if (playerStore.audio) {
-        playerStore.audio.src = '';
-        playerStore.isPlaying = false;
-        playerStore.isLoading = false;
-      }
-    } else {
-      playerStore.currentIndex = playerStore.currentIndex % playerStore.queue.length;
-      playTrack(playerStore.queue[playerStore.currentIndex]);
-    }
-  } else if (playerStore.currentIndex > index) {
-    playerStore.currentIndex--;
-  }
-
-  saveQueue();
+  removeFromQueueImpl(queueDeps(), index);
 }
 
 /** Empty the play queue and stop the active backend when one is available. */
 export function clearQueue() {
-  const clearSeq = playbackOrchestrator.invalidatePlaybackIntent();
-  playerStore.queue = [];
-  playerStore.currentIndex = -1;
-  playerStore.currentTrack = null;
-  playerStore.isPlaying = false;
-  playerStore.isLoading = false;
-  if (activeBackend) {
-    void playbackOrchestrator.stopInvalidatedPlayback(clearSeq);
-  } else {
-    if (playerStore.audio) {
-      try {
-        playerStore.audio.pause();
-        playerStore.audio.src = '';
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-  saveQueue();
+  clearQueueImpl(queueDeps());
 }

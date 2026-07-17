@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue';
 import QRCode from 'qrcode';
-import { apiGet } from '../api/backend';
+import { apiGet, apiPost } from '../api/backend';
 import { userStore, checkLoginStatus, claimVip, logoutLocal } from '../api/userStore';
 
 const emit = defineEmits<{
@@ -123,7 +123,7 @@ async function handleLogout() {
     try {
       // Backend clears session + device. Next QR scan binds a fresh
       // appid=1005 device, which KuGou recognises for VIP audio.
-      await apiGet<{ status: number }>('/auth/logout');
+      await apiPost<{ status: number }>('/auth/logout');
     } catch (e) {
       console.warn('Logout backend call failed (continuing)', e);
     }

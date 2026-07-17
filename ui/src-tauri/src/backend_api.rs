@@ -2,32 +2,15 @@ use libloading::{Library, Symbol};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::sync::{OnceLock, RwLock};
-use tauri::{AppHandle, Emitter};
+use tauri::AppHandle;
 
-// Tauri AppHandle for emitting events to the frontend.
+// Retained so setup can hand us an AppHandle (log/event paths may use later).
+#[allow(dead_code)]
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 
-/// Store the Tauri AppHandle so `ffi_event_callback` can emit events.
-/// Safe to call multiple times — only the first call takes effect.
+/// Store the Tauri AppHandle. Safe to call multiple times — only the first takes effect.
 pub fn set_app_handle(handle: AppHandle) {
     let _ = APP_HANDLE.set(handle);
-}
-
-/// C-callable event callback that forwards JSON payloads from the C++ backend
-/// to all Tauri frontend windows via the `playback_event` channel.
-pub unsafe extern "C" fn ffi_event_callback(
-    json: *const c_char,
-    _user: *mut c_void,
-) {
-    if json.is_null() {
-        return;
-    }
-    let cstr = unsafe { CStr::from_ptr(json) };
-    if let Ok(s) = cstr.to_str() {
-        if let Some(handle) = APP_HANDLE.get() {
-            let _ = handle.emit("playback_event", s.to_string());
-        }
-    }
 }
 
 // Resolved entry points from the DLL. The Library handle is kept alive so the
@@ -47,25 +30,7 @@ pub struct CApiHandle {
         out_response: *mut *mut c_char,
     ),
     pub(crate) free_str: unsafe extern "C" fn(str: *mut c_char),
-    // S4: EchoPlayback C API exports
-    pub(crate) playback_initialize: unsafe extern "C" fn(c_int) -> bool,
-    pub(crate) playback_play_url: unsafe extern "C" fn(*const c_char) -> bool,
-    pub(crate) playback_pause: unsafe extern "C" fn(),
-    pub(crate) playback_resume: unsafe extern "C" fn(),
-    pub(crate) playback_stop: unsafe extern "C" fn(),
-    pub(crate) playback_seek: unsafe extern "C" fn(f64),
-    pub(crate) playback_set_volume: unsafe extern "C" fn(f64),
-    pub(crate) playback_set_rate: unsafe extern "C" fn(f64),
-    pub(crate) playback_get_state: unsafe extern "C" fn() -> *mut c_char,
-    pub(crate) playback_shutdown: unsafe extern "C" fn(),
-    pub(crate) playback_set_eq_enabled: unsafe extern "C" fn(c_int),
-    pub(crate) playback_set_eq_bands: unsafe extern "C" fn(*const f64),
-    pub(crate) playback_get_eq_bands: unsafe extern "C" fn(*mut f64),
-    pub(crate) set_event_callback: unsafe extern "C" fn(
-        Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
-        *mut c_void,
-    ),
-    // S5: EchoStats C API exports
+    // EchoStats C API exports
     pub(crate) stats_record_play: unsafe extern "C" fn(*const c_char),
     pub(crate) stats_get_summary: unsafe extern "C" fn(*const c_char) -> *mut c_char,
     pub(crate) stats_get_top: unsafe extern "C" fn(*const c_char, *const c_char, c_int) -> *mut c_char,
@@ -138,81 +103,7 @@ pub fn init_with_paths(dll_path: &str, app_data_dir: Option<&str>) -> Result<(),
             *sym
         };
 
-        // S4: Load EchoPlayback symbols
-        let playback_initialize_ptr = {
-            let sym: Symbol<unsafe extern "C" fn(c_int) -> bool> =
-                lib.get(b"EchoPlaybackInitialize").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_play_url_ptr = {
-            let sym: Symbol<unsafe extern "C" fn(*const c_char) -> bool> =
-                lib.get(b"EchoPlaybackPlayUrl").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_pause_ptr = {
-            let sym: Symbol<unsafe extern "C" fn()> =
-                lib.get(b"EchoPlaybackPause").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_resume_ptr = {
-            let sym: Symbol<unsafe extern "C" fn()> =
-                lib.get(b"EchoPlaybackResume").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_stop_ptr = {
-            let sym: Symbol<unsafe extern "C" fn()> =
-                lib.get(b"EchoPlaybackStop").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_seek_ptr = {
-            let sym: Symbol<unsafe extern "C" fn(f64)> =
-                lib.get(b"EchoPlaybackSeek").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_set_volume_ptr = {
-            let sym: Symbol<unsafe extern "C" fn(f64)> =
-                lib.get(b"EchoPlaybackSetVolume").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_set_rate_ptr = {
-            let sym: Symbol<unsafe extern "C" fn(f64)> =
-                lib.get(b"EchoPlaybackSetRate").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_get_state_ptr = {
-            let sym: Symbol<unsafe extern "C" fn() -> *mut c_char> =
-                lib.get(b"EchoPlaybackGetState").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_shutdown_ptr = {
-            let sym: Symbol<unsafe extern "C" fn()> =
-                lib.get(b"EchoPlaybackShutdown").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_set_eq_enabled_ptr = {
-            let sym: Symbol<unsafe extern "C" fn(c_int)> =
-                lib.get(b"EchoPlaybackSetEqEnabled").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_set_eq_bands_ptr = {
-            let sym: Symbol<unsafe extern "C" fn(*const f64)> =
-                lib.get(b"EchoPlaybackSetEqBands").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let playback_get_eq_bands_ptr = {
-            let sym: Symbol<unsafe extern "C" fn(*mut f64)> =
-                lib.get(b"EchoPlaybackGetEqBands").map_err(|e| e.to_string())?;
-            *sym
-        };
-        let set_event_callback_ptr = {
-            let sym: Symbol<unsafe extern "C" fn(
-                Option<unsafe extern "C" fn(*const c_char, *mut c_void)>,
-                *mut c_void,
-            )> = lib.get(b"EchoSetEventCallback").map_err(|e| e.to_string())?;
-            *sym
-        };
-
-        // S5: Load EchoStats symbols
+        // EchoStats symbols
         let stats_record_play_ptr = {
             let sym: Symbol<unsafe extern "C" fn(*const c_char)> =
                 lib.get(b"EchoStatsRecordPlay").map_err(|e| e.to_string())?;
@@ -248,22 +139,6 @@ pub fn init_with_paths(dll_path: &str, app_data_dir: Option<&str>) -> Result<(),
             _lib: lib,
             handle_req: handle_req_ptr,
             free_str: free_str_ptr,
-            // S4: EchoPlayback fields
-            playback_initialize: playback_initialize_ptr,
-            playback_play_url: playback_play_url_ptr,
-            playback_pause: playback_pause_ptr,
-            playback_resume: playback_resume_ptr,
-            playback_stop: playback_stop_ptr,
-            playback_seek: playback_seek_ptr,
-            playback_set_volume: playback_set_volume_ptr,
-            playback_set_rate: playback_set_rate_ptr,
-            playback_get_state: playback_get_state_ptr,
-            playback_shutdown: playback_shutdown_ptr,
-            playback_set_eq_enabled: playback_set_eq_enabled_ptr,
-            playback_set_eq_bands: playback_set_eq_bands_ptr,
-            playback_get_eq_bands: playback_get_eq_bands_ptr,
-            set_event_callback: set_event_callback_ptr,
-            // S5: EchoStats fields
             stats_record_play: stats_record_play_ptr,
             stats_get_summary: stats_get_summary_ptr,
             stats_get_top: stats_get_top_ptr,
@@ -300,14 +175,28 @@ pub fn shutdown_c_api() {
         }
     };
     if let Some(handle) = guard.take() {
-        unsafe {
-            if let Ok(shutdown_func) =
-                handle._lib.get::<Symbol<unsafe extern "C" fn()>>(b"EchoShutdown")
+        // P0-B: EchoShutdown returns abandoned worker count. If > 0, detached
+        // C++ workers are still executing inside the DLL — FreeLibrary via
+        // drop(_lib) would unmap their code pages (use-after-unload). Leak
+        // the Library mapping until process exit (OS reclaims).
+        let abandoned = unsafe {
+            match handle
+                ._lib
+                .get::<Symbol<unsafe extern "C" fn() -> c_int>>(b"EchoShutdown")
             {
-                shutdown_func();
+                Ok(shutdown_func) => shutdown_func(),
+                Err(_) => 0,
             }
+        };
+        if abandoned != 0 {
+            eprintln!(
+                "[EchoCAPI WARN] shutdown_c_api: {abandoned} abandoned worker(s); \
+                 leaking DLL mapping to avoid use-after-unload"
+            );
+            std::mem::forget(handle);
+        } else {
+            drop(handle);
         }
-        drop(handle);
     }
 }
 
@@ -463,17 +352,6 @@ pub fn set_log_callback() -> Result<(), String> {
             *mut c_void,
         )> = handle._lib.get(b"EchoSetLogCallback").map_err(|e| e.to_string())?;
         set_cb(ffi_log_callback, std::ptr::null_mut());
-    }
-    Ok(())
-}
-
-/// Register the event callback so C++ playback events are forwarded to the
-/// Tauri frontend via `ffi_event_callback`. Call after `set_log_callback`.
-pub fn set_event_callback() -> Result<(), String> {
-    let lib_guard = get_handle().read().unwrap_or_else(|p| p.into_inner());
-    let handle = lib_guard.as_ref().ok_or("C API not loaded")?;
-    unsafe {
-        (handle.set_event_callback)(Some(ffi_event_callback), std::ptr::null_mut());
     }
     Ok(())
 }

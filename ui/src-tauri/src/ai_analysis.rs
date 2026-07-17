@@ -1,9 +1,25 @@
 use serde::{Deserialize, Serialize};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 const DEEPSEEK_API_URL: &str = "https://api.deepseek.com/chat/completions";
 const DEEPSEEK_MODEL: &str = "deepseek-chat";
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(30);
+
+fn shared_ai_client() -> Result<&'static reqwest::Client, String> {
+    static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+    if let Some(c) = CLIENT.get() {
+        return Ok(c);
+    }
+    let built = reqwest::Client::builder()
+        .timeout(REQUEST_TIMEOUT)
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let _ = CLIENT.set(built);
+    CLIENT
+        .get()
+        .ok_or_else(|| "ai_client_init_failed".to_string())
+}
 
 const DEFAULT_SYSTEM_PROMPT: &str = "You are a music listening analyst. Analyze the user's listening statistics and provide insights about their music taste, listening patterns, and recommendations. Respond in the same language as the user's prompt. Be concise and insightful.";
 
@@ -69,10 +85,7 @@ pub async fn ai_analyze(
         stream: false,
     };
 
-    let client = reqwest::Client::builder()
-        .timeout(REQUEST_TIMEOUT)
-        .build()
-        .map_err(|e| format!("Failed to create HTTP client: {}", e))?;
+    let client = shared_ai_client()?;
 
     let response = client
         .post(DEEPSEEK_API_URL)

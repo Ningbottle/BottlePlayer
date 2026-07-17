@@ -1,5 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { apiGet } from '../backend';
+import {
+  apiGet,
+  isCircuitOpen,
+  pickBucket,
+  __resetCircuitBucketsForTests,
+} from '../backend';
 
 const mockInvoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({
@@ -9,57 +14,91 @@ vi.mock('@tauri-apps/api/core', () => ({
 describe('backend resilience', () => {
   beforeEach(() => {
     mockInvoke.mockReset();
+    __resetCircuitBucketsForTests();
   });
 
   afterEach(() => {
     vi.useRealTimers();
   });
 
-  it('times out slow invoke and retry succeeds', { timeout: 30_000 }, async () => {
-    mockInvoke
-      .mockImplementationOnce(
-        () => new Promise(resolve => setTimeout(resolve, 60_000))
-      )
-      .mockResolvedValueOnce(
-        JSON.stringify({ status: 200, headers: {}, body: { ok: true } })
-      );
+  it('times out slow invoke without frontend retry', { timeout: 30_000 }, async () => {
+    mockInvoke.mockImplementation(
+      () => new Promise(resolve => setTimeout(resolve, 60_000))
+    );
     const start = Date.now();
-    await expect(apiGet('/healthz')).resolves.toEqual({ ok: true });
+    await expect(apiGet('/healthz')).rejects.toThrow('request_timeout');
     expect(Date.now() - start).toBeGreaterThanOrEqual(13_000);
-    expect(mockInvoke).toHaveBeenCalledTimes(2);
-  });
-
-  it('retries idempotent GET once after rejection then succeeds', async () => {
-    vi.useFakeTimers();
-    mockInvoke
-      .mockRejectedValueOnce(new Error('fail'))
-      .mockResolvedValueOnce(JSON.stringify({ status: 200, headers: {}, body: { ok: true } }));
-    const p = apiGet('/healthz');
-    await vi.advanceTimersByTimeAsync(3_000);
-    await expect(p).resolves.toEqual({ ok: true });
-    expect(mockInvoke).toHaveBeenCalledTimes(2);
-  });
-
-  it('does not retry non-idempotent paths', async () => {
-    mockInvoke.mockRejectedValue(new Error('fail'));
-    await expect(apiGet('/login/qr/check', { key: 'x' })).rejects.toThrow('fail');
+    // Unique retry owner is C++ HttpClient — frontend does not re-invoke.
     expect(mockInvoke).toHaveBeenCalledTimes(1);
   });
 
-  it('retries personal FM recommendation reads after transient native errors', async () => {
-    vi.useFakeTimers();
-    mockInvoke
-      .mockRejectedValueOnce(new Error('WinHttpSendRequest/WinHttpReceiveResponse failed with Win32 error 12175'))
-      .mockResolvedValueOnce(JSON.stringify({
-        status: 200,
-        headers: {},
-        body: { status: 1, data: { song_list: [] } },
-      }));
+  it('does not retry after a single rejection (records circuit failure)', async () => {
+    mockInvoke.mockRejectedValue(new Error('fail'));
+    await expect(apiGet('/healthz')).rejects.toThrow('fail');
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
 
-    const p = apiGet('/personal/fm', { hash: 'abc' });
-    await vi.advanceTimersByTimeAsync(3_000);
+  it('does not retry personal FM either', async () => {
+    mockInvoke.mockRejectedValue(new Error('WinHttpSendRequest failed'));
+    await expect(apiGet('/personal/fm', { hash: 'abc' })).rejects.toThrow(
+      'WinHttpSendRequest failed',
+    );
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
 
-    await expect(p).resolves.toEqual({ status: 1, data: { song_list: [] } });
-    expect(mockInvoke).toHaveBeenCalledTimes(2);
+  it('succeeds on first response without extra invokes', async () => {
+    mockInvoke.mockResolvedValueOnce(
+      JSON.stringify({ status: 200, headers: {}, body: { ok: true } }),
+    );
+    await expect(apiGet('/healthz')).resolves.toEqual({ ok: true });
+    expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('circuit buckets', () => {
+  beforeEach(() => {
+    mockInvoke.mockReset();
+    __resetCircuitBucketsForTests();
+  });
+
+  it('pickBucket classifies paths by longest-prefix rules', () => {
+    expect(pickBucket('/song/url')).toBe('playback');
+    expect(pickBucket('/personal/fm')).toBe('playback');
+    expect(pickBucket('/lyric')).toBe('lyric');
+    expect(pickBucket('/search/lyric')).toBe('lyric');
+    expect(pickBucket('/search')).toBe('search');
+    expect(pickBucket('/search/hot')).toBe('search');
+    expect(pickBucket('/playhistory/upload')).toBe('generic');
+    expect(pickBucket('/healthz')).toBe('generic');
+  });
+
+  it('search failures do not open the playback bucket', async () => {
+    mockInvoke.mockRejectedValue(new Error('fail'));
+    for (let i = 0; i < 5; i++) {
+      await expect(apiGet('/search')).rejects.toThrow('fail');
+    }
+    expect(isCircuitOpen('search')).toBe(true);
+    expect(isCircuitOpen('playback')).toBe(false);
+    expect(isCircuitOpen()).toBe(false); // default = playback
+
+    mockInvoke.mockResolvedValueOnce(
+      JSON.stringify({ status: 200, headers: {}, body: { ok: true } }),
+    );
+    await expect(apiGet('/song/url')).resolves.toEqual({ ok: true });
+  });
+
+  it('playback failures open only the playback bucket', async () => {
+    mockInvoke.mockRejectedValue(new Error('fail'));
+    for (let i = 0; i < 5; i++) {
+      await expect(apiGet('/song/url')).rejects.toThrow('fail');
+    }
+    expect(isCircuitOpen('playback')).toBe(true);
+    expect(isCircuitOpen('search')).toBe(false);
+    expect(isCircuitOpen('lyric')).toBe(false);
+
+    mockInvoke.mockResolvedValueOnce(
+      JSON.stringify({ status: 200, headers: {}, body: { hits: [] } }),
+    );
+    await expect(apiGet('/search')).resolves.toEqual({ hits: [] });
   });
 });

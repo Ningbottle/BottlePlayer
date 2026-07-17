@@ -1,7 +1,7 @@
 use std::{
     collections::HashMap,
     net::TcpListener as StdTcpListener,
-    sync::{Arc, Mutex},
+    sync::{Arc, Mutex, OnceLock},
     time::Instant,
 };
 
@@ -193,7 +193,9 @@ async fn handle_client(mut stream: TcpStream, state: AudioProxyState) -> Result<
 
     let range = header_value(&request, "range");
 
-    let client = build_audio_proxy_client().map_err(|error| {
+    // P1-H: share a process-wide Client so CDN keep-alive is reused across
+    // Range seeks (was: build_audio_proxy_client() per connection).
+    let client = shared_audio_proxy_client().map_err(|error| {
         proxy_error(
             &route_id,
             upstream_host.as_deref(),
@@ -529,6 +531,18 @@ fn build_audio_proxy_client() -> Result<Client, String> {
         }))
         .build()
         .map_err(|error| format!("audio_proxy_client_build_failed: {error}"))
+}
+
+fn shared_audio_proxy_client() -> Result<&'static Client, String> {
+    static CLIENT: OnceLock<Client> = OnceLock::new();
+    if let Some(client) = CLIENT.get() {
+        return Ok(client);
+    }
+    let client = build_audio_proxy_client()?;
+    let _ = CLIENT.set(client);
+    CLIENT
+        .get()
+        .ok_or_else(|| "audio_proxy_client_init_failed".to_string())
 }
 
 fn is_allowed_kugou_cdn_host(host: &str) -> bool {

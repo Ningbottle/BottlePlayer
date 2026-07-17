@@ -1,4 +1,4 @@
-import { apiGet } from './backend';
+import { apiGet, apiPost } from './backend';
 import { userStore } from './userStore';
 import { Track } from './normalizer';
 
@@ -117,7 +117,7 @@ export async function addTrackToPlaylist(
     const safeName = track.SongName.replace(/\|/g, '%7C');
     const trackInfo = `${safeName}|${track.FileHash}|${track.AlbumID || 0}|${track.AlbumAudioID || 0}`;
     
-    const res = await apiGet<any>('/playlist/tracks/add', {
+    const res = await apiPost<any>('/playlist/tracks/add', undefined, {
       listid: apiId,
       data: trackInfo  // 后端期望参数名 "data"
     });

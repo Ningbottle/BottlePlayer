@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import { apiGet } from './backend';
+import { apiGet, apiPost } from './backend';
 import { resolveVip } from './vipResolver';
 import { recentPlayedStore } from './recentPlayedStore';
 
@@ -58,7 +58,7 @@ export async function checkLoginStatus() {
       // /song/url returns full VIP audio (instead of 60s previews) and
       // /user/playlist stops returning error_code 20017. The backend is
       // idempotent — re-calls are cheap once registered=true.
-      apiGet('/register/dev').catch(e => console.warn('Device upgrade failed', e));
+      apiPost('/register/dev').catch(e => console.warn('Device upgrade failed', e));
 
       // VIP 解析抽到 vipResolver.resolveVip（纯函数，有单元测试覆盖）。
       // 规则摘要：顶层 is_vip/vip_type → 付费；busi_vip[svip] 未过期 → 临时 SVIP；

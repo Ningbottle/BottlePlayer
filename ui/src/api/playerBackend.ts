@@ -15,7 +15,7 @@ export type PlaybackState = {
 };
 
 export interface PlayerBackend {
-  readonly kind: 'html5' | 'native';
+  readonly kind: 'html5';
   initialize(): Promise<boolean>;
   playUrl(url: string): Promise<boolean>;
   switchUrl(url: string, options: { position?: number; autoplay: boolean }): Promise<boolean>;

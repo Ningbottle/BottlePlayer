@@ -148,6 +148,40 @@ int main() {
     std::cout << "  [ok] Unknown routes return 404" << std::endl;
   }
 
+  // ── Method binding: read routes reject POST with 405 ──────────────────
+  std::cout << "[RouteContract] Testing method binding (405)..." << std::endl;
+  {
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    echo::core::CompatApi api(db);
+
+    auto postHealth = api.Handle("POST", "/health", {}, {}, "{}");
+    assert(postHealth.httpStatus == 405);
+    assert(postHealth.body["error_code"] == 405);
+
+    auto getHealth = api.Handle("GET", "/health", {}, {}, "");
+    assert(getHealth.httpStatus == 200);
+
+    // Pure write routes: GET → 405, POST allowed (not 405).
+    auto getLogout = api.Handle("GET", "/auth/logout", {}, {}, "");
+    assert(getLogout.httpStatus == 405);
+    auto postLogout = api.Handle("POST", "/auth/logout", {}, {}, "");
+    assert(postLogout.httpStatus != 405);
+
+    auto getUpload = api.Handle("GET", "/playhistory/upload", {}, {}, "");
+    assert(getUpload.httpStatus == 405);
+    auto postUpload = api.Handle("POST", "/playhistory/upload", {}, {}, "");
+    assert(postUpload.httpStatus != 405);
+
+    // Dual-purpose device settings: GET load still allowed.
+    auto getDevice = api.Handle("GET", "/settings/device", {}, {}, "");
+    assert(getDevice.httpStatus != 405);
+
+    std::cout << "  [ok] method binding: read POST 405; write GET 405; device GET ok"
+              << std::endl;
+  }
+
   // ── Not-yet-ported routes return 501 ──────────────────────────────────
   std::cout << "[RouteContract] Testing not-yet-ported routes return 501..." << std::endl;
   {

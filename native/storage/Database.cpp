@@ -3,9 +3,11 @@
 #include <algorithm>
 #include <chrono>
 #include <fstream>
+#include <map>
 #include <mutex>
 #include <stdexcept>
 #include <string>
+#include <type_traits>
 
 namespace echo::storage {
 namespace {
@@ -63,6 +65,43 @@ void ThrowSqlite(sqlite3* db, const std::string& context) {
 void BindText(sqlite3_stmt* stmt, int index, const std::string& value) {
   sqlite3_bind_text(stmt, index, value.c_str(), static_cast<int>(value.size()), SQLITE_TRANSIENT);
 }
+
+void BindParams(sqlite3_stmt* stmt, const std::vector<BindValue>& params) {
+  for (size_t i = 0; i < params.size(); ++i) {
+    const int idx = static_cast<int>(i + 1);
+    std::visit(
+        [&](const auto& v) {
+          using T = std::decay_t<decltype(v)>;
+          if constexpr (std::is_same_v<T, std::int64_t>) {
+            sqlite3_bind_int64(stmt, idx, v);
+          } else if constexpr (std::is_same_v<T, double>) {
+            sqlite3_bind_double(stmt, idx, v);
+          } else {
+            BindText(stmt, idx, v);
+          }
+        },
+        params[i]);
+  }
+}
+
+// Per-thread read connections keyed by DB path. Closed when the thread exits.
+// Tolerate process-exit abandoned workers: never block on write_mutex here.
+struct TlsReadConnections {
+  std::map<std::wstring, sqlite3*> conns;
+  ~TlsReadConnections() {
+    for (auto& [_, db] : conns) {
+      if (db) {
+        sqlite3_close(db);
+        db = nullptr;
+      }
+    }
+  }
+};
+
+TlsReadConnections& TlsReads() {
+  thread_local TlsReadConnections tls;
+  return tls;
+}
 #endif
 
 }  // namespace
@@ -75,21 +114,82 @@ Database::~Database() {
 
 #if defined(ECHO_NATIVE_HAS_SQLITE)
 
+void Database::ApplyBusyTimeout(sqlite3* db) const {
+  if (!db) return;
+  char* error = nullptr;
+  sqlite3_exec(db, "PRAGMA busy_timeout=5000;", nullptr, nullptr, &error);
+  if (error) sqlite3_free(error);
+}
+
+sqlite3* Database::WriteDb() {
+  return db_;
+}
+
+sqlite3* Database::ReadDb() const {
+  if (!db_ || path_.empty() || !schema_ready_) {
+    // Fall back to write connection under lock if schema not ready / no path.
+    return db_;
+  }
+  auto& tls = TlsReads();
+  const auto key = path_.wstring();
+  auto it = tls.conns.find(key);
+  if (it != tls.conns.end() && it->second) {
+    return it->second;
+  }
+
+  sqlite3* read = nullptr;
+  // Open UTF-16 path for Windows consistency with write connection.
+  if (sqlite3_open16(path_.c_str(), &read) != SQLITE_OK) {
+    if (read) {
+      sqlite3_close(read);
+    }
+    return db_;  // degrade to write conn (caller may still lock)
+  }
+  // Read-only reopen: close and open with SQLITE_OPEN_READONLY flags.
+  sqlite3_close(read);
+  read = nullptr;
+  const std::string utf8 = path_.string();
+  if (sqlite3_open_v2(utf8.c_str(), &read, SQLITE_OPEN_READONLY, nullptr) != SQLITE_OK) {
+    if (read) sqlite3_close(read);
+    return db_;
+  }
+  ApplyBusyTimeout(read);
+  tls.conns[key] = read;
+  return read;
+}
+
 void Database::Open(const std::filesystem::path& path) {
   Close();
   path_ = path;
+  schema_ready_ = false;
   std::filesystem::create_directories(path.parent_path());
   QuarantineInvalidSqliteFile(path_);
   if (sqlite3_open16(path_.c_str(), &db_) != SQLITE_OK) {
     ThrowSqlite(db_, "sqlite3_open16");
   }
+  ApplyBusyTimeout(db_);
 }
 
 void Database::Close() {
+  // Close this thread's RO handle for path_ so the file can be deleted in tests.
+  // Other threads' TLS handles are left alone (abandoned-worker safe: they close on thread exit).
+  if (!path_.empty()) {
+    auto& tls = TlsReads();
+    const auto key = path_.wstring();
+    auto it = tls.conns.find(key);
+    if (it != tls.conns.end()) {
+      if (it->second) {
+        sqlite3_close(it->second);
+        it->second = nullptr;
+      }
+      tls.conns.erase(it);
+    }
+  }
   if (db_) {
     sqlite3_close(db_);
     db_ = nullptr;
   }
+  schema_ready_ = false;
 }
 
 void Database::Initialize() {
@@ -118,6 +218,7 @@ void Database::Initialize() {
     if (sqlite3_open16(path_.c_str(), &db_) != SQLITE_OK) {
       ThrowSqlite(db_, "sqlite3_open16 recover");
     }
+    ApplyBusyTimeout(db_);
     InitializeSchema();
   }
 }
@@ -125,6 +226,7 @@ void Database::Initialize() {
 void Database::InitializeSchema() {
   Execute("PRAGMA journal_mode=WAL;");
   Execute("PRAGMA synchronous=NORMAL;");
+  Execute("PRAGMA busy_timeout=5000;");
   Execute("CREATE TABLE IF NOT EXISTS kv_store ("
           "key TEXT PRIMARY KEY,"
           "value TEXT NOT NULL,"
@@ -142,7 +244,6 @@ void Database::InitializeSchema() {
           "played_at INTEGER NOT NULL,"
           "progress_seconds INTEGER NOT NULL DEFAULT 0"
           ");");
-  // S5: Migrate play_history to play_history_v2 with rich schema
   Execute("CREATE TABLE IF NOT EXISTS play_history_v2 ("
           "id INTEGER PRIMARY KEY AUTOINCREMENT,"
           "song_hash TEXT NOT NULL,"
@@ -168,13 +269,12 @@ void Database::InitializeSchema() {
           "created_at INTEGER NOT NULL"
           ");");
   Execute("PRAGMA user_version=1;");
-
-  // Index for PruneExpiredApiCache and GetApiCache time-based lookups.
   Execute("CREATE INDEX IF NOT EXISTS idx_api_cache_expires ON api_cache(expires_at);");
+  schema_ready_ = true;
 }
 
 void Database::Execute(const std::string& sql) {
-  std::lock_guard<std::mutex> guard(mutex_);
+  std::lock_guard<std::mutex> guard(write_mutex_);
   char* error = nullptr;
   if (sqlite3_exec(db_, sql.c_str(), nullptr, nullptr, &error) != SQLITE_OK) {
     std::string message = error ? error : "unknown sqlite error";
@@ -183,13 +283,43 @@ void Database::Execute(const std::string& sql) {
   }
 }
 
-std::vector<std::vector<std::string>> Database::ExecuteQuery(const std::string& sql) {
-  std::lock_guard<std::mutex> guard(mutex_);
-  std::vector<std::vector<std::string>> rows;
+void Database::ExecuteBound(const std::string& sql, const std::vector<BindValue>& params) {
+  std::lock_guard<std::mutex> guard(write_mutex_);
   sqlite3_stmt* stmt = nullptr;
   if (sqlite3_prepare_v2(db_, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    ThrowSqlite(db_, "sqlite3_prepare_v2 ExecuteBound");
+  }
+  BindParams(stmt, params);
+  const int rc = sqlite3_step(stmt);
+  if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+    sqlite3_finalize(stmt);
+    ThrowSqlite(db_, "sqlite3_step ExecuteBound");
+  }
+  sqlite3_finalize(stmt);
+}
+
+std::vector<std::vector<std::string>> Database::ExecuteQuery(const std::string& sql) const {
+  return ExecuteQueryBound(sql, {});
+}
+
+std::vector<std::vector<std::string>> Database::ExecuteQueryBound(
+    const std::string& sql, const std::vector<BindValue>& params) const {
+  std::vector<std::vector<std::string>> rows;
+  // Prefer thread_local RO connection; no write_mutex for WAL concurrent reads.
+  sqlite3* conn = ReadDb();
+  if (!conn) return rows;
+
+  // If we fell back to the write connection, serialize.
+  const bool useWriteLock = (conn == db_);
+  std::unique_lock<std::mutex> guard(write_mutex_, std::defer_lock);
+  if (useWriteLock) guard.lock();
+
+  sqlite3_stmt* stmt = nullptr;
+  if (sqlite3_prepare_v2(conn, sql.c_str(), -1, &stmt, nullptr) != SQLITE_OK) {
+    // Legacy tolerance: prepare failure → empty result.
     return rows;
   }
+  BindParams(stmt, params);
   int colCount = sqlite3_column_count(stmt);
   while (sqlite3_step(stmt) == SQLITE_ROW) {
     std::vector<std::string> row;
@@ -205,7 +335,7 @@ std::vector<std::vector<std::string>> Database::ExecuteQuery(const std::string& 
 }
 
 void Database::SetJson(const std::string& key, const nlohmann::json& value) {
-  std::lock_guard<std::mutex> guard(mutex_);
+  std::lock_guard<std::mutex> guard(write_mutex_);
   sqlite3_stmt* stmt = nullptr;
   const char* sql =
       "INSERT INTO kv_store(key, value, updated_at) VALUES(?1, ?2, ?3) "
@@ -225,30 +355,18 @@ void Database::SetJson(const std::string& key, const nlohmann::json& value) {
 }
 
 std::optional<nlohmann::json> Database::GetJson(const std::string& key) const {
-  std::lock_guard<std::mutex> guard(mutex_);
-  sqlite3_stmt* stmt = nullptr;
-  const char* sql = "SELECT value FROM kv_store WHERE key=?1 LIMIT 1;";
-  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-    ThrowSqlite(db_, "sqlite3_prepare_v2 GetJson");
-  }
-  BindText(stmt, 1, key);
-  const int rc = sqlite3_step(stmt);
-  if (rc == SQLITE_ROW) {
-    const auto* text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-    auto parsed = nlohmann::json::parse(text ? text : "null", nullptr, false);
-    sqlite3_finalize(stmt);
-    if (parsed.is_discarded()) return std::nullopt;
-    return parsed;
-  }
-  sqlite3_finalize(stmt);
-  return std::nullopt;
+  auto rows = ExecuteQueryBound("SELECT value FROM kv_store WHERE key=?1 LIMIT 1;", {key});
+  if (rows.empty() || rows[0].empty()) return std::nullopt;
+  auto parsed = nlohmann::json::parse(rows[0][0], nullptr, false);
+  if (parsed.is_discarded()) return std::nullopt;
+  return parsed;
 }
 
 void Database::PutApiCache(
     const std::string& key,
     const nlohmann::json& value,
     std::int64_t expiresAt) {
-  std::lock_guard<std::mutex> guard(mutex_);
+  std::lock_guard<std::mutex> guard(write_mutex_);
   sqlite3_stmt* stmt = nullptr;
   const char* sql =
       "INSERT INTO api_cache(cache_key, response_json, expires_at, created_at) "
@@ -273,29 +391,17 @@ void Database::PutApiCache(
 std::optional<nlohmann::json> Database::GetApiCache(
     const std::string& key,
     std::int64_t now) const {
-  std::lock_guard<std::mutex> guard(mutex_);
-  sqlite3_stmt* stmt = nullptr;
-  const char* sql =
-      "SELECT response_json FROM api_cache WHERE cache_key=?1 AND expires_at>?2 LIMIT 1;";
-  if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
-    ThrowSqlite(db_, "sqlite3_prepare_v2 GetApiCache");
-  }
-  BindText(stmt, 1, key);
-  sqlite3_bind_int64(stmt, 2, now);
-  const int rc = sqlite3_step(stmt);
-  if (rc == SQLITE_ROW) {
-    const auto* text = reinterpret_cast<const char*>(sqlite3_column_text(stmt, 0));
-    auto parsed = nlohmann::json::parse(text ? text : "null", nullptr, false);
-    sqlite3_finalize(stmt);
-    if (parsed.is_discarded()) return std::nullopt;
-    return parsed;
-  }
-  sqlite3_finalize(stmt);
-  return std::nullopt;
+  auto rows = ExecuteQueryBound(
+      "SELECT response_json FROM api_cache WHERE cache_key=?1 AND expires_at>?2 LIMIT 1;",
+      {key, now});
+  if (rows.empty() || rows[0].empty()) return std::nullopt;
+  auto parsed = nlohmann::json::parse(rows[0][0], nullptr, false);
+  if (parsed.is_discarded()) return std::nullopt;
+  return parsed;
 }
 
 void Database::PruneExpiredApiCache(std::int64_t now) {
-  std::lock_guard<std::mutex> guard(mutex_);
+  std::lock_guard<std::mutex> guard(write_mutex_);
   sqlite3_stmt* stmt = nullptr;
   const char* sql = "DELETE FROM api_cache WHERE expires_at<=?1;";
   if (sqlite3_prepare_v2(db_, sql, -1, &stmt, nullptr) != SQLITE_OK) {
@@ -338,8 +444,20 @@ void Database::Execute(const std::string& sql) {
   (void)sql;
 }
 
-std::vector<std::vector<std::string>> Database::ExecuteQuery(const std::string& sql) {
+void Database::ExecuteBound(const std::string& sql, const std::vector<BindValue>& params) {
   (void)sql;
+  (void)params;
+}
+
+std::vector<std::vector<std::string>> Database::ExecuteQuery(const std::string& sql) const {
+  (void)sql;
+  return {};
+}
+
+std::vector<std::vector<std::string>> Database::ExecuteQueryBound(
+    const std::string& sql, const std::vector<BindValue>& params) const {
+  (void)sql;
+  (void)params;
   return {};
 }
 
@@ -350,13 +468,13 @@ void Database::FlushFallback() const {
 }
 
 void Database::SetJson(const std::string& key, const nlohmann::json& value) {
-  std::lock_guard<std::mutex> guard(mutex_);
+  std::lock_guard<std::mutex> guard(write_mutex_);
   fallback_["kv_store"][key] = {{"value", value}, {"updated_at", NowSeconds()}};
   FlushFallback();
 }
 
 std::optional<nlohmann::json> Database::GetJson(const std::string& key) const {
-  std::lock_guard<std::mutex> guard(mutex_);
+  std::lock_guard<std::mutex> guard(write_mutex_);
   const auto& store = fallback_.at("kv_store");
   if (!store.contains(key)) return std::nullopt;
   return store.at(key).value("value", nlohmann::json{});
@@ -366,36 +484,33 @@ void Database::PutApiCache(
     const std::string& key,
     const nlohmann::json& value,
     std::int64_t expiresAt) {
-  std::lock_guard<std::mutex> guard(mutex_);
+  std::lock_guard<std::mutex> guard(write_mutex_);
   fallback_["api_cache"][key] = {
       {"response_json", value},
       {"expires_at", expiresAt},
-      {"created_at", NowSeconds()},
-  };
+      {"created_at", NowSeconds()}};
   FlushFallback();
 }
 
 std::optional<nlohmann::json> Database::GetApiCache(
     const std::string& key,
     std::int64_t now) const {
-  std::lock_guard<std::mutex> guard(mutex_);
-  const auto& cache = fallback_.at("api_cache");
-  if (!cache.contains(key)) return std::nullopt;
-  const auto& record = cache.at(key);
-  if (record.value("expires_at", 0LL) <= now) return std::nullopt;
-  return record.value("response_json", nlohmann::json{});
+  std::lock_guard<std::mutex> guard(write_mutex_);
+  const auto& store = fallback_.at("api_cache");
+  if (!store.contains(key)) return std::nullopt;
+  const auto& entry = store.at(key);
+  if (entry.value("expires_at", 0LL) <= now) return std::nullopt;
+  return entry.value("response_json", nlohmann::json{});
 }
 
 void Database::PruneExpiredApiCache(std::int64_t now) {
-  std::lock_guard<std::mutex> guard(mutex_);
-  auto& cache = fallback_["api_cache"];
-  for (auto it = cache.begin(); it != cache.end();) {
-    if (it.value().value("expires_at", 0LL) <= now) {
-      it = cache.erase(it);
-    } else {
-      ++it;
-    }
+  std::lock_guard<std::mutex> guard(write_mutex_);
+  auto& store = fallback_["api_cache"];
+  std::vector<std::string> expired;
+  for (auto it = store.begin(); it != store.end(); ++it) {
+    if (it.value().value("expires_at", 0LL) <= now) expired.push_back(it.key());
   }
+  for (const auto& k : expired) store.erase(k);
   FlushFallback();
 }
 

@@ -61,6 +61,48 @@ int main() {
     s.Shutdown();
   }
 
+  // A: deadline watcher must flip tokenFlag so workers exit via IsCancelled()
+  // instead of waiting for the full nested HttpClient timeout.
+  std::cout << "[Test] Testing RequestScheduler deadline cancels token early...\n";
+  {
+    RequestScheduler s(1);
+    std::atomic<bool> exitedEarly{false};
+    auto start = std::chrono::steady_clock::now();
+    auto fut = s.SubmitWithDeadline(
+        RequestKind::Generic,
+        [&exitedEarly](echo::async::CancellationToken token) -> int {
+          for (int i = 0; i < 500; ++i) {
+            if (token.IsCancellationRequested()) {
+              exitedEarly.store(true, std::memory_order_release);
+              return -1;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(10));
+          }
+          return 0;
+        },
+        /*deadlineMs=*/100);
+    bool gotDeadline = false;
+    try {
+      (void)fut.get();
+    } catch (const std::runtime_error&) {
+      gotDeadline = true;
+    }
+    // Wait briefly for the worker to observe cancel if the future already
+    // resolved via set_exception while the body was still looping.
+    for (int i = 0; i < 100 && !exitedEarly.load(); ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start).count();
+    CHECK(gotDeadline || exitedEarly.load(),
+          "deadline path surfaces job_deadline and/or early cancel exit");
+    CHECK(exitedEarly.load(),
+          "worker exits early via IsCancellationRequested after deadline");
+    CHECK(elapsed < 1000,
+          "cancel loop exits in <1s (not full HttpClient timeout)");
+    s.Shutdown(std::chrono::milliseconds(500));
+  }
+
   std::cout << "[Test] Testing RequestScheduler restart after clean shutdown...\n";
   {
     RequestScheduler s(1);
