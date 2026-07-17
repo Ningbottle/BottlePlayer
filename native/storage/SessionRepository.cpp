@@ -1,6 +1,7 @@
 #include "echo/storage/SessionRepository.h"
 
 #include "echo/core/JsonHelpers.h"
+#include "echo/diagnostics/EchoDiagnostics.h"
 
 #include <windows.h>
 #include <wincrypt.h>
@@ -118,9 +119,22 @@ std::optional<echo::core::SessionInfo> SessionRepository::Load() {
   }
 
   // One-time migration for databases created before session encryption.
+  {
+    const auto migratedFlag = database_.GetJson("session.encryption_migrated");
+    const bool alreadyMigrated =
+        migratedFlag && migratedFlag->is_boolean() && migratedFlag->get<bool>();
+    if (alreadyMigrated) {
+      // Migration already completed; a plaintext payload here is an anomaly
+      // (bug, backup restore, or another writer). Do not trust it.
+      ECHO_LOG("SessionRepository",
+               "refusing plaintext session.info after migration; ignoring");
+      return std::nullopt;
+    }
+  }
   const auto session = echo::core::SessionInfoFromJson(*payload);
   if (IsEmptySession(session)) return std::nullopt;
   Save(session);
+  database_.SetJson("session.encryption_migrated", true);
   return session;
 }
 

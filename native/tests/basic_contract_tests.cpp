@@ -1451,6 +1451,27 @@ int main() {
   }
 
   {
+    // Once migration has run, a plaintext session.info payload is no longer
+    // trusted (closes the silent-plaintext-bypass gap).
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    // Seed legacy plaintext and migrate via first Load().
+    db.SetJson("session.info",
+               {{"userid", "legacy-user-2"}, {"token", "legacy-token-2"}, {"t1", "legacy-t1-2"},
+                {"nickname", "legacy-nick-2"}, {"pic", "legacy-pic-2"}});
+    echo::storage::SessionRepository repo(db);
+    assert(repo.Load().has_value());
+    // Simulate a plaintext blob written after migration (bug/restore/other writer).
+    db.SetJson("session.info",
+               {{"userid", "sneak-user"}, {"token", "sneak-token"}, {"t1", "sneak-t1"},
+                {"nickname", "sneak-nick"}, {"pic", "sneak-pic"}});
+    const auto afterMigration = repo.Load();
+    assert(!afterMigration.has_value());
+    std::cout << "  [ok] SessionRepository refuses plaintext after migration" << std::endl;
+  }
+
+  {
     // CompatRequestContext: HasLogin() returns false when session is empty or incomplete
     echo::storage::Database db;
     db.Open(TestDbPath());
