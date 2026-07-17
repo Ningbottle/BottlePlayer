@@ -13,18 +13,13 @@ pub enum MediaButton {
     Prev,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "PascalCase")]
 pub enum PlaybackStatus {
     Playing,
     Paused,
+    #[default]
     Stopped,
-}
-
-impl Default for PlaybackStatus {
-    fn default() -> Self {
-        PlaybackStatus::Stopped
-    }
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
@@ -37,21 +32,11 @@ pub struct NowPlaying {
     pub artwork_url: Option<String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct EnabledControls {
     pub play_pause: bool,
     pub next: bool,
     pub prev: bool,
-}
-
-impl Default for EnabledControls {
-    fn default() -> Self {
-        Self {
-            play_pause: false,
-            next: false,
-            prev: false,
-        }
-    }
 }
 
 #[derive(Default)]
