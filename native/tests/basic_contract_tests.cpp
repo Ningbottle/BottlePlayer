@@ -1422,6 +1422,27 @@ int main() {
   }
 
   {
+    // Round-trip still works after SecureZeroMemory is added to DPAPI paths.
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    echo::storage::SessionRepository repo(db);
+    echo::core::SessionInfo session;
+    session.userId = "zero-user";
+    session.token = "zero-token";
+    session.t1 = "zero-t1";
+    session.nickname = "zero-nick";
+    session.pic = "zero-pic";
+    repo.Save(session);
+    const auto loaded = repo.Load();
+    assert(loaded.has_value());
+    assert(loaded->token == "zero-token");
+    assert(loaded->t1 == "zero-t1");
+    assert(loaded->userId == "zero-user");
+    std::cout << "  [ok] SessionRepository round-trip survives buffer zeroing" << std::endl;
+  }
+
+  {
     // Existing plaintext sessions are migrated in place on first read.
     echo::storage::Database db;
     db.Open(TestDbPath());

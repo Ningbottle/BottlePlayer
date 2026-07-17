@@ -61,9 +61,11 @@ std::string ProtectForCurrentUser(const std::string& plaintext) {
 
   try {
     const auto encoded = Base64Encode(output.pbData, output.cbData);
+    SecureZeroMemory(output.pbData, output.cbData);
     LocalFree(output.pbData);
     return encoded;
   } catch (...) {
+    SecureZeroMemory(output.pbData, output.cbData);
     LocalFree(output.pbData);
     throw;
   }
@@ -84,6 +86,7 @@ std::optional<std::string> UnprotectForCurrentUser(const std::string& encoded) {
   }
 
   std::string plaintext(reinterpret_cast<const char*>(output.pbData), output.cbData);
+  SecureZeroMemory(output.pbData, output.cbData);
   LocalFree(output.pbData);
   return plaintext;
 }
@@ -139,11 +142,12 @@ std::optional<echo::core::SessionInfo> SessionRepository::Load() {
 }
 
 void SessionRepository::Save(const echo::core::SessionInfo& session) {
-  const auto plaintext = echo::core::ToJson(session).dump();
+  auto plaintext = echo::core::ToJson(session).dump();
   database_.SetJson(
       "session.info",
       {{"version", kProtectedSessionVersion},
        {"protected_data", ProtectForCurrentUser(plaintext)}});
+  SecureZeroMemory(plaintext.data(), plaintext.size());
 }
 
 void SessionRepository::Clear() {
