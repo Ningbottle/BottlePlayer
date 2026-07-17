@@ -1,13 +1,14 @@
 ﻿#include "echo/core/C_API.h"
 #include "echo/core/CompatApi.h"
 #include "echo/core/HttpClient.h"
+#include "echo/core/RequestDeadlines.h"
 #include "echo/async/RequestScheduler.h"
 #include "echo/storage/Database.h"
 #include "echo/storage/AppPaths.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
-#include "echo/playback/PlaybackController.h"
 #include "echo/stats/PlayStatsService.h"
 #include <nlohmann/json.hpp>
+#include <atomic>
 #include <chrono>
 #include <memory>
 #include <cstring>
@@ -16,7 +17,11 @@
 #include <shared_mutex>
 #include <sstream>
 
-static std::unique_ptr<echo::storage::Database> g_db;
+// Stage 6 degraded EchoContext: process globals are documented as a single
+// logical context. Full Echo*(EchoContext*,...) signature migration is deferred
+// until dead-code deletion and retry ownership have baked; getContext()-style
+// aggregation lives here as the sole process state cluster.
+//
 // g_api is a shared_ptr (not unique_ptr) so worker threads executing
 // in-flight requests can capture a strong reference to the object.
 // EchoShutdown can reset our global ref while in-flight calls continue
@@ -24,14 +29,13 @@ static std::unique_ptr<echo::storage::Database> g_db;
 // the last worker releases its ref. This prevents the use-after-free
 // that the bounded Shutdown path would otherwise expose when a worker
 // is abandoned mid-call.
+static std::unique_ptr<echo::storage::Database> g_db;
 static std::shared_ptr<echo::core::CompatApi> g_api;
 static echo::async::RequestScheduler g_scheduler(4);
 static std::shared_mutex g_api_rwlock;
-static bool g_shutdown = false;
-
-static std::shared_ptr<echo::playback::PlaybackController> g_playback;
-static std::mutex g_playback_mutex;
-
+// P1-E: atomic — written without g_api_rwlock (EchoShutdown), read under
+// shared_lock (EchoHandleRequest). Plain bool was a data race (UB).
+static std::atomic<bool> g_shutdown{false};
 static std::unique_ptr<echo::stats::PlayStatsService> g_stats;
 
 static const char* _dup_str(const char* s) {
@@ -54,23 +58,23 @@ static echo::async::RequestKind KindForPath(const std::string& path) {
 
 static long DeadlineMsForKind(echo::async::RequestKind kind) {
     switch (kind) {
-        case echo::async::RequestKind::SongUrl:   return 10000;
-        case echo::async::RequestKind::Image:     return 8000;
-        case echo::async::RequestKind::LoginPoll: return 6000;
-        case echo::async::RequestKind::Search:
-        case echo::async::RequestKind::Playlist:
-        case echo::async::RequestKind::Generic:   return 12000;
+        case echo::async::RequestKind::SongUrl:   return echo::core::kDeadlineSongUrlMs;
+        case echo::async::RequestKind::Image:     return echo::core::kDeadlineImageMs;
+        case echo::async::RequestKind::LoginPoll: return echo::core::kDeadlineLoginPollMs;
+        case echo::async::RequestKind::Search:    return echo::core::kDeadlineSearchMs;
+        case echo::async::RequestKind::Playlist:  return echo::core::kDeadlinePlaylistMs;
+        case echo::async::RequestKind::Generic:   return echo::core::kDeadlineGenericMs;
     }
-    return 12000;
+    return echo::core::kDeadlineGenericMs;
 }
 
 // Initialize g_db/g_api if needed. PRECONDITION: caller holds g_api_rwlock
 // EXCLUSIVELY (unique_lock). Mutation of the globals only ever happens under the
 // exclusive lock; requests read them under a shared lock.
 static void EnsureInitializedLocked(const char* app_data_dir) {
-    if(g_shutdown) return;
+    if (g_shutdown.load(std::memory_order_acquire)) return;
     if(!g_scheduler.Restart()) {
-        g_shutdown = true;
+        g_shutdown.store(true, std::memory_order_release);
         return;
     }
     if(!g_db) {
@@ -93,7 +97,7 @@ static void EnsureInitializedLocked(const char* app_data_dir) {
 
 void EchoInitializeWithPaths(const char* app_data_dir) {
     std::unique_lock<std::shared_mutex> lock(g_api_rwlock);
-    g_shutdown = false;  // Explicit reset: allow re-init after shutdown (defensive)
+    g_shutdown.store(false, std::memory_order_release);  // allow re-init after shutdown
     try {
         EnsureInitializedLocked(app_data_dir);
     } catch (const std::exception& e) {
@@ -111,7 +115,10 @@ void EchoInitialize() {
     EchoInitializeWithPaths(nullptr);
 }
 
-void EchoShutdown() {
+// Returns the number of abandoned (detached) scheduler workers.
+// Non-zero ⇒ DLL must NOT be unloaded (Rust should forget the Library).
+// See P0-B: drop(_lib) after abandoned workers → use-after-unload.
+int EchoShutdown() {
     // Phase 1: stop accepting new jobs and drain the scheduler with a hard
     // 3s deadline. This MUST happen before acquiring the exclusive lock,
     // because workers executing in-flight jobs try to acquire the shared
@@ -121,7 +128,7 @@ void EchoShutdown() {
     // EchoShutdown would block for 60s+ — violating the "close within
     // 3-5s" contract. Bounded Shutdown detaches hung workers (safe since
     // the process is exiting).
-    g_shutdown = true;
+    g_shutdown.store(true, std::memory_order_release);
     const auto abandoned = g_scheduler.Shutdown(std::chrono::milliseconds(3000));
 
     // If the bounded shutdown had to abandon a worker, that detached thread may
@@ -131,8 +138,9 @@ void EchoShutdown() {
     // under the live worker — a use-after-free. The process is exiting anyway,
     // so the safe choice is to leak: skip the teardown and the HTTP pool close
     // entirely and let the OS reclaim everything.
+    // Also tell the Rust loader not to FreeLibrary the DLL (P0-B).
     if (abandoned > 0) {
-        return;
+        return static_cast<int>(abandoned);
     }
 
     // Phase 2: no worker was abandoned, so every job has finished. Acquire the
@@ -147,13 +155,14 @@ void EchoShutdown() {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         if (!lock.owns_lock()) {
-            return;
+            return 0;
         }
         g_api.reset();
         g_stats.reset();
         g_db.reset();
     }
     echo::core::CloseHttpConnectionPool();
+    return 0;
 }
 
 // Serialize a CompatResponse to a heap-allocated JSON string. Used by
@@ -233,7 +242,7 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
             SerializeResponse(r, out_response);
             return;
         }
-        if (!g_api || g_shutdown) {
+        if (!g_api || g_shutdown.load(std::memory_order_acquire)) {
             r.httpStatus = 500;
             r.body = {{"error", "C API is not initialized or was shut down"}};
             SerializeResponse(r, out_response);
@@ -251,6 +260,8 @@ void EchoHandleRequest(const char* method, const char* path, const char* query_j
         auto fut = g_scheduler.SubmitWithDeadline(
             kind,
             [apiShared, methodStr, pathStr, q, h, bodyStr](echo::async::CancellationToken token) -> echo::core::CompatResponse {
+                // P1-C: expose scheduler cancel to nested HttpClient calls.
+                echo::core::HttpClientCancellationScope cancelScope(token.Flag());
                 return apiShared->Handle(methodStr, pathStr, q, h, bodyStr);
             },
             deadlineMs);
@@ -278,132 +289,6 @@ void EchoSetLogCallback(EchoLogCallback cb, void* user_data) {
     // so assign directly. If either ever drifts this stops compiling (intended)
     // instead of silently becoming UB behind a reinterpret_cast.
     echo::diagnostics::SetLogCallback(cb, user_data);
-}
-
-void EchoSetEventCallback(EchoEventCallback cb, void* user_data) {
-    std::lock_guard lock(g_playback_mutex);
-    if (!g_playback) return;
-    using PcbCallback = echo::playback::PlaybackController::EventCallback;
-    g_playback->SetEventCallback(reinterpret_cast<PcbCallback>(cb), user_data);
-}
-
-// ─── Playback C API ──────────────────────────────────────────────────────────
-
-static const char* PlaybackStateKindToString(echo::core::PlaybackStateKind kind) {
-    switch (kind) {
-        case echo::core::PlaybackStateKind::Idle:      return "idle";
-        case echo::core::PlaybackStateKind::Opening:    return "opening";
-        case echo::core::PlaybackStateKind::Playing:    return "playing";
-        case echo::core::PlaybackStateKind::Paused:     return "paused";
-        case echo::core::PlaybackStateKind::Buffering:  return "buffering";
-        case echo::core::PlaybackStateKind::Stopped:    return "stopped";
-        case echo::core::PlaybackStateKind::Failed:     return "failed";
-    }
-    return "unknown";
-}
-
-bool EchoPlaybackInitialize(EchoPlaybackBackend backend) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) return true;  // already initialized
-    auto pc = std::make_shared<echo::playback::PlaybackController>();
-    bool ok = pc->Initialize(static_cast<echo::playback::PlaybackController::Backend>(backend));
-    if (!ok && backend == ECHO_PLAYBACK_MFS) {
-        // Auto-fallback: MFS failed, try MFP
-        ok = pc->Initialize(echo::playback::PlaybackController::Backend::MFP);
-    }
-    if (!ok) return false;
-    g_playback = pc;
-    return true;
-}
-
-bool EchoPlaybackPlayUrl(const char* url) {
-    std::lock_guard lock(g_playback_mutex);
-    if (!g_playback) return false;
-    return g_playback->PlayUrl(url ? url : "");
-}
-
-void EchoPlaybackPause(void) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) g_playback->Pause();
-}
-
-void EchoPlaybackResume(void) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) g_playback->Resume();
-}
-
-void EchoPlaybackStop(void) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) g_playback->Stop();
-}
-
-void EchoPlaybackSeek(double seconds) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) g_playback->Seek(seconds);
-}
-
-void EchoPlaybackSetVolume(double volume) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) g_playback->SetVolume(volume);
-}
-
-void EchoPlaybackSetRate(double rate) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) g_playback->SetRate(rate);
-}
-
-const char* EchoPlaybackGetState(void) {
-    std::lock_guard lock(g_playback_mutex);
-    if (!g_playback) {
-        // Caller must free via EchoFreeString
-        char* out = new char[64];
-        std::strcpy(out, R"({"state":"uninitialized","position":0,"duration":0})");
-        return out;
-    }
-    auto state = g_playback->GetState();
-    std::ostringstream os;
-    os << R"({"state":")" << PlaybackStateKindToString(state.kind) << R"(",)"
-       << R"("position":)" << state.currentSeconds
-       << R"(,"duration":)" << state.durationSeconds
-       << R"(,"volume":)" << state.volume
-       << R"(,"rate":)" << state.rate;
-    if (!state.error.empty()) {
-        os << R"(,"error":")" << state.error << R"(")";
-    }
-    os << "}";
-    std::string s = os.str();
-    char* out = new char[s.size() + 1];
-    std::strcpy(out, s.c_str());
-    return out;
-}
-
-void EchoPlaybackShutdown(void) {
-    std::lock_guard lock(g_playback_mutex);
-    g_playback.reset();
-}
-
-void EchoPlaybackSetEqEnabled(int enabled) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) g_playback->SetEqEnabled(enabled != 0);
-}
-
-void EchoPlaybackSetEqBand(int bandIndex, double gainDb) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) g_playback->SetEqBand(bandIndex, gainDb);
-}
-
-void EchoPlaybackSetEqBands(const double gainsDb[5]) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) g_playback->SetEqBands(gainsDb);
-}
-
-void EchoPlaybackGetEqBands(double outGainsDb[5]) {
-    std::lock_guard lock(g_playback_mutex);
-    if (g_playback) {
-        g_playback->GetEqBands(outGainsDb);
-    } else {
-        for (int i = 0; i < 5; ++i) outGainsDb[i] = 0.0;
-    }
 }
 
 // ─── Stats C API ─────────────────────────────────────────────────────────────

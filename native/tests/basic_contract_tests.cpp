@@ -15,7 +15,6 @@
 #include "echo/async/RequestScheduler.h"
 #include "echo/async/TaskScheduler.h"
 #include "echo/core/Authorization.h"
-#include "echo/core/BackendFacade.h"
 #include "echo/core/StringUtils.h"
 #include "echo/core/CompatRequestContext.h"
 #include "echo/core/CatalogService.h"
@@ -43,7 +42,6 @@
 #include "echo/diagnostics/ScopedTimer.h"
 #include "echo/image/ImageCache.h"
 #include "echo/image/ImageLoader.h"
-#include "echo/playback/PlaybackController.h"
 #include "echo/storage/Database.h"
 #include "echo/storage/DeviceRepository.h"
 #include "echo/storage/SessionRepository.h"
@@ -252,20 +250,26 @@ int main() {
     assert(loadedSettings.imageMemoryCacheMb == 24);
   }
   {
-    auto settingsFacade = echo::core::CreateBackendFacade(settingsPath);
-    const auto loadedSettings = settingsFacade->LoadSettings().get();
+    echo::storage::Database settingsDatabase;
+    settingsDatabase.Open(settingsPath);
+    settingsDatabase.Initialize();
+    echo::storage::SettingsRepository settings(settingsDatabase);
+    const auto loadedSettings = settings.Load();
     assert(loadedSettings.volume == 0.72);
     assert(loadedSettings.startupPage == "now_playing");
     assert(loadedSettings.imageMemoryCacheMb == 24);
-    echo::core::AppSettings updatedSettings;
+    echo::storage::AppSettings updatedSettings;
     updatedSettings.volume = 0.33;
     updatedSettings.startupPage = "home";
     updatedSettings.imageMemoryCacheMb = 16;
-    settingsFacade->SaveSettings(updatedSettings).get();
+    settings.Save(updatedSettings);
   }
   {
-    auto settingsFacade = echo::core::CreateBackendFacade(settingsPath);
-    const auto loadedSettings = settingsFacade->LoadSettings().get();
+    echo::storage::Database settingsDatabase;
+    settingsDatabase.Open(settingsPath);
+    settingsDatabase.Initialize();
+    echo::storage::SettingsRepository settings(settingsDatabase);
+    const auto loadedSettings = settings.Load();
     assert(loadedSettings.volume == 0.33);
     assert(loadedSettings.startupPage == "home");
     assert(loadedSettings.imageMemoryCacheMb == 16);
@@ -611,9 +615,13 @@ int main() {
   assert(compatPlaylistTracks.body["data"]["pagesize"] == 12);
   assert(compatPlaylistTracksCalls == 1);
 
-  auto facade = echo::core::CreateBackendFacade(TestDbPath());
-  const auto facadeDevice = facade->EnsureDeviceReady().get();
-  const auto secondFacadeDevice = facade->EnsureDeviceReady().get();
+  echo::storage::Database deviceDb;
+  deviceDb.Open(TestDbPath());
+  deviceDb.Initialize();
+  echo::storage::DeviceRepository deviceRepo(deviceDb);
+  echo::core::DeviceService deviceService(deviceRepo);
+  const auto facadeDevice = deviceService.EnsureDeviceReady();
+  const auto secondFacadeDevice = deviceService.EnsureDeviceReady();
   // New device uses dfid="-" as unregistered placeholder; EnsureDeviceReady is idempotent.
   assert(facadeDevice.dfid == "-");
   assert(facadeDevice.dfid == secondFacadeDevice.dfid);
@@ -898,12 +906,12 @@ int main() {
   assert(lyricDetail["decodeContent"].get<std::string>().find("[00:00.00]") != std::string::npos);
   assert(lyricDetail["data"]["decodeContent"] == lyricDetail["decodeContent"]);
 
-  auto backendFacade = echo::core::CreateBackendFacade(TestDbPath());
-  const auto emptyFacadeLyric = backendFacade->SearchLyrics("").get();
+  echo::core::LyricService emptyLyricService;
+  const auto emptyFacadeLyric = emptyLyricService.Search("");
   assert(emptyFacadeLyric["status"] == 1);
   assert(emptyFacadeLyric["data"]["candidates"].empty());
 
-  const auto missingFacadeLyric = backendFacade->GetLyricDetail("", "").get();
+  const auto missingFacadeLyric = emptyLyricService.GetDetail("", "");
   assert(missingFacadeLyric["status"] == 0);
   assert(missingFacadeLyric["error_code"] == "native_lyric_missing_params");
 
@@ -1057,34 +1065,6 @@ int main() {
   assert(rankSongs["data"]["info"][0]["audio_info"]["hash"] == "rankhash");
   assert(rankSongs["data"]["info"][0]["audio_info"]["duration"] == 235000);
   assert(rankSongs["data"]["info"][0]["album_info"]["sizable_cover"].get<std::string>().find("{size}") != std::string::npos);
-
-  const std::string localPlaybackFixture = "file:///C:/Windows/Media/Windows%20Notify.wav";
-
-  echo::playback::PlaybackController playback;
-  assert(playback.Initialize(echo::playback::PlaybackController::Backend::MFP));
-  assert(playback.PlayUrl(localPlaybackFixture));
-  assert(playback.GetState().kind == echo::core::PlaybackStateKind::Opening);
-  playback.Pause();
-  assert(playback.GetState().kind == echo::core::PlaybackStateKind::Paused);
-  playback.Resume();
-  assert(playback.GetState().kind == echo::core::PlaybackStateKind::Playing);
-  playback.Seek(42.5);
-  assert(playback.GetState().currentSeconds == 42.5);
-  playback.Seek(-10.0);
-  assert(playback.GetState().currentSeconds == 0.0);
-  playback.SetVolume(1.5);
-  assert(playback.GetState().volume == 1.0);
-  playback.SetVolume(-1.0);
-  assert(playback.GetState().volume == 0.0);
-  playback.SetRate(4.0);
-  assert(playback.GetState().rate == 2.0);
-  playback.SetRate(0.1);
-  assert(playback.GetState().rate == 0.5);
-  assert(playback.PlayUrl(localPlaybackFixture));
-  assert(playback.GetState().sourceUrl == localPlaybackFixture);
-  playback.Stop();
-  assert(playback.GetState().kind == echo::core::PlaybackStateKind::Stopped);
-  assert(playback.GetState().sourceUrl.empty());
 
   echo::async::CancellationSource cancellation;
   cancellation.Cancel();
