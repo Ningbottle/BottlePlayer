@@ -285,7 +285,7 @@ int main() {
   assert(health.httpStatus == 200);
   assert(health.body["status"] == 1);
 
-  auto device = api.Handle("GET", "/register/dev", {}, {}, "");
+  auto device = api.Handle("POST", "/register/dev", {}, {}, "");
   assert(device.httpStatus == 200);
   assert(device.body["status"] == 1);
   // New device uses dfid="-" as unregistered placeholder; mid/uuid are derived.
