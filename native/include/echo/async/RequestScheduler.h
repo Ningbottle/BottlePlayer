@@ -150,8 +150,15 @@ auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadline
   auto promiseForWatcher = promise;
 
   if (deadlineMs > 0) {
-    std::thread([promiseForWatcher, deadlineMs]() {
+    // Capture tokenFlag by value (shared_ptr) so the watcher outlives nothing
+    // it needs: same ownership as the worker. Flip the flag so nested HttpClient
+    // (HttpClientCancellationScope) bails at the next IsCancelled() boundary —
+    // cooperative cancel, not a hard interrupt. If the worker already finished,
+    // set_exception is no-op (promise_already_satisfied caught below) and a
+    // late flag flip is idempotent (only IsCancellationRequested reads it).
+    std::thread([promiseForWatcher, deadlineMs, tokenFlag]() {
       std::this_thread::sleep_for(std::chrono::milliseconds(deadlineMs));
+      tokenFlag->store(true, std::memory_order_release);
       try {
         promiseForWatcher->set_exception(
             std::make_exception_ptr(std::runtime_error("job_deadline")));
