@@ -13,11 +13,10 @@ Vue 3 Frontend (ui/src/)
   ├─ playerStore.ts — reactive player state + coordination (event handler dispatch)
   ├─ playSessionTracker.ts — stats session state machine + seek-immune listened accumulator
   ├─ webAudioEq.ts — Web Audio API AudioWorklet EQ graph controller (proxy-enabled, safe build order)
-  ├─ backend.ts — Tauri invoke wrapper with timeout/retry/circuit-breaker
+  ├─ backend.ts — Tauri invoke wrapper (熔断 + 单次超时；重试归 C++ HttpClient)
   ├─ themeStore.ts — skin/mode management (Newsprint + Aurora)
-  ├─ playerBackend.ts — PlayerBackend interface
-  ├─ html5Backend.ts — HTML5 Audio wrapper (current default, sole event source)
-  ├─ nativeBackend.ts — Native playback via Tauri commands (disabled)
+  ├─ playerBackend.ts — PlayerBackend interface (html5 only)
+  ├─ html5Backend.ts — HTML5 Audio wrapper (sole production backend + event source)
   ├─ audioProxy.ts — frontend wrapper for audio_proxy_url Tauri command (CORS bypass for CDN media)
   ├─ eqWorkletProcessor.ts — AudioWorklet DSP (RBJ peaking, 10-band)
   ├─ circuitBreaker.ts — frontend resilience
@@ -28,26 +27,20 @@ Vue 3 Frontend (ui/src/)
        │ Tauri IPC
        ▼
 Rust FFI (ui/src-tauri/src/)
-  ├─ backend_api.rs — CApiHandle (DLL symbol loading), handle_request, event bridge
-  ├─ playback.rs — 13 Tauri commands for playback control (unused — HTML5 default)
+  ├─ backend_api.rs — CApiHandle (DLL symbol loading), handle_request, abandoned-worker-safe shutdown
   ├─ stats.rs — 6 Tauri commands (stats_record_play, stats_get_summary/top/timeline/recent/recommendations)
-  ├─ ai_analysis.rs — DeepSeek v4 flash AI analysis (async, user-provided API key)
-  ├─ audio_proxy.rs — local HTTP proxy (loopback, CORS + range/resume + SSRF allowlist) for cross-origin CDN media
+  ├─ ai_analysis.rs — DeepSeek AI analysis (async, shared reqwest Client, user-provided API key)
+  ├─ audio_proxy.rs — local HTTP proxy (loopback, CORS + range/resume + SSRF allowlist, shared Client)
   └─ lib.rs — Tauri app setup, invoke_handler registration
        │ extern "C" FFI
        ▼
 C++ Core (native/) → EchoCAPI.dll
-  ├─ core/C_API.cpp — 30+ C API exports, g_api (shared_ptr), g_playback, g_scheduler, g_stats
-  ├─ core/HttpClient.cpp — WinHTTP with watchdog timeout, retry budget, connection pool
-  ├─ core/CompatApi.cpp — KuGou API routes
+  ├─ core/C_API.cpp — request/stats exports, g_api (shared_ptr), g_scheduler, g_stats (no native playback)
+  ├─ core/HttpClient.cpp — WinHTTP: unique GET retry owner, Post no-retry, watchdog, connection pool
+  ├─ core/CompatApi.cpp — KuGou API routes (sole request dispatch)
   ├─ async/RequestScheduler.cpp — 4-worker thread pool, bounded shutdown/restart, per-kind deadlines
-  ├─ playback/PlaybackController.cpp — Pimpl wrapper
-  ├─ playback/PlaybackControllerMFP.cpp — MFPlay implementation (legacy, works, deprecated)
-  ├─ playback/PlaybackControllerMFS.cpp — IMFMediaSession implementation (broken, disabled)
-  ├─ playback/EqualizerMFT.cpp — IMFTransform EQ (code exists, not wired into topology)
-  ├─ playback/BiquadFilter.cpp — RBJ biquad math (tested, works)
   ├─ stats/PlayStatsService.cpp — record + query play history (play_history_v2 table)
-  └─ storage/Database.cpp — SQLite (play_history_v2 schema with album_id grouping)
+  └─ storage/Database.cpp — SQLite WAL + busy_timeout (play_history_v2 schema)
 ```
 
 ## Sub-Project Status
@@ -88,9 +81,8 @@ C++ Core (native/) → EchoCAPI.dll
 - **PlaySessionTracker (state machine)**: sessions only open on real `play` event (no ghost sessions on rejected play()); `listened_seconds` is seek-immune (forward deltas 0<Δ<2s count, jumps/backward ignored); `completed` uses accumulator not duration; `setQuality` skip+intend keeps quality accurate
 - **Event ownership (#2)**: `Html5AudioBackend.onEvent` is sole event source; `initPlayer` only handles `durationchange`/`loadedmetadata`. Double-`ended` handler that double-fetched `/song/url` is gone.
 - **Single-loop replay**: handled in `ended` handler (not `next()`); `intend()` runs before `play()` (Bug A invariant)
-- **MFS (IMFMediaSession)**: code exists but disabled. Issues: incomplete topology (only source nodes), deadlock (mutex + condition variable), COM lifecycle leaks. Abandoned in favor of Web Audio API.
-- **EqualizerMFT (C++ IMFTransform)**: code exists, unit-testable, but not inserted into MF topology. Kept for reference.
-- **C API exports**: 14 `EchoPlayback*` functions exist and work, but frontend doesn't call them (HTML5 default)
+- **Native MF playback / EchoPlayback\***: removed (architecture audit stage 2). Production EQ is **only** 10-band Web Audio.
+- **BackendFacade**: removed; tests and production use CompatApi only.
 
 ## S5 Details
 
