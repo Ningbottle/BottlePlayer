@@ -90,6 +90,29 @@
   line-height: 1.1;
 }
 
+/* Merged big header on non-playback pages: taller titlebar, floating controls,
+   bigger masthead wordmark. Blends with content below. */
+.app[data-shell="newsprint"][data-header="merged"] {
+  grid-template-rows: 60px auto minmax(0, 1fr) 76px;
+}
+
+[data-shell="newsprint"][data-header="merged"] .titlebar {
+  position: relative;
+  align-items: center;
+  padding-right: 140px; /* room for floating window controls */
+}
+
+[data-shell="newsprint"][data-header="merged"] .titlebar-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 60px;
+}
+
+[data-shell="newsprint"][data-header="merged"] .newsprint-wordmark {
+  font-size: 18px;
+}
+
 [data-shell="newsprint"] .newsprint-wordmark,
 [data-skin-chrome='newsprint'].sidebar .sidebar-brand {
   font-family: var(--font-serif, Georgia, serif);

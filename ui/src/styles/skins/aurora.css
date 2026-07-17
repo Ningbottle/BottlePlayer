@@ -102,6 +102,35 @@
   background: transparent;
 }
 
+/* Merged big header on non-playback pages: taller titlebar, floating controls,
+   bigger wordmark. Blends with content below (transparent, no divider). */
+.app[data-shell="aurora"][data-header="merged"] {
+  grid-template-rows: 60px auto minmax(0, 1fr) 104px;
+}
+
+[data-shell="aurora"][data-header="merged"] .titlebar {
+  position: relative;
+  align-items: center;
+  padding-right: 140px; /* room for floating window controls */
+}
+
+[data-shell="aurora"][data-header="merged"] .titlebar-controls {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 60px;
+}
+
+[data-shell="aurora"][data-header="merged"] .aurora-wordmark {
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+[data-shell="aurora"][data-header="merged"] .aurora-wordmark-subtitle {
+  font-size: 11px;
+}
+
 [data-shell="aurora"] .titlebar-logo {
   display: flex;
   flex-direction: column;
