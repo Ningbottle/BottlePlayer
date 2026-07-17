@@ -1,7 +1,5 @@
 import { reactive, watch } from 'vue';
-import { apiGet } from './backend';
-import { Track, normalizeTrack, fetchCoverImage } from './normalizer';
-import { userStore } from './userStore';
+import { Track, fetchCoverImage } from './normalizer';
 import { Html5AudioBackend } from './html5Backend';
 import type { PlayerBackend, PlaybackEvent } from './playerBackend';
 import { invoke } from '@tauri-apps/api/core';
@@ -14,47 +12,30 @@ import { playbackDiagnostics } from './playbackDiagnostics';
 import {
   PlaybackOrchestrator,
   type QualityOption,
-  type ResolveTrackResult,
 } from './playbackOrchestrator';
 import { loadNumber } from './safeStorage';
+import {
+  loadJSON,
+  bindQueuePersistence,
+  saveQueue,
+  flushSaveQueue,
+} from './playerPersistence';
+import { appendPersonalFmRecommendations as appendFm } from './fmSession';
+import {
+  playAll as playAllImpl,
+  playPersonalFm as playPersonalFmImpl,
+  addToQueue as addToQueueImpl,
+  removeFromQueue as removeFromQueueImpl,
+  clearQueue as clearQueueImpl,
+} from './playbackQueue';
+import { resolveTrack } from './songUrlResolver';
+import { uploadPlayHistory } from './playHistory';
 
 export type { Track };
 export { loadNumber } from './safeStorage';
 
 export type LoopMode = 'list' | 'single' | 'random';
 export type QueueMode = 'normal' | 'personalFm';
-
-/** 上传播放历史到酷狗服务器（静默失败，不影响播放） */
-async function uploadPlayHistory(track: Track) {
-  try {
-    if (!userStore.isLoggedIn) return; // 未登录不上传
-    const mxid = track.AlbumAudioID || track.MixSongID;
-    if (!mxid) return;
-    const numMxid = Number(mxid);
-    if (!Number.isFinite(numMxid) || numMxid <= 0) return;
-    await apiGet('/playhistory/upload', {
-      mxid: numMxid,
-      time: Math.floor(Date.now() / 1000),
-      pc: 1
-    });
-  } catch (e) {
-    // 静默失败：播放历史上传不是关键路径，网络错误不应打断用户体验
-    console.warn('播放历史上传失败（可忽略）:', e);
-  }
-}
-
-// ── Safe localStorage JSON parse (#14) ──
-// Module-level JSON.parse of localStorage used to throw on corrupt data and
-// blank-screen the app at import time. Swallow and fall back to defaults.
-function loadJSON<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    if (raw == null) return fallback;
-    return JSON.parse(raw) as T;
-  } catch {
-    return fallback;
-  }
-}
 
 // ── Stats play session tracking (#5 #6 #7 #8 #12) ──
 // Fire-and-forget: failures are silently ignored (stats are non-critical).
@@ -510,41 +491,10 @@ watch(() => playerStore.queueMode, (newMode) => {
   localStorage.setItem('player_queue_mode', newMode);
 });
 
-// P2-P: debounce full-queue serialization; dense mutations used to block main thread.
-let saveQueueTimer: ReturnType<typeof setTimeout> | null = null;
-const SAVE_QUEUE_DEBOUNCE_MS = 500;
-
-function flushSaveQueue() {
-  if (saveQueueTimer != null) {
-    clearTimeout(saveQueueTimer);
-    saveQueueTimer = null;
-  }
-  localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
-  localStorage.setItem('player_index', String(playerStore.currentIndex));
-}
-
-function saveQueue() {
-  if (saveQueueTimer != null) clearTimeout(saveQueueTimer);
-  saveQueueTimer = setTimeout(() => {
-    saveQueueTimer = null;
-    flushSaveQueue();
-  }, SAVE_QUEUE_DEBOUNCE_MS);
-}
-
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    flushSaveQueue();
-  });
-}
-
-function resolveTrack(track: Track, quality: string): Promise<ResolveTrackResult> {
-  return apiGet<ResolveTrackResult>('/song/url', {
-    hash: track.FileHash,
-    album_id: track.AlbumID || '',
-    album_audio_id: track.AlbumAudioID || '',
-    quality,
-  });
-}
+bindQueuePersistence(() => ({
+  queue: playerStore.queue,
+  currentIndex: playerStore.currentIndex,
+}));
 
 const playbackOrchestrator = new PlaybackOrchestrator({
   backend: () => activeBackend!,
@@ -586,86 +536,11 @@ export function setQuality(quality: string) {
   }
 }
 
-function extractSongList(payload: any): any[] {
-  const data = payload?.data?.data || payload?.data || payload || {};
-  const list = data.song_list || data.info || data.list || data.songs || [];
-  return Array.isArray(list) ? list : [];
-}
-
-function isPersonalFmFailure(payload: any): boolean {
-  return payload?.status === 0;
-}
-
-async function fetchPersonalFmRecommendations(query: Record<string, string | number>): Promise<any> {
-  let lastResponse: any;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    lastResponse = await apiGet<any>('/personal/fm', query);
-    if (!isPersonalFmFailure(lastResponse)) return lastResponse;
-  }
-  return lastResponse;
-}
-
 async function appendPersonalFmRecommendations(): Promise<boolean> {
-  const current = playerStore.currentTrack;
-  const remain = Math.max(0, playerStore.queue.length - playerStore.currentIndex - 1);
-  const trackKey = current?.FileHash || '';
-  playbackDiagnostics.recordEvent({
-    kind: 'fm_fetch',
-    phase: 'start',
-    detail: `remain=${remain}; is_overplay=${remain === 0 ? 1 : 0}`,
-    trackKey,
+  return appendFm({
+    getState: () => playerStore,
+    saveQueue,
   });
-  let response: any;
-  try {
-    response = await fetchPersonalFmRecommendations({
-      hash: current?.FileHash || '',
-      songid: current?.AlbumAudioID || current?.MixSongID || '',
-      playtime: Math.floor(playerStore.currentTime || 0),
-      remain_songcnt: remain,
-      is_overplay: remain === 0 ? 1 : 0,
-    });
-  } catch (e) {
-    playbackDiagnostics.recordEvent({
-      kind: 'fm_fetch',
-      phase: 'fail',
-      detail: `fetch threw: ${e instanceof Error ? e.message : String(e)}`,
-      trackKey,
-    });
-    return false;
-  }
-  if (isPersonalFmFailure(response)) {
-    playbackDiagnostics.recordEvent({
-      kind: 'fm_fetch',
-      phase: 'fail',
-      detail: `status=0: ${response?.error || ''}`,
-      trackKey,
-    });
-    console.warn('Personal FM recommendation returned an error:', response?.error || response);
-    return false;
-  }
-  const existing = new Set(playerStore.queue.map((track) => track.FileHash).filter(Boolean));
-  const fresh = extractSongList(response)
-    .map(normalizeTrack)
-    .filter((track) => track.FileHash && !existing.has(track.FileHash));
-
-  if (fresh.length === 0) {
-    playbackDiagnostics.recordEvent({
-      kind: 'fm_fetch',
-      phase: 'noop',
-      detail: 'no fresh songs after dedupe',
-      trackKey,
-    });
-    return false;
-  }
-  playerStore.queue.push(...fresh);
-  saveQueue();
-  playbackDiagnostics.recordEvent({
-    kind: 'fm_fetch',
-    phase: 'ok',
-    detail: `appended ${fresh.length} songs`,
-    trackKey,
-  });
-  return true;
 }
 
 export async function togglePlay() {
@@ -737,80 +612,36 @@ export async function setVolume(vol: number) {
   playerStore.volume = Math.max(0, Math.min(1, vol));
 }
 
+function queueDeps() {
+  return {
+    getState: () => playerStore,
+    saveQueue,
+    playTrack,
+    skipSession: () => playSession.skip(),
+    invalidatePlaybackIntent: () => playbackOrchestrator.invalidatePlaybackIntent(),
+    stopInvalidatedPlayback: (seq: number) =>
+      playbackOrchestrator.stopInvalidatedPlayback(seq),
+    hasBackend: () => !!activeBackend,
+  };
+}
+
 export function playAll(tracks: Track[], startIndex = 0) {
-  playerStore.queue = tracks.map(normalizeTrack);
-  playerStore.currentIndex = startIndex;
-  playerStore.queueMode = 'normal';
-  saveQueue();
-  if (playerStore.queue.length > startIndex) {
-    playTrack(playerStore.queue[startIndex]);
-  }
+  playAllImpl(queueDeps(), tracks, startIndex);
 }
 
 export function playPersonalFm(tracks: Track[], startIndex = 0) {
-  playerStore.queue = tracks.map(normalizeTrack);
-  playerStore.currentIndex = startIndex;
-  playerStore.queueMode = 'personalFm';
-  saveQueue();
-  if (playerStore.queue.length > startIndex) {
-    playTrack(playerStore.queue[startIndex]);
-  }
+  playPersonalFmImpl(queueDeps(), tracks, startIndex);
 }
 
 export function addToQueue(track: Track) {
-  const normalized = normalizeTrack(track);
-  const exists = playerStore.queue.some(t => t.FileHash === normalized.FileHash);
-  if (!exists) {
-    playerStore.queue.push(normalized);
-    saveQueue();
-  }
+  addToQueueImpl(queueDeps(), track);
 }
 
 export function removeFromQueue(index: number) {
-  if (index < 0 || index >= playerStore.queue.length) return;
-
-  playerStore.queue.splice(index, 1);
-
-  if (playerStore.currentIndex === index) {
-    if (playerStore.queue.length === 0) {
-      playSession.skip();
-      playerStore.currentIndex = -1;
-      playerStore.currentTrack = null;
-      if (playerStore.audio) {
-        playerStore.audio.src = '';
-        playerStore.isPlaying = false;
-        playerStore.isLoading = false;
-      }
-    } else {
-      playerStore.currentIndex = playerStore.currentIndex % playerStore.queue.length;
-      playTrack(playerStore.queue[playerStore.currentIndex]);
-    }
-  } else if (playerStore.currentIndex > index) {
-    playerStore.currentIndex--;
-  }
-
-  saveQueue();
+  removeFromQueueImpl(queueDeps(), index);
 }
 
 /** Empty the play queue and stop the active backend when one is available. */
 export function clearQueue() {
-  const clearSeq = playbackOrchestrator.invalidatePlaybackIntent();
-  playerStore.queue = [];
-  playerStore.currentIndex = -1;
-  playerStore.currentTrack = null;
-  playerStore.isPlaying = false;
-  playerStore.isLoading = false;
-  if (activeBackend) {
-    void playbackOrchestrator.stopInvalidatedPlayback(clearSeq);
-  } else {
-    if (playerStore.audio) {
-      try {
-        playerStore.audio.pause();
-        playerStore.audio.src = '';
-      } catch {
-        /* ignore */
-      }
-    }
-  }
-  saveQueue();
+  clearQueueImpl(queueDeps());
 }
