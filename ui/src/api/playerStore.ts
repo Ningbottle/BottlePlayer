@@ -4,9 +4,7 @@ import { Html5AudioBackend } from './html5Backend';
 import type { PlayerBackend, PlaybackEvent } from './playerBackend';
 import { invoke } from '@tauri-apps/api/core';
 import { PlaySessionTracker, type PlayRecord } from './playSessionTracker';
-import { WebAudioEq } from './webAudioEq';
 import { normalizeEqBands } from './equalizerConfig';
-import { prepareAudioSourceUrl } from './audioProxy';
 import { recentPlayedStore } from './recentPlayedStore';
 import { playbackDiagnostics } from './playbackDiagnostics';
 import {
@@ -30,6 +28,7 @@ import {
 } from './playbackQueue';
 import { resolveTrack } from './songUrlResolver';
 import { uploadPlayHistory } from './playHistory';
+import { createPlayerEq } from './usePlayerEq';
 
 export type { Track };
 export { loadNumber } from './safeStorage';
@@ -53,22 +52,6 @@ const playSession = new PlaySessionTracker(
   () => playerStore.quality || '',
   () => Date.now(),
 );
-
-// ── Web Audio API EQ chain (#1 #4 #9 #10) ──
-// Routes the <audio> element through a BiquadFilter chain so EQ works for the
-// HTML5 backend. See webAudioEq.ts for graph-build-order / CORS / close logic.
-//
-// CORS note (#1): KuGou's media CDN sends no Access-Control-Allow-Origin
-// (verified 2026-06-25). createMediaElementSource on a non-CORS cross-origin
-// source taints (silent PCM), and setting crossOrigin='anonymous' on the raw
-// CDN URL makes the load fail entirely. HTML5 playback therefore first asks
-// the Tauri local audio proxy for a CORS-safe 127.0.0.1 URL. Only proxy-backed
-// media is routed through WebAudio; direct fallback remains EQ-unavailable.
-const webAudioEq = new WebAudioEq(() => {
-  const Ctx = window.AudioContext
-    || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-  return Ctx ? new Ctx() : null;
-});
 
 interface PlayerState {
   currentTrack: Track | null;
@@ -103,7 +86,6 @@ type BottleMusicAudioGlobal = Window & {
 let activeBackend: PlayerBackend | null = null;
 export let eventUnsub: (() => void) | null = null;
 let initListenerCleanup: (() => void) | null = null;
-let currentEqSafeSource = '';
 let endedAdvanceInFlight = false;
 
 function audioGlobal(): BottleMusicAudioGlobal {
@@ -117,7 +99,7 @@ function cleanupCurrentModuleForHmr() {
   eventUnsub = null;
   activeBackend = null;
   if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
-  webAudioEq.close();
+  closeWebAudioEq();
 }
 
 function publishPlayerCleanup() {
@@ -157,151 +139,21 @@ export const playerStore = reactive<PlayerState>({
   activePreset: localStorage.getItem('player_eq_preset') || 'Flat',
 });
 
-// ── EQ public API (delegates to webAudioEq) ──
-/** Whether the EQ graph is actually active (rerouted through Web Audio API).
- *  False when the source is cross-origin non-CORS (KuGou CDN) — sliders do
- *  nothing in that state. Exposed for the UI to show a degradation notice. */
-export const eqState = reactive({
-  available: false,
-  reason: '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。',
-  retryFailCount: 0,
-  retryDisabled: false,
-});
-
-/** Test-only seam: tear down the EQ graph between tests. */
-export function __resetWebAudioEqForTests() {
-  webAudioEq.close();
-}
-
-const EQ_UNAVAILABLE_REASON = '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。';
-
-const EQ_DEGRADED_REASON = 'EQ 暂不可用，点击重试';
-
-function getAudioSource(audio: HTMLAudioElement): string {
-  return audio.getAttribute('src') || audio.currentSrc || audio.src || '';
-}
-
-function isLocalAudioProxySource(src: string): boolean {
-  if (!src) return false;
-  try {
-    const url = new URL(src, window.location.href);
-    return url.protocol === 'http:'
-      && url.hostname === '127.0.0.1'
-      && url.pathname.startsWith('/audio/');
-  } catch {
-    return false;
-  }
-}
-
-async function preparePlaybackAudioSourceUrl(url: string) {
-  if (!playerStore.eqEnabled) {
-    return { url, crossOriginSafe: false };
-  }
-  return prepareAudioSourceUrl(url);
-}
-
-function syncEqAvailabilityFromReroute() {
-  eqState.available = webAudioEq.isRerouted;
-  eqState.reason = eqState.available ? '' : EQ_UNAVAILABLE_REASON;
-}
-
-/** Build the long-lived worklet graph once at app startup (spec §5.1). */
-export function initWebAudioEQ() {
-  webAudioEq.init({
-    enabled: playerStore.eqEnabled,
-    bands: playerStore.eqBands,
-    onDegraded: () => {
-      eqState.available = false;
-      eqState.reason = EQ_DEGRADED_REASON;
-    },
-    onRecovered: () => {
-      syncEqAvailabilityFromReroute();
-    },
-  });
-}
-
-/** Post-play attach: captureStream → worklet (spec §5.2). Skips when not CORS-safe. */
-export async function attachWebAudioEqSource(
-  audio: HTMLAudioElement,
-  crossOriginSafe = false,
-  isCurrent: () => boolean = () => true,
-) {
-  if (!isCurrent()) return;
-  currentEqSafeSource = crossOriginSafe ? getAudioSource(audio) : '';
-  if (!crossOriginSafe) {
-    eqState.available = false;
-    eqState.reason = EQ_UNAVAILABLE_REASON;
-    audio.volume = playerStore.volume;
-    return;
-  }
-
-  await webAudioEq.awaitReady();
-  if (!isCurrent()) return;
-  webAudioEq.attachSource(audio);
-  if (!isCurrent()) return;
-  syncEqAvailabilityFromReroute();
-  if (!isCurrent()) return;
-  setWebAudioEqVolume(playerStore.volume);
-}
-
-export function disconnectWebAudioEqSource() {
-  currentEqSafeSource = '';
-  webAudioEq.disconnectSource();
-  syncEqAvailabilityFromReroute();
-}
-
-export function setWebAudioEqVolume(vol: number) {
-  webAudioEq.setVolume(vol);
-}
-
-export function setWebAudioEqBand(index: number, gainDb: number) {
-  webAudioEq.setBand(index, gainDb, playerStore.eqEnabled);
-}
-
-export function setWebAudioEqEnabled(enabled: boolean) {
-  webAudioEq.setEnabled(enabled, playerStore.eqBands);
-  if (!enabled) {
-    webAudioEq.disconnectSource();
-    if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
-    syncEqAvailabilityFromReroute();
-    return;
-  }
-  const audio = playerStore.audio;
-  const source = audio ? getAudioSource(audio) : '';
-  const sourceSafe = source
-    && (source === currentEqSafeSource || isLocalAudioProxySource(source));
-  if (audio && !webAudioEq.isRerouted && sourceSafe) {
-    void attachWebAudioEqSource(audio, true);
-  } else {
-    syncEqAvailabilityFromReroute();
-  }
-}
-
-/** Resume the AudioContext after a user gesture (autoplay policy). */
-export function resumeAudioContext() {
-  void webAudioEq.resume().catch(() => {
-    if (playerStore.audio && webAudioEq.isRerouted) {
-      webAudioEq.enterDegradation(playerStore.audio, playerStore.volume);
-    }
-  });
-}
-
-/** Retry EQ after suspend degradation (spec §4.4, §6.3). */
-export async function retryEq() {
-  if (eqState.retryDisabled || !playerStore.audio) return;
-  try {
-    await webAudioEq.resume();
-    webAudioEq.recoverFromDegradation(playerStore.audio);
-    eqState.available = true;
-    eqState.reason = '';
-    eqState.retryFailCount = 0;
-  } catch {
-    eqState.retryFailCount++;
-    if (eqState.retryFailCount >= 3) {
-      eqState.retryDisabled = true;
-    }
-  }
-}
+// ── EQ leaf (usePlayerEq) — barrel re-exports keep public API stable ──
+const playerEq = createPlayerEq(() => playerStore);
+export const {
+  eqState,
+  __resetWebAudioEqForTests,
+  initWebAudioEQ,
+  attachWebAudioEqSource,
+  disconnectWebAudioEqSource,
+  setWebAudioEqVolume,
+  setWebAudioEqBand,
+  setWebAudioEqEnabled,
+  resumeAudioContext,
+  retryEq,
+} = playerEq;
+const { closeWebAudioEq, makeBackendEqHooks, resetRetryState } = playerEq;
 
 // Setup audio listeners
 export function initPlayer() {
@@ -396,26 +248,9 @@ export async function initPlayerBackend() {
   }
   initWebAudioEQ();
   activeBackend = new Html5AudioBackend(playerStore.audio, {
-    prepareSourceUrl: preparePlaybackAudioSourceUrl,
+    ...makeBackendEqHooks(),
     getAttachTransitionSeq: () => playbackOrchestrator.getTransitionSeq(),
     isAttachTransitionCurrent: (seq) => playbackOrchestrator.isTransitionCurrent(seq),
-    initEq: async (audio, crossOriginSafe, isCurrent) => {
-      if (!isCurrent()) return;
-      if (!playerStore.eqEnabled) {
-        if (!isCurrent()) return;
-        currentEqSafeSource = crossOriginSafe ? getAudioSource(audio) : '';
-        if (!isCurrent()) return;
-        eqState.available = false;
-        eqState.reason = EQ_UNAVAILABLE_REASON;
-        if (!isCurrent()) return;
-        audio.volume = playerStore.volume;
-        return;
-      }
-      await attachWebAudioEqSource(audio, crossOriginSafe, isCurrent);
-    },
-    disconnectEq: disconnectWebAudioEqSource,
-    isEqRerouted: () => webAudioEq.isRerouted,
-    setEqVolume: setWebAudioEqVolume,
     recordDiagnostic: (e) => playbackDiagnostics.recordEvent(e),
   });
   playerStore.backend = 'html5';
@@ -511,8 +346,7 @@ const playbackOrchestrator = new PlaybackOrchestrator({
 
 // Actions
 export async function playTrack(track: Track) {
-  eqState.retryFailCount = 0;
-  eqState.retryDisabled = false;
+  resetRetryState();
   initPlayer();
   // Ensure the backend exists — native is disabled, so HTML5 always initializes
   // synchronously here. This keeps playTrack a single code path (no legacy

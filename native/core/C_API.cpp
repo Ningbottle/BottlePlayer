@@ -19,7 +19,9 @@
 
 // Process-local state cluster. FFI signatures stay Echo*(...) without an
 // EchoContext* handle; internals use Ctx() so globals are not scattered.
-// api is shared_ptr so workers can hold a strong ref across EchoShutdown.
+// Single-process desktop app: intentionally NOT handle-ized FFI (no multi-tenant
+// / multi-backend need). api is shared_ptr so workers hold a strong ref across
+// EchoShutdown.
 struct EchoContext {
   std::unique_ptr<echo::storage::Database> db;
   std::shared_ptr<echo::core::CompatApi> api;

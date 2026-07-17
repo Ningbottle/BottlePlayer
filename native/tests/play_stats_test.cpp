@@ -268,8 +268,61 @@ int main() {
     assert(j["total_plays"] == 6);  // unchanged
   }
 
+  // Bound SQL: special chars / emoji must round-trip (A1).
+  // Names with ', ;, --, and UTF-8 emoji must not break INSERT/SELECT.
+  std::cout << "[PlayStatsTest] Testing special-char / emoji song names..." << std::endl;
+  {
+    // U+1F3B5 musical note as UTF-8 (avoid source encoding issues on MSVC).
+    const std::string specialName = std::string("O'Brien; DROP-- ") + "\xF0\x9F\x8E\xB5";
+    const std::string specialSinger = "Artist's \"Quote\"";
+    const long long tSpecial = day2 + 5000;
+    RecordPlay(makeRecord(
+        "hashSpecial",
+        specialName,
+        specialSinger,
+        "album-special",
+        "Album -- comments",
+        "http://img.example/special.jpg",
+        180.0, true, 180.0, "320", tSpecial));
+
+    auto summary = ParseAndFree(EchoStatsGetSummary("all"));
+    std::cout << "  summary after special: " << summary.dump() << std::endl;
+    if (summary["total_plays"] != 7) {
+      std::cerr << "FAIL total_plays want 7 got " << summary.dump() << std::endl;
+      return 1;
+    }
+
+    auto recent = ParseAndFree(EchoStatsGetRecent(5, 0));
+    std::cout << "  recent after special: " << recent.dump() << std::endl;
+    if (!recent["items"].is_array() || recent["items"].empty()) {
+      std::cerr << "FAIL recent empty" << std::endl;
+      return 1;
+    }
+    // Newest first - special record has latest played_at.
+    // GetRecent maps song_name -> name, singer_name -> singer.
+    if (recent["items"][0]["song_hash"] != "hashSpecial") {
+      std::cerr << "FAIL song_hash " << recent["items"][0].dump() << std::endl;
+      return 1;
+    }
+    if (recent["items"][0]["name"] != specialName) {
+      std::cerr << "FAIL name want=[" << specialName << "] got=["
+                << recent["items"][0].value("name", std::string()) << "]" << std::endl;
+      return 1;
+    }
+    if (recent["items"][0]["singer"] != specialSinger) {
+      std::cerr << "FAIL singer want=[" << specialSinger << "] got=["
+                << recent["items"][0].value("singer", std::string()) << "]" << std::endl;
+      return 1;
+    }
+    std::cout << "  special-char round-trip ok" << std::endl;
+  }
+
   EchoShutdown();
-  std::filesystem::remove_all(testDir);
+  std::error_code ec;
+  std::filesystem::remove_all(testDir, ec);
+  if (ec) {
+    std::cerr << "WARN remove_all: " << ec.message() << std::endl;
+  }
 
   std::cout << "[PlayStatsTest] all assertions passed" << std::endl;
   return 0;
