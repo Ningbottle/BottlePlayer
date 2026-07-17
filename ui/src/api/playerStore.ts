@@ -106,7 +106,7 @@ interface PlayerState {
   quality: string;
   /** 当前歌曲可用的音质选项列表 */
   availableQualities: QualityOption[];
-  backend: 'html5' | 'native' | null;
+  backend: 'html5' | null;
   eqEnabled: boolean;
   eqBands: number[];
   activePreset: string;
@@ -508,9 +508,31 @@ watch(() => playerStore.queueMode, (newMode) => {
   localStorage.setItem('player_queue_mode', newMode);
 });
 
-function saveQueue() {
+// P2-P: debounce full-queue serialization; dense mutations used to block main thread.
+let saveQueueTimer: ReturnType<typeof setTimeout> | null = null;
+const SAVE_QUEUE_DEBOUNCE_MS = 500;
+
+function flushSaveQueue() {
+  if (saveQueueTimer != null) {
+    clearTimeout(saveQueueTimer);
+    saveQueueTimer = null;
+  }
   localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
   localStorage.setItem('player_index', String(playerStore.currentIndex));
+}
+
+function saveQueue() {
+  if (saveQueueTimer != null) clearTimeout(saveQueueTimer);
+  saveQueueTimer = setTimeout(() => {
+    saveQueueTimer = null;
+    flushSaveQueue();
+  }, SAVE_QUEUE_DEBOUNCE_MS);
+}
+
+if (typeof window !== 'undefined') {
+  window.addEventListener('beforeunload', () => {
+    flushSaveQueue();
+  });
 }
 
 function resolveTrack(track: Track, quality: string): Promise<ResolveTrackResult> {
