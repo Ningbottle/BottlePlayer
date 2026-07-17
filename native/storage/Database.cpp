@@ -125,6 +125,9 @@ void Database::Initialize() {
 void Database::InitializeSchema() {
   Execute("PRAGMA journal_mode=WAL;");
   Execute("PRAGMA synchronous=NORMAL;");
+  // P2-M: allow short waits under lock contention instead of immediate SQLITE_BUSY.
+  // Full read/write connection split is deferred; busy_timeout is the low-risk step.
+  Execute("PRAGMA busy_timeout=5000;");
   Execute("CREATE TABLE IF NOT EXISTS kv_store ("
           "key TEXT PRIMARY KEY,"
           "value TEXT NOT NULL,"

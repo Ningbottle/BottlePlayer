@@ -15,6 +15,8 @@ class RequestScheduler;  // Forward declaration for friend access
 class CancellationToken {
  public:
   bool IsCancellationRequested() const;
+  // Raw flag for cooperative cancel (HttpClient optional cancelled*).
+  const std::atomic_bool* Flag() const { return cancelled_.get(); }
 
  private:
   friend class CancellationSource;
