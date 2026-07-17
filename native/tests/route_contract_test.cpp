@@ -148,6 +148,32 @@ int main() {
     std::cout << "  [ok] Unknown routes return 404" << std::endl;
   }
 
+  // ── Method binding: read routes reject POST with 405 ──────────────────
+  std::cout << "[RouteContract] Testing method binding (405)..." << std::endl;
+  {
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    echo::core::CompatApi api(db);
+
+    auto postHealth = api.Handle("POST", "/health", {}, {}, "{}");
+    assert(postHealth.httpStatus == 405);
+    assert(postHealth.body["error_code"] == 405);
+
+    auto getHealth = api.Handle("GET", "/health", {}, {}, "");
+    assert(getHealth.httpStatus == 200);
+
+    // Write routes stay GET-callable (frontend still uses GET for writes).
+    auto getLogout = api.Handle("GET", "/auth/logout", {}, {}, "");
+    assert(getLogout.httpStatus != 405);
+
+    auto getUpload = api.Handle("GET", "/playhistory/upload", {}, {}, "");
+    assert(getUpload.httpStatus != 405);
+
+    std::cout << "  [ok] POST /health → 405; GET /health → 200; write GET not 405"
+              << std::endl;
+  }
+
   // ── Not-yet-ported routes return 501 ──────────────────────────────────
   std::cout << "[RouteContract] Testing not-yet-ported routes return 501..." << std::endl;
   {

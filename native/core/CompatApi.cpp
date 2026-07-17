@@ -157,6 +157,58 @@ const std::unordered_map<std::string, RouteHandlerFn>& GetRouteTable() {
   return table;
 }
 
+// Method bits for "read-strict / write-loose" dispatch.
+// Frontend currently sends all traffic as GET (apiPost is dead code), so write
+// routes must allow GET or logout/favorites/upload break with 405.
+enum : unsigned {
+  kMethodGet = 1,
+  kMethodHead = 2,
+  kMethodPost = 4,
+};
+
+unsigned MethodBit(const std::string& method) {
+  if (method.size() == 3 &&
+      (method[0] == 'G' || method[0] == 'g') &&
+      (method[1] == 'E' || method[1] == 'e') &&
+      (method[2] == 'T' || method[2] == 't')) {
+    return kMethodGet;
+  }
+  if (method.size() == 4 &&
+      (method[0] == 'H' || method[0] == 'h') &&
+      (method[1] == 'E' || method[1] == 'e') &&
+      (method[2] == 'A' || method[2] == 'a') &&
+      (method[3] == 'D' || method[3] == 'd')) {
+    return kMethodHead;
+  }
+  if (method.size() == 4 &&
+      (method[0] == 'P' || method[0] == 'p') &&
+      (method[1] == 'O' || method[1] == 'o') &&
+      (method[2] == 'S' || method[2] == 's') &&
+      (method[3] == 'T' || method[3] == 't')) {
+    return kMethodPost;
+  }
+  return 0;
+}
+
+// Write routes that mutate state / hit upstream with side effects.
+// Must include kMethodGet while the frontend still uses GET for writes.
+unsigned AllowedMethods(const std::string& path) {
+  static const std::unordered_map<std::string, unsigned> kWriteRoutes = {
+      {"/auth/logout", kMethodGet | kMethodPost},
+      {"/playlist/add", kMethodGet | kMethodPost},
+      {"/playlist/del", kMethodGet | kMethodPost},
+      {"/playlist/tracks/add", kMethodGet | kMethodPost},
+      {"/playlist/tracks/del", kMethodGet | kMethodPost},
+      {"/playhistory/upload", kMethodGet | kMethodPost},
+      {"/register/dev", kMethodGet | kMethodPost},
+      {"/settings/device", kMethodGet | kMethodPost},
+  };
+  auto it = kWriteRoutes.find(path);
+  if (it != kWriteRoutes.end()) return it->second;
+  // Read / diagnostics: GET and HEAD only.
+  return kMethodGet | kMethodHead;
+}
+
 }  // namespace
 
 CompatApi::CompatApi(storage::Database& database)
@@ -195,11 +247,17 @@ CompatResponse CompatApi::HandleKnownRoute(
     const QueryMap& query,
     const HeaderMap& headers,
     const std::string& body) {
-  (void)method;
-
   const auto& table = GetRouteTable();
   auto it = table.find(path);
   if (it != table.end() && it->second) {
+    if ((AllowedMethods(path) & MethodBit(method)) == 0) {
+      return JsonResponse(
+          {{"status", 0},
+           {"error_code", 405},
+           {"error", "Method Not Allowed"},
+           {"path", path}},
+          405);
+    }
     RouteContext ctx{database_, handlers_, query, headers, body};
     return it->second(ctx, path);
   }
