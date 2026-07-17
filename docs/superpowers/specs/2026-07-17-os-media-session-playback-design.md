@@ -1,299 +1,264 @@
 # OS Media Session & Playback Platform Design
 
-> **Status:** Ready for review (brainstorming direction approved; **reconciled with code baseline**)  
-> **Date:** 2026-07-17 (reconciled 2026-07-18)  
-> **Approach:** B — deep module `OsMediaSession` as system shell; HTML5 remains primary audio until native is re-enabled  
+> **Status:** Living design — T1a landed on `main` via PR #16 (`e1bae6d4`); baseline re-reconciled **2026-07-18 post-merge**  
+> **Date:** 2026-07-17 (reconciled pre-merge; **post-#16 baseline 2026-07-18**)  
+> **Approach:** B — deep module `OsMediaSession` as system shell; HTML5 is the **only** audio path on current `main`  
 > **Method:** 对照现状 → 再演进（baseline first, then tracks）  
-> **Depends on:** Current mainline tree (native stack present-but-disabled); architecture audit / storage-EQ work as available on the landing branch
+> **Depends on:** `origin/main` at/after merge commit `e1bae6d4` (architecture audit + storage/EQ closeout + T1a)
 
-## 0. Code baseline (what already exists)
+## 0. Code baseline (post-PR #16 / `origin/main`)
 
-This design was originally drafted as if the dual backend and native audio were greenfield. A code review on 2026-07-17 found otherwise. The plan below is reconciled with reality:
+**Authoritative tree:** `main` after merge of #16. Do **not** use pre-merge assumptions (kind union / present-but-disabled MFS).
 
-| Area | Spec's original assumption | Actual state in tree |
-|------|----------------------------|----------------------|
-| `PlayerBackend.kind` | `'html5'` today; widen in T2 | **Already** `'html5' \| 'native'` — [`ui/src/api/playerBackend.ts:18`](../../../ui/src/api/playerBackend.ts) |
-| Native backend client | Create in T3 | **Exists**: `NativePlaybackBackend` — [`ui/src/api/nativeBackend.ts`](../../../ui/src/api/nativeBackend.ts) (MFS→MFP fallback, full `playback_*` invoke surface + `playback_event` listen) |
-| Native FFI chain | Build later | **Exists end-to-end**: `playback.rs` commands → registered in `lib.rs` → C ABI pointers in `backend_api.rs` → C++ controllers |
-| Native engine (MFS) | "Abandoned; must not resurrect" | **Compiled + tested**: `PlaybackControllerMFS.cpp` (447 lines), `PlaybackControllerMFP.cpp`, `EqualizerMFT.cpp` all in `EchoPlayback` (CMake); contract test `EchoPlaybackMfsTest` exists |
-| Why native isn't used | — | **Deliberately disabled** at [`ui/src/api/playerStore.ts` `initPlayerBackend`](../../../ui/src/api/playerStore.ts): *"MFS native playback is disabled — topology resolution + deadlock issues. TODO(s4-fix): re-enable native after fixing BuildTopology + deadlock."* Store always constructs `Html5AudioBackend`. |
-| OS media session | Absent | **Genuinely absent** — only the `tray-icon` crate is transitively present in `Cargo.lock`; no SMTC / media-key / tray code |
+| Area | Pre-merge false assumption | **Actual state on landed `main`** |
+|------|----------------------------|-----------------------------------|
+| `PlayerBackend.kind` | `'html5' \| 'native'` | **`'html5'` only** — [`ui/src/api/playerBackend.ts`](../../../ui/src/api/playerBackend.ts) |
+| `nativeBackend.ts` | Present | **Deleted** (architecture audit) |
+| `playback.rs` / `playback_*` FFI | Present | **Deleted** |
+| C++ MFS/MFP / EqualizerMFT | Present-but-disabled | **Deleted** (`native/playback/*` removed from tree and CMake) |
+| `initPlayerBackend` | Hard-disable native + TODO | **HTML5-only**: always `new Html5AudioBackend(...)` |
+| OS media session | Absent | **T1a present**: [`ui/src-tauri/src/os_media_session.rs`](../../../ui/src-tauri/src/os_media_session.rs) + commands in `lib.rs` |
+| Frontend bridge | Absent | **T1a present**: [`ui/src/api/osMediaBridge.ts`](../../../ui/src/api/osMediaBridge.ts); `App.vue` binds only when Tauri shell |
+| EQ | — | WebAudio via [`usePlayerEq.ts`](../../../ui/src/api/usePlayerEq.ts) (HTML5 path) |
+| Storage | — | Bound SQL + WAL RO concurrency (storage/EQ closeout) |
 
-**Consequences for this design:**
-- **T1 (OsMediaSession) is the only truly greenfield track** and keeps its original design below.
-- **The backend *seam* is done.** What remains on the backend side is **selection/fallback policy** + **removing the hard-disable guard**, not widening an interface or creating adapter files.
-- **The native engine is present-but-disabled, not deleted.** The "don't blindly revive MFS" principle still holds, but the real work is *fixing `BuildTopology` + the deadlock in the existing controllers and validating them*, then re-enabling — with replacement (WASAPI) only if that fix proves infeasible.
+**Consequences for remaining work:**
+- **T1a is done** on `main` (session commands + bridge + tests). Remaining T1 = media keys (T1b) + tray (T1c) + real SMTC WinRT port (today: in-memory session; inject queues buttons).
+- **T2 is greenfield again** if native audio returns: widen `kind`, add selection/fallback, reintroduce adapter + FFI — nothing to “un-disable.”
+- **T3 cannot “fix existing MFS”** — sources are gone. Any native audio is a **new engine spike** (WASAPI / rebuilt MF / or stay HTML5-only). “Don’t blindly revive broken topology” still applies as a design principle for any new native path.
 
 ## 1. Problem
 
-HTML5 + WebView playback works, but **Windows system media surfaces** (taskbar / lock-screen Now Playing, media keys, tray) are weak or missing. A native Media Foundation path (`PlaybackControllerMFS`) exists but is **disabled** due to incomplete topology resolution and a deadlock; it must not be re-enabled as a blind patch.
+HTML5 + WebView playback works. Windows system media surfaces (taskbar / lock-screen Now Playing, media keys, tray) were missing; **T1a** landed a deep session module + bridge. Real SMTC/media keys/tray OS wiring is incomplete (in-memory port).
 
-**Primary goal (user):** improve **playback capability**, starting from **system-level media experience**, without destabilizing the working HTML5 audio path.
+Native Media Foundation was **removed** from `main` (incomplete topology / deadlock history). Native is not “disabled in place.”
+
+**Primary goal (user):** improve **playback capability**, starting from **system-level media experience**, without destabilizing HTML5 audio.
 
 ## 2. Goals and non-goals
 
 ### 2.1 Goals (program)
 
-| Track | Goal |
-|-------|------|
-| **T1 System session** | New deep module `OsMediaSession`: SMTC Now Playing + media keys + tray; all drive the **same** play/pause/next/prev as in-app UI |
-| **T2 Backend selection** | Add runtime **selection + fallback policy** over the existing `PlayerBackend` seam (`html5 \| native`); default HTML5; native opt-in behind a flag; automatic fallback on init failure |
-| **T3 Native re-enable** | Fix `BuildTopology` + deadlock in the **existing** `PlaybackControllerMFS`/`MFP`, validate with a spike, and re-enable native output behind the T2 flag — or replace the engine if the fix proves infeasible |
+| Track | Goal | Status on `main` |
+|-------|------|------------------|
+| **T1a** | OsMediaSession core + bridge (bind/unbind/metadata/status/controls; button inject path) | **Landed** (#16) |
+| **T1b** | Media keys → same button channel as session | Not landed |
+| **T1c** | Tray menu (play/pause/next/prev/show/quit) | Not landed |
+| **T1-SMTC** | WinRT SMTC port behind `MediaSessionPort` (replace in-memory-only) | Not landed |
+| **T2** | Dual backend: `kind: 'html5' \| 'native'`, selection + fallback | Not landed (seam not present) |
+| **T3** | Native audio engine (spike then implement) behind T2 flag | Not landed; **no in-tree MFS to fix** |
 
 ### 2.2 Non-goals
 
-- Re-enabling the current MFS topology in production **without** a green spike proving no deadlock and a complete graph
-- A second copy of queue / orchestrator logic for OS buttons
-- Shipping macOS/Linux SMTC equivalents in T1 (no-op adapters only)
-- One PR that changes Vue + Rust + C++ playback engines at once
-- Making native the **default** before selection/fallback contract tests pass
-- Rewriting the native adapter files that already exist (`nativeBackend.ts`, `playback.rs`) from scratch
+- Blindly re-adding deleted MFS sources without a green spike
+- Second copy of queue / orchestrator logic for OS buttons
+- macOS/Linux Now Playing in the same PRs as Windows T1b/T1c
+- Making native the default without dual-backend tests
+- Claiming native is “present-but-disabled” on current `main`
 
 ## 3. Principles
 
-1. **Deep module:** `OsMediaSession` hides WinRT / tray / key wiring; callers only set now-playing + status and receive button events.
-2. **Single control path:** OS events map only to existing `togglePlay` / `next` / `prev` / `pause` / `resume` (or orchestrator equivalents) — no parallel queue.
-3. **HTML5 stays primary:** `<audio>` + `audio_proxy` + WebAudio EQ remain the default and the fallback throughout.
-4. **Seam is already there — build on it:** reuse the existing `PlayerBackend` union + `NativePlaybackBackend`; T2 adds only selection/fallback.
-5. **Fix, don't blindly revive:** native re-enable (T3) is gated on a spike that resolves the known topology/deadlock issues.
-6. **Degrade, don't crash:** SMTC/tray init failure → no-op session; native init failure → fall back to HTML5; playback continues.
-7. **Staged PRs:** T1a → T1b → T1c → T2 → T3-spike → T3-impl; each independently testable.
+1. **Deep module:** `OsMediaSession` hides OS wiring; callers set now-playing/status and receive button events.
+2. **Single control path:** OS events map to existing `togglePlay` / `next` / `prev` only.
+3. **HTML5 stays primary** until a deliberate native program reintroduces another backend.
+4. **Baseline honesty:** design docs track `main` after merges; re-reconcile after architecture-changing landings.
+5. **Degrade, don't crash:** session init failure → no-op; playback continues.
+6. **Staged PRs:** T1b → T1c → T1-SMTC; optional T2 → T3-spike → T3-impl.
 
 ## 4. Target architecture
 
 ```
-[SMTC / media keys / tray]
+[SMTC / media keys / tray]     ← T1b/T1c/T1-SMTC remaining
           ↕
-   OsMediaSession (Rust)          ← T1 NEW: sole OS media owner
+   OsMediaSession (Rust)       ← T1a LANDED (in-memory port; inject queues)
           ↕ Tauri commands + events
-   ui/src/api/osMediaBridge.ts    ← T1 NEW
-          ↕ same app control APIs
-   playerStore + PlaybackOrchestrator   (exists)
+   ui/src/api/osMediaBridge.ts ← T1a LANDED
+          ↕ togglePlay / next / prev
+   playerStore + PlaybackOrchestrator
           ↕
-   PlayerBackend  (kind: 'html5' | 'native' — union EXISTS)
-     ├─ Html5AudioBackend         (production default, exists)
-     └─ NativePlaybackBackend     (EXISTS, currently disabled at initPlayerBackend)
+   PlayerBackend (kind: 'html5' only on main)
+     └─ Html5AudioBackend      ← sole audio path
           ↕
-   Audio: HTML5 (+ proxy + WebAudio EQ)  or  native (MFS/MFP, disabled)
+   <audio> + proxy + WebAudio EQ (usePlayerEq)
+```
+
+Optional future (T2/T3):
+
+```
+   PlayerBackend (kind: 'html5' | 'native')
+     ├─ Html5AudioBackend
+     └─ NativePlaybackBackend  ← reintroduced; engine TBD by spike
 ```
 
 ### 4.1 Module map
 
 | Module | Layer | Status | Responsibility |
 |--------|--------|--------|----------------|
-| `OsMediaSession` | Rust | **T1 new** | Bind/unbind session; metadata; status; enabled controls; emit button events; own SMTC + keys + tray |
-| `osMediaBridge.ts` | Vue/TS | **T1 new** | Mirror store → session; session events → app actions; HMR rebind |
-| `PlayerBackend` | TS interface | **exists** | Playback control + events; `kind: 'html5' \| 'native'` already declared |
-| `Html5AudioBackend` | TS | **exists** | Production default; EQ hooks stay Html5-only options |
-| `NativePlaybackBackend` | TS + Rust/C++ | **exists, disabled** | Implements `PlayerBackend`; MFS→MFP fallback via `playback_*` commands; re-enabled in T3 |
-| `PlaybackOrchestrator` | TS | **exists** | Owns switchTrack / quality; talks only to `PlayerBackend` |
+| `os_media_session.rs` | Rust | **T1a landed** | Session state; commands; inject queue; `set_app_handle` reserved |
+| `osMediaBridge.ts` | Vue/TS | **T1a landed** | Store → session; buttons → player controls; Tauri-only bind |
+| `PlayerBackend` | TS | **html5 only** | Playback control + events |
+| `Html5AudioBackend` | TS | **production** | Sole backend |
+| `usePlayerEq` | TS | **landed** | WebAudio EQ leaf |
+| `NativePlaybackBackend` | — | **absent** | Future T2/T3 only |
+| `PlaybackOrchestrator` | TS | **exists** | switchTrack / quality |
 
-## 5. Track T1 — OsMediaSession (system shell) — greenfield
+## 5. Track T1 — OsMediaSession
 
-### 5.1 Public interface (Rust → Tauri)
-
-Conceptual API (exact names may match crate style):
+### 5.1 T1a (landed) — public commands
 
 ```text
-bind() -> Result<()>
-unbind()
-set_now_playing(NowPlaying { title, artist, album?, artwork_path_or_url? })
-set_playback_status(Playing | Paused | Stopped)
-set_enabled_controls(Controls { play_pause, next, prev })
-// events (Tauri event channel):
-//   os-media://button { "Play" | "Pause" | "PlayPause" | "Next" | "Prev" }
+os_media_bind / os_media_unbind
+os_media_set_now_playing / os_media_set_playback_status / os_media_set_enabled_controls
+os_media_inject_button   # queues when no live OS emit yet
 ```
 
-**Depth:** COM apartment, SMTC display updater, button handlers, media-key routing, tray icon/menu, artwork download-to-temp (if required by SMTC), all **inside** this module.
+Bridge: `bindOsMediaBridge` / `unbindOsMediaBridge` / `handleOsMediaButton`.  
+Tests: `ui/src/api/__tests__/osMediaBridge.test.ts`; Rust `os_media_session::tests`.
 
-### 5.2 Frontend bridge
-
-`ui/src/api/osMediaBridge.ts`:
-
-- On track / play state / queue boundary change → `set_now_playing` / `set_playback_status` / `set_enabled_controls`
-- On `os-media://button` → call existing player APIs only (`togglePlay` / `next` / `prev`)
-- App start: `bind()` after window ready; app exit / HMR: `unbind()` then optional re-`bind()`
-- Must not import WinRT types; only `invoke` / `listen`
-
-### 5.3 MVP surfaces (all in T1, split PRs)
+### 5.2 Remaining T1 surfaces
 
 | PR | Surface | Behavior |
 |----|---------|----------|
-| **T1a** | SMTC / taskbar / lock screen | Title, artist, artwork if available; Play/Pause/Next/Prev buttons |
-| **T1b** | Media keys | Same button channel as SMTC (PlayPause/Next/Prev) |
-| **T1c** | Tray | Icon; menu: Play/Pause, Next, Prev, Show window, Quit (Quit policy: confirm vs immediate — default immediate quit after stop+unbind) |
+| **T1b** | Media keys | Same button channel → bridge handlers |
+| **T1c** | Tray | Icon + menu; degrade if tray fails |
+| **T1-SMTC** | WinRT SMTC | Port replaces in-memory-only; live emit to `os-media-button` |
 
-> The `tray-icon` crate is already in `Cargo.lock` (transitive via Tauri); T1c wires it explicitly.
-
-### 5.4 T1 data flow
+### 5.3 T1 data flow (current)
 
 ```text
-switchTrack success
-  → bridge set_now_playing + set_playback_status(Playing)
-
-in-app pause
-  → backend.pause → store.isPlaying=false → bridge set_playback_status(Paused)
-
-taskbar Next
-  → OsMediaSession event Next → bridge → next() → orchestrator → active backend
+switchTrack success → bridge set_now_playing + set_playback_status(Playing)
+in-app pause → store → bridge set_playback_status(Paused)
+inject/Next → handleOsMediaButton → next() → orchestrator → Html5
 ```
 
-### 5.5 T1 error / degrade
+### 5.4 T1 error / degrade
 
 | Failure | Behavior |
 |---------|----------|
-| SMTC unavailable | Session no-op; log diagnostic; audio unaffected |
-| Artwork fetch fails | Metadata without art |
-| Tray create fails | SMTC still works if up |
-| Button while no track | no-op; controls should already be disabled via `set_enabled_controls` |
+| Non-Tauri / bind fails | Bridge unbound; audio unaffected |
+| Artwork missing | Metadata without art |
+| SMTC not yet wired | Session still holds state; inject for tests |
 
-### 5.6 T1 testing
-
-- Rust unit tests against a **fake** `MediaSessionPort` (no WinRT in CI)
-- Optional `#[cfg(windows)]` integration tests for real SMTC (local only)
-- Vitest: bridge maps store → invoke args; maps events → `next`/`prev`/`togglePlay` mocks
-- Full suite green: CTest + vitest + cargo lib
-
-## 6. Track T2 — Backend selection & fallback (seam already exists)
+## 6. Track T2 — Dual backend (greenfield on current main)
 
 ### 6.1 Current state
 
-The interface change the original spec listed as T2 work is **already done**:
+There is **no** `native` kind and **no** native adapter. T2 is not “selection over an existing seam.”
 
-```ts
-// ui/src/api/playerBackend.ts:18 — already merged
-readonly kind: 'html5' | 'native';
-```
+### 6.2 What T2 must create (if product wants native again)
 
-Both implementations exist (`Html5AudioBackend`, `NativePlaybackBackend`). Html5-only EQ options already live on `Html5AudioBackendOptions`, not on the shared interface. **No interface widening is needed.**
+1. Widen `PlayerBackend.kind` to `'html5' | 'native'`.
+2. Add `NativePlaybackBackend` (or equivalent) + Rust/C++ FFI as required by the T3 engine choice.
+3. Selection policy in `initPlayerBackend`: default html5; flag `native_playback`; fallback on init failure.
+4. Dual-mock orchestrator tests.
 
-### 6.2 What T2 actually adds
+## 7. Track T3 — Native audio (new engine, not fix-in-place)
 
-`initPlayerBackend` (in `playerStore.ts`) currently hard-codes HTML5 and early-comments native as disabled. T2 replaces that with an explicit selection policy:
+### 7.1 Reality
 
-1. Default: `html5`.
-2. If setting / feature flag `native_playback` is enabled **and** T3 has landed a working native path: construct `NativePlaybackBackend`, call `initialize()`.
-3. On `initialize()` returning `false` (or throw): fall back to `Html5AudioBackend`, record a diagnostic, optional one-shot UI notice.
-4. Runtime switch (settings): stop current backend → start other → restore track position best-effort.
+MFS/MFP/EqualizerMFT sources and tests were **removed** from `main`. There is nothing to re-enable in-tree.
 
-Until T3 lands, the flag stays off and step 2 is unreachable — so T2 can merge safely while native is still disabled.
+### 7.2 Spike decision (document before impl)
 
-### 6.3 Testing
+| Candidate | Notes |
+|-----------|--------|
+| Rebuild MF with complete topology | Only if spike proves no deadlock |
+| WASAPI + decoder pipeline | Alternative |
+| Stay HTML5-only | Acceptable outcome |
 
-- Orchestrator tests run against **mock html5** and **mock native** backends.
-- Assert selection + fallback logic (flag on + native init fails → ends on html5) without requiring real native audio.
-- No requirement that native produces audio in T2 — only that selection + fallback compile and pass mocks.
+### 7.3 EQ policy
 
-## 7. Track T3 — Re-enable native audio (fix existing engine)
+- WebAudio EQ only when `kind === 'html5'`.
+- Native EQ (if any) mutually exclusive with WebAudio.
 
-### 7.1 Reality: the engine exists but is disabled
-
-`PlaybackControllerMFS.cpp` (447 lines), `PlaybackControllerMFP.cpp`, and `EqualizerMFT.cpp` are compiled in `EchoPlayback` and `NativePlaybackBackend` already drives them via `playback_*` commands. Native is off only because `initPlayerBackend` disables it (topology resolution + deadlock). T3 is therefore **debug-and-validate**, not build-from-scratch.
-
-### 7.2 Constraints
-
-- Land only **after** T2 selection/fallback + tests exist.
-- **Forbidden:** flip the `native_playback` default on before the spike proves a complete topology with no deadlock.
-- Engine decision via **spike** (document result in the plan before full impl):
-
-  | Candidate | Notes |
-  |-----------|--------|
-  | Fix existing MFS (`BuildTopology` + deadlock) | Preferred: code already exists, tested harness exists (`EchoPlaybackMfsTest`) |
-  | Fall back to existing MFP (MFPlay, no EQ) | Already the runtime fallback in `nativeBackend.ts`; lower-risk interim |
-  | WASAPI + decoder pipeline | Only if MF proves unfixable |
-  | Keep HTML5 only | Acceptable outcome of a failed spike; leave native disabled |
-
-### 7.3 EQ policy (T3)
-
-- WebAudio EQ applies **only** when `kind === 'html5'`.
-- Native path uses its own EQ chain (`EqualizerMFT` / `playback_set_eq_bands`), or ships without EQ first — **never both chains active**.
-- UI: when native is selected, EQ panel shows "当前为原生输出，EQ 使用 WebAudio 路径时可用" (or equivalent).
-
-### 7.4 FFI
-
-- The `playback_*` C ABI + `backend_api.rs` pointers + `lib.rs` registration already exist — reuse them; do not duplicate.
-- Any topology fix stays inside `PlaybackControllerMFS.cpp` / `EqualizerMFT.cpp`; do not reshape the C_API surface without review against current CMake.
-
-## 8. Delivery sequence
+## 8. Delivery sequence (remaining)
 
 | Order | PR | Deliverable | Exit criteria |
 |-------|-----|-------------|---------------|
-| 1 | T1a | OsMediaSession + SMTC + bridge | Now playing + buttons drive app; CI green |
-| 2 | T1b | Media keys | Keys → same events; CI green |
-| 3 | T1c | Tray | Menu actions work; degrade if tray fails |
-| 4 | T2 | Selection/fallback policy in `initPlayerBackend` + mocks | Tests for both kinds; default still html5; flag off |
-| 5 | T3 spike | Fix `BuildTopology`/deadlock in MFS (or MFP interim); spike doc + go/no-go | Written spike result; `EchoPlaybackMfsTest` green under the fix |
-| 6 | T3 impl | Re-enable native behind flag; remove disable comment | Feature-flagged; automatic fallback to HTML5 works |
+| — | T1a | OsMediaSession + bridge | **Done** (#16) |
+| 1 | T1b | Media keys | Keys → bridge; CI green |
+| 2 | T1c | Tray | Menu works; degrade ok |
+| 3 | T1-SMTC | WinRT port | Lock screen/taskbar Now Playing |
+| 4 | T2 | Dual kind + selection (optional) | Mocks + flag default html5 |
+| 5 | T3 spike | Engine go/no-go doc | Written result |
+| 6 | T3 impl | Native behind flag | Fallback works |
 
-## 9. File touch map (reconciled)
+## 9. File touch map (post-#16)
 
-### T1 (create)
+### T1a (done)
 
-- Create: `ui/src-tauri/src/os_media_session.rs` (or `os_media/`)
-- Modify: `ui/src-tauri/src/lib.rs` (register commands/events)
-- Create: `ui/src/api/osMediaBridge.ts`
-- Modify: `ui/src/App.vue` (or player init path) to `bind` bridge
-- Tests: `ui/src/api/__tests__/osMediaBridge.test.ts`; Rust unit tests under `os_media_session`
+- `ui/src-tauri/src/os_media_session.rs`
+- `ui/src-tauri/src/lib.rs`
+- `ui/src/api/osMediaBridge.ts`
+- `ui/src/api/__tests__/osMediaBridge.test.ts`
+- `ui/src/App.vue`
 
-### T2 (modify existing — nothing to create)
+### T1b/T1c/T1-SMTC (next)
 
-- Modify: `ui/src/api/playerStore.ts` — replace the hard-disable in `initPlayerBackend` with selection/fallback
-- Reuse: `ui/src/api/playerBackend.ts` (`kind` union already present), `ui/src/api/nativeBackend.ts` (already implements the seam)
-- Modify: orchestrator/backend tests for dual mocks
+- Extend `os_media_session.rs` (ports); tray crate wiring; media key registration
 
-### T3 (fix existing native)
+### T2/T3 (optional future)
 
-- Modify: `native/playback/PlaybackControllerMFS.cpp` (topology + deadlock), possibly `native/playback/EqualizerMFT.cpp`
-- Reuse: `ui/src-tauri/src/playback.rs`, `ui/src-tauri/src/backend_api.rs` (FFI already wired)
-- Flip: the `native_playback` flag path in `initPlayerBackend`
-- Tests: `native/tests/playback_controller_mfs_test.cpp`
+- Create: native adapter + FFI + engine sources as spike dictates
+- Modify: `playerBackend.ts`, `playerStore.ts` `initPlayerBackend`
 
 ## 10. Risks
 
 | Risk | Mitigation |
 |------|------------|
-| WinRT/SMTC flaky on some Windows builds | no-op degrade; feature detect |
-| Artwork CORS / file path requirements | prefer local cache file path for SMTC |
-| Tray + HMR double icons | unbind on cleanup; single owner module |
-| Scope creep: touching native audio during T1 | hard gate: no native audio code in T1 PRs |
-| Re-enabling MFS before the deadlock is truly fixed | T3 spike gate; keep flag off until `EchoPlaybackMfsTest` green + no deadlock |
-| Implementer rebuilds existing native adapter | §0 baseline + §9 "modify/reuse" labels |
+| Spec drift after architecture merges | Re-run §0 baseline against `origin/main` after landings |
+| WinRT SMTC flaky | no-op port; feature detect |
+| Scope creep re-adding MFS without spike | T3 spike gate |
+| Emitter link issues in cargo test | Prefer queue/inject until SMTC port is proven (`tauri::Emitter` previously crashed harness) |
 
 ## 11. Success metrics
 
-- **T1:** From lock screen / taskbar / media keys / tray, user can control the running app's queue consistently with in-app controls; HTML5 + EQ regression suite still green.
-- **T2:** Selection policy and fallback are tested (via mocks) without requiring real native audio; default remains html5.
-- **T3:** If shipped, feature-flagged native output works for play/pause/seek/position events; automatic fallback to HTML5 on failure; no deadlock under the MFS contract test.
+- **T1a (done):** Commands + bridge tests green; App binds only under Tauri; HTML5 path green.
+- **T1 full:** Lock screen / keys / tray control the same queue as in-app.
+- **T2/T3:** Only if product still wants native; not required for OS-media success.
 
-## 12. Open decisions (resolved in this doc)
+## 12. Open decisions (resolved)
 
 | Decision | Choice |
 |----------|--------|
 | Architecture approach | **B** deep `OsMediaSession` |
-| Who produces audio by default | **HTML5** (native is opt-in, T3-gated) |
-| Media keys / tray | **In T1** (not deferred forever) |
-| Backend seam | **Already exists** — T2 adds selection/fallback only |
-| Native engine | **Fix the existing disabled MFS/MFP** (spike-gated); replace only if unfixable — do **not** rebuild from scratch |
+| Who produces audio on main | **HTML5 only** |
+| Native stack on main after #16 | **Removed**, not disabled-in-place |
+| T1a | **Landed** |
+| T2/T3 | Optional; T2 reintroduces seam; T3 is new engine spike |
 
 ## 13. Out of scope forever (unless new brainstorm)
 
 - Multi-tenant EchoContext FFI handles for playback
-- Linux MPRIS / macOS Now Playing in the same PRs as T1 Windows
-- Replacing WebAudio EQ with native EQ as a requirement for T1
+- Linux MPRIS / macOS Now Playing in the same PRs as Windows T1
+- Replacing WebAudio EQ as a requirement for T1
 
 ---
 
-## Appendix A — Relation to prior audit / branches
+## Appendix A — Relation to audit / #16
 
-Prior audit work targeted request lifecycle, timeouts/retry ownership, storage binding, EQ leaf extraction, and related cleanups. **This program does not assume MF was deleted from the tree:** on the reconciled baseline, `EchoPlayback` (MFS/MFP/EqualizerMFT), `playback.rs`, and `NativePlaybackBackend` are still present and **only gated off** in `initPlayerBackend`.
+Architecture audit removed MF playback and native FFI; storage/EQ closeout landed bound SQL + `usePlayerEq`. PR #16 stacked that work with T1a OsMediaSession and merged to `main`. This document’s **§0 must match that tree**.
 
-Order of work remains: **system media shell first (T1, greenfield)** → **backend selection second (T2, existing seam)** → **native re-enable third (T3, fix disabled MFS/MFP)** — without undoing HTML5 reliability.
+## Appendix B — Reconciliation log
 
-## Appendix B — Reconciliation log (2026-07-17 / 2026-07-18)
-
-| Item | Detail |
+| When | Change |
 |------|--------|
-| Original draft | Commit `0d801a73` treated T2/T3 as greenfield (“widen `kind`”, “create native adapter”, “spike to pick engine from zero”). |
-| Review finding | `kind` union, `NativePlaybackBackend`, full `playback_*` FFI, and compiled+tested MFS/MFP already exist; native is hard-disabled at `initPlayerBackend` for BuildTopology + deadlock. |
-| Rewrite | Added §0 baseline; rewrote §2, §4, §6–§9, §12 to *selection wiring* (T2) and *engine fix + re-enable* (T3). **T1 kept** — still greenfield. |
-| Superpowers product | This file remains a **design spec** (`docs/superpowers/specs/`), not a TDD task plan (`docs/superpowers/plans/`). Implementation plans are written **after** this spec is approved, track-by-track (recommend **T1a first**). |
+| 2026-07-17 draft | Assumed T2/T3 greenfield |
+| 2026-07-17 review | Pre-audit `main` still had native present-but-disabled → rewrote T2/T3 as “un-disable” |
+| 2026-07-18 #16 | Architecture delete of native **landed** with T1a → pre-merge “present-but-disabled” baseline became **false** |
+| **2026-07-18 post-merge** | **§0/T2/T3 rewritten again** for `origin/main` @ `e1bae6d4`: kind html5-only; no native files; T1a done; T2/T3 optional greenfield/spike |
+
+## Appendix C — Verification commands (honest baseline)
+
+From a clean checkout of `origin/main`:
+
+```powershell
+git rev-parse HEAD   # expect e1bae6d4 or descendant
+Test-Path ui/src/api/nativeBackend.ts          # False
+Test-Path ui/src-tauri/src/playback.rs         # False
+Test-Path native/playback/PlaybackControllerMFS.cpp  # False
+Select-String -Path ui/src/api/playerBackend.ts -Pattern "kind:"
+# → readonly kind: 'html5';
+Test-Path ui/src-tauri/src/os_media_session.rs # True
+Test-Path ui/src/api/osMediaBridge.ts          # True
+```
