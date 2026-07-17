@@ -1,7 +1,10 @@
 #pragma once
 
+#include <cctype>
 #include <chrono>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 #include "echo/core/CompatApi.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
@@ -69,10 +72,23 @@ inline bool IsKuGouErrorCode(const nlohmann::json& body, int code) {
   return false;
 }
 
+inline bool IsCredentialKey(const std::string& key) {
+  static const std::unordered_set<std::string> kCredentialKeys = {
+      "token", "t1", "access_token", "auth_token", "session_token",
+      "secret", "cookie", "set-cookie", "signature"};
+  std::string lowered;
+  lowered.reserve(key.size());
+  for (unsigned char c : key) lowered.push_back(static_cast<char>(std::tolower(c)));
+  return kCredentialKeys.count(lowered) > 0;
+}
+
 inline void StripSessionCredentials(nlohmann::json& value) {
   if (value.is_object()) {
-    value.erase("token");
-    value.erase("t1");
+    std::vector<std::string> toErase;
+    for (auto& [key, child] : value.items()) {
+      if (IsCredentialKey(key)) toErase.push_back(key);
+    }
+    for (const auto& key : toErase) value.erase(key);
     for (auto& [_, child] : value.items()) {
       StripSessionCredentials(child);
     }

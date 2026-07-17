@@ -385,6 +385,40 @@ int main() {
     std::cout << "  [ok] CompatApi scrubs credentials at the Handle chokepoint" << std::endl;
   }
 
+  {
+    // Credential fields under variant names and nested objects are scrubbed.
+    echo::storage::Database credDb;
+    credDb.Open(TestDbPath());
+    credDb.Initialize();
+    echo::core::CompatApiHandlers credHandlers;
+    credHandlers.userPlaylist = [](std::string, std::string, int, int) {
+      return nlohmann::json{
+          {"status", 1},
+          {"data",
+           {{"lists",
+             nlohmann::json::array({
+                 nlohmann::json{{"access_token", "atk-secret"},
+                                {"Token", "case-secret"},
+                                {"signature", "sig-secret"},
+                                {"cookie", "ck-secret"},
+                                {"auth_token", "autk-secret"},
+                                {"secret", "sec-secret"},
+                                {"keep", "keep-me"}},
+             })}}}};
+    };
+    echo::core::CompatApi credApi(credDb, std::move(credHandlers));
+    const auto credResponse = credApi.Handle("GET", "/user/playlist", {}, {}, "");
+    const auto credText = credResponse.body.dump();
+    assert(credText.find("atk-secret") == std::string::npos);
+    assert(credText.find("case-secret") == std::string::npos);
+    assert(credText.find("sig-secret") == std::string::npos);
+    assert(credText.find("ck-secret") == std::string::npos);
+    assert(credText.find("autk-secret") == std::string::npos);
+    assert(credText.find("sec-secret") == std::string::npos);
+    assert(credText.find("keep-me") != std::string::npos);
+    std::cout << "  [ok] StripSessionCredentials covers variant credential fields" << std::endl;
+  }
+
   std::cout << "[Test] Testing ContractJsonMatches..." << std::endl;
   const nlohmann::json contractFixture = {
       {"status", 1},
