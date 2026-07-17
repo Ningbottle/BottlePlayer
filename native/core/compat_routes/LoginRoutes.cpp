@@ -108,7 +108,6 @@ CompatResponse HandleLoginQrCheck(
       }
     }
   }
-  StripSessionCredentials(result);
   return JsonResponse(result);
 }
 

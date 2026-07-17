@@ -177,6 +177,7 @@ CompatResponse CompatApi::Handle(
 
   auto sw = diagnostics::Stopwatch::Start();
   auto response = HandleKnownRoute(method, path, query, headers, body);
+  StripSessionCredentials(response.body);
   {
     std::ostringstream log;
     log << "route=" << path

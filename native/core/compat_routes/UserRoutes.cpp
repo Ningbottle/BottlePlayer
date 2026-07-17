@@ -18,7 +18,6 @@ CompatResponse HandleUserDetail(
     const std::function<nlohmann::json(std::string, std::string)>& handler) {
   if (handler) {
     auto detail = handler("", "");
-    StripSessionCredentials(detail);
     return JsonResponse(std::move(detail));
   }
   CompatRequestContext ctx(database);
@@ -46,7 +45,6 @@ CompatResponse HandleUserDetail(
       if (detail["data"].value("pic", "").empty() && !pic.empty()) {
         detail["data"]["pic"] = pic;
       }
-      StripSessionCredentials(detail);
       return JsonResponse(std::move(detail));
     }
 

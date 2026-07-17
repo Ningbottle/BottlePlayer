@@ -361,6 +361,30 @@ int main() {
     std::cout << "  [ok] User detail keeps credentials out of WebView" << std::endl;
   }
 
+  {
+    // Routes that previously had no explicit StripSessionCredentials call
+    // (e.g. /user/vip/detail) must still be scrubbed at the Handle chokepoint.
+    echo::storage::Database vipDb;
+    vipDb.Open(TestDbPath());
+    vipDb.Initialize();
+    echo::core::CompatApiHandlers vipHandlers;
+    vipHandlers.userVip = [](std::string, std::string) {
+      return nlohmann::json{
+          {"status", 1},
+          {"data",
+           {{"vip", 1},
+            {"token", "vip-token-secret"},
+            {"t1", "vip-t1-secret"}}}};
+    };
+    echo::core::CompatApi vipApi(vipDb, std::move(vipHandlers));
+    const auto vipResponse = vipApi.Handle("GET", "/user/vip/detail", {}, {}, "");
+    const auto vipText = vipResponse.body.dump();
+    assert(vipText.find("vip-token-secret") == std::string::npos);
+    assert(vipText.find("vip-t1-secret") == std::string::npos);
+    assert(vipResponse.body["data"]["vip"] == 1);
+    std::cout << "  [ok] CompatApi scrubs credentials at the Handle chokepoint" << std::endl;
+  }
+
   std::cout << "[Test] Testing ContractJsonMatches..." << std::endl;
   const nlohmann::json contractFixture = {
       {"status", 1},
