@@ -29,18 +29,31 @@ fn get_memory_usage() -> u64 {
     }
 }
 
-/// Map a request path to a per-kind deadline (seconds).
-/// MUST stay in sync with native/include/echo/core/RequestDeadlines.h
-/// (kDeadline*Ms). Outer watchdog only — unique GET retry owner is C++ HttpClient.
+// Generated from native/include/echo/core/RequestDeadlines.h by build.rs.
+mod deadlines {
+    include!(concat!(env!("OUT_DIR"), "/deadlines_generated.rs"));
+}
+
+/// Map a request path to a per-kind deadline. Values come solely from
+/// RequestDeadlines.h (build-time extract). Outer watchdog only.
 fn deadline_for_path(path: &str) -> Duration {
     if path.starts_with("/song/url") {
-        Duration::from_millis(10_000) // kDeadlineSongUrlMs
+        Duration::from_millis(deadlines::kDeadlineSongUrlMs)
     } else if path.starts_with("/images/") {
-        Duration::from_millis(8_000) // kDeadlineImageMs
+        Duration::from_millis(deadlines::kDeadlineImageMs)
     } else if path.starts_with("/login/qr/") {
-        Duration::from_millis(6_000) // kDeadlineLoginPollMs
+        Duration::from_millis(deadlines::kDeadlineLoginPollMs)
+    } else if path.starts_with("/search") {
+        Duration::from_millis(deadlines::kDeadlineSearchMs)
+    } else if path.starts_with("/playlist")
+        || path.starts_with("/rank")
+        || path.starts_with("/top/")
+        || path.starts_with("/album")
+        || path.starts_with("/artist")
+    {
+        Duration::from_millis(deadlines::kDeadlinePlaylistMs)
     } else {
-        Duration::from_millis(12_000) // kDeadlineGenericMs / Search / Playlist
+        Duration::from_millis(deadlines::kDeadlineGenericMs)
     }
 }
 
@@ -206,21 +219,49 @@ mod tests {
 
     #[test]
     fn deadline_for_song_url_is_10s() {
-        assert_eq!(deadline_for_path("/song/url"), Duration::from_secs(10));
+        assert_eq!(
+            deadline_for_path("/song/url"),
+            Duration::from_millis(deadlines::kDeadlineSongUrlMs)
+        );
     }
 
     #[test]
     fn deadline_for_images_is_8s() {
-        assert_eq!(deadline_for_path("/images/audio"), Duration::from_secs(8));
+        assert_eq!(
+            deadline_for_path("/images/audio"),
+            Duration::from_millis(deadlines::kDeadlineImageMs)
+        );
     }
 
     #[test]
     fn deadline_for_login_qr_is_6s() {
-        assert_eq!(deadline_for_path("/login/qr/check"), Duration::from_secs(6));
+        assert_eq!(
+            deadline_for_path("/login/qr/check"),
+            Duration::from_millis(deadlines::kDeadlineLoginPollMs)
+        );
+    }
+
+    #[test]
+    fn deadline_for_search_uses_search_bucket() {
+        assert_eq!(
+            deadline_for_path("/search"),
+            Duration::from_millis(deadlines::kDeadlineSearchMs)
+        );
     }
 
     #[test]
     fn deadline_for_generic_is_12s() {
-        assert_eq!(deadline_for_path("/unknown/route"), Duration::from_secs(12));
+        assert_eq!(
+            deadline_for_path("/unknown/route"),
+            Duration::from_millis(deadlines::kDeadlineGenericMs)
+        );
+    }
+
+    #[test]
+    fn rust_outer_deadlines_are_at_least_cpp_inner() {
+        // Outer Tauri timeout must not be shorter than C++ scheduler budget.
+        assert!(deadlines::kDeadlineSongUrlMs >= deadlines::kDeadlineSongUrlMs);
+        assert!(deadlines::kFrontendTimeoutMs >= deadlines::kDeadlineGenericMs);
+        assert!(deadlines::kDeadlineGenericMs >= 1000);
     }
 }
