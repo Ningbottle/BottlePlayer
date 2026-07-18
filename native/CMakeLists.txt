@@ -165,9 +165,11 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoRequestSchedulerResilienceTest PRIVATE EchoCore EchoAsync)
   add_test(NAME EchoRequestSchedulerResilienceTest COMMAND EchoRequestSchedulerResilienceTest)
 
-  # Note: multi-thread / isolated EchoStorage WAL harness segfaults on GHA
-  # windows-latest; WAL read-after-write is covered by PlayStats + Database.h docs.
-  # Manual: tests/database_wal_concurrency_test.cpp (not registered in CTest).
+  # WAL mode + read-after-write + concurrent access (Storage Actor serializes; safe).
+  add_executable(EchoWalModeTest tests/database_wal_concurrency_test.cpp)
+  target_include_directories(EchoWalModeTest PRIVATE include)
+  target_link_libraries(EchoWalModeTest PRIVATE EchoStorage)
+  add_test(NAME EchoWalModeTest COMMAND EchoWalModeTest)
 
   add_executable(EchoPlayStatsTest tests/play_stats_test.cpp)
   target_include_directories(EchoPlayStatsTest PRIVATE include)

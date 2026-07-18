@@ -1,11 +1,13 @@
-// Database WAL mode + RO read-after-write (stability).
-// Multi-thread stress was SIGSEGV on CI runners (likely RO open / TLS timing);
-// this test asserts WAL is enabled and committed writes are readable.
+// Database WAL mode + RO read-after-write + concurrent access (stability).
+// The Storage Actor serializes all DB access on a dedicated thread, so
+// multi-threaded command submission is safe (no TLS, no concurrent sqlite).
 
 #include <cassert>
 #include <filesystem>
 #include <iostream>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
@@ -61,6 +63,25 @@ int main() {
   assert(j2.has_value());
   assert(j2->is_array());
   assert(j2->size() == 3);
+
+  // Concurrent access: 8 threads x 50 SetJson+GetJson via the Storage Actor.
+  // The actor serializes all access, so this is safe (no TLS, no SIGSEGV).
+  {
+    std::vector<std::thread> threads;
+    for (int t = 0; t < 8; ++t) {
+      threads.emplace_back([&db, t] {
+        const std::string key = "thread_" + std::to_string(t);
+        for (int i = 0; i < 50; ++i) {
+          db.SetJson(key, nlohmann::json{{"i", i}});
+          auto v = db.GetJson(key);
+          assert(v.has_value());
+          assert((*v)["i"] == i);
+        }
+      });
+    }
+    for (auto& th : threads) th.join();
+    std::cout << "[WalMode] concurrent (8 threads x 50 ops) ok" << std::endl;
+  }
 
   db.Close();
   std::error_code ec;
