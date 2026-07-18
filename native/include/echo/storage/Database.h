@@ -36,6 +36,13 @@ class Database {
   void ExecuteBound(const std::string& sql, const std::vector<BindValue>& params);
 
   // Read path (WAL snapshot via thread_local read connection when SQLite).
+  //
+  // WAL RO readers see a snapshot from when their read transaction begins.
+  // Cross-thread set-then-read has no strong consistency guarantee: Thread A
+  // SetJson then Thread B GetJson may not observe the write until B's next
+  // snapshot (API cache self-corrects via TTL; stats do not require immediate
+  // visibility; single-thread request pipelines share one TLS connection and
+  // are unaffected).
   // Prepare failure returns empty rows (legacy tolerance).
   std::vector<std::vector<std::string>> ExecuteQuery(const std::string& sql) const;
   std::vector<std::vector<std::string>> ExecuteQueryBound(
@@ -51,12 +58,14 @@ class Database {
   std::filesystem::path path_;
 
   // Serializes writers only (Execute*/SetJson/Put*/Prune). Reads use WAL RO
-  // connections and do not take this lock once opened.
+  // connections and do not take this lock once opened (see ExecuteQuery* docs).
   mutable std::mutex write_mutex_;
 
 #if defined(ECHO_NATIVE_HAS_SQLITE)
   void InitializeSchema();
   sqlite3* WriteDb();  // requires write_mutex_ held for mutators as needed
+  // Per-calling-thread RO connection (TLS). Snapshot isolation, not linearizable
+  // with other threads' recent writes (see public ExecuteQuery* comments).
   sqlite3* ReadDb() const;
   void ApplyBusyTimeout(sqlite3* db) const;
 
