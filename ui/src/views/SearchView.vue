@@ -17,10 +17,15 @@ const totalCount = ref(0);
 const page = ref(1);
 const error = ref('');
 
+/** Bumps on every load so slower older responses cannot overwrite newer query/page state. */
+let searchGeneration = 0;
+
 async function performSearch() {
+  const gen = ++searchGeneration;
   if (!props.query) {
     songs.value = [];
     totalCount.value = 0;
+    loading.value = false;
     return;
   }
   loading.value = true;
@@ -32,6 +37,8 @@ async function performSearch() {
       pagesize: 25
     });
 
+    if (gen !== searchGeneration) return;
+
     if (res.status === 1 && res.data) {
       songs.value = (res.data.lists || []).map(normalizeTrack);
       totalCount.value = res.data.total || 0;
@@ -39,10 +46,13 @@ async function performSearch() {
       error.value = res.error || '检索失败，请稍后重试';
     }
   } catch (err: any) {
+    if (gen !== searchGeneration) return;
     console.error('Search error', err);
     error.value = '连接 C++ 后端 Sidecar 出错';
   } finally {
-    loading.value = false;
+    if (gen === searchGeneration) {
+      loading.value = false;
+    }
   }
 }
 

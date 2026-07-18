@@ -17,8 +17,15 @@ const totalCount = ref(0);
 const page = ref(1);
 const error = ref('');
 
+/** Bumps on every load so slower older responses cannot overwrite newer playlist/page state. */
+let playlistGeneration = 0;
+
 async function loadPlaylistTracks() {
-  if (!props.playlistId) return;
+  const gen = ++playlistGeneration;
+  if (!props.playlistId) {
+    loading.value = false;
+    return;
+  }
   loading.value = true;
   error.value = '';
   try {
@@ -28,6 +35,8 @@ async function loadPlaylistTracks() {
       pagesize: 50
     });
 
+    if (gen !== playlistGeneration) return;
+
     if (res.status === 1 && res.data) {
       songs.value = (res.data.list || []).map(normalizeTrack);
       totalCount.value = res.data.total || songs.value.length;
@@ -35,10 +44,13 @@ async function loadPlaylistTracks() {
       error.value = res.error || '无法获取歌单曲目';
     }
   } catch (err: any) {
+    if (gen !== playlistGeneration) return;
     console.error('Playlist load error', err);
     error.value = '连接 C++ 后端 Sidecar 出错';
   } finally {
-    loading.value = false;
+    if (gen === playlistGeneration) {
+      loading.value = false;
+    }
   }
 }
 
