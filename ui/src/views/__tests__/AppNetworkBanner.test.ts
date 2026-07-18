@@ -166,7 +166,8 @@ describe('App network banner', () => {
     await vi.advanceTimersByTimeAsync(1_000);
     await flushPromises();
 
-    expect(wrapper.text()).toContain('应用后台连接不稳定，部分功能可能暂不可用');
+    expect(wrapper.text()).toContain('网络或服务暂时不可用');
+    expect(wrapper.text()).toContain('本地队列与已缓存内容仍可浏览');
   });
 
   it('keeps the backend banner below the titlebar controls', async () => {
