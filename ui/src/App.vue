@@ -15,7 +15,6 @@ import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { bindOsMediaBridge, unbindOsMediaBridge } from './api/osMediaBridge';
 import { checkLoginStatus } from './api/userStore';
 import { ping } from './api/backend';
-import { invoke } from '@tauri-apps/api/core';
 import { lyricFullscreen, setLyricFullscreen } from './api/lyricFullscreen';
 import { transitionEnter, transitionLeave } from './api/motion';
 import { registerPageTransition, unregisterPageTransition } from './navigation/navigationLifecycle';
@@ -52,20 +51,6 @@ async function updateNetworkBanner() {
     networkDegraded.value = false;
   } catch (e) {
     networkDegraded.value = true;
-  }
-}
-
-// Memory usage tracking
-const memoryUsage = ref('Working Set: -- / 220 MB');
-let memInterval: any = null;
-
-async function fetchMemoryUsage() {
-  try {
-    const bytes = await invoke<number>('get_memory_usage');
-    const mb = bytes / (1024 * 1024);
-    memoryUsage.value = `Working Set: ${mb.toFixed(1)} / 220 MB`;
-  } catch (e) {
-    // Graceful fallback
   }
 }
 
@@ -117,15 +102,11 @@ onMounted(() => {
   // Fetch initial login status
   checkLoginStatus();
 
-  // Start memory polling
-  fetchMemoryUsage();
-  memInterval = setInterval(fetchMemoryUsage, 2500);
   updateNetworkBanner();
   networkInterval = setInterval(updateNetworkBanner, 5_000);
 });
 
 onUnmounted(() => {
-  if (memInterval) clearInterval(memInterval);
   if (networkInterval) clearInterval(networkInterval);
   void unbindOsMediaBridge();
 });
@@ -136,9 +117,6 @@ onUnmounted(() => {
     :is="currentShell"
     :lyric-fullscreen="lyricFullscreen"
   >
-    <template #titlebar-center>
-      <span v-if="!lyricFullscreen">{{ memoryUsage }}</span>
-    </template>
 
     <template #banner>
       <div v-if="networkDegraded" class="network-banner" role="status">
