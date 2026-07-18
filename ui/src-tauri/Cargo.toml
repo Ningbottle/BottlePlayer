@@ -21,10 +21,13 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
+# tray-icon is behind `desktop-shell` — enabling it for `cargo test --lib`
+# previously crashed the harness (STATUS_ENTRYPOINT_NOT_FOUND).
 tauri = { version = "2", features = [] }
 tauri-plugin-opener = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
+tauri-plugin-global-shortcut = { version = "2", optional = true }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["rt", "rt-multi-thread", "macros", "time", "net", "io-util"] }
@@ -34,3 +37,7 @@ chrono = "0.4"
 reqwest = { version = "0.12", features = ["json", "stream"] }
 futures-util = "0.3"
 getrandom = "0.2"
+
+[features]
+default = ["desktop-shell"]
+desktop-shell = ["tauri/tray-icon", "dep:tauri-plugin-global-shortcut"]

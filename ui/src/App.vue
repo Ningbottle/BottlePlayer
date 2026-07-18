@@ -141,7 +141,9 @@ onUnmounted(() => {
     </template>
 
     <template #banner>
-      <div v-if="networkDegraded" class="network-banner">应用后台连接不稳定，部分功能可能暂不可用</div>
+      <div v-if="networkDegraded" class="network-banner" role="status">
+        网络或服务暂时不可用，本地队列与已缓存内容仍可浏览；联网后将自动恢复请求
+      </div>
     </template>
 
     <template #sidebar>
