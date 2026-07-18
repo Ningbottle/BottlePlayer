@@ -165,11 +165,16 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoRequestSchedulerResilienceTest PRIVATE EchoCore EchoAsync)
   add_test(NAME EchoRequestSchedulerResilienceTest COMMAND EchoRequestSchedulerResilienceTest)
 
-  # WAL mode + read-after-write + concurrent access (Storage Actor serializes; safe).
-  add_executable(EchoWalModeTest tests/database_wal_concurrency_test.cpp)
-  target_include_directories(EchoWalModeTest PRIVATE include)
-  target_link_libraries(EchoWalModeTest PRIVATE EchoStorage)
-  add_test(NAME EchoWalModeTest COMMAND EchoWalModeTest)
+  # Storage Actor lifecycle + WAL concurrent access (serialized; no TLS).
+  add_executable(EchoDatabaseActorLifecycleTest tests/database_actor_lifecycle_test.cpp)
+  target_include_directories(EchoDatabaseActorLifecycleTest PRIVATE include)
+  target_link_libraries(EchoDatabaseActorLifecycleTest PRIVATE EchoStorage)
+  add_test(NAME EchoDatabaseActorLifecycleTest COMMAND EchoDatabaseActorLifecycleTest)
+
+  add_executable(EchoDatabaseWalConcurrencyTest tests/database_wal_concurrency_test.cpp)
+  target_include_directories(EchoDatabaseWalConcurrencyTest PRIVATE include)
+  target_link_libraries(EchoDatabaseWalConcurrencyTest PRIVATE EchoStorage)
+  add_test(NAME EchoDatabaseWalConcurrencyTest COMMAND EchoDatabaseWalConcurrencyTest)
 
   add_executable(EchoPlayStatsTest tests/play_stats_test.cpp)
   target_include_directories(EchoPlayStatsTest PRIVATE include)
@@ -185,6 +190,8 @@ if(ECHO_NATIVE_BUILD_TESTS)
     EchoHomeContractTest
     EchoHttpClientResilienceTest
     EchoRequestSchedulerResilienceTest
+    EchoDatabaseActorLifecycleTest
+    EchoDatabaseWalConcurrencyTest
     EchoPlayStatsTest
   )
   # 测试进程也需要找到 vcpkg 的动态库；把 bin 目录临时挂到 PATH，

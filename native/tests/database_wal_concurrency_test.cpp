@@ -2,6 +2,7 @@
 // The Storage Actor serializes all DB access on a dedicated thread, so
 // multi-threaded command submission is safe (no TLS, no concurrent sqlite).
 
+#include <atomic>
 #include <cassert>
 #include <filesystem>
 #include <iostream>
@@ -64,23 +65,30 @@ int main() {
   assert(j2->is_array());
   assert(j2->size() == 3);
 
-  // Concurrent access: 8 threads x 50 SetJson+GetJson via the Storage Actor.
-  // The actor serializes all access, so this is safe (no TLS, no SIGSEGV).
+  // Multi-thread stress via Storage Actor — zero tolerated failures.
   {
+    constexpr int kThreads = 8;
+    constexpr int kIters = 50;
     std::vector<std::thread> threads;
-    for (int t = 0; t < 8; ++t) {
-      threads.emplace_back([&db, t] {
-        const std::string key = "thread_" + std::to_string(t);
-        for (int i = 0; i < 50; ++i) {
-          db.SetJson(key, nlohmann::json{{"i", i}});
-          auto v = db.GetJson(key);
-          assert(v.has_value());
-          assert((*v)["i"] == i);
+    std::atomic<int> bad{0};
+    for (int t = 0; t < kThreads; ++t) {
+      threads.emplace_back([&, t] {
+        for (int i = 0; i < kIters; ++i) {
+          const auto key = "w-" + std::to_string(t) + "-" + std::to_string(i);
+          try {
+            db.SetJson(key, nlohmann::json{{"i", i}});
+            auto row = db.GetJson(key);
+            if (!row || (*row)["i"] != i) bad.fetch_add(1);
+          } catch (...) {
+            bad.fetch_add(1);
+          }
         }
       });
     }
     for (auto& th : threads) th.join();
-    std::cout << "[WalMode] concurrent (8 threads x 50 ops) ok" << std::endl;
+    assert(bad.load() == 0);
+    std::cout << "[WalMode] concurrent (" << kThreads << " threads x " << kIters
+              << " ops) ok" << std::endl;
   }
 
   db.Close();
