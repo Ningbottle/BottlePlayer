@@ -179,7 +179,7 @@ describe('playbackQueue serial commands + residuals', () => {
     expect(deps.stopInvalidatedPlayback).toHaveBeenCalled();
   });
 
-  it('remove current when queue becomes empty clears loading/playing/error residuals', async () => {
+  it('remove current when queue becomes empty clears residuals and stops backend', async () => {
     const a = mkTrack('a');
     const state = makeState({
       queue: [a],
@@ -201,6 +201,8 @@ describe('playbackQueue serial commands + residuals', () => {
     expect(state.isLoading).toBe(false);
     expect(state.errorMsg).toBe('');
     expect(deps.skipSession).toHaveBeenCalled();
+    expect(deps.invalidatePlaybackIntent).toHaveBeenCalled();
+    expect(deps.stopInvalidatedPlayback).toHaveBeenCalled();
     expect(deps.playTrack).not.toHaveBeenCalled();
   });
 

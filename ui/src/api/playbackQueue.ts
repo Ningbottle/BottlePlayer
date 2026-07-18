@@ -124,12 +124,22 @@ export function removeFromQueue(deps: PlaybackQueueDeps, index: number): Promise
 
     if (state.currentIndex === index) {
       if (state.queue.length === 0) {
+        // Align with clearQueue: invalidate + stop backend so audio/phase do not
+        // keep playing with an empty queue.
+        const stopSeq = deps.invalidatePlaybackIntent();
         deps.skipSession();
         state.currentIndex = -1;
         state.currentTrack = null;
         clearPlaybackResiduals(state);
-        if (state.audio) {
-          state.audio.src = '';
+        if (deps.hasBackend()) {
+          await deps.stopInvalidatedPlayback(stopSeq);
+        } else if (state.audio) {
+          try {
+            state.audio.pause();
+            state.audio.src = '';
+          } catch {
+            /* ignore */
+          }
         }
       } else {
         state.currentIndex = state.currentIndex % state.queue.length;
