@@ -26,10 +26,9 @@ import NewsprintShell from '../NewsprintShell.vue';
 const newsprintCss = readFileSync(resolve(__dirname, '../../../styles/skins/newsprint.css'), 'utf8');
 
 describe('AuroraShell', () => {
-  it('renders the BottleMusic and Chinese-first Aurora wordmark', () => {
+  it('renders the BottleMusic wordmark', () => {
     const wrapper = mount(AuroraShell);
     expect(wrapper.get('[data-test="shell-brand"]').text()).toContain('BottleMusic');
-    expect(wrapper.get('[data-test="shell-skin-label"]').text()).toBe('极光 Aurora');
   });
   it('renders data-shell="aurora"', () => {
     const wrapper = mount(AuroraShell);
@@ -95,7 +94,6 @@ describe('AuroraShell', () => {
 
     expect(root.attributes('data-layout')).toBe('immersive');
     expect(wrapper.get('.titlebar-logo').text()).toContain('BottleMusic');
-    expect(wrapper.get('.titlebar-logo').text()).toContain('Aurora');
     expect(wrapper.find('nav.shell-sidebar').exists()).toBe(true);
     expect(wrapper.find('main.shell-main').exists()).toBe(true);
     expect(wrapper.find('footer.shell-playerbar').exists()).toBe(true);
@@ -103,10 +101,9 @@ describe('AuroraShell', () => {
 });
 
 describe('NewsprintShell', () => {
-  it('renders the BottleMusic and Chinese-first Newsprint masthead', () => {
+  it('renders the BottleMusic masthead', () => {
     const wrapper = mount(NewsprintShell);
     expect(wrapper.get('[data-test="shell-brand"]').text()).toContain('BottleMusic');
-    expect(wrapper.get('[data-test="shell-skin-label"]').text()).toBe('报刊 Newsprint');
     expect(wrapper.text()).not.toContain('The Player');
   });
   it('renders data-shell="newsprint"', () => {

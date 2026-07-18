@@ -23,9 +23,8 @@ function handleTitlebarDoubleClick(event: MouseEvent): void {
     :class="{ 'lyric-fullscreen-active': lyricFullscreen }"
   >
     <div class="titlebar" data-tauri-drag-region @dblclick="handleTitlebarDoubleClick">
-      <div class="titlebar-logo" aria-label="BottleMusic 极光 Aurora">
+      <div class="titlebar-logo" aria-label="BottleMusic">
         <span class="aurora-wordmark" data-test="shell-brand">BottleMusic</span>
-        <span class="aurora-wordmark-subtitle" data-test="shell-skin-label">极光 Aurora</span>
       </div>
       <div class="titlebar-center">
         <slot name="titlebar-center" />
