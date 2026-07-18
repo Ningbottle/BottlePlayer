@@ -372,11 +372,21 @@ mod tests {
                 .into_iter()
                 .collect();
             if cfg!(target_os = "windows") {
-                v.push("../../../native/out/bottlemusic-check/EchoCAPI.dll".into());
+                // From ui/src-tauri: ../../native is the repo (or worktree) native/
+                // ../../../native wrongly escapes the worktree and often misses the fresh build.
+                v.push(format!(
+                    "{}/../../native/out/bottlemusic-check/EchoCAPI.dll",
+                    env!("CARGO_MANIFEST_DIR")
+                ));
+                v.push("../../native/out/bottlemusic-check/EchoCAPI.dll".into());
                 v.push(format!("{}/target/debug/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR")));
                 v.push(format!("{}/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR")));
             } else {
-                v.push("../../../native/out/bottlemusic-check/libEchoCAPI.so".into());
+                v.push(format!(
+                    "{}/../../native/out/bottlemusic-check/libEchoCAPI.so",
+                    env!("CARGO_MANIFEST_DIR")
+                ));
+                v.push("../../native/out/bottlemusic-check/libEchoCAPI.so".into());
                 v.push(format!("{}/target/debug/libEchoCAPI.so", env!("CARGO_MANIFEST_DIR")));
             }
             v
@@ -397,23 +407,46 @@ mod tests {
         init_with_paths(&dll_path, Some(app_data_dir.to_str().unwrap())).expect("Failed to init C API");
         set_log_callback().ok();
 
+        // RequestScheduler maxQueue = workers*4; under 20 concurrent callers the
+        // queue may return 504 queue_full. That is backpressure, not a crash —
+        // each logical op must still succeed after retry. Zero thread panics.
+        fn request_until_ok(method: &str, path: &str) {
+            for attempt in 0..80u32 {
+                let res = handle_request(method, path, None, None, None)
+                    .unwrap_or_else(|e| panic!("{path} handle_request err: {e}"));
+                // handle_request wraps HTTP status at top-level "status".
+                let ok = res.contains("\"status\":200");
+                if ok {
+                    return;
+                }
+                let transient = res.contains("queue_full") || res.contains("\"status\":504");
+                if !transient {
+                    panic!(
+                        "{path} unexpected response: {}",
+                        res.chars().take(500).collect::<String>()
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_millis(
+                    2 + u64::from(attempt.min(20)),
+                ));
+            }
+            panic!("{path}: exhausted retries under scheduler backpressure");
+        }
+
         let mut handles = vec![];
-        
-        // Spawn 20 threads, each making 50 requests
+
+        // Spawn 20 threads, each making 50 successful request pairs (retry ok).
         for _ in 0..20 {
             let handle = thread::spawn(|| {
                 for _ in 0..50 {
                     // /health: memory only, /playlist/tags: SQLite DB access
-                    let res_health = handle_request("GET", "/health", None, None, None).unwrap();
-                    assert!(res_health.contains("200"));
-                    
-                    let res_db = handle_request("GET", "/playlist/tags", None, None, None).unwrap();
-                    assert!(res_db.contains("200"));
+                    request_until_ok("GET", "/health");
+                    request_until_ok("GET", "/playlist/tags");
                 }
             });
             handles.push(handle);
         }
-        
+
         let mut thread_failures = 0usize;
         for h in handles {
             if h.join().is_err() {
@@ -421,8 +454,7 @@ mod tests {
             }
         }
         eprintln!("[test_m3_concurrency] {} of 20 threads panicked", thread_failures);
-        // Zero tolerated failures: concurrent C API calls must all succeed.
-        // (P6: previously allowed partial panics as long as not all 20 failed.)
+        // Zero tolerated panics: every thread must complete all ops (with retry).
         assert_eq!(
             thread_failures, 0,
             "concurrent C API stress: {} of 20 threads panicked",
