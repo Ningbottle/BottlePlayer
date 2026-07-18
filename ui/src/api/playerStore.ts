@@ -478,22 +478,22 @@ function queueDeps() {
 }
 
 export function playAll(tracks: Track[], startIndex = 0) {
-  playAllImpl(queueDeps(), tracks, startIndex);
+  return playAllImpl(queueDeps(), tracks, startIndex);
 }
 
 export function playPersonalFm(tracks: Track[], startIndex = 0) {
-  playPersonalFmImpl(queueDeps(), tracks, startIndex);
+  return playPersonalFmImpl(queueDeps(), tracks, startIndex);
 }
 
 export function addToQueue(track: Track) {
-  addToQueueImpl(queueDeps(), track);
+  return addToQueueImpl(queueDeps(), track);
 }
 
 export function removeFromQueue(index: number) {
-  removeFromQueueImpl(queueDeps(), index);
+  return removeFromQueueImpl(queueDeps(), index);
 }
 
 /** Empty the play queue and stop the active backend when one is available. */
 export function clearQueue() {
-  clearQueueImpl(queueDeps());
+  return clearQueueImpl(queueDeps());
 }
