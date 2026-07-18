@@ -11,6 +11,11 @@ import {
   PlaybackOrchestrator,
   type QualityOption,
 } from './playbackOrchestrator';
+import {
+  canTransition,
+  transitionPhase,
+  type PlaybackPhase,
+} from './playbackPhase';
 import { loadNumber } from './safeStorage';
 import {
   loadJSON,
@@ -67,6 +72,8 @@ interface PlayerState {
   errorMsg: string;
   isPreview: boolean;
   vipRequired: boolean;
+  /** Explicit playback phase (observability; see playbackPhase.ts). */
+  playbackPhase: PlaybackPhase;
   /** 当前音质等级，如 '128', '320', 'flac' 等 */
   quality: string;
   /** 当前歌曲可用的音质选项列表 */
@@ -130,6 +137,7 @@ export const playerStore = reactive<PlayerState>({
   errorMsg: '',
   isPreview: false,
   vipRequired: false,
+  playbackPhase: 'idle',
   quality: localStorage.getItem('player_quality') || '128',
   availableQualities: [],
   backend: null,
@@ -257,6 +265,14 @@ export async function initPlayerBackend() {
   eventUnsub = activeBackend.onEvent(handlePlaybackEvent);
 }
 
+/** Soft phase apply for backend events — never throw on racey illegal edges. */
+function applyStorePhase(to: PlaybackPhase) {
+  const from = playerStore.playbackPhase;
+  if (from === to) return;
+  if (!canTransition(from, to)) return;
+  playerStore.playbackPhase = transitionPhase(from, to);
+}
+
 function handlePlaybackEvent(e: PlaybackEvent) {
   if (e.type === 'position') {
     if (typeof e.position === 'number') {
@@ -273,10 +289,12 @@ function handlePlaybackEvent(e: PlaybackEvent) {
       playbackDiagnostics.markActivity();
       playerStore.isLoading = false;
       playerStore.isPlaying = true;
+      applyStorePhase('playing');
     } else if (e.state === 'paused') {
       playSession.onPause();
       playerStore.isLoading = false;
       playerStore.isPlaying = false;
+      applyStorePhase('paused');
     }
     playerStore.errorMsg = '';
   } else if (e.type === 'ended') {
@@ -293,6 +311,7 @@ function handlePlaybackEvent(e: PlaybackEvent) {
   } else if (e.type === 'error' && e.error) {
     playerStore.isLoading = false;
     playerStore.errorMsg = e.error;
+    applyStorePhase('error');
   }
 }
 

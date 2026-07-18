@@ -32,6 +32,7 @@ function makeState(): PlaybackStateSlice {
     vipRequired: false,
     quality: '128',
     availableQualities: [],
+    playbackPhase: 'idle',
   };
 }
 
