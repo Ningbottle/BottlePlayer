@@ -45,7 +45,31 @@ elseif(SQLite3_FOUND)
   target_compile_definitions(EchoStorage PUBLIC ECHO_NATIVE_HAS_SQLITE=1)
   target_link_libraries(EchoStorage PUBLIC SQLite::SQLite3)
 else()
-  message(WARNING "SQLite3 development files were not found; EchoStorage will use the JSON-file fallback.")
+  # P6: Packaging must not ship silent JSON-file fallback. Release (single-config
+  # CMAKE_BUILD_TYPE, multi-config trees that include Release, or preset
+  # bottlemusic-release) fails configure without SQLite. Debug-only builds keep
+  # WARNING + fallback for local convenience.
+  set(_echo_sqlite_missing_fatal FALSE)
+  if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(_echo_sqlite_missing_fatal TRUE)
+  endif()
+  if(CMAKE_CONFIGURATION_TYPES)
+    list(FIND CMAKE_CONFIGURATION_TYPES "Release" _echo_release_cfg_idx)
+    if(NOT _echo_release_cfg_idx EQUAL -1)
+      set(_echo_sqlite_missing_fatal TRUE)
+    endif()
+    unset(_echo_release_cfg_idx)
+  endif()
+  if(_echo_sqlite_missing_fatal)
+    message(FATAL_ERROR
+      "SQLite3 development files were not found. "
+      "Release/packaging builds require SQLite (ECHO_NATIVE_HAS_SQLITE); "
+      "silent JSON-file fallback is not allowed. "
+      "Install via vcpkg (unofficial-sqlite3) or provide the SQLite3 CMake package.")
+  else()
+    message(WARNING "SQLite3 development files were not found; EchoStorage will use the JSON-file fallback.")
+  endif()
+  unset(_echo_sqlite_missing_fatal)
 endif()
 
 add_library(EchoDiagnostics STATIC

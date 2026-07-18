@@ -421,10 +421,13 @@ mod tests {
             }
         }
         eprintln!("[test_m3_concurrency] {} of 20 threads panicked", thread_failures);
-        // Best-effort: tolerate partial failure since the test mainly proves the
-        // DLL loads and handles concurrent calls without crashing. If at least
-        // one thread survived, the C API is at least functional under load.
-        assert!(thread_failures < 20, "all 20 threads panicked");
+        // Zero tolerated failures: concurrent C API calls must all succeed.
+        // (P6: previously allowed partial panics as long as not all 20 failed.)
+        assert_eq!(
+            thread_failures, 0,
+            "concurrent C API stress: {} of 20 threads panicked",
+            thread_failures
+        );
 
         shutdown_c_api();
     }
