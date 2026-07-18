@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { playerStore, playTrack } from '../api/playerStore';
 import { fetchCoverImage } from '../api/normalizer';
 
@@ -11,11 +11,24 @@ const emit = defineEmits<{
   (e: 'close'): void;
 }>();
 
+/** Queue filter (frontend polish): name / artist substring, case-insensitive. */
+const queueFilter = ref('');
+
+const filteredQueue = computed(() => {
+  const q = queueFilter.value.trim().toLowerCase();
+  if (!q) return playerStore.queue;
+  return playerStore.queue.filter(
+    (item) =>
+      (item.SongName || '').toLowerCase().includes(q)
+      || (item.SingerName || '').toLowerCase().includes(q),
+  );
+});
+
 async function fetchMissingCovers() {
   for (const item of playerStore.queue) {
     if (!item.Image) {
-      item.Image = ''; 
-      fetchCoverImage(item.FileHash).then(img => {
+      item.Image = '';
+      fetchCoverImage(item.FileHash).then((img) => {
         if (img) {
           item.Image = img;
           localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
@@ -45,12 +58,22 @@ watch(() => playerStore.queue, () => {
           </svg>
         </button>
       </div>
-      
+
+      <div class="queue-filter-row">
+        <input
+          v-model="queueFilter"
+          type="search"
+          class="queue-filter"
+          placeholder="筛选歌曲 / 歌手"
+          aria-label="筛选播放队列"
+        />
+      </div>
+
       <div class="panel-scroll">
         <div class="recent">
-          <div 
-            v-for="item in playerStore.queue" 
-            :key="item.FileHash" 
+          <div
+            v-for="item in filteredQueue"
+            :key="item.FileHash"
             class="item"
             :class="{ active: playerStore.currentTrack?.FileHash === item.FileHash }"
             @click="playTrack(item)"
@@ -71,6 +94,9 @@ watch(() => playerStore.queue, () => {
           </div>
           <div v-if="playerStore.queue.length === 0" class="empty-state">
             队列为空
+          </div>
+          <div v-else-if="filteredQueue.length === 0" class="empty-state">
+            无匹配结果
           </div>
         </div>
       </div>
@@ -119,6 +145,28 @@ watch(() => playerStore.queue, () => {
   color: var(--ink-mute);
   font-size: 12px;
   margin-left: 4px;
+}
+
+.queue-filter-row {
+  padding: 8px 12px 4px;
+  border-bottom: 1px dashed var(--rule);
+  background: var(--paper);
+}
+
+.queue-filter {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper-2);
+  color: var(--ink);
+  font-size: 12px;
+}
+
+.queue-filter:focus {
+  outline: 2px solid color-mix(in srgb, var(--accent, #c9a227) 50%, transparent);
+  outline-offset: 1px;
 }
 
 .panel-close {

@@ -62,10 +62,12 @@ jobs:
 
       - name: Cargo test
         run: |
-          $env:PATH = "$PWD\..\..\native\vcpkg_installed\x64-windows\bin;$env:PATH"
-          cargo test --lib -- --test-threads=1
+          $root = (Resolve-Path ../..).Path
+          $env:PATH = "$root\native\out\bottlemusic-check;$root\native\vcpkg_installed\x64-windows\bin;$env:PATH"
+          # --no-default-features: tray-icon / global-shortcut crash the lib test harness
+          cargo test --lib --no-default-features -- --test-threads=1
         working-directory: ui/src-tauri
 
       - name: Cargo clippy
-        run: cargo clippy -- -D warnings
+        run: cargo clippy --no-default-features -- -D warnings
         working-directory: ui/src-tauri

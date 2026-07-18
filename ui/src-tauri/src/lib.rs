@@ -90,16 +90,28 @@ async fn native_request(
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    #[allow(unused_mut)]
+    let mut builder = tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
-        .plugin(tauri_plugin_process::init())
+        .plugin(tauri_plugin_process::init());
+
+    #[cfg(feature = "desktop-shell")]
+    {
+        builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
+    }
+
+    builder
         .setup(|app| {
             use tauri::Manager;
 
             // Store AppHandle for event emission from C++ callbacks.
             backend_api::set_app_handle(app.handle().clone());
             os_media_session::set_app_handle(app.handle().clone());
+            #[cfg(feature = "desktop-shell")]
+            if let Err(e) = os_media_session::install_os_integrations(app.handle()) {
+                eprintln!("[OsMedia WARN] OS integrations partial/unavailable: {e}");
+            }
 
             match audio_proxy::bind_listener() {
                 Ok((listener, port)) => {
@@ -204,6 +216,7 @@ pub fn run() {
             os_media_session::os_media_set_playback_status,
             os_media_session::os_media_set_enabled_controls,
             os_media_session::os_media_inject_button,
+            os_media_session::os_media_debug_snapshot,
         ])
         .run(tauri::generate_context!())
         .expect("error while running BottleMusic Tauri app");
