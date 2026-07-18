@@ -24,17 +24,46 @@ const filteredQueue = computed(() => {
   );
 });
 
-async function fetchMissingCovers() {
-  for (const item of playerStore.queue) {
-    if (!item.Image) {
-      item.Image = '';
-      fetchCoverImage(item.FileHash).then((img) => {
-        if (img) {
-          item.Image = img;
-          localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
-        }
-      });
+/** In-flight cover fetches keyed by FileHash — do not mutate Image to mark pending. */
+const pendingCoverFetches = new Set<string>();
+/** Bumped when queue FileHash identity changes so stale responses no-op. */
+let coverFetchGeneration = 0;
+let lastQueueIdentity = '';
+
+function queueCoverIdentity(): string {
+  return playerStore.queue.map((t) => t.FileHash || '').join('\0');
+}
+
+function fetchMissingCovers() {
+  const identity = queueCoverIdentity();
+  if (identity !== lastQueueIdentity) {
+    lastQueueIdentity = identity;
+    coverFetchGeneration += 1;
+    const liveHashes = new Set(playerStore.queue.map((t) => t.FileHash).filter(Boolean));
+    for (const hash of [...pendingCoverFetches]) {
+      if (!liveHashes.has(hash)) pendingCoverFetches.delete(hash);
     }
+  }
+  const gen = coverFetchGeneration;
+
+  for (const item of playerStore.queue) {
+    const hash = item.FileHash;
+    if (!hash || item.Image || pendingCoverFetches.has(hash)) continue;
+
+    pendingCoverFetches.add(hash);
+    fetchCoverImage(hash)
+      .then((img) => {
+        pendingCoverFetches.delete(hash);
+        if (gen !== coverFetchGeneration) return;
+        if (!img) return;
+        const track = playerStore.queue.find((t) => t.FileHash === hash);
+        if (!track || track.Image) return;
+        track.Image = img;
+        localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
+      })
+      .catch(() => {
+        pendingCoverFetches.delete(hash);
+      });
   }
 }
 
