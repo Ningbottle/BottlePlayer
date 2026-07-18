@@ -24,8 +24,12 @@ const filteredQueue = computed(() => {
   );
 });
 
-/** In-flight cover fetches keyed by FileHash — do not mutate Image to mark pending. */
-const pendingCoverFetches = new Set<string>();
+/**
+ * In-flight cover fetches: FileHash → generation that owns the pending slot.
+ * Do not mutate Image to mark pending. Stale completions must only clear their
+ * own generation so they never drop a newer request's pending mark.
+ */
+const pendingCoverFetches = new Map<string, number>();
 /** Bumped when queue FileHash identity changes so stale responses no-op. */
 let coverFetchGeneration = 0;
 let lastQueueIdentity = '';
@@ -34,15 +38,20 @@ function queueCoverIdentity(): string {
   return playerStore.queue.map((t) => t.FileHash || '').join('\0');
 }
 
+function clearPendingIfOwner(hash: string, gen: number) {
+  if (pendingCoverFetches.get(hash) === gen) {
+    pendingCoverFetches.delete(hash);
+  }
+}
+
 function fetchMissingCovers() {
   const identity = queueCoverIdentity();
   if (identity !== lastQueueIdentity) {
     lastQueueIdentity = identity;
     coverFetchGeneration += 1;
-    const liveHashes = new Set(playerStore.queue.map((t) => t.FileHash).filter(Boolean));
-    for (const hash of [...pendingCoverFetches]) {
-      if (!liveHashes.has(hash)) pendingCoverFetches.delete(hash);
-    }
+    // Drop pending slots; in-flight work is owned by prior gens and must not
+    // block re-queue of the same FileHash under the new generation.
+    pendingCoverFetches.clear();
   }
   const gen = coverFetchGeneration;
 
@@ -50,10 +59,10 @@ function fetchMissingCovers() {
     const hash = item.FileHash;
     if (!hash || item.Image || pendingCoverFetches.has(hash)) continue;
 
-    pendingCoverFetches.add(hash);
+    pendingCoverFetches.set(hash, gen);
     fetchCoverImage(hash)
       .then((img) => {
-        pendingCoverFetches.delete(hash);
+        clearPendingIfOwner(hash, gen);
         if (gen !== coverFetchGeneration) return;
         if (!img) return;
         const track = playerStore.queue.find((t) => t.FileHash === hash);
@@ -62,7 +71,7 @@ function fetchMissingCovers() {
         localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
       })
       .catch(() => {
-        pendingCoverFetches.delete(hash);
+        clearPendingIfOwner(hash, gen);
       });
   }
 }

@@ -56,9 +56,14 @@ async function performSearch() {
   }
 }
 
+// Single load entry: when query changes on page>1, only reset page and let the
+// page watcher fetch — avoid page=1 + performSearch() double request.
 watch(() => props.query, () => {
-  page.value = 1;
-  performSearch();
+  if (page.value !== 1) {
+    page.value = 1;
+  } else {
+    performSearch();
+  }
 });
 
 watch(page, () => {

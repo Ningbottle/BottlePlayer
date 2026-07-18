@@ -54,9 +54,14 @@ async function loadPlaylistTracks() {
   }
 }
 
+// Single load entry: when playlistId changes on page>1, only reset page and let
+// the page watcher fetch — avoid page=1 + loadPlaylistTracks() double request.
 watch(() => props.playlistId, () => {
-  page.value = 1;
-  loadPlaylistTracks();
+  if (page.value !== 1) {
+    page.value = 1;
+  } else {
+    loadPlaylistTracks();
+  }
 });
 
 watch(page, () => {

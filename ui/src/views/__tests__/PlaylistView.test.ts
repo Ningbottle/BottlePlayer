@@ -108,6 +108,36 @@ describe('PlaylistView request generation', () => {
     expect(wrapper.find('.spinner').exists()).toBe(false);
   });
 
+  it('does not double-fetch when playlistId changes while page > 1', async () => {
+    const pageful = Array.from({ length: 50 }, (_, i) => ({
+      ...trackA,
+      FileHash: `hash-${i}`,
+      SongName: `Song ${i}`,
+    }));
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: { list: pageful, total: 200 },
+    });
+
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: 'pl-a', playlistName: 'Playlist A' },
+    });
+    await flushPromises();
+
+    const next = wrapper.findAll('button').find((b) => /Next/i.test(b.text()));
+    expect(next).toBeTruthy();
+    await next!.trigger('click');
+    await flushPromises();
+
+    mockApiGet.mockClear();
+    await wrapper.setProps({ playlistId: 'pl-b', playlistName: 'Playlist B' });
+    await flushPromises();
+
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(mockApiGet.mock.calls[0][0]).toBe('/playlist/track/all');
+    expect(mockApiGet.mock.calls[0][1]).toMatchObject({ id: 'pl-b', page: 1 });
+  });
+
   it('ignores a stale playlist error after a newer playlistId succeeds', async () => {
     const a = deferred<{ status: number; data: { list: typeof trackA[]; total: number } }>();
     const b = deferred<{ status: number; data: { list: typeof trackB[]; total: number } }>();

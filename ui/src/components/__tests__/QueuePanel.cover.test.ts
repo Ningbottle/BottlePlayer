@@ -123,4 +123,38 @@ describe('QueuePanel cover fetch races', () => {
     expect(original.Image).toBeFalsy();
     expect(replacement.Image).toBe('https://cdn.example/new-cover.jpg');
   });
+
+  it('stale cover completion does not clear pending for a newer in-flight fetch of the same hash', async () => {
+    // Regression: .then always pendingCoverFetches.delete(hash) even when gen is stale,
+    // which drops the marker for a concurrent re-fetch and can re-enter or skip ownership.
+    const first = deferred<string>();
+    const second = deferred<string>();
+    mockFetchCoverImage
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementation(() => second.promise);
+
+    playerStore.queue = [mkTrack({ FileHash: 'same-hash', Image: undefined })];
+    wrapper = mount(QueuePanel, { props: { show: true } });
+    await flushPromises();
+    expect(mockFetchCoverImage).toHaveBeenCalledTimes(1);
+
+    playerStore.queue = [];
+    await flushPromises();
+    playerStore.queue = [mkTrack({ FileHash: 'same-hash', Image: undefined })];
+    await flushPromises();
+    expect(mockFetchCoverImage).toHaveBeenCalledTimes(2);
+
+    // Stale first completes: must not drop pending so second remains the owner.
+    first.resolve('https://cdn.example/old.jpg');
+    await flushPromises();
+
+    // Trigger another deep-watch tick while second still in flight — must NOT start a 3rd fetch.
+    playerStore.queue = [...playerStore.queue];
+    await flushPromises();
+    expect(mockFetchCoverImage).toHaveBeenCalledTimes(2);
+
+    second.resolve('https://cdn.example/new.jpg');
+    await flushPromises();
+    expect(playerStore.queue[0].Image).toBe('https://cdn.example/new.jpg');
+  });
 });

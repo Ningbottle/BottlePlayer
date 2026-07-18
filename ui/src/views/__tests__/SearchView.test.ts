@@ -128,4 +128,33 @@ describe('SearchView request generation', () => {
     expect(wrapper.text()).not.toContain('连接 C++ 后端 Sidecar 出错');
     expect(wrapper.find('.spinner').exists()).toBe(false);
   });
+
+  it('does not double-fetch when query changes while page > 1', async () => {
+    // Mount → Next → change query. Regression: page=1 + performSearch() both fire.
+    const pageful = Array.from({ length: 25 }, (_, i) => ({
+      ...trackA,
+      FileHash: `hash-${i}`,
+      SongName: `Song ${i}`,
+    }));
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: { lists: pageful, total: 100 },
+    });
+
+    wrapper = mount(SearchView, { props: { query: 'alpha' } });
+    await flushPromises();
+
+    const next = wrapper.findAll('button').find((b) => /Next/i.test(b.text()));
+    expect(next).toBeTruthy();
+    await next!.trigger('click');
+    await flushPromises();
+
+    mockApiGet.mockClear();
+    await wrapper.setProps({ query: 'beta' });
+    await flushPromises();
+
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(mockApiGet.mock.calls[0][0]).toBe('/search');
+    expect(mockApiGet.mock.calls[0][1]).toMatchObject({ keywords: 'beta', page: 1 });
+  });
 });
