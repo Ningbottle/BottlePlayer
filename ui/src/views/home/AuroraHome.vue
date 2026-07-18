@@ -1,11 +1,11 @@
 <script setup lang="ts">
-import { ref, computed, watch, onMounted, onBeforeUpdate, onUnmounted, nextTick } from 'vue';
+import { ref, computed, watch, onBeforeUpdate, onUnmounted, nextTick } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../api/normalizer';
 import type { PlaylistInfo } from '../../api/homeFeedStore';
 import { gsap } from 'gsap';
 import type { HomeEnterMode } from '../../api/homeEnterSession';
-import { animateStagger, startAmbientMotion, isReducedMotion } from '../../api/motion';
+import { animateStagger, isReducedMotion } from '../../api/motion';
 import AuroraAtmosphere from './AuroraAtmosphere.vue';
 
 const props = withDefaults(
@@ -33,8 +33,6 @@ const stageEl = ref<HTMLElement | null>(null);
 const recommendationEls = ref<HTMLElement[]>([]);
 /** Stage + stagger enter handles (killed on re-enter). */
 const enterHandles: Array<{ kill(): void }> = [];
-/** Ambient only — started once, not replayed on return. */
-const ambientHandles: Array<{ kill(): void }> = [];
 
 watch(() => props.model.heroTrack, () => { coverError.value = false; });
 
@@ -108,15 +106,8 @@ watch(
   { immediate: true, flush: 'post' },
 );
 
-onMounted(() => {
-  if (stageEl.value) {
-    ambientHandles.push(startAmbientMotion(stageEl.value, () => props.model.isPlaying));
-  }
-});
-
 onUnmounted(() => {
   killEnterHandles();
-  ambientHandles.splice(0).forEach((handle) => handle.kill());
 });
 
 const heroCover = computed(() => {
