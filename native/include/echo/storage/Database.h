@@ -39,11 +39,14 @@ class Database {
   void Close();
   void Initialize();
 
-  // Write path (serialized on the storage actor thread).
+  // All public DB access is serialized on a single storage actor thread (no TLS
+  // snapshot isolation). Cross-thread SetJson then GetJson is linearizable:
+  // Submit enqueues under queue_mutex_ and future.get() establishes happens-before
+  // via the actor queue, so a completed SetJson is visible to a later GetJson.
   void Execute(const std::string& sql);
   void ExecuteBound(const std::string& sql, const std::vector<BindValue>& params);
 
-  // Read path (serialized on the same actor thread as writes — linearizable).
+  // Reads share the same actor serialization as writes (linearizable).
   // Prepare failure returns empty rows (legacy tolerance).
   std::vector<std::vector<std::string>> ExecuteQuery(const std::string& sql) const;
   std::vector<std::vector<std::string>> ExecuteQueryBound(
