@@ -54,9 +54,14 @@ fn session() -> &'static Mutex<SessionState> {
     SESSION.get_or_init(|| Mutex::new(SessionState::default()))
 }
 
-/// Optional: store AppHandle later for SMTC button emit (set from setup).
+/// Called from `lib.rs` setup with the real `AppHandle`.
+///
+/// Intentionally a no-op for now: using `tauri::Emitter` here previously made
+/// the cargo-test harness fail to start (`STATUS_ENTRYPOINT_NOT_FOUND`). Button
+/// inject therefore queues into `pending_buttons` for tests. **T1-SMTC** will
+/// store the handle and emit `os-media-button` when the WinRT port lands.
 pub fn set_app_handle(_app: tauri::AppHandle) {
-    // Reserved for WinRT SMTC adapter wiring (T1a port).
+    // T1-SMTC: retain AppHandle for live SMTC / media-key emit.
 }
 
 pub fn inject_button(button: MediaButton) -> Result<(), String> {
