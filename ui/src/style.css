@@ -78,9 +78,9 @@
                   inset 0 1px 0 rgba(255,255,255,0.8);
 
   --font-serif:
-    "MiSans", system-ui, -apple-system, sans-serif;
+    "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
   --font-sans:
-    "MiSans", system-ui, -apple-system, sans-serif;
+    "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
 }
 
 /* Aurora dark: graphite + emerald (do not inherit Newsprint/iOS dark paper reds) */
@@ -1153,31 +1153,29 @@ svg { display:block; }
   gap: 8px;
 }
 .titlebar-controls .control-btn {
-  width: 28px;
-  height: 28px;
-  border: 1px solid var(--rule);
-  border-radius: 50%;
+  width: 34px;
+  height: 32px;
+  border: 0;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: var(--ink-soft);
   cursor: pointer;
-  background: rgba(255, 252, 243, 0.4);
+  background: transparent;
   transition: all 0.15s ease;
 }
 .titlebar-controls .control-btn:hover {
   color: var(--ink);
-  border-color: rgba(34, 27, 18, 0.35);
-  background: rgba(34, 27, 18, 0.05);
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
 }
 .titlebar-controls .control-btn.close:hover {
   background: var(--accent);
   color: var(--paper);
-  border-color: var(--accent);
 }
 .titlebar-controls .control-btn svg {
-  width: 13px;
-  height: 13px;
+  width: 15px;
+  height: 15px;
 }
 
 /* ---------- Compact mode ---------- */
