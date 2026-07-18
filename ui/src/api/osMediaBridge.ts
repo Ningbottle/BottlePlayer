@@ -135,12 +135,17 @@ export async function bindOsMediaBridge(deps: OsMediaBridgeDeps = defaultDeps())
     () => [
       playerStore.currentTrack?.FileHash,
       playerStore.currentTrack?.SongName,
+      playerStore.currentTrack?.SingerName,
+      playerStore.currentTrack?.AlbumName,
+      playerStore.currentTrack?.Image,
       playerStore.isPlaying,
       playerStore.currentIndex,
       playerStore.queue.length,
     ],
     () => {
-      void pushState(deps).catch(() => {});
+      void pushState(deps).catch((e) => {
+        console.warn('[osMediaBridge] pushState failed', e);
+      });
     },
   );
   // Immediate push after bind (awaited so callers/tests observe full state).

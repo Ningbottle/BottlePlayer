@@ -68,6 +68,15 @@ jobs:
           cargo test --lib --no-default-features -- --test-threads=1
         working-directory: ui/src-tauri
 
+      - name: Cargo check (default desktop features)
+        run: |
+          $root = (Resolve-Path ../..).Path
+          $env:PATH = "$root\native\out\bottlemusic-check;$root\native\vcpkg_installed\x64-windows\bin;$env:PATH"
+          # Ensure default features (tray-icon/global-shortcut) still compile in PR,
+          # even though they crash the lib test harness above. Release tests default features.
+          cargo check --lib
+        working-directory: ui/src-tauri
+
       - name: Cargo clippy
         run: cargo clippy --no-default-features -- -D warnings
         working-directory: ui/src-tauri
