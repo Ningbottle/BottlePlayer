@@ -495,7 +495,12 @@ function onRelease(e: MouseEvent) {
 }
 
 .aurora-pb-fav.is-active {
-  color: var(--accent);
+  color: #e85d6c;
+}
+
+.aurora-pb-fav.is-active :deep(svg) {
+  color: #e85d6c;
+  fill: currentColor;
 }
 
 .aurora-pb-fav.is-disabled,

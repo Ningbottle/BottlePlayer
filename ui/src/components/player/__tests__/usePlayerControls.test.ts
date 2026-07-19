@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Track } from '../../../api/normalizer';
+import { __resetFavoriteMarkersForTests } from '../../../api/favoriteMarkers';
 
 // ── Mock playerStore module ──
 const mocks = vi.hoisted(() => ({
@@ -264,6 +265,7 @@ describe('usePlayerControls', () => {
   });
 
   it('marks the current track as collected after a successful add and restores the marker', () => {
+    __resetFavoriteMarkersForTests();
     mocks.store.currentTrack = mkTrack({ FileHash: 'favorite-hash' });
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
 

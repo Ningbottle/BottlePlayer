@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import QRCode from 'qrcode';
 import { apiGet, apiPost } from '../api/backend';
 import { userStore, checkLoginStatus, claimVip, logoutLocal } from '../api/userStore';
+import { useThemeStore } from '../api/themeStore';
+
+const themeStore = useThemeStore();
+const isAurora = computed(() => themeStore.skinId.value === 'aurora');
 
 const emit = defineEmits<{
   (e: 'navigate', view: string): void;
@@ -152,20 +156,19 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="list-view login-view">
+  <div class="list-view login-view" :class="{ 'login-view--aurora': isAurora }">
     <div class="page-head">
       <div>
-        <div class="kicker">SECURE LOG IN · 账户鉴权</div>
+        <div class="kicker">{{ isAurora ? 'ACCOUNT · 账户' : 'SECURE LOG IN · 账户鉴权' }}</div>
         <h1>{{ userStore.isLoggedIn ? '我的账户' : '扫码登录' }}</h1>
       </div>
       <div class="date">
-        <b>BOTTLE PLAYER</b> · 经典新闻纸质感
+        <b>BOTTLE PLAYER</b> · {{ isAurora ? '极光账户中心' : '经典新闻纸质感' }}
       </div>
     </div>
 
     <div class="login-card">
-      <!-- Standard custom retro border -->
-      <div class="retro-box">
+      <div class="retro-box" :class="{ 'retro-box--aurora': isAurora }">
         <!-- Logged in state -->
         <div v-if="userStore.isLoggedIn" class="logged-in-profile">
           <div class="avatar-large">
@@ -175,25 +178,30 @@ onUnmounted(() => {
           <h2>{{ userStore.username }}</h2>
           <div class="user-id">ID: {{ userStore.userId }}</div>
 
-          <div class="vip-status-box" :class="{ 'is-vip': userStore.isVip }">
-            <div class="vip-label">{{ userStore.isVip ? 'VIP 会员' : '普通用户' }}</div>
-            <div v-if="userStore.isVip" class="vip-details">
-              等级: Lv.{{ userStore.vipLevel }} · 截止日期: {{ userStore.vipEndDate || '无期' }}
+          <div class="vip-panel" :class="{ 'is-vip': userStore.isVip, 'vip-panel--aurora': isAurora }">
+            <div class="vip-panel-badge">{{ userStore.isVip ? 'VIP' : 'FREE' }}</div>
+            <div class="vip-panel-body">
+              <div class="vip-label">{{ userStore.isVip ? 'VIP 会员' : '普通用户' }}</div>
+              <div v-if="userStore.isVip" class="vip-details">
+                等级 Lv.{{ userStore.vipLevel }} · 至 {{ userStore.vipEndDate || '无期限' }}
+              </div>
+              <div v-else class="vip-details">领取后可解锁更高音质与完整曲库权益</div>
             </div>
-            <div v-else class="vip-details">VIP 能解锁高质量音频源</div>
-          </div>
-
-          <div class="actions-section">
-            <button class="play-cta" @click="handleClaimVip" :disabled="userStore.loading">
-              {{ userStore.loading ? '正在领取…' : '领取每日免费 VIP' }}
+            <button
+              class="vip-claim-btn"
+              type="button"
+              @click="handleClaimVip"
+              :disabled="userStore.loading"
+            >
+              {{ userStore.loading ? '领取中…' : (userStore.isVip ? '续领今日 VIP' : '领取每日免费 VIP') }}
             </button>
             <div v-if="userStore.claimMessage" class="claim-msg">
               {{ userStore.claimMessage }}
             </div>
           </div>
 
-          <button class="logout-btn" @click="handleLogout">
-            退出登录 (Logout)
+          <button class="logout-btn" type="button" @click="handleLogout">
+            退出登录
           </button>
         </div>
 
@@ -296,17 +304,39 @@ onUnmounted(() => {
   margin-top: 4px;
 }
 
-.vip-status-box {
-  margin-top: 20px;
-  padding: 12px 20px;
-  border: 1px dashed var(--ink-mute);
+.vip-panel {
+  margin-top: 22px;
   width: 100%;
-  background: rgba(34,27,18,0.03);
+  padding: 16px 18px;
+  border: 1px dashed var(--ink-mute, #8a7e6a);
+  background: rgba(34, 27, 18, 0.03);
+  border-radius: 4px;
+  display: grid;
+  gap: 10px;
+  justify-items: stretch;
+  text-align: left;
 }
 
-.vip-status-box.is-vip {
-  border: 1px solid var(--accent);
-  background: rgba(168,49,27,0.05);
+.vip-panel.is-vip {
+  border-style: solid;
+  border-color: color-mix(in srgb, var(--accent, #a8311b) 55%, transparent);
+  background: color-mix(in srgb, var(--accent, #a8311b) 8%, transparent);
+}
+
+.vip-panel-badge {
+  display: inline-flex;
+  width: fit-content;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--paper, #fff);
+  background: var(--ink-soft, #5c5346);
+}
+
+.vip-panel.is-vip .vip-panel-badge {
+  background: var(--accent, #a8311b);
 }
 
 .vip-label {
@@ -314,36 +344,107 @@ onUnmounted(() => {
   font-size: 16px;
 }
 
-.vip-status-box.is-vip .vip-label {
-  color: var(--accent);
+.vip-panel.is-vip .vip-label {
+  color: var(--accent, #a8311b);
 }
 
 .vip-details {
   font-size: 12px;
-  color: var(--ink-mute);
-  margin-top: 4px;
+  color: var(--ink-mute, #8a7e6a);
+  margin-top: 2px;
+  line-height: 1.45;
 }
 
-.actions-section {
-  margin-top: 24px;
+.vip-claim-btn {
+  margin-top: 4px;
   width: 100%;
+  border: 0;
+  border-radius: 999px;
+  padding: 10px 16px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  color: var(--paper, #fff);
+  background: var(--accent, #a8311b);
+  transition: opacity 0.15s, transform 0.15s;
+}
+
+.vip-claim-btn:hover:not(:disabled) {
+  transform: translateY(-1px);
+}
+
+.vip-claim-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .claim-msg {
-  margin-top: 10px;
-  font-size: 13px;
-  color: var(--accent);
-  font-style: italic;
+  font-size: 12px;
+  color: var(--accent, #a8311b);
+  line-height: 1.4;
 }
 
 .logout-btn {
-  margin-top: 30px;
+  margin-top: 28px;
   background: none;
   border: none;
-  color: var(--ink-mute);
+  color: var(--ink-mute, #8a7e6a);
   text-decoration: underline;
   cursor: pointer;
   font-size: 12px;
+}
+
+/* Aurora: glass card fused with shell tokens (no newspaper stamp shadow). */
+.login-view--aurora {
+  max-width: 520px;
+}
+
+.login-view--aurora .page-head h1 {
+  letter-spacing: -0.02em;
+}
+
+.retro-box--aurora {
+  border: 1px solid color-mix(in srgb, var(--text-primary, #e8e6f2) 12%, transparent);
+  background: color-mix(in srgb, var(--surface-elevated, #1a1b28) 88%, transparent);
+  box-shadow:
+    0 18px 48px rgba(0, 0, 0, 0.28),
+    inset 0 1px 0 color-mix(in srgb, #fff 8%, transparent);
+  border-radius: 18px;
+  color: var(--text-primary, #e8e6f2);
+  backdrop-filter: blur(18px);
+}
+
+.login-view--aurora .avatar-large {
+  border-color: color-mix(in srgb, var(--text-primary, #e8e6f2) 22%, transparent);
+  box-shadow: none;
+  background: color-mix(in srgb, var(--text-primary, #e8e6f2) 6%, transparent);
+}
+
+.login-view--aurora .user-id,
+.login-view--aurora .vip-details,
+.login-view--aurora .logout-btn {
+  color: var(--text-muted, #9a97ad);
+}
+
+.vip-panel--aurora {
+  border: 1px solid color-mix(in srgb, var(--text-primary, #e8e6f2) 10%, transparent);
+  background: color-mix(in srgb, var(--text-primary, #e8e6f2) 5%, transparent);
+  border-radius: 14px;
+}
+
+.vip-panel--aurora.is-vip {
+  border-color: color-mix(in srgb, var(--accent, #8b7cf6) 45%, transparent);
+  background: linear-gradient(
+    145deg,
+    color-mix(in srgb, var(--accent, #8b7cf6) 16%, transparent),
+    color-mix(in srgb, var(--text-primary, #e8e6f2) 4%, transparent)
+  );
+}
+
+.vip-panel--aurora .vip-claim-btn {
+  background: linear-gradient(135deg, var(--accent, #8b7cf6), color-mix(in srgb, var(--accent, #8b7cf6) 70%, #5ad1ff));
+  box-shadow: 0 8px 20px color-mix(in srgb, var(--accent, #8b7cf6) 28%, transparent);
 }
 
 .logout-btn:hover {

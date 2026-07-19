@@ -9,6 +9,11 @@ import {
   setQuality as storeSetQuality,
 } from '../../api/playerStore';
 import { setLyricFullscreen } from '../../api/lyricFullscreen';
+import {
+  favoriteMarkersReadonly,
+  markFavorite,
+  reloadFavoriteMarkers,
+} from '../../api/favoriteMarkers';
 import type { Track } from '../../api/normalizer';
 import type { LoopMode } from '../../api/playerStore';
 
@@ -75,22 +80,11 @@ const qualityLabels: Record<string, string> = {
 };
 
 const qualityOptions = ['128', '320', 'flac'];
-const FAVORITE_MARKERS_KEY = 'player_favorite_markers';
-
-function loadFavoriteMarkers(): Set<string> {
-  try {
-    const stored = JSON.parse(localStorage.getItem(FAVORITE_MARKERS_KEY) || '[]');
-    return new Set(Array.isArray(stored) ? stored.filter((value): value is string => typeof value === 'string') : []);
-  } catch {
-    return new Set();
-  }
-}
-
-function saveFavoriteMarkers(markers: Set<string>): void {
-  localStorage.setItem(FAVORITE_MARKERS_KEY, JSON.stringify([...markers]));
-}
 
 export function usePlayerControls(options: UsePlayerControlsOptions): PlayerController {
+  // Ensure markers hydrate if storage changed while bar was unmounted.
+  reloadFavoriteMarkers();
+
   const currentTrack = computed(() => playerStore.currentTrack);
   const isPlaying = computed(() => playerStore.isPlaying);
   const isLoading = computed(() => playerStore.isLoading);
@@ -114,10 +108,10 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   const volumePercent = computed(() => volume.value * 100);
 
   const isLyricView = computed(() => options.activeView() === 'lyric');
-  const favoriteMarkers = ref(loadFavoriteMarkers());
+  const favoriteMarkers = favoriteMarkersReadonly();
   const isFavorite = computed(() => {
     const hash = currentTrack.value?.FileHash;
-    return Boolean(hash && favoriteMarkers.value.has(hash));
+    return Boolean(hash && favoriteMarkers.hashes.has(hash));
   });
 
   const showQualityMenu = ref(false);
@@ -236,10 +230,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
 
   function handleFavoriteSuccess(playlistName: string) {
     const hash = currentTrack.value?.FileHash;
-    if (hash) {
-      favoriteMarkers.value = new Set(favoriteMarkers.value).add(hash);
-      saveFavoriteMarkers(favoriteMarkers.value);
-    }
+    if (hash) markFavorite(hash);
     favoriteMsg.value = `已收藏到「${playlistName}」`;
     if (favToastTimer) clearTimeout(favToastTimer);
     favToastTimer = setTimeout(() => { favoriteMsg.value = ''; favToastTimer = null; }, 2000);
