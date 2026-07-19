@@ -78,7 +78,13 @@ function onLyricKeydown(e: KeyboardEvent): void {
 function onStageDblClick(e: MouseEvent): void {
   if (!props.model.fullscreen) return;
   const target = e.target as HTMLElement;
-  if (target.closest('.lyric-line') || target.closest('.aurora-cover')) return;
+  if (
+    target.closest('.lyric-line')
+    || target.closest('.aurora-cover')
+    || target.closest('.aurora-fs-controls')
+  ) {
+    return;
+  }
   emit('exit-fullscreen');
 }
 
@@ -367,6 +373,35 @@ onBeforeUnmount(() => {
           :is-playing="model.isPlaying"
         />
       </div>
+      <!-- Fullscreen transport: under cover in left column (auto-hide kept) -->
+      <div
+        v-if="model.fullscreen && model.duration > 0"
+        class="aurora-fs-controls"
+        :class="{ 'controls-visible': controlsVisible }"
+        data-test="aurora-fs-controls"
+        :data-visible="String(controlsVisible)"
+        data-contrast="high"
+        data-visual-weight="subtle"
+        @click.stop
+        @dblclick.stop
+      >
+        <button
+          type="button"
+          class="aurora-fs-play"
+          :data-test="model.isPlaying ? 'aurora-fs-pause' : 'aurora-fs-play'"
+          :aria-label="model.isPlaying ? '暂停' : '播放'"
+          :title="model.isPlaying ? '暂停' : '播放'"
+          @click="storeTogglePlay"
+        >
+          <PhPause v-if="model.isPlaying" :size="16" weight="fill" aria-hidden="true" />
+          <PhPlay v-else :size="16" weight="fill" aria-hidden="true" />
+        </button>
+        <PlayerProgress
+          :current-time="model.currentTime"
+          :duration="model.duration"
+          @seek="(s: number) => emit('seek', s)"
+        />
+      </div>
       <button
         v-if="!model.fullscreen"
         type="button"
@@ -424,32 +459,6 @@ onBeforeUnmount(() => {
         </button>
       </div>
       <slot name="footer" />
-      <div
-        v-if="model.fullscreen && model.duration > 0"
-        class="aurora-fs-controls"
-        :class="{ 'controls-visible': controlsVisible }"
-        data-test="aurora-fs-controls"
-        :data-visible="String(controlsVisible)"
-        data-contrast="high"
-        data-visual-weight="subtle"
-      >
-        <button
-          type="button"
-          class="aurora-fs-play"
-          :data-test="model.isPlaying ? 'aurora-fs-pause' : 'aurora-fs-play'"
-          :aria-label="model.isPlaying ? '暂停' : '播放'"
-          :title="model.isPlaying ? '暂停' : '播放'"
-          @click="storeTogglePlay"
-        >
-          <PhPause v-if="model.isPlaying" :size="16" weight="fill" aria-hidden="true" />
-          <PhPlay v-else :size="16" weight="fill" aria-hidden="true" />
-        </button>
-        <PlayerProgress
-          :current-time="model.currentTime"
-          :duration="model.duration"
-          @seek="(s: number) => emit('seek', s)"
-        />
-      </div>
     </div>
 
   </div>
@@ -849,11 +858,15 @@ export default { name: 'AuroraLyricStage' };
   }
 }
 
+/* Fullscreen mini transport: left column, directly under cover (auto-hide). */
 .aurora-fs-controls {
   flex: 0 0 auto;
+  /* Match cover width so the bar sits flush under the image */
+  width: min(34vw, 46vh, 380px);
+  max-width: 100%;
   align-self: center;
-  width: min(500px, 100%);
-  margin-top: 8px;
+  margin-top: 10px;
+  margin-bottom: 2px;
   padding: 2px 5px;
   box-sizing: border-box;
   z-index: 2;
@@ -868,6 +881,10 @@ export default { name: 'AuroraLyricStage' };
   pointer-events: none;
   transform: translateY(6px);
   transition: opacity 0.22s ease, transform 0.22s ease, border-color 0.2s ease;
+}
+
+.aurora-lyric-fullscreen .aurora-fs-controls {
+  width: min(36vw, 50vh, 420px);
 }
 
 .aurora-fs-controls.controls-visible,

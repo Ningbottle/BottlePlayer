@@ -974,6 +974,8 @@ describe('Aurora lyric focus modes', () => {
     });
     const readability = fullscreen.find('[data-test="aurora-fs-readability"]');
     const controls = fullscreen.find('[data-test="aurora-fs-controls"]');
+    const meta = fullscreen.get('[data-test="lyric-meta-column"]');
+    const cover = fullscreen.get('[data-test="lyric-cover"]');
 
     expect(readability.exists()).toBe(true);
     expect(readability.attributes('data-contrast')).toBe('high');
@@ -982,6 +984,12 @@ describe('Aurora lyric focus modes', () => {
     expect(controls.attributes('data-visual-weight')).toBe('subtle');
     expect(controls.find('[data-test="aurora-fs-play"], [data-test="aurora-fs-pause"]').exists()).toBe(true);
     expect(controls.findComponent({ name: 'PlayerProgress' }).exists()).toBe(true);
+    // Anchored under cover in the left meta column (not the lyric column).
+    expect(meta.element.contains(cover.element)).toBe(true);
+    expect(meta.element.contains(controls.element)).toBe(true);
+    expect(
+      fullscreen.find('[data-test="lyric-content-column"] [data-test="aurora-fs-controls"]').exists(),
+    ).toBe(false);
   });
 
   it('clicking a lyric line emits seek-line with that line timestamp', async () => {
