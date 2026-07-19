@@ -22,6 +22,7 @@ import {
   loadJSON,
   bindQueuePersistence,
   saveQueue,
+  flushSaveQueue,
 } from './playerPersistence';
 import { appendPersonalFmRecommendations as appendFm } from './fmSession';
 import { __resetQueueCommandChainForTests } from './playbackQueue';
@@ -97,13 +98,17 @@ function audioGlobal(): BottleMusicAudioGlobal {
   return window as unknown as BottleMusicAudioGlobal;
 }
 
-/** Full barrier stop (pagehide / disposePlayerRuntime). */
-async function disposeCoordinatorInstance(): Promise<void> {
+/**
+ * App exit: stop media without clearing the queue (queue already flushed).
+ * Do NOT use dispose() here — that barrier empties the queue and would
+ * overwrite localStorage with an empty session.
+ */
+async function shutdownCoordinatorInstance(): Promise<void> {
   const coord = playbackCoordinator;
   playbackCoordinator = null;
   if (coord) {
     try {
-      await coord.dispose();
+      await coord.shutdown();
     } catch {
       /* shutdown best-effort */
     }
@@ -514,12 +519,18 @@ export function clearQueue() {
 }
 
 /**
- * App exit / pagehide: barrier-stop coordinator while backend still available,
- * then tear down media. Do not use for HMR (use module cleanup → detach).
+ * App exit / pagehide: persist queue first, then stop media WITHOUT clearing
+ * the queue. Do not use for HMR (use module cleanup → detach).
  */
 export async function disposePlayerRuntime(): Promise<void> {
-  // Keep activeBackend until after dispose so clear uses backend.stop, not audio.src=''.
-  await disposeCoordinatorInstance();
+  // Critical: flush current queue before any stop so we never persist [].
+  try {
+    flushSaveQueue();
+  } catch {
+    /* ignore */
+  }
+  // Keep activeBackend until after stop so backend.stop is available.
+  await shutdownCoordinatorInstance();
   initListenerCleanup?.();
   initListenerCleanup = null;
   eventUnsub?.();

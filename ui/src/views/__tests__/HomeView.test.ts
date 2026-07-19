@@ -21,6 +21,7 @@ vi.mock('../../api/playerStore', () => ({
     volume: 0.7,
     queue: [],
     currentIndex: -1,
+    queueMode: 'normal' as 'normal' | 'personalFm',
   },
 }));
 
@@ -143,6 +144,42 @@ describe('HomeView sections', () => {
     );
     expect(playAll).not.toHaveBeenCalled();
     expect(playTrack).not.toHaveBeenCalled();
+  });
+
+  it('while personalFm is active, clicking a daily track selects without restarting the session', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/everyday/recommend') {
+        return Promise.resolve({
+          status: 1,
+          data: {
+            data: {
+              song_list: [
+                { FileHash: 'daily-1', SongName: '不只是场梦', SingerName: '李玖哲', Duration: 212 },
+                { FileHash: 'daily-2', SongName: '无聊', SingerName: '林俊杰', Duration: 251 },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ status: 1, data: { data: { info: [] } } });
+    });
+
+    playerStore.queueMode = 'personalFm';
+    playerStore.queue = [
+      { FileHash: 'daily-1', SongName: '不只是场梦', SingerName: '李玖哲', Duration: 212 },
+      { FileHash: 'fm-extra', SongName: '追加', SingerName: 'X', Duration: 100 },
+    ] as any;
+
+    const wrapper = mount(HomeView);
+    await flushPromises();
+
+    await wrapper.get('[data-test="queue-track-daily-1"]').trigger('click');
+
+    // Must select in-session, not wipe fm-extra by re-seeding playPersonalFm.
+    expect(playTrack).toHaveBeenCalledWith(
+      expect.objectContaining({ FileHash: 'daily-1' }),
+    );
+    expect(playPersonalFm).not.toHaveBeenCalled();
   });
 
   it('refreshing daily recommendations does not touch the playback queue or invoke playback', async () => {

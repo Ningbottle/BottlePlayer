@@ -190,8 +190,8 @@ export class PlaybackCommandCoordinator {
   }
 
   /**
-   * Reliable shutdown: supersede pending intents, barrier-clear, await stop.
-   * Use for pagehide / app exit — NOT for HMR (see detach).
+   * Explicit clear-queue barrier stop. Prefer `shutdown()` for app exit so the
+   * persisted queue is not wiped.
    */
   async dispose(): Promise<void> {
     if (this.disposed) {
@@ -204,6 +204,43 @@ export class PlaybackCommandCoordinator {
     this.pendingClear = true;
     // No external clear waiter; drain still runs barrier stop.
     await this.scheduleDrain();
+  }
+
+  /**
+   * App exit / pagehide: supersede intents and stop media WITHOUT clearing the
+   * queue (so localStorage can keep the last session).
+   */
+  async shutdown(): Promise<void> {
+    if (this.disposed) {
+      await this.drainTail;
+      return;
+    }
+    this.disposed = true;
+    this.bumpInterrupt();
+    this.supersedeMailbox({ status: 'superseded', message: 'coordinator_shutdown' });
+    this.pendingClear = false;
+    this.pendingPlayAll = null;
+    this.navDelta = 0;
+    this.pendingSelect = null;
+    this.pendingSeek = null;
+    this.pendingToggle = false;
+    this.pendingQuality = null;
+    this.pendingEnded = false;
+    this.pendingAdds = [];
+    this.pendingRemoves = [];
+    resolveWaiters(takeWaiters(this.clearWaiters), {
+      status: 'superseded',
+      message: 'coordinator_shutdown',
+    });
+    try {
+      const seq = this.deps.invalidatePlaybackIntent();
+      if (this.deps.hasBackend()) {
+        await this.deps.stopInvalidatedPlayback(seq);
+      }
+    } catch {
+      /* best-effort stop */
+    }
+    await this.drainTail;
   }
 
   /**

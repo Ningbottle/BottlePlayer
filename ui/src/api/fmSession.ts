@@ -34,7 +34,14 @@ export interface FmSessionStatus {
 
 let fmGeneration = 0;
 let lastQueueRef: Track[] | null = null;
-let exhausted = false;
+/** Soft cooldown after an empty/deduped response — not a permanent lock. */
+let exhaustedUntil = 0;
+/** Consecutive empty successful responses before we apply the soft cooldown. */
+let emptyStreak = 0;
+
+/** After this many consecutive empty responses, pause refetch for COOLDOWN_MS. */
+const EMPTY_STREAK_BEFORE_COOLDOWN = 2;
+const EMPTY_COOLDOWN_MS = 30_000;
 
 interface Inflight {
   generation: number;
@@ -43,11 +50,15 @@ interface Inflight {
 }
 let inflight: Inflight | null = null;
 
+function isSoftExhausted(): boolean {
+  return exhaustedUntil > Date.now();
+}
+
 export function getFmSessionState(): FmSessionStatus {
   return {
     generation: fmGeneration,
     pending: inflight !== null,
-    exhausted,
+    exhausted: isSoftExhausted(),
   };
 }
 
@@ -55,8 +66,14 @@ export function getFmSessionState(): FmSessionStatus {
 export function __resetFmSessionForTests(): void {
   fmGeneration = 0;
   lastQueueRef = null;
-  exhausted = false;
+  exhaustedUntil = 0;
+  emptyStreak = 0;
   inflight = null;
+}
+
+/** Test-only: advance soft-exhausted clock for cooldown tests. */
+export function __setFmExhaustedUntilForTests(ts: number): void {
+  exhaustedUntil = ts;
 }
 
 function extractSongList(payload: any): any[] {
@@ -95,8 +112,8 @@ async function fetchPersonalFmRecommendations(
  * - After the fetch resolves, the append is applied only if the queue array
  *   and `queueMode` are still the same; otherwise the response is discarded so
  *   a superseded session can never contaminate the current one.
- * - Marks `exhausted` only on a successful response with no fresh tracks
- *   (transient failures stay retryable).
+ * - Soft-cools after consecutive empty/deduped responses (not a permanent lock).
+ *   Transport failures stay immediately retryable.
  */
 export async function appendPersonalFmRecommendations(
   deps: FmSessionDeps,
@@ -107,7 +124,8 @@ export async function appendPersonalFmRecommendations(
   // A new queue array identity => a new FM session.
   if (lastQueueRef !== state.queue) {
     fmGeneration += 1;
-    exhausted = false;
+    exhaustedUntil = 0;
+    emptyStreak = 0;
     inflight = null;
     lastQueueRef = state.queue;
   }
@@ -117,7 +135,7 @@ export async function appendPersonalFmRecommendations(
     return inflight.promise;
   }
 
-  if (exhausted) {
+  if (isSoftExhausted()) {
     return false;
   }
 
@@ -191,16 +209,22 @@ export async function appendPersonalFmRecommendations(
     }
 
     if (fresh.length === 0) {
-      exhausted = true;
+      emptyStreak += 1;
+      if (emptyStreak >= EMPTY_STREAK_BEFORE_COOLDOWN) {
+        exhaustedUntil = Date.now() + EMPTY_COOLDOWN_MS;
+        emptyStreak = 0;
+      }
       playbackDiagnostics.recordEvent({
         kind: 'fm_fetch',
         phase: 'noop',
-        detail: 'no fresh songs after dedupe',
+        detail: `no fresh songs after dedupe; streak cooldown=${isSoftExhausted()}`,
         trackKey,
       });
       return false;
     }
 
+    emptyStreak = 0;
+    exhaustedUntil = 0;
     latest.queue.push(...fresh);
     deps.saveQueue();
     playbackDiagnostics.recordEvent({

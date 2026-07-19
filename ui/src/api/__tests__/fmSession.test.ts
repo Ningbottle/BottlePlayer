@@ -20,6 +20,7 @@ import {
   appendPersonalFmRecommendations,
   getFmSessionState,
   __resetFmSessionForTests,
+  __setFmExhaustedUntilForTests,
 } from '../fmSession';
 import type { Track } from '../normalizer';
 
@@ -108,7 +109,7 @@ describe('personal FM session', () => {
     expect(state.queue.map((t) => t.FileHash)).toEqual(['a', 'b', 'c', 'd']);
   });
 
-  it('marks the session exhausted when a successful response yields no fresh tracks', async () => {
+  it('soft-cools after consecutive empty responses, not on the first empty', async () => {
     const state = makeState({
       queue: [mkTrack('a'), mkTrack('b')],
       currentIndex: 1,
@@ -116,39 +117,56 @@ describe('personal FM session', () => {
     });
     mockApiGet.mockResolvedValue(fmResponse(['a', 'b'])); // all dupes
 
+    // First empty: still retryable
     await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
+    expect(getFmSessionState().exhausted).toBe(false);
 
+    // Second consecutive empty: enter soft cooldown
+    await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
     expect(getFmSessionState().exhausted).toBe(true);
   });
 
-  it('does not refetch once the session is exhausted', async () => {
+  it('does not refetch during soft cooldown, then retries after cooldown ends', async () => {
     const state = makeState({
       queue: [mkTrack('a')],
       currentIndex: 0,
       currentTrack: mkTrack('a'),
     });
-    mockApiGet.mockResolvedValue(fmResponse(['a'])); // dupe -> exhausted
+    mockApiGet.mockResolvedValue(fmResponse(['a'])); // dupe
 
     await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
+    await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
+    expect(getFmSessionState().exhausted).toBe(true);
     mockApiGet.mockClear();
 
-    const appended = await appendPersonalFmRecommendations({
+    const duringCooldown = await appendPersonalFmRecommendations({
       getState: () => state,
       saveQueue: vi.fn(),
     });
-
-    expect(appended).toBe(false);
+    expect(duringCooldown).toBe(false);
     expect(mockApiGet).not.toHaveBeenCalled();
-    expect(getFmSessionState().exhausted).toBe(true);
+
+    // Cooldown expired
+    __setFmExhaustedUntilForTests(Date.now() - 1);
+    mockApiGet.mockResolvedValue(fmResponse(['fresh']));
+    const afterCool = await appendPersonalFmRecommendations({
+      getState: () => state,
+      saveQueue: vi.fn(),
+    });
+    expect(afterCool).toBe(true);
+    expect(mockApiGet).toHaveBeenCalled();
+    expect(getFmSessionState().exhausted).toBe(false);
+    expect(state.queue.map((t) => t.FileHash)).toEqual(['a', 'fresh']);
   });
 
-  it('resets exhaustion when a new FM session starts (queue replaced with a new array)', async () => {
+  it('resets soft exhaustion when a new FM session starts (queue replaced)', async () => {
     const state = makeState({
       queue: [mkTrack('a')],
       currentIndex: 0,
       currentTrack: mkTrack('a'),
     });
-    mockApiGet.mockResolvedValue(fmResponse(['a'])); // dupe -> exhausted
+    mockApiGet.mockResolvedValue(fmResponse(['a']));
+    await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
     await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
     expect(getFmSessionState().exhausted).toBe(true);
 

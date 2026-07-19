@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onActivated, onDeactivated, nextTick, ref, computed } from 'vue';
-import { playTrack, playPersonalFm, clearQueue } from '../api/playerStore';
+import { playTrack, playPersonalFm, clearQueue, playerStore } from '../api/playerStore';
 import type { Track } from '../api/normalizer';
 import { useHomeFeedStore } from '../api/homeFeedStore';
 import { useThemeStore } from '../api/themeStore';
@@ -70,10 +70,13 @@ onDeactivated(() => {
 });
 
 function onPlayTrack(track: Track) {
-  // Daily Picks seed a continuous recommendation session: initial songs come
-  // from the home snapshot, then /personal/fm appends as the listener nears
-  // the tail (queueMode=personalFm). Home refresh still only updates the
-  // snapshot and never mutates the live queue.
+  // Already in a continuous reco session: select within the live queue.
+  // Never re-seed playPersonalFm or we wipe songs appended by /personal/fm.
+  if (playerStore.queueMode === 'personalFm') {
+    playTrack(track);
+    return;
+  }
+  // Cold start from home daily snapshot → open personalFm so the queue can grow.
   const idx = homeFeed.daily.items.findIndex(s => s.FileHash === track.FileHash);
   if (idx >= 0) {
     playPersonalFm(homeFeed.daily.items, idx);

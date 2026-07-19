@@ -291,6 +291,25 @@ describe('PlaybackCommandCoordinator', () => {
     expect(playLog.filter((x) => x === 'play:r0')).toHaveLength(0);
   });
 
+  it('shutdown stops backend without clearing the queue', async () => {
+    state.queue = [mkTrack('a'), mkTrack('b')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.isPlaying = true;
+
+    const stop = vi.fn(async () => {});
+    deps.stopInvalidatedPlayback = stop;
+    deps.invalidatePlaybackIntent = vi.fn(() => 9);
+
+    await coord.shutdown();
+
+    expect(stop).toHaveBeenCalled();
+    expect(state.queue.map((t) => t.FileHash)).toEqual(['a', 'b']);
+    expect(state.currentIndex).toBe(0);
+    const r = await coord.dispatch({ type: 'next' });
+    expect(r.status).toBe('failed');
+  });
+
   it('failed switchQuality restores time/phase/playing snapshot', async () => {
     state.queue = [mkTrack('a')];
     state.currentIndex = 0;
