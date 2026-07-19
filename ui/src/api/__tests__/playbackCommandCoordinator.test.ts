@@ -97,6 +97,7 @@ describe('PlaybackCommandCoordinator', () => {
         state.playbackPhase = 'playing';
       }),
       invalidatePlaybackIntent: vi.fn(() => 1),
+      detachPlaybackIntent: vi.fn(() => 2),
       stopInvalidatedPlayback: vi.fn(async () => {
         state.isPlaying = false;
         state.isLoading = false;
@@ -275,6 +276,52 @@ describe('PlaybackCommandCoordinator', () => {
     expect(state.currentTrack?.FileHash).not.toBe('r0');
   });
 
+  it('releases the mailbox after a tail miss and resumes when FM recovery succeeds', async () => {
+    const tracks = [mkTrack('r0')];
+    state.queue = tracks;
+    state.currentIndex = 0;
+    state.currentTrack = tracks[0];
+    state.queueMode = 'personalFm';
+    state.loopMode = 'list';
+    state.isPlaying = true;
+    state.playbackPhase = 'playing';
+
+    type RecoveryOptions = {
+      onRetrySuccess?: (result: {
+        generation: number;
+        queueRef: Track[];
+        appendedCount: number;
+      }) => void;
+    };
+    let recover!: () => void;
+    deps.appendPersonalFm = vi.fn(async (options?: RecoveryOptions) => {
+      recover = () => {
+        state.queue.push(mkTrack('r1'));
+        options?.onRetrySuccess?.({
+          generation: 1,
+          queueRef: state.queue,
+          appendedCount: 1,
+        });
+      };
+      return false;
+    }) as unknown as NonNullable<CoordinatorDeps['appendPersonalFm']>;
+
+    await expect(coord.dispatch({ type: 'next' })).resolves.toMatchObject({ status: 'noop' });
+    expect(recover).toBeTypeOf('function');
+
+    // A timer-backed retry must not leave unrelated commands waiting behind it.
+    await expect(coord.dispatch({ type: 'seek', seconds: 12 })).resolves.toMatchObject({
+      status: 'ok',
+    });
+    expect(state.currentTime).toBe(12);
+
+    recover();
+    await vi.waitFor(() => {
+      expect(state.currentTrack?.FileHash).toBe('r1');
+    });
+    expect(playLog[playLog.length - 1]).toBe('play:r1');
+  });
+
   it('personalFm does not wrap when append is exhausted', async () => {
     state.queue = [mkTrack('r0'), mkTrack('r1')];
     state.currentIndex = 1;
@@ -289,6 +336,20 @@ describe('PlaybackCommandCoordinator', () => {
     expect(r.status).toBe('noop');
     expect(state.currentTrack?.FileHash).toBe('r1');
     expect(playLog.filter((x) => x === 'play:r0')).toHaveLength(0);
+  });
+
+  it('personalFm prev at the first track is a noop without fetching recommendations', async () => {
+    state.queue = [mkTrack('r0')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.queueMode = 'personalFm';
+    state.loopMode = 'list';
+    deps.appendPersonalFm = vi.fn(async () => true);
+
+    await expect(coord.dispatch({ type: 'prev' })).resolves.toMatchObject({ status: 'noop' });
+
+    expect(deps.appendPersonalFm).not.toHaveBeenCalled();
+    expect(state.currentTrack?.FileHash).toBe('r0');
   });
 
   it('shutdown stops backend without clearing the queue', async () => {
@@ -524,6 +585,7 @@ describe('PlaybackCommandCoordinator', () => {
     deps.stopInvalidatedPlayback = stop;
     let seq = 1;
     deps.invalidatePlaybackIntent = vi.fn(() => ++seq);
+    deps.detachPlaybackIntent = vi.fn(() => ++seq);
 
     const gate = deferred<{ status: string }>();
     playGates.set('b', gate);
@@ -536,7 +598,8 @@ describe('PlaybackCommandCoordinator', () => {
 
     expect(r.status).toBe('superseded');
     expect(stop, 'detach must not barrier-stop backend').not.toHaveBeenCalled();
-    expect(deps.invalidatePlaybackIntent, 'detach must invalidate orchestrator epoch').toHaveBeenCalled();
+    expect(deps.detachPlaybackIntent, 'detach must purely invalidate orchestrator epoch').toHaveBeenCalled();
+    expect(deps.invalidatePlaybackIntent, 'detach must not finalize the play session').not.toHaveBeenCalled();
     expect(state.queue.length).toBe(2);
     gate.resolve({ status: 'played' });
   });

@@ -24,7 +24,7 @@ import {
   saveQueue,
   flushSaveQueue,
 } from './playerPersistence';
-import { appendPersonalFmRecommendations as appendFm } from './fmSession';
+import { appendPersonalFmRecommendations as appendFm, disposeFmSession } from './fmSession';
 import { __resetQueueCommandChainForTests } from './playbackQueue';
 import {
   PlaybackCommandCoordinator,
@@ -87,6 +87,8 @@ interface PlayerState {
 type BottleMusicAudioGlobal = Window & {
   __bottlemusic_audio__?: HTMLAudioElement;
   __bottlemusic_player_cleanup__?: () => void;
+  /** Single-owner pagehide handler; replaced on HMR/re-import. */
+  __bottlemusic_pagehide__?: (event: Event) => void;
 };
 
 let activeBackend: PlayerBackend | null = null;
@@ -135,6 +137,9 @@ function cleanupCurrentModuleForHmr() {
   // Detach first (invalidate orchestrator) while backend ref still exists for
   // any in-flight path that needs consistent deps; do not barrier-stop audio.
   detachCoordinatorForHmr();
+  // Cancel any pending FM retry timer and invalidate the in-flight FM fetch so
+  // neither can append to / save a queue that belongs to a dying module.
+  disposeFmSession();
   activeBackend = null;
   if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
   closeWebAudioEq();
@@ -266,6 +271,30 @@ export function initPlayer() {
   };
   publishPlayerCleanup();
 
+  // Bind the persistence snapshot to THIS module's playerStore. Done in
+  // initPlayer (not at module top level) so a re-evaluated orphan module (HMR /
+  // vi.resetModules) that never calls initPlayer cannot steal the global
+  // getSnapshot pointer - only the live module that owns the <audio> does.
+  bindQueuePersistence(() => ({
+    queue: playerStore.queue,
+    currentIndex: playerStore.currentIndex,
+  }));
+
+  // Single-owner pagehide handler, bound in initPlayer (not at module top
+  // level) so only the LIVE module - the one that owns the <audio> - registers
+  // it. A re-evaluated orphan (HMR / vi.resetModules) that never calls
+  // initPlayer cannot own the listener, so it cannot flush a stale (empty)
+  // queue and overwrite the live module's just-saved session.
+  const g2 = audioGlobal();
+  if (g2.__bottlemusic_pagehide__) {
+    window.removeEventListener('pagehide', g2.__bottlemusic_pagehide__);
+  }
+  const onPageHide = () => {
+    void disposePlayerRuntime();
+  };
+  g2.__bottlemusic_pagehide__ = onPageHide;
+  window.addEventListener('pagehide', onPageHide);
+
   // Restore previous track on init without playing
   if (playerStore.currentIndex >= 0 && playerStore.currentIndex < playerStore.queue.length) {
     playerStore.currentTrack = playerStore.queue[playerStore.currentIndex];
@@ -372,11 +401,6 @@ watch(() => playerStore.queueMode, (newMode) => {
   localStorage.setItem('player_queue_mode', newMode);
 });
 
-bindQueuePersistence(() => ({
-  queue: playerStore.queue,
-  currentIndex: playerStore.currentIndex,
-}));
-
 const playbackOrchestrator = new PlaybackOrchestrator({
   backend: () => activeBackend!,
   playSession,
@@ -421,14 +445,15 @@ function ensureCoordinator(): PlaybackCommandCoordinator {
         return playbackOrchestrator.resumeOrReloadCurrent();
       },
       invalidatePlaybackIntent: () => playbackOrchestrator.invalidatePlaybackIntent(),
+      detachPlaybackIntent: () => playbackOrchestrator.detachPlaybackIntent(),
       stopInvalidatedPlayback: (seq) => playbackOrchestrator.stopInvalidatedPlayback(seq),
       skipSession: () => playSession.skip(),
       hasBackend: () => !!activeBackend,
-      appendPersonalFm: async () =>
+      appendPersonalFm: async (options) =>
         appendFm({
           getState: () => playerStore,
           saveQueue,
-        }),
+        }, options),
     });
   }
   return playbackCoordinator;
@@ -529,6 +554,8 @@ export async function disposePlayerRuntime(): Promise<void> {
   } catch {
     /* ignore */
   }
+  // Cancel FM retry timer / in-flight fetch so it cannot append after unload.
+  disposeFmSession();
   // Keep activeBackend until after stop so backend.stop is available.
   await shutdownCoordinatorInstance();
   initListenerCleanup?.();
@@ -554,9 +581,5 @@ export function __resetPlaybackCoordinatorForTests() {
 
 export type { PlaybackCommand };
 
-// Best-effort shutdown when the shell unloads (cannot await beforeunload).
-if (typeof window !== 'undefined') {
-  window.addEventListener('pagehide', () => {
-    void disposePlayerRuntime();
-  });
-}
+// The pagehide handler is registered in initPlayer() (single global owner) so
+// only the live module owns it - see initPlayer for the rationale.

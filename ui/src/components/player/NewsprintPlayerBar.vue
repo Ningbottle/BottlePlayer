@@ -331,7 +331,7 @@ function onRelease(e: MouseEvent) {
   align-items: center;
   gap: 10px;
   min-width: 0;
-  flex: 0 0 280px;
+  flex: 0 1 280px;
   position: relative;
 }
 
@@ -547,7 +547,7 @@ function onRelease(e: MouseEvent) {
 
 .np-pb-progress {
   flex: 1;
-  min-width: 0;
+  min-width: 200px;
   display: flex;
   align-items: center;
 }

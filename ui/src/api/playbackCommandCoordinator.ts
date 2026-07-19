@@ -17,6 +17,7 @@
 import { normalizeTrack, type Track } from './normalizer';
 import { flagsFromPhase, type PlaybackPhase } from './playbackPhase';
 import type { QualityOption } from './playbackOrchestrator';
+import type { PersonalFmAppendOptions, PersonalFmAppendSuccess } from './fmSession';
 
 export type LoopMode = 'list' | 'single' | 'random';
 export type QueueMode = 'normal' | 'personalFm';
@@ -68,11 +69,13 @@ export type CoordinatorDeps = {
   pause: () => Promise<void>;
   resumeOrReload: () => Promise<unknown>;
   invalidatePlaybackIntent: () => number;
+  /** Pure invalidation (no play-session skip) for HMR/module-replace detach. */
+  detachPlaybackIntent: () => number;
   stopInvalidatedPlayback: (seq: number) => Promise<void>;
   skipSession: () => void;
   hasBackend: () => boolean;
   /** Optional: personal FM append when at end of personalFm queue. */
-  appendPersonalFm?: () => Promise<boolean>;
+  appendPersonalFm?: (options?: PersonalFmAppendOptions) => Promise<boolean>;
 };
 
 type Waiter = {
@@ -82,6 +85,18 @@ type Waiter = {
 type RemoveJob = {
   index: number;
   waiter: Waiter;
+};
+
+type FmRecoveryIntent = {
+  queueRef: Track[];
+  currentTrack: Track | null;
+  trackKey: string;
+  currentIndex: number;
+  queueLength: number;
+  delta: number;
+  epoch: number;
+  generation: number;
+  appendedCount: number;
 };
 
 function clearResiduals(_state: CoordinatorState, patch: CoordinatorDeps['patchState']): void {
@@ -131,6 +146,7 @@ export class PlaybackCommandCoordinator {
     startIndex: number;
     queueMode: QueueMode;
   } | null = null;
+  private pendingFmRecovery: FmRecoveryIntent | null = null;
   private pendingAdds: Track[] = [];
   private pendingRemoves: RemoveJob[] = [];
 
@@ -163,6 +179,19 @@ export class PlaybackCommandCoordinator {
     const fn = this.interruptPlay;
     this.interruptPlay = null;
     if (fn) fn();
+  }
+
+  private queueFmRecovery(
+    base: Omit<FmRecoveryIntent, 'generation' | 'appendedCount'>,
+    result: PersonalFmAppendSuccess,
+  ): void {
+    if (this.disposed || result.queueRef !== base.queueRef || result.appendedCount <= 0) return;
+    this.pendingFmRecovery = {
+      ...base,
+      generation: result.generation,
+      appendedCount: result.appendedCount,
+    };
+    void this.scheduleDrain();
   }
 
   getEpoch(): number {
@@ -259,7 +288,7 @@ export class PlaybackCommandCoordinator {
     this.bumpInterrupt();
     // Pure invalidate — no stop — so late switchTrack cannot commit media.
     try {
-      this.deps.invalidatePlaybackIntent();
+      this.deps.detachPlaybackIntent();
     } catch {
       /* ignore */
     }
@@ -282,6 +311,7 @@ export class PlaybackCommandCoordinator {
     this.pendingQuality = null;
     this.pendingEnded = false;
     this.pendingPlayAll = null;
+    this.pendingFmRecovery = null;
     this.pendingAdds = [];
     const removes = this.pendingRemoves.splice(0);
     resolveWaiters(takeWaiters(this.navWaiters), result);
@@ -306,6 +336,7 @@ export class PlaybackCommandCoordinator {
         this.clearWaiters.push(waiter);
         break;
       case 'next':
+        this.pendingFmRecovery = null;
         if (this.pendingSelect) {
           this.pendingSelect = null;
           resolveWaiters(takeWaiters(this.selectWaiters), {
@@ -319,6 +350,7 @@ export class PlaybackCommandCoordinator {
         if (!this.pendingClear) this.bumpInterrupt();
         break;
       case 'prev':
+        this.pendingFmRecovery = null;
         if (this.pendingSelect) {
           this.pendingSelect = null;
           resolveWaiters(takeWaiters(this.selectWaiters), {
@@ -331,6 +363,7 @@ export class PlaybackCommandCoordinator {
         if (!this.pendingClear) this.bumpInterrupt();
         break;
       case 'selectTrack':
+        this.pendingFmRecovery = null;
         if (this.navDelta !== 0) {
           this.navDelta = 0;
           resolveWaiters(takeWaiters(this.navWaiters), {
@@ -371,6 +404,7 @@ export class PlaybackCommandCoordinator {
         this.qualityWaiters.push(waiter);
         break;
       case 'removeTrack':
+        this.pendingFmRecovery = null;
         this.pendingRemoves.push({ index: command.index, waiter });
         break;
       case 'ended':
@@ -388,6 +422,7 @@ export class PlaybackCommandCoordinator {
             message: 'latest_playAll',
           });
         }
+        this.pendingFmRecovery = null;
         // playAll replaces pending select/nav/ended (not a pending clear barrier)
         if (this.pendingSelect) {
           this.pendingSelect = null;
@@ -419,6 +454,7 @@ export class PlaybackCommandCoordinator {
         if (!this.pendingClear) this.bumpInterrupt();
         break;
       case 'addToQueue':
+        this.pendingFmRecovery = null;
         this.pendingAdds.push(normalizeTrack(command.track));
         this.addWaiters.push(waiter);
         break;
@@ -451,6 +487,7 @@ export class PlaybackCommandCoordinator {
     return (
       this.pendingClear
       || this.pendingPlayAll != null
+      || this.pendingFmRecovery != null
       || this.pendingRemoves.length > 0
       || this.pendingAdds.length > 0
       || this.pendingSelect != null
@@ -717,6 +754,43 @@ export class PlaybackCommandCoordinator {
       }
       return;
     }
+
+    // 11) Timer-backed FM recovery — no external waiter is held while the
+    // recommendation timer is pending; this work is enqueued only after a
+    // retry has actually appended fresh tracks.
+    if (this.pendingFmRecovery) {
+      const recovery = this.pendingFmRecovery;
+      this.pendingFmRecovery = null;
+      const state = this.deps.getState();
+      const sameTrack = recovery.trackKey
+        ? state.currentTrack?.FileHash === recovery.trackKey
+        : state.currentTrack === recovery.currentTrack;
+      const stillAtOriginalTail =
+        state.queue === recovery.queueRef
+        && state.queueMode === 'personalFm'
+        && this.epoch === recovery.epoch
+        && sameTrack
+        && state.currentIndex === recovery.currentIndex
+        && recovery.currentIndex === recovery.queueLength - 1
+        && state.queue.length === recovery.queueLength + recovery.appendedCount;
+      if (!stillAtOriginalTail) return;
+
+      const nextIndex = recovery.currentIndex + recovery.delta;
+      const track = state.queue[nextIndex];
+      if (!track) return;
+      try {
+        const r = await this.playInterruptible(track);
+        if (r.status === 'ok') {
+          this.epoch += 1;
+          if (this.endedEpochHandled === recovery.epoch) {
+            this.endedEpochHandled = -1;
+          }
+        }
+      } catch {
+        // Recovery has no waiter; a later user command can retry explicitly.
+      }
+      return;
+    }
   }
 
   /**
@@ -775,10 +849,22 @@ export class PlaybackCommandCoordinator {
     // Prefetch near the tail; block and append when the next step is past the end.
     if (mode === 'personalFm') {
       const remain = Math.max(0, state.queue.length - idx - 1);
-      if (this.deps.appendPersonalFm && remain <= 2) {
+      if (delta > 0 && this.deps.appendPersonalFm && remain <= 2) {
         // Near tail: ensure more recommendations exist before/while advancing.
         if (remain === 0 || idx + delta >= state.queue.length) {
-          const ok = await this.deps.appendPersonalFm();
+          const recoveryBase = {
+            queueRef: state.queue,
+            currentTrack: state.currentTrack,
+            trackKey: state.currentTrack?.FileHash || '',
+            currentIndex: idx,
+            queueLength: state.queue.length,
+            delta,
+            epoch: this.epoch,
+          };
+          const options: PersonalFmAppendOptions = {
+            onRetrySuccess: (result) => this.queueFmRecovery(recoveryBase, result),
+          };
+          const ok = await this.deps.appendPersonalFm(options);
           if (!ok && idx + delta >= this.deps.getState().queue.length) {
             return { status: 'noop', message: 'fm_exhausted' };
           }

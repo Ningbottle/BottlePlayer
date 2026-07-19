@@ -381,10 +381,4 @@ export default { name: 'NewsprintHome' };
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
-
-@media (min-width: 1600px) {
-  .np-home {
-    max-width: 1440px;
-  }
-}
 </style>

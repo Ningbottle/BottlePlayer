@@ -81,6 +81,7 @@ function createHarness() {
       state.playbackPhase = 'playing';
     },
     invalidatePlaybackIntent: () => ++seq,
+    detachPlaybackIntent: () => ++seq,
     stopInvalidatedPlayback: async () => {
       state.isPlaying = false;
       state.isLoading = false;

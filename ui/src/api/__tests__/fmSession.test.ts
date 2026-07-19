@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockApiGet = vi.fn();
 vi.mock('../backend', () => ({
@@ -19,8 +19,8 @@ vi.mock('../playbackDiagnostics', () => ({
 import {
   appendPersonalFmRecommendations,
   getFmSessionState,
+  disposeFmSession,
   __resetFmSessionForTests,
-  __setFmExhaustedUntilForTests,
 } from '../fmSession';
 import type { Track } from '../normalizer';
 
@@ -67,6 +67,11 @@ describe('personal FM session', () => {
     mockApiGet.mockReset();
   });
 
+  afterEach(() => {
+    __resetFmSessionForTests();
+    vi.useRealTimers();
+  });
+
   it('appends fresh recommendations deduped by FileHash against the existing queue', async () => {
     const state = makeState({
       queue: [mkTrack('a'), mkTrack('b')],
@@ -84,6 +89,209 @@ describe('personal FM session', () => {
     expect(appended).toBe(true);
     expect(state.queue.map((t) => t.FileHash)).toEqual(['a', 'b', 'c']);
     expect(saveQueue).toHaveBeenCalled();
+  });
+
+  it('automatically retries an empty response after one second', async () => {
+    vi.useFakeTimers();
+    const state = makeState({
+      queue: [mkTrack('a')],
+      currentIndex: 0,
+      currentTrack: mkTrack('a'),
+    });
+    mockApiGet
+      .mockResolvedValueOnce(fmResponse(['a']))
+      .mockResolvedValueOnce(fmResponse(['b']));
+
+    await expect(
+      appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() }),
+    ).resolves.toBe(false);
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockApiGet).toHaveBeenCalledTimes(2);
+    expect(state.queue.map((track) => track.FileHash)).toEqual(['a', 'b']);
+  });
+
+  it('invalidates a scheduled retry when the current track or index changes', async () => {
+    vi.useFakeTimers();
+    const state = makeState({
+      queue: [mkTrack('a')],
+      currentIndex: 0,
+      currentTrack: mkTrack('a'),
+    });
+    const onRetrySuccess = vi.fn();
+    mockApiGet
+      .mockResolvedValueOnce(fmResponse(['a']))
+      .mockResolvedValueOnce(fmResponse(['b']));
+
+    await expect(
+      appendPersonalFmRecommendations(
+        { getState: () => state, saveQueue: vi.fn() },
+        { onRetrySuccess },
+      ),
+    ).resolves.toBe(false);
+
+    state.currentTrack = mkTrack('changed');
+    state.currentIndex = 1;
+    await vi.advanceTimersByTimeAsync(1_000);
+
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(onRetrySuccess).not.toHaveBeenCalled();
+    expect(state.queue.map((track) => track.FileHash)).toEqual(['a']);
+  });
+
+  it('uses 1, 3, and 10 second retry delays, then allows a new external round', async () => {
+    vi.useFakeTimers();
+    const state = makeState({
+      queue: [mkTrack('a')],
+      currentIndex: 0,
+      currentTrack: mkTrack('a'),
+    });
+    const saveQueue = vi.fn();
+    mockApiGet
+      .mockResolvedValueOnce(fmResponse(['a']))
+      .mockResolvedValueOnce(fmResponse(['a']))
+      .mockResolvedValueOnce(fmResponse(['a']))
+      .mockResolvedValueOnce(fmResponse(['a']))
+      .mockResolvedValueOnce(fmResponse(['b']));
+
+    await expect(
+      appendPersonalFmRecommendations({ getState: () => state, saveQueue }),
+    ).resolves.toBe(false);
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockApiGet).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(2_999);
+    expect(mockApiGet).toHaveBeenCalledTimes(2);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockApiGet).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(9_999);
+    expect(mockApiGet).toHaveBeenCalledTimes(3);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(mockApiGet).toHaveBeenCalledTimes(4);
+    expect(vi.getTimerCount()).toBe(0);
+    expect(getFmSessionState().exhausted).toBe(true);
+
+    await expect(
+      appendPersonalFmRecommendations({ getState: () => state, saveQueue }),
+    ).resolves.toBe(true);
+    expect(mockApiGet).toHaveBeenCalledTimes(5);
+    expect(state.queue.map((track) => track.FileHash)).toEqual(['a', 'b']);
+    expect(getFmSessionState().exhausted).toBe(false);
+  });
+
+  it('recovers from a transport failure in the background', async () => {
+    vi.useFakeTimers();
+    const state = makeState({
+      queue: [mkTrack('a')],
+      currentIndex: 0,
+      currentTrack: mkTrack('a'),
+    });
+    const saveQueue = vi.fn();
+    const onRetrySuccess = vi.fn();
+    mockApiGet
+      .mockRejectedValueOnce(new Error('offline'))
+      .mockResolvedValueOnce(fmResponse(['b']));
+
+    await expect(
+      appendPersonalFmRecommendations(
+        { getState: () => state, saveQueue },
+        { onRetrySuccess },
+      ),
+    ).resolves.toBe(false);
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(saveQueue).not.toHaveBeenCalled();
+
+    await vi.advanceTimersByTimeAsync(999);
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    await vi.advanceTimersByTimeAsync(1);
+
+    expect(mockApiGet).toHaveBeenCalledTimes(2);
+    expect(saveQueue).toHaveBeenCalledTimes(1);
+    expect(onRetrySuccess).toHaveBeenCalledTimes(1);
+    expect(state.queue.map((track) => track.FileHash)).toEqual(['a', 'b']);
+  });
+
+  it('schedules a status=0 response instead of retrying synchronously', async () => {
+    vi.useFakeTimers();
+    const state = makeState({
+      queue: [mkTrack('a')],
+      currentIndex: 0,
+      currentTrack: mkTrack('a'),
+    });
+    mockApiGet
+      .mockResolvedValueOnce({ status: 0, error: 'temporary' })
+      .mockResolvedValueOnce(fmResponse(['b']));
+
+    await expect(
+      appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() }),
+    ).resolves.toBe(false);
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(mockApiGet).toHaveBeenCalledTimes(2);
+    expect(state.queue.map((track) => track.FileHash)).toEqual(['a', 'b']);
+  });
+
+  it('reset cancels the pending retry timer and prevents stale work', async () => {
+    vi.useFakeTimers();
+    const state = makeState({
+      queue: [mkTrack('a')],
+      currentIndex: 0,
+      currentTrack: mkTrack('a'),
+    });
+    mockApiGet.mockResolvedValue(fmResponse(['a']));
+
+    await expect(
+      appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() }),
+    ).resolves.toBe(false);
+    expect(vi.getTimerCount()).toBe(1);
+
+    __resetFmSessionForTests();
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(vi.getTimerCount()).toBe(0);
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(state.queue.map((track) => track.FileHash)).toEqual(['a']);
+  });
+
+  it('disposeFmSession cancels the pending retry timer (exit/HMR) and blocks stale retries', async () => {
+    vi.useFakeTimers();
+    const state = makeState({
+      queue: [mkTrack('a')],
+      currentIndex: 0,
+      currentTrack: mkTrack('a'),
+    });
+    mockApiGet.mockResolvedValue(fmResponse(['a'])); // empty after dedupe -> retry
+    const saveQueue = vi.fn();
+
+    await expect(
+      appendPersonalFmRecommendations({ getState: () => state, saveQueue }),
+    ).resolves.toBe(false);
+    expect(vi.getTimerCount()).toBe(1); // 1s retry scheduled
+
+    // Exit / HMR disposes the FM session.
+    disposeFmSession();
+    expect(vi.getTimerCount()).toBe(0);
+
+    // Advancing past every retry delay must NOT trigger any retry fetch/append.
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.advanceTimersByTimeAsync(3_000);
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(state.queue.map((track) => track.FileHash)).toEqual(['a']);
+    // A fresh external call after dispose may start a new round.
+    mockApiGet.mockResolvedValue(fmResponse(['z']));
+    const appended = await appendPersonalFmRecommendations({ getState: () => state, saveQueue });
+    expect(appended).toBe(true);
+    expect(state.queue.map((track) => track.FileHash)).toEqual(['a', 'z']);
   });
 
   it('dedups duplicate FileHashes within a single FM response', async () => {
@@ -109,81 +317,33 @@ describe('personal FM session', () => {
     expect(state.queue.map((t) => t.FileHash)).toEqual(['a', 'b', 'c', 'd']);
   });
 
-  it('soft-cools after consecutive empty responses, not on the first empty', async () => {
-    const state = makeState({
-      queue: [mkTrack('a'), mkTrack('b')],
-      currentIndex: 1,
-      currentTrack: mkTrack('b'),
-    });
-    mockApiGet.mockResolvedValue(fmResponse(['a', 'b'])); // all dupes
-
-    // First empty: still retryable
-    await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
-    expect(getFmSessionState().exhausted).toBe(false);
-
-    // Second consecutive empty: enter soft cooldown
-    await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
-    expect(getFmSessionState().exhausted).toBe(true);
-  });
-
-  it('does not refetch during soft cooldown, then retries after cooldown ends', async () => {
+  it('cancels the old retry and starts cleanly when a new FM session replaces the queue', async () => {
+    vi.useFakeTimers();
     const state = makeState({
       queue: [mkTrack('a')],
       currentIndex: 0,
       currentTrack: mkTrack('a'),
     });
-    mockApiGet.mockResolvedValue(fmResponse(['a'])); // dupe
-
+    mockApiGet
+      .mockResolvedValueOnce(fmResponse(['a']))
+      .mockResolvedValueOnce(fmResponse(['z']));
     await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
-    await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
-    expect(getFmSessionState().exhausted).toBe(true);
-    mockApiGet.mockClear();
+    expect(vi.getTimerCount()).toBe(1);
 
-    const duringCooldown = await appendPersonalFmRecommendations({
-      getState: () => state,
-      saveQueue: vi.fn(),
-    });
-    expect(duringCooldown).toBe(false);
-    expect(mockApiGet).not.toHaveBeenCalled();
-
-    // Cooldown expired
-    __setFmExhaustedUntilForTests(Date.now() - 1);
-    mockApiGet.mockResolvedValue(fmResponse(['fresh']));
-    const afterCool = await appendPersonalFmRecommendations({
-      getState: () => state,
-      saveQueue: vi.fn(),
-    });
-    expect(afterCool).toBe(true);
-    expect(mockApiGet).toHaveBeenCalled();
-    expect(getFmSessionState().exhausted).toBe(false);
-    expect(state.queue.map((t) => t.FileHash)).toEqual(['a', 'fresh']);
-  });
-
-  it('resets soft exhaustion when a new FM session starts (queue replaced)', async () => {
-    const state = makeState({
-      queue: [mkTrack('a')],
-      currentIndex: 0,
-      currentTrack: mkTrack('a'),
-    });
-    mockApiGet.mockResolvedValue(fmResponse(['a']));
-    await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
-    await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
-    expect(getFmSessionState().exhausted).toBe(true);
-
-    // New FM session: playPersonalFm replaced the queue with a brand-new array.
     state.queue = [mkTrack('x'), mkTrack('y')];
     state.currentIndex = 1;
     state.currentTrack = mkTrack('y');
-    mockApiGet.mockResolvedValue(fmResponse(['z']));
 
     const appended = await appendPersonalFmRecommendations({
       getState: () => state,
       saveQueue: vi.fn(),
     });
 
-    expect(getFmSessionState().exhausted).toBe(false);
     expect(appended).toBe(true);
     expect(state.queue.map((t) => t.FileHash)).toEqual(['x', 'y', 'z']);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(mockApiGet).toHaveBeenCalledTimes(2);
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('discards an in-flight append when the queue is replaced by a new session before it resolves', async () => {

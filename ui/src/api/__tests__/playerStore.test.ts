@@ -36,6 +36,7 @@ import {
 } from '../playerStore';
 import type { Track } from '../normalizer';
 import { playbackDiagnostics } from '../playbackDiagnostics';
+import { __resetFmSessionForTests } from '../fmSession';
 
 function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'A', Duration: 100 } as Track;
@@ -161,6 +162,7 @@ function resetStore() {
   (window as any).__bottlemusic_player_cleanup__ = undefined;
   __resetWebAudioEqForTests();
   __resetPlaybackCoordinatorForTests();
+  __resetFmSessionForTests();
   eqState.available = false;
   eqState.reason = '';
   eqState.retryFailCount = 0;
@@ -390,7 +392,8 @@ describe('playerStore integration', () => {
     );
   });
 
-  it('personal FM retries semantic recommendation failures before giving up at the queue tail', async () => {
+  it('personal FM releases the command then auto-resumes after a delayed recommendation retry', async () => {
+    vi.useFakeTimers();
     initPlayer();
     initPlayerBackend();
 
@@ -432,7 +435,13 @@ describe('playerStore integration', () => {
       return JSON.stringify({ status: 200, headers: {}, body: { status: 1, url: 'http://x/fm.mp3' } });
     });
 
-    await next();
+    await expect(next()).resolves.toMatchObject({ status: 'noop' });
+
+    expect(personalFmCalls).toBe(1);
+    expect(playerStore.currentIndex).toBe(1);
+
+    await vi.advanceTimersByTimeAsync(1_000);
+    await vi.waitFor(() => expect(playerStore.currentTrack?.FileHash).toBe('fm-3'));
 
     HTMLAudioElement.prototype.play = realPlay;
 
@@ -1206,6 +1215,7 @@ describe('playerStore integration', () => {
     const track = mkTrack('hmr-keep');
     track.Image = 'http://img/';
     await playTrack(track);
+    const skipSpy = vi.spyOn(__getPlaySession(), 'skip');
 
     const audio = playerStore.audio!;
     expect(audio.src).toBeTruthy();
@@ -1225,6 +1235,7 @@ describe('playerStore integration', () => {
     expect(audio.src, 'HMR must not clear shared audio src').toBe(srcBefore);
     expect(audio.src).not.toBe('');
     expect(audio.src).not.toMatch(/about:blank|^$/);
+    expect(skipSpy, 'HMR must not finalize the live session as skipped').not.toHaveBeenCalled();
 
     // New module instance reuses the same element without unload.
     (playerStore as any).audio = null;
@@ -1232,6 +1243,28 @@ describe('playerStore integration', () => {
     initPlayer();
     expect(playerStore.audio).toBe(audio);
     expect(playerStore.audio!.src).toBe(srcBefore);
+  });
+
+  it('pagehide flushes the current queue without persisting an empty session', async () => {
+    initPlayer();
+    initPlayerBackend();
+    const first = mkTrack('exit-a');
+    const second = mkTrack('exit-b');
+    playerStore.queue = [first, second];
+    playerStore.currentIndex = 1;
+    playerStore.currentTrack = second;
+    localStorage.removeItem('player_queue');
+    localStorage.removeItem('player_index');
+
+    window.dispatchEvent(new Event('pagehide'));
+
+    expect(JSON.parse(localStorage.getItem('player_queue') || '[]')).toEqual([
+      expect.objectContaining({ FileHash: 'exit-a' }),
+      expect.objectContaining({ FileHash: 'exit-b' }),
+    ]);
+    expect(localStorage.getItem('player_index')).toBe('1');
+    expect(playerStore.queue.map((track) => track.FileHash)).toEqual(['exit-a', 'exit-b']);
+    await Promise.resolve();
   });
 
   it('HMR cleanup invalidates in-flight resolve so stale playUrl never runs', async () => {

@@ -386,6 +386,17 @@ export class PlaybackOrchestrator {
     return ++this.transitionSeq;
   }
 
+  /**
+   * Pure invalidation for HMR/module-replace: bump transitionSeq so an in-flight
+   * resolve cannot commit media on the shared <audio>, WITHOUT finalizing the
+   * play session as skipped (the session stays alive in the new module). Use
+   * invalidatePlaybackIntent() for normal stop/supersede where stats should
+   * settle; use this for detach.
+   */
+  detachPlaybackIntent(): number {
+    return ++this.transitionSeq;
+  }
+
   private isCurrent(seq: number): boolean {
     return this.isTransitionCurrent(seq);
   }
