@@ -59,7 +59,7 @@ describe('HomeView sections', () => {
     expect(wrapper.text()).toContain('Test PL');
   });
 
-  it('labels everyday recommendations clearly and plays them from the hero CTA via playAll (normal queue, not personal FM)', async () => {
+  it('labels everyday recommendations clearly and plays them via playPersonalFm (continuous reco session)', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/everyday/recommend') {
         return Promise.resolve({
@@ -95,19 +95,19 @@ describe('HomeView sections', () => {
 
     await wrapper.get('button.play-cta').trigger('click');
 
-    // Daily Picks are a refreshable snapshot played as a NORMAL queue.
-    // They must NOT enter the personal-FM session.
-    expect(playAll).toHaveBeenCalledWith(
+    // Daily seeds a personalFm session so the queue can append /personal/fm
+    // as the listener advances (not a finite list-loop of the snapshot).
+    expect(playPersonalFm).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ FileHash: 'daily-1', SongName: '不只是场梦' }),
         expect.objectContaining({ FileHash: 'daily-2', SongName: '无聊' }),
       ]),
       0,
     );
-    expect(playPersonalFm).not.toHaveBeenCalled();
+    expect(playAll).not.toHaveBeenCalled();
   });
 
-  it('plays a daily-rail row via playAll as a normal queue (rail is 每日推荐, not an FM session)', async () => {
+  it('plays a daily-rail row via playPersonalFm (continuous reco, not a 5-track loop)', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/everyday/recommend') {
         return Promise.resolve({
@@ -134,14 +134,14 @@ describe('HomeView sections', () => {
 
     await wrapper.get('[data-test="queue-track-daily-1"]').trigger('click');
 
-    expect(playAll).toHaveBeenCalledWith(
+    expect(playPersonalFm).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ FileHash: 'daily-1' }),
         expect.objectContaining({ FileHash: 'daily-2' }),
       ]),
       0,
     );
-    expect(playPersonalFm).not.toHaveBeenCalled();
+    expect(playAll).not.toHaveBeenCalled();
     expect(playTrack).not.toHaveBeenCalled();
   });
 

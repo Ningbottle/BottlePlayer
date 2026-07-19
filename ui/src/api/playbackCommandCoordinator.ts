@@ -734,6 +734,40 @@ export class PlaybackCommandCoordinator {
       return this.playInterruptible(track);
     }
 
+    // Continuous recommendation session: never wrap the queue like list-loop.
+    // Prefetch near the tail; block and append when the next step is past the end.
+    if (mode === 'personalFm') {
+      const remain = Math.max(0, state.queue.length - idx - 1);
+      if (this.deps.appendPersonalFm && remain <= 2) {
+        // Near tail: ensure more recommendations exist before/while advancing.
+        if (remain === 0 || idx + delta >= state.queue.length) {
+          const ok = await this.deps.appendPersonalFm();
+          if (!ok && idx + delta >= this.deps.getState().queue.length) {
+            return { status: 'noop', message: 'fm_exhausted' };
+          }
+        } else {
+          void this.deps.appendPersonalFm();
+        }
+      }
+
+      let nextIdx = idx + delta;
+      if (loop === 'random' && this.deps.getState().queue.length > 1) {
+        const qNow = this.deps.getState().queue;
+        let pick = Math.floor(Math.random() * qNow.length);
+        if (qNow.length > 1) {
+          while (pick === idx) pick = Math.floor(Math.random() * qNow.length);
+        }
+        nextIdx = pick;
+      }
+
+      const q = this.deps.getState().queue;
+      if (!q.length || nextIdx < 0 || nextIdx >= q.length) {
+        // Past end after a failed/empty append — stop, do not wrap to song 0.
+        return { status: 'noop', message: 'fm_exhausted' };
+      }
+      return this.playInterruptible(q[nextIdx]);
+    }
+
     let nextIdx = idx;
     if (loop === 'random' && state.queue.length > 1) {
       const steps = Math.abs(delta) || 1;
@@ -746,17 +780,6 @@ export class PlaybackCommandCoordinator {
       }
     } else {
       nextIdx = idx + delta;
-      if (mode === 'personalFm' && nextIdx >= state.queue.length) {
-        if (this.deps.appendPersonalFm) {
-          const ok = await this.deps.appendPersonalFm();
-          if (!ok) return { status: 'noop', message: 'fm_exhausted' };
-          const q = this.deps.getState().queue;
-          nextIdx = Math.min(idx + delta, q.length - 1);
-          if (nextIdx < 0 || nextIdx >= q.length) return { status: 'noop' };
-          return this.playInterruptible(q[nextIdx]);
-        }
-        return { status: 'noop' };
-      }
       if (nextIdx < 0) nextIdx = ((nextIdx % state.queue.length) + state.queue.length) % state.queue.length;
       else nextIdx = nextIdx % state.queue.length;
     }

@@ -252,6 +252,45 @@ describe('PlaybackCommandCoordinator', () => {
     expect(playLog.filter((x) => x === 'play:1')).toHaveLength(1);
   });
 
+  it('personalFm near-tail next appends recommendations instead of wrapping to song 0', async () => {
+    state.queue = [mkTrack('r0'), mkTrack('r1'), mkTrack('r2')];
+    state.currentIndex = 2;
+    state.currentTrack = state.queue[2];
+    state.queueMode = 'personalFm';
+    state.loopMode = 'list';
+    state.isPlaying = true;
+    state.playbackPhase = 'playing';
+
+    deps.appendPersonalFm = vi.fn(async () => {
+      state.queue.push(mkTrack('r3'), mkTrack('r4'));
+      return true;
+    });
+
+    await coord.dispatch({ type: 'next' });
+
+    expect(deps.appendPersonalFm).toHaveBeenCalled();
+    expect(state.currentTrack?.FileHash).toBe('r3');
+    expect(playLog[playLog.length - 1]).toBe('play:r3');
+    // Must not wrap back to the first recommendation.
+    expect(state.currentTrack?.FileHash).not.toBe('r0');
+  });
+
+  it('personalFm does not wrap when append is exhausted', async () => {
+    state.queue = [mkTrack('r0'), mkTrack('r1')];
+    state.currentIndex = 1;
+    state.currentTrack = state.queue[1];
+    state.queueMode = 'personalFm';
+    state.loopMode = 'list';
+    state.isPlaying = true;
+
+    deps.appendPersonalFm = vi.fn(async () => false);
+
+    const r = await coord.dispatch({ type: 'next' });
+    expect(r.status).toBe('noop');
+    expect(state.currentTrack?.FileHash).toBe('r1');
+    expect(playLog.filter((x) => x === 'play:r0')).toHaveLength(0);
+  });
+
   it('failed switchQuality restores time/phase/playing snapshot', async () => {
     state.queue = [mkTrack('a')];
     state.currentIndex = 0;
