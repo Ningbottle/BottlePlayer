@@ -3,7 +3,7 @@ import { ref, onMounted, watch } from 'vue';
 import { apiGet } from '../api/backend';
 import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
-import { isLikedPlaylistName, markFavorites } from '../api/favoriteMarkers';
+import { favoriteStore, isLikedPlaylistName } from '../api/favoriteStore';
 import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 
 
@@ -41,9 +41,10 @@ async function loadPlaylistTracks() {
     if (res.status === 1 && res.data) {
       songs.value = (res.data.list || []).map(normalizeTrack);
       totalCount.value = res.data.total || songs.value.length;
-      // 「我喜欢的音乐」中的曲目应点亮底栏红心（不必再次点收藏）。
+      // 「我喜欢的音乐」中的曲目应点亮底栏红心（不必再次点收藏）。通过共享
+      // favoriteStore 投影，同时归档曲目供后续取消收藏使用。
       if (isLikedPlaylistName(props.playlistName)) {
-        markFavorites(songs.value.map((s) => s.FileHash).filter(Boolean));
+        favoriteStore.hydrateLikedPage(songs.value);
       }
     } else {
       error.value = res.error || '无法获取歌单曲目';
@@ -79,7 +80,7 @@ onMounted(() => {
 
 function syncLikedMarkersFromCurrentPage(): void {
   if (!isLikedPlaylistName(props.playlistName)) return;
-  markFavorites(songs.value.map((s) => s.FileHash).filter(Boolean));
+  favoriteStore.hydrateLikedPage(songs.value);
 }
 
 function handlePlay(song: SongInfo) {

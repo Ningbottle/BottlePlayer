@@ -10,10 +10,11 @@ import {
 } from '../../api/playerStore';
 import { setLyricFullscreen } from '../../api/lyricFullscreen';
 import {
-  favoriteMarkersReadonly,
+  isFavoriteMarker,
   markFavorite,
   reloadFavoriteMarkers,
 } from '../../api/favoriteMarkers';
+import { favoriteStore } from '../../api/favoriteStore';
 import type { Track } from '../../api/normalizer';
 import type { LoopMode } from '../../api/playerStore';
 
@@ -108,11 +109,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   const volumePercent = computed(() => volume.value * 100);
 
   const isLyricView = computed(() => options.activeView() === 'lyric');
-  const favoriteMarkers = favoriteMarkersReadonly();
-  const isFavorite = computed(() => {
-    const hash = currentTrack.value?.FileHash;
-    return Boolean(hash && favoriteMarkers.hashes.has(hash));
-  });
+  const isFavorite = computed(() => isFavoriteMarker(currentTrack.value?.FileHash));
 
   const showQualityMenu = ref(false);
   const showAddModal = ref(false);
@@ -210,8 +207,17 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   }
 
   function handleFavorite() {
-    if (!currentTrack.value) return;
-    showAddModal.value = true;
+    const track = currentTrack.value;
+    if (!track) return;
+    // The heart is the explicit favorite toggle: add/remove the track from
+    //「我喜欢的音乐」via the shared favoriteStore (optimistic, operation-id
+    // guarded; offline ops land in the outbox). This does NOT open the
+    // add-to-playlist modal - that stays available from the search page.
+    const nextFav = !isFavorite.value;
+    void favoriteStore.setFavorite(track, nextFav);
+    favoriteMsg.value = nextFav ? '已收藏到「我喜欢的音乐」' : '已取消收藏';
+    if (favToastTimer) clearTimeout(favToastTimer);
+    favToastTimer = setTimeout(() => { favoriteMsg.value = ''; favToastTimer = null; }, 2000);
   }
 
   function handleSelectQuality(q: string) {

@@ -451,6 +451,16 @@ export const favoriteStore = {
   markFavoriteByHash(hash: string, favorite: boolean): void {
     markFavoriteByHash(hash, favorite);
   },
+  /**
+   * Mark a single track favorite AND archive it (no API call). Used after an
+   * external caller (e.g. AddToPlaylistModal) has already performed the add via
+   * the adapter, so the heart lights up and a later unfavorite has the fileid.
+   */
+  markFavoriteTrack(track: Track): void {
+    if (!track?.FileHash) return;
+    state.hashes.add(track.FileHash);
+    trackArchive.set(track.FileHash, track);
+  },
   hydrateLikedPage(tracks: Track[]): void {
     hydrateLikedPage(tracks);
   },
