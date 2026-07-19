@@ -10,6 +10,7 @@ vi.mock('../../../api/playerStore', async () => {
       currentIndex: -1,
       isPlaying: false,
       queue: [] as Track[],
+      queueMode: 'normal' as 'normal' | 'personalFm',
       quality: '128',
       vipRequired: false,
     }),
@@ -59,8 +60,20 @@ describe('useHomeViewModel', () => {
     ]);
     expect(model.queueWindowStart).toBe(7);
     expect(model.queueTotal).toBe(20);
+    expect(model.queueMode).toBe('normal');
     expect(model.activeQueueHash).toBe('hash-14');
     expect(model.isPlaying).toBe(true);
+  });
+
+  it('exposes personalFm queueMode so the home rail can follow live reco', () => {
+    playerStoreMock.queueMode = 'personalFm';
+    playerStoreMock.queue = [makeTrack('fm-1')];
+    playerStoreMock.currentIndex = 0;
+    playerStoreMock.currentTrack = makeTrack('fm-1');
+
+    const model = useHomeViewModel().value;
+    expect(model.queueMode).toBe('personalFm');
+    expect(model.queueTotal).toBe(1);
   });
 
   it('builds a columnized error summary from failed sections', () => {

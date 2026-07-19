@@ -64,6 +64,7 @@ function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel 
     queuePreview: [],
     queueWindowStart,
     queueTotal: 0,
+    queueMode: 'normal' as const,
     activeQueueHash: null,
     isPlaying: false,
     isInitialLoading: false,

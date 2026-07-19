@@ -70,6 +70,7 @@ function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel 
     queuePreview: [],
     queueWindowStart,
     queueTotal: 0,
+    queueMode: 'normal' as const,
     activeQueueHash: null,
     isPlaying: false,
     isInitialLoading: false,
@@ -176,7 +177,7 @@ describe('AuroraHome', () => {
     expect(wrapper.text()).toContain('Daily First');
   });
 
-  it('shows daily rail tracks (not playback queue)', () => {
+  it('shows daily rail tracks (not playback queue) when not in personalFm', () => {
     const vm = createViewModel({
       dailyTracks: [
         createTrack({ SongName: 'Daily 1', FileHash: 'd1', Duration: 125 }),
@@ -184,6 +185,7 @@ describe('AuroraHome', () => {
         createTrack({ SongName: 'Daily 3', FileHash: 'd3' }),
       ],
       queuePreview: [createTrack({ SongName: 'Should Not Show Queue Song', FileHash: 'q1' })],
+      queueMode: 'normal',
     });
 
     const wrapper = mount(AuroraHome, {
@@ -196,6 +198,38 @@ describe('AuroraHome', () => {
     expect(wrapper.text()).not.toContain('Should Not Show Queue Song');
     expect(wrapper.get('[data-test="queue-track-d1"]').text()).toMatch(/2:05/);
     expect(wrapper.get('[data-test="queue-track-d2"]').text()).toContain('—');
+  });
+
+  it('follows live queue on the rail while personalFm is active (auto-updating reco list)', () => {
+    const vm = createViewModel({
+      dailyTracks: [createTrack({ SongName: 'Stale Daily', FileHash: 'stale' })],
+      queuePreview: [
+        createTrack({ SongName: 'Live A', FileHash: 'live-a', Duration: 100 }),
+        createTrack({ SongName: 'Live B', FileHash: 'live-b', Duration: 120 }),
+      ],
+      queueWindowStart: 4,
+      queueTotal: 12,
+      queueMode: 'personalFm',
+      activeQueueHash: 'live-b',
+    });
+
+    const wrapper = mount(AuroraHome, {
+      props: { model: vm },
+    });
+
+    expect(wrapper.get('[data-test="queue-rail"]').attributes('aria-label')).toBe('正在推荐');
+    expect(wrapper.get('[data-test="queue-rail"]').attributes('data-live-reco')).toBe('true');
+    const rail = wrapper.get('[data-test="queue-rail"]');
+    expect(rail.text()).toContain('正在推荐');
+    expect(rail.text()).toContain('Live A');
+    expect(rail.text()).toContain('Live B');
+    expect(rail.text()).not.toContain('Stale Daily');
+    // Absolute index = windowStart + row
+    expect(wrapper.get('[data-test="queue-track-live-a"]').text()).toMatch(/05/);
+    expect(wrapper.get('[data-test="queue-track-live-b"]').attributes('aria-current')).toBe('true');
+    expect(wrapper.get('.aurora-queue-rail-head h2 span').text()).toBe('12');
+    // Refresh is for home snapshot only — hide while following live session
+    expect(wrapper.find('[data-test="daily-rail-refresh"]').exists()).toBe(false);
   });
 
   it('renders a labelled daily rail and marks the active playing daily track', () => {

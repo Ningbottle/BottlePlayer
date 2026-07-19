@@ -125,15 +125,37 @@ const heroAlbumLine = computed(() => {
   return album;
 });
 
-/** Stage-right rail: 每日推荐 (not the playback queue — that lives in the player bar). */
+/**
+ * Stage-right rail:
+ * - While a personalFm session is active, follow the live playback queue so
+ *   newly appended recommendations appear as you listen.
+ * - Otherwise show the home daily snapshot (refreshable, not the live queue).
+ */
 const DAILY_RAIL_LIMIT = 12;
 
+const isLiveRecoRail = computed(
+  () => props.model.queueMode === 'personalFm' && props.model.queueTotal > 0,
+);
+
 const dailyRailTracks = computed(() => {
+  if (isLiveRecoRail.value) {
+    return props.model.queuePreview ?? [];
+  }
   const daily = props.model.dailyTracks ?? [];
   return (Array.isArray(daily) ? daily : []).slice(0, DAILY_RAIL_LIMIT);
 });
 
-const dailyRailCount = computed(() => props.model.dailyTracks?.length ?? 0);
+const dailyRailCount = computed(() =>
+  isLiveRecoRail.value ? props.model.queueTotal : (props.model.dailyTracks?.length ?? 0),
+);
+
+const dailyRailTitle = computed(() =>
+  isLiveRecoRail.value ? '正在推荐' : '每日推荐',
+);
+
+const dailyRailIndexOffset = computed(() =>
+  isLiveRecoRail.value ? props.model.queueWindowStart : 0,
+);
 
 function onHeroPlay() {
   const t = props.model.heroTrack;
@@ -265,10 +287,16 @@ function formatDuration(sec: number | undefined | null): string {
           </button>
         </div>
 
-        <aside class="aurora-queue-rail" data-test="queue-rail" aria-label="每日推荐">
+        <aside
+          class="aurora-queue-rail"
+          data-test="queue-rail"
+          :aria-label="dailyRailTitle"
+          :data-live-reco="isLiveRecoRail ? 'true' : 'false'"
+        >
           <header class="aurora-queue-rail-head">
-            <h2>每日推荐 <span>{{ dailyRailCount }}</span></h2>
+            <h2>{{ dailyRailTitle }} <span>{{ dailyRailCount }}</span></h2>
             <button
+              v-if="!isLiveRecoRail"
               type="button"
               class="aurora-queue-clear"
               data-test="daily-rail-refresh"
@@ -290,7 +318,7 @@ function formatDuration(sec: number | undefined | null): string {
                 :aria-current="isActiveDailyTrack(track) ? 'true' : undefined"
                 @click="onTrackPlay(track)"
               >
-                <span class="aurora-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
+                <span class="aurora-queue-index">{{ String(dailyRailIndexOffset + index + 1).padStart(2, '0') }}</span>
                 <span class="aurora-queue-copy"><b>{{ track.SongName }}</b><small>{{ track.SingerName }}</small></span>
                 <span class="aurora-queue-duration">{{ formatDuration(track.Duration) }}</span>
               </button>
