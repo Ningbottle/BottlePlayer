@@ -7,12 +7,57 @@ export type FmState = {
   queue: Track[];
   currentIndex: number;
   currentTime: number;
+  queueMode: 'normal' | 'personalFm';
 };
 
 export type FmSessionDeps = {
   getState: () => FmState;
   saveQueue: () => void;
 };
+
+/**
+ * Personal-FM session status (observability).
+ *
+ * The FM session is independent from the Daily Picks snapshot: only an explicit
+ * FM entry (`playPersonalFm`) sets `queueMode = 'personalFm'`. Recommendations
+ * are appended only when the player nears the queue tail, deduped by FileHash,
+ * and an in-flight append is discarded if its session was superseded.
+ */
+export interface FmSessionStatus {
+  /** Monotonic session counter; bumps when a new FM session is detected. */
+  generation: number;
+  /** True while a recommendation fetch is in flight. */
+  pending: boolean;
+  /** True once a successful fetch yielded no fresh tracks (until session reset). */
+  exhausted: boolean;
+}
+
+let fmGeneration = 0;
+let lastQueueRef: Track[] | null = null;
+let exhausted = false;
+
+interface Inflight {
+  generation: number;
+  queueRef: Track[];
+  promise: Promise<boolean>;
+}
+let inflight: Inflight | null = null;
+
+export function getFmSessionState(): FmSessionStatus {
+  return {
+    generation: fmGeneration,
+    pending: inflight !== null,
+    exhausted,
+  };
+}
+
+/** Test-only: reset module-level session state between cases. */
+export function __resetFmSessionForTests(): void {
+  fmGeneration = 0;
+  lastQueueRef = null;
+  exhausted = false;
+  inflight = null;
+}
 
 function extractSongList(payload: any): any[] {
   const data = payload?.data?.data || payload?.data || payload || {};
@@ -35,68 +80,132 @@ async function fetchPersonalFmRecommendations(
   return lastResponse;
 }
 
+/**
+ * Append fresh personal-FM recommendations to the current queue tail.
+ *
+ * Session safety:
+ * - Returns false without fetching when `queueMode !== 'personalFm'` (Daily
+ *   Picks and other normal queues must never drive the FM session).
+ * - Detects a new session by the queue array identity changing
+ *   (`playPersonalFm`/`playAll`/`clearQueue` all install a fresh array). A new
+ *   session bumps `generation`, clears `exhausted`, and drops any stale
+ *   in-flight fetch.
+ * - Coalesces concurrent tail-advance calls within one session into a single
+ *   fetch (`pending`).
+ * - After the fetch resolves, the append is applied only if the queue array
+ *   and `queueMode` are still the same; otherwise the response is discarded so
+ *   a superseded session can never contaminate the current one.
+ * - Marks `exhausted` only on a successful response with no fresh tracks
+ *   (transient failures stay retryable).
+ */
 export async function appendPersonalFmRecommendations(
   deps: FmSessionDeps,
 ): Promise<boolean> {
   const state = deps.getState();
+  if (state.queueMode !== 'personalFm') return false;
+
+  // A new queue array identity => a new FM session.
+  if (lastQueueRef !== state.queue) {
+    fmGeneration += 1;
+    exhausted = false;
+    inflight = null;
+    lastQueueRef = state.queue;
+  }
+
+  // Coalesce concurrent calls within the same session into one fetch.
+  if (inflight && inflight.queueRef === state.queue) {
+    return inflight.promise;
+  }
+
+  if (exhausted) {
+    return false;
+  }
+
+  const queueRef = state.queue;
   const current = state.currentTrack;
   const remain = Math.max(0, state.queue.length - state.currentIndex - 1);
   const trackKey = current?.FileHash || '';
-  playbackDiagnostics.recordEvent({
-    kind: 'fm_fetch',
-    phase: 'start',
-    detail: `remain=${remain}; is_overplay=${remain === 0 ? 1 : 0}`,
-    trackKey,
-  });
-  let response: any;
-  try {
-    response = await fetchPersonalFmRecommendations({
-      hash: current?.FileHash || '',
-      songid: current?.AlbumAudioID || current?.MixSongID || '',
-      playtime: Math.floor(state.currentTime || 0),
-      remain_songcnt: remain,
-      is_overplay: remain === 0 ? 1 : 0,
-    });
-  } catch (e) {
-    playbackDiagnostics.recordEvent({
-      kind: 'fm_fetch',
-      phase: 'fail',
-      detail: `fetch threw: ${e instanceof Error ? e.message : String(e)}`,
-      trackKey,
-    });
-    return false;
-  }
-  if (isPersonalFmFailure(response)) {
-    playbackDiagnostics.recordEvent({
-      kind: 'fm_fetch',
-      phase: 'fail',
-      detail: `status=0: ${response?.error || ''}`,
-      trackKey,
-    });
-    console.warn('Personal FM recommendation returned an error:', response?.error || response);
-    return false;
-  }
-  const existing = new Set(state.queue.map((track) => track.FileHash).filter(Boolean));
-  const fresh = extractSongList(response)
-    .map(normalizeTrack)
-    .filter((track) => track.FileHash && !existing.has(track.FileHash));
 
-  if (fresh.length === 0) {
+  const promise = (async (): Promise<boolean> => {
     playbackDiagnostics.recordEvent({
       kind: 'fm_fetch',
-      phase: 'noop',
-      detail: 'no fresh songs after dedupe',
+      phase: 'start',
+      detail: `remain=${remain}; is_overplay=${remain === 0 ? 1 : 0}`,
       trackKey,
     });
-    return false;
-  }
-  state.queue.push(...fresh);
-  deps.saveQueue();
-  playbackDiagnostics.recordEvent({
-    kind: 'fm_fetch',
-    phase: 'ok',
-    detail: `appended ${fresh.length} songs`,
-    trackKey,
+
+    let response: any;
+    try {
+      response = await fetchPersonalFmRecommendations({
+        hash: current?.FileHash || '',
+        songid: current?.AlbumAudioID || current?.MixSongID || '',
+        playtime: Math.floor(state.currentTime || 0),
+        remain_songcnt: remain,
+        is_overplay: remain === 0 ? 1 : 0,
+      });
+    } catch (e) {
+      playbackDiagnostics.recordEvent({
+        kind: 'fm_fetch',
+        phase: 'fail',
+        detail: `fetch threw: ${e instanceof Error ? e.message : String(e)}`,
+        trackKey,
+      });
+      return false;
+    }
+
+    // Session superseded (queue replaced, or left personalFm) while fetching.
+    const latest = deps.getState();
+    if (latest.queue !== queueRef || latest.queueMode !== 'personalFm') {
+      playbackDiagnostics.recordEvent({
+        kind: 'fm_fetch',
+        phase: 'noop',
+        detail: 'discarded stale session response',
+        trackKey,
+      });
+      return false;
+    }
+
+    if (isPersonalFmFailure(response)) {
+      playbackDiagnostics.recordEvent({
+        kind: 'fm_fetch',
+        phase: 'fail',
+        detail: `status=0: ${response?.error || ''}`,
+        trackKey,
+      });
+      console.warn('Personal FM recommendation returned an error:', response?.error || response);
+      return false;
+    }
+
+    const existing = new Set(latest.queue.map((track) => track.FileHash).filter(Boolean));
+    const fresh = extractSongList(response)
+      .map(normalizeTrack)
+      .filter((track) => track.FileHash && !existing.has(track.FileHash));
+
+    if (fresh.length === 0) {
+      exhausted = true;
+      playbackDiagnostics.recordEvent({
+        kind: 'fm_fetch',
+        phase: 'noop',
+        detail: 'no fresh songs after dedupe',
+        trackKey,
+      });
+      return false;
+    }
+
+    latest.queue.push(...fresh);
+    deps.saveQueue();
+    playbackDiagnostics.recordEvent({
+      kind: 'fm_fetch',
+      phase: 'ok',
+      detail: `appended ${fresh.length} songs`,
+      trackKey,
+    });
+    return true;
+  })();
+
+  inflight = { generation: fmGeneration, queueRef, promise };
+  void promise.finally(() => {
+    if (inflight?.promise === promise) inflight = null;
   });
-  return true;
+  return promise;
 }

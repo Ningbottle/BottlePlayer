@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onActivated, onDeactivated, nextTick, ref, computed } from 'vue';
-import { playTrack, playPersonalFm, clearQueue } from '../api/playerStore';
+import { playTrack, playAll, clearQueue } from '../api/playerStore';
 import type { Track } from '../api/normalizer';
 import { useHomeFeedStore } from '../api/homeFeedStore';
 import { useThemeStore } from '../api/themeStore';
@@ -70,9 +70,12 @@ onDeactivated(() => {
 });
 
 function onPlayTrack(track: Track) {
+  // Daily Picks are a refreshable snapshot played as a NORMAL queue. They must
+  // NOT enter the personal-FM session — only an explicit FM entry may set the
+  // personalFm queue mode. See fmSession.ts / playerStore.playPersonalFm.
   const idx = homeFeed.daily.items.findIndex(s => s.FileHash === track.FileHash);
   if (idx >= 0) {
-    playPersonalFm(homeFeed.daily.items, idx);
+    playAll(homeFeed.daily.items, idx);
   } else {
     playTrack(track);
   }
