@@ -705,11 +705,15 @@ export const favoriteStore = {
    * Mark a single track favorite AND archive it (no API call). Used after an
    * external caller (e.g. AddToPlaylistModal) has already performed the add via
    * the adapter, so the heart lights up and a later unfavorite has the fileid.
+   * Registers pendingIntent so a stale in-flight reconcile (whose snapshot was
+   * taken before the add) can't unlight the heart - same protection setFavorite's
+   * confirmed path relies on. Cleared by the next reconcile once the server agrees.
    */
   markFavoriteTrack(track: Track): void {
     if (!track?.FileHash) return;
     state.hashes.add(track.FileHash);
     trackArchive.set(track.FileHash, track);
+    pendingIntent.set(track.FileHash, true);
   },
   hydrateLikedPage(tracks: Track[]): void {
     hydrateLikedPage(tracks);

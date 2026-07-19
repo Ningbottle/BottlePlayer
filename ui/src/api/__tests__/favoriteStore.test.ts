@@ -765,4 +765,41 @@ describe('favoriteStore', () => {
       expect(addCalls).toBe(1); // exactly one server submission
     });
   });
+
+  describe('markFavoriteTrack vs stale reconcile', () => {
+    it('survives a stale in-flight reconcile (AddToPlaylistModal path sets pendingIntent)', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      mockApiPost.mockResolvedValue({ status: 1 });
+      await favoriteStore.onLogin('u1'); // initial reconcile completes (empty server)
+      expect(favoriteStore.isFavorite('X')).toBe(false);
+
+      // Start a reconcile with a GATED track fetch (in-flight; will resolve stale).
+      let resolveTracks!: (v: unknown) => void;
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return new Promise((r) => { resolveTracks = r; });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      const recP = favoriteStore.reconcile();
+      await flushPromises(); // reconcile reaches the gated fetch
+
+      // AddToPlaylistModal adds X (server-side) and mirrors it into the store.
+      favoriteStore.markFavoriteTrack(mkTrack('X', '1'));
+      expect(favoriteStore.isFavorite('X')).toBe(true);
+
+      // The stale reconcile resolves with an empty list (snapshot from before
+      // the add completed).
+      resolveTracks({ status: 1, data: { list: [], total: 0 } });
+      await recP;
+      await flushPromises();
+
+      // X must survive: markFavoriteTrack must register pendingIntent so a stale
+      // server snapshot can't unlight a track the user just favorited.
+      expect(favoriteStore.isFavorite('X')).toBe(true);
+    });
+  });
 });
