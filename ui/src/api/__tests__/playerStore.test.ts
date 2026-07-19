@@ -1187,6 +1187,53 @@ describe('playerStore integration', () => {
     expect(removeAttrSpy).not.toHaveBeenCalledWith('src');
   });
 
+  it('HMR module cleanup detaches coordinator without pause or clearing shared audio src', async () => {
+    // Full path: old module cleanup must not run dispose barrier on shared <audio>.
+    initPlayer();
+    initPlayerBackend();
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/x';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({
+        status: 200,
+        headers: {},
+        body: { status: 1, url: 'http://127.0.0.1:17631/audio/hmr-keep' },
+      });
+    });
+
+    const track = mkTrack('hmr-keep');
+    track.Image = 'http://img/';
+    await playTrack(track);
+
+    const audio = playerStore.audio!;
+    expect(audio.src).toBeTruthy();
+    const srcBefore = audio.src;
+    const pauseSpy = vi.spyOn(audio, 'pause');
+
+    const cleanup = (window as any).__bottlemusic_player_cleanup__ as (() => void) | undefined;
+    expect(cleanup, 'HMR cleanup must be published').toEqual(expect.any(Function));
+    cleanup!();
+
+    // Allow any async detach/dispose microtasks to settle.
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(pauseSpy, 'HMR must not pause shared audio').not.toHaveBeenCalled();
+    expect(audio.src, 'HMR must not clear shared audio src').toBe(srcBefore);
+    expect(audio.src).not.toBe('');
+    expect(audio.src).not.toMatch(/about:blank|^$/);
+
+    // New module instance reuses the same element without unload.
+    (playerStore as any).audio = null;
+    (window as any).__bottlemusic_audio__ = audio;
+    initPlayer();
+    expect(playerStore.audio).toBe(audio);
+    expect(playerStore.audio!.src).toBe(srcBefore);
+  });
+
   it('syncs playing state from a reused audio element after HMR', () => {
     const oldAudio = document.createElement('audio') as HTMLAudioElement;
     oldAudio.src = 'http://127.0.0.1:17631/audio/hmr-playing';

@@ -456,6 +456,31 @@ describe('PlaybackCommandCoordinator', () => {
     expect(state.currentTrack?.FileHash).toBe('n0');
   });
 
+  it('detach supersedes waiters without stopping backend or clearing queue', async () => {
+    state.queue = [mkTrack('a'), mkTrack('b')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.isPlaying = true;
+
+    const stop = vi.fn(async () => {});
+    deps.stopInvalidatedPlayback = stop;
+
+    const gate = deferred<{ status: string }>();
+    playGates.set('b', gate);
+    const navP = coord.dispatch({ type: 'next' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    await coord.detach();
+    const r = await navP;
+
+    expect(r.status).toBe('superseded');
+    expect(stop, 'detach must not barrier-stop backend').not.toHaveBeenCalled();
+    expect(state.queue.length).toBe(2);
+    // Orphan play may still settle later; detach must not clear the queue.
+    gate.resolve({ status: 'played' });
+  });
+
   it('dispose awaits in-flight stop and does not resolve early', async () => {
     state.queue = [mkTrack('a'), mkTrack('b')];
     state.currentIndex = 0;

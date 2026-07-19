@@ -191,7 +191,7 @@ export class PlaybackCommandCoordinator {
 
   /**
    * Reliable shutdown: supersede pending intents, barrier-clear, await stop.
-   * Safe to call while a drain is in flight — chains onto the drain tail.
+   * Use for pagehide / app exit — NOT for HMR (see detach).
    */
   async dispose(): Promise<void> {
     if (this.disposed) {
@@ -204,6 +204,28 @@ export class PlaybackCommandCoordinator {
     this.pendingClear = true;
     // No external clear waiter; drain still runs barrier stop.
     await this.scheduleDrain();
+  }
+
+  /**
+   * HMR / module-replace: drop the mailbox and stop accepting commands without
+   * running clear barrier, pause, or emptying the shared <audio> element.
+   */
+  async detach(): Promise<void> {
+    if (this.disposed) {
+      await this.drainTail;
+      return;
+    }
+    this.disposed = true;
+    this.bumpInterrupt();
+    this.supersedeMailbox({ status: 'superseded', message: 'coordinator_detached' });
+    // Drop any barrier that was mid-flight so drain does not stop media.
+    this.pendingClear = false;
+    resolveWaiters(takeWaiters(this.clearWaiters), {
+      status: 'superseded',
+      message: 'coordinator_detached',
+    });
+    // Let any in-flight drainOnce finish (interrupted plays no-op on waiters).
+    await this.drainTail;
   }
 
   private supersedeMailbox(result: PlaybackCommandResult): void {

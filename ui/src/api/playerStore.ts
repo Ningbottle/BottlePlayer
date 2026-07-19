@@ -97,6 +97,7 @@ function audioGlobal(): BottleMusicAudioGlobal {
   return window as unknown as BottleMusicAudioGlobal;
 }
 
+/** Full barrier stop (pagehide / disposePlayerRuntime). */
 async function disposeCoordinatorInstance(): Promise<void> {
   const coord = playbackCoordinator;
   playbackCoordinator = null;
@@ -109,6 +110,18 @@ async function disposeCoordinatorInstance(): Promise<void> {
   }
 }
 
+/**
+ * HMR: cancel in-flight intents without pause / src clear on the shared audio.
+ * Must NOT call dispose() — that barrier empties <audio> when backend is already null.
+ */
+function detachCoordinatorForHmr(): void {
+  const coord = playbackCoordinator;
+  playbackCoordinator = null;
+  if (coord) {
+    void coord.detach().catch(() => {});
+  }
+}
+
 function cleanupCurrentModuleForHmr() {
   initListenerCleanup?.();
   initListenerCleanup = null;
@@ -117,8 +130,8 @@ function cleanupCurrentModuleForHmr() {
   activeBackend = null;
   if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
   closeWebAudioEq();
-  // Fire-and-forget dispose so HMR does not block; drain still serializes stop.
-  void disposeCoordinatorInstance();
+  // Detach only — preserve shared <audio> for the next module instance.
+  detachCoordinatorForHmr();
 }
 
 function publishPlayerCleanup() {
@@ -500,10 +513,11 @@ export function clearQueue() {
 }
 
 /**
- * Production shutdown / HMR seam: await coordinator barrier stop, then drop
- * media event subscription. Safe to call multiple times.
+ * App exit / pagehide: barrier-stop coordinator while backend still available,
+ * then tear down media. Do not use for HMR (use module cleanup → detach).
  */
 export async function disposePlayerRuntime(): Promise<void> {
+  // Keep activeBackend until after dispose so clear uses backend.stop, not audio.src=''.
   await disposeCoordinatorInstance();
   initListenerCleanup?.();
   initListenerCleanup = null;
