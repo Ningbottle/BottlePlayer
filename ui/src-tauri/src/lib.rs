@@ -164,22 +164,32 @@ pub fn run() {
                 .into_owned();
 
             let mut loaded = false;
+            let mut last_errors: Vec<String> = Vec::new();
             for path in &possible_paths {
+                if !path.exists() {
+                    last_errors.push(format!("{} (missing)", path.display()));
+                    continue;
+                }
                 if let Some(path_str) = path.to_str() {
-                    if backend_api::init_with_paths(path_str, Some(&app_data_dir)).is_ok() {
-                        println!(
-                            "[EchoCAPI] Loaded native library from {} (data: {})",
-                            path.display(),
-                            app_data_dir
-                        );
-                        // 日志目录必须在注册 log callback 之前设定：callback 一旦
-                        // 触发就会惰性初始化 LOG_FILE，而路径由 LOG_DIR 决定。
-                        backend_api::set_log_dir(&app_data_dir);
-                        if let Err(e) = backend_api::set_log_callback() {
-                            eprintln!("[EchoCAPI WARN] Failed to set log callback: {}", e);
+                    match backend_api::init_with_paths(path_str, Some(&app_data_dir)) {
+                        Ok(()) => {
+                            println!(
+                                "[EchoCAPI] Loaded native library from {} (data: {})",
+                                path.display(),
+                                app_data_dir
+                            );
+                            // 日志目录必须在注册 log callback 之前设定：callback 一旦
+                            // 触发就会惰性初始化 LOG_FILE，而路径由 LOG_DIR 决定。
+                            backend_api::set_log_dir(&app_data_dir);
+                            if let Err(e) = backend_api::set_log_callback() {
+                                eprintln!("[EchoCAPI WARN] Failed to set log callback: {}", e);
+                            }
+                            loaded = true;
+                            break;
                         }
-                        loaded = true;
-                        break;
+                        Err(e) => {
+                            last_errors.push(format!("{} → {}", path.display(), e));
+                        }
                     }
                 }
             }
@@ -187,6 +197,12 @@ pub fn run() {
                 eprintln!(
                     "[EchoCAPI ERR] Could not load {} from any known path",
                     dll_name
+                );
+                for line in &last_errors {
+                    eprintln!("[EchoCAPI ERR]   candidate: {}", line);
+                }
+                eprintln!(
+                    "[EchoCAPI ERR] Hint: rebuild native backend with `pnpm backend:build` in ui/ if symbols are missing (EchoInitializeWithPathsV2)."
                 );
             }
 
