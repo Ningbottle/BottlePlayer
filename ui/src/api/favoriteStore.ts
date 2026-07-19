@@ -115,11 +115,19 @@ export function normalizePlaylists(payload: unknown): UserPlaylist[] {
     });
 }
 
-/** 获取用户歌单列表 */
+/**
+ * Fetch the user's playlists. THROWS on network/transport errors so callers
+ * (resolveLikedPlaylist) can distinguish "unavailable" from "no liked playlist".
+ */
+async function fetchUserPlaylists(): Promise<UserPlaylist[]> {
+  const res = await apiGet<any>('/user/playlist', { page: 1, pagesize: 100 });
+  return normalizePlaylists(res);
+}
+
+/** 获取用户歌单列表（对外：网络异常吞为空数组，供 AddToPlaylistModal 等 UI 使用）。 */
 export async function getUserPlaylists(): Promise<UserPlaylist[]> {
   try {
-    const res = await apiGet<any>('/user/playlist', { page: 1, pagesize: 100 });
-    return normalizePlaylists(res);
+    return await fetchUserPlaylists();
   } catch (e) {
     console.error('获取歌单列表失败', e);
     return [];
@@ -255,7 +263,9 @@ async function resolveLikedPlaylist(): Promise<LikedPlaylistInfo | null> {
     }
   }
   // First-migration fallback: locate the liked playlist by name regex.
-  const playlists = await getUserPlaylists();
+  // fetchUserPlaylists THROWS on network errors (vs returning []), so we can
+  // distinguish "offline" from "genuinely no liked playlist".
+  const playlists = await fetchUserPlaylists();
   // Account switched while fetching - do not cache/save under the new user.
   if (epoch !== accountEpoch || userId !== boundUserId) return null;
   const liked = playlists.find((p) => isLikedPlaylistName(p.name));
@@ -366,7 +376,13 @@ async function flushOutbox(): Promise<void> {
     return;
   }
   const snapshotOpIds = new Set(snapshot.map((o) => o.opId));
-  const liked = await resolveLikedPlaylist();
+  let liked: LikedPlaylistInfo | null;
+  try {
+    liked = await resolveLikedPlaylist();
+  } catch {
+    // Network unavailable - can't resolve the liked listid; keep ops for retry.
+    return;
+  }
   if (epoch !== accountEpoch || !liked) return; // switched, or can't replay without the liked listid
   const playlist: UserPlaylist = { id: liked.gid, listid: liked.listid, name: liked.name };
 
@@ -421,10 +437,21 @@ async function setFavorite(track: Track, favorite: boolean): Promise<SetFavorite
   }
 
   const epoch = accountEpoch;
-  const liked = await resolveLikedPlaylist();
+  let liked: LikedPlaylistInfo | null;
+  try {
+    liked = await resolveLikedPlaylist();
+  } catch {
+    // Network error resolving the liked playlist (e.g. first login while
+    // offline, no cached id): queue for replay rather than rolling back, so the
+    // favorite survives and is applied once the liked id resolves.
+    if (epoch === accountEpoch && lastOpId.get(hash) === opId) {
+      enqueueOutboxOp({ opId, fileHash: hash, favorite, track, ts: Date.now() });
+    }
+    return { status: 'pending', favorite };
+  }
   if (epoch !== accountEpoch) return { status: 'pending', favorite }; // account switched
   if (!liked) {
-    // No liked playlist to target: roll back the optimistic change.
+    // Genuinely no liked playlist to target: roll back the optimistic change.
     if (lastOpId.get(hash) === opId) applyFavorite(hash, !favorite);
     return { status: 'failed', favorite, error: '未找到「我喜欢的音乐」歌单' };
   }
@@ -478,9 +505,13 @@ function hydrateLikedPage(tracks: Track[]): void {
 
 async function onLogin(userId: string): Promise<void> {
   if (!userId) return;
-  // New epoch invalidates any in-flight sync from a previous account.
-  accountEpoch += 1;
-  if (boundUserId && boundUserId !== userId) {
+  // Only bump the epoch (invalidating in-flight sync) on an ACTUAL account
+  // switch. Same-account re-login must not bump: otherwise the in-flight
+  // reconcile's finally (epoch mismatch) never releases reconcileInFlight, and
+  // every subsequent reconcile returns the stale promise forever.
+  const switching = !!boundUserId && boundUserId !== userId;
+  if (switching) {
+    accountEpoch += 1;
     resetInMemory();
   }
   boundUserId = userId;
@@ -494,19 +525,19 @@ async function onLogin(userId: string): Promise<void> {
   }
 
   // Migrate anonymous favorites (created while logged out) into this user's
-  // outbox so sync replays them to the liked playlist.
+  // outbox so sync replays them to the liked playlist. Persist the outbox
+  // FIRST, then clear the anonymous source - so a crash/failed write between
+  // them cannot lose the favorites.
   const anon = loadAnonymousFavorites();
-  if (anon.length) {
-    clearAnonymousFavorites();
-    for (const track of anon) {
-      if (!track.FileHash) continue;
-      const opId = ++opCounter;
-      lastOpId.set(track.FileHash, opId);
-      trackArchive.set(track.FileHash, track);
-      applyFavorite(track.FileHash, true); // preliminary until reconcile confirms
-      enqueueOutboxOp({ opId, fileHash: track.FileHash, favorite: true, track, ts: Date.now() });
-    }
+  for (const track of anon) {
+    if (!track.FileHash) continue;
+    const opId = ++opCounter;
+    lastOpId.set(track.FileHash, opId);
+    trackArchive.set(track.FileHash, track);
+    applyFavorite(track.FileHash, true); // preliminary until reconcile confirms
+    enqueueOutboxOp({ opId, fileHash: track.FileHash, favorite: true, track, ts: Date.now() });
   }
+  if (anon.length) clearAnonymousFavorites();
 
   refreshOutboxCount();
   await sync();

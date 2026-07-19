@@ -13,6 +13,7 @@ import {
   favoriteStore,
   __resetFavoriteStoreForTests,
 } from '../favoriteStore';
+import * as favoriteRepository from '../favoriteRepository';
 import { __resetFavoriteRepositoryForTests } from '../favoriteRepository';
 import type { Track } from '../normalizer';
 
@@ -396,6 +397,115 @@ describe('favoriteStore', () => {
 
       expect(favoriteStore.isFavorite('anon1')).toBe(true);
       expect(serverHashes.has('anon1')).toBe(true); // migrated op reached the server
+    });
+
+    it('migrates anonymous favorites to the outbox BEFORE clearing the source', async () => {
+      userStore.isLoggedIn = false;
+      userStore.userId = '';
+      await favoriteStore.setFavorite(mkTrack('anon7', '1'), true);
+
+      // Record the order of outbox writes vs the anonymous-source clear by
+      // spying on the repository namespace (favoriteStore imports these as live
+      // bindings, so the spy intercepts its calls).
+      const order: string[] = [];
+      const origSaveOutbox = favoriteRepository.saveOutbox;
+      const origClearAnon = favoriteRepository.clearAnonymousFavorites;
+      vi.spyOn(favoriteRepository, 'saveOutbox').mockImplementation((uid: string, ops) => {
+        order.push('outbox-write');
+        origSaveOutbox(uid, ops);
+      });
+      vi.spyOn(favoriteRepository, 'clearAnonymousFavorites').mockImplementation(() => {
+        order.push('anon-clear');
+        origClearAnon();
+      });
+
+      userStore.isLoggedIn = true;
+      userStore.userId = 'u1';
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      mockApiPost.mockResolvedValue({ status: 1 });
+      await favoriteStore.onLogin('u1');
+
+      // The outbox must be persisted before the anonymous source is cleared,
+      // so a crash/failed write between them cannot lose the favorites.
+      expect(order).toContain('anon-clear');
+      expect(order.indexOf('outbox-write')).toBeLessThan(order.indexOf('anon-clear'));
+    });
+  });
+
+  describe('re-login safety', () => {
+    it('same-account repeat login does not freeze a subsequent reconcile', async () => {
+      let resolveTracks!: (v: unknown) => void;
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return new Promise((r) => { resolveTracks = r; });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+
+      const first = favoriteStore.onLogin('u1'); // reconcile starts, gated
+      await flushPromises();
+      expect(favoriteStore.reconciling).toBe(true);
+
+      // Same-account re-login while the first reconcile is in flight.
+      const second = favoriteStore.onLogin('u1');
+      await flushPromises();
+
+      // Let the first reconcile finish.
+      resolveTracks({ status: 1, data: { list: [], total: 0 } });
+      await first;
+      await second;
+
+      // The reconcile flag must be released (not frozen by an epoch bump).
+      expect(favoriteStore.reconciling).toBe(false);
+
+      // A subsequent reconcile must actually run (fetch), not return a stale promise.
+      mockApiGet.mockClear();
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/playlist/track/all') return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      await favoriteStore.reconcile();
+      expect(mockApiGet).toHaveBeenCalledWith('/playlist/track/all', expect.anything());
+    });
+  });
+
+  describe('first-login offline favorites', () => {
+    it('enters the outbox as pending when the liked playlist cannot be resolved (offline)', async () => {
+      // Logged in, but /user/playlist is unreachable and no liked id is cached.
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.reject(new Error('network down'));
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      mockApiPost.mockResolvedValue({ status: 1 });
+      await favoriteStore.onLogin('u1'); // reconcile fails to resolve liked; that's fine
+      expect(favoriteStore.getLikedPlaylist()).toBeNull();
+
+      const result = await favoriteStore.setFavorite(mkTrack('off-first', '1'), true);
+      expect(result.status).toBe('pending'); // NOT failed
+      expect(favoriteStore.isFavorite('off-first')).toBe(true); // optimistic retained
+      expect(favoriteStore.pendingOutbox).toBe(1);
+
+      // On reconnect the liked playlist resolves and the queued op replays.
+      const serverHashes = new Set<string>();
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') {
+          const tracks = [...serverHashes].map((h) => mkTrack(h, h));
+          return Promise.resolve({ status: 1, data: { list: tracks, total: tracks.length } });
+        }
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      mockApiPost.mockImplementation((path: string) => {
+        if (path === '/playlist/tracks/add') { serverHashes.add('off-first'); return Promise.resolve({ status: 1 }); }
+        return Promise.resolve({ status: 1 });
+      });
+      await favoriteStore.onOnline();
+      expect(serverHashes.has('off-first')).toBe(true);
+      expect(favoriteStore.pendingOutbox).toBe(0);
     });
   });
 });
