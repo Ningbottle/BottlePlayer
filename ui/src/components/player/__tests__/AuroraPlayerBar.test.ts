@@ -101,6 +101,37 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
   });
 
+  it('opens the quality menu and selects an option without being clipped by the dock', async () => {
+    const handleSelectQuality = vi.fn();
+    const ctrl = createStubController({
+      currentTrack: mkTrack(),
+      quality: '128',
+      showQualityMenu: false,
+      handleSelectQuality,
+    });
+
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: ctrl },
+      attachTo: document.body,
+    });
+
+    // Dock must not use overflow:hidden or the upward quality menu is unusable.
+    const dock = wrapper.get('.aurora-pb');
+    expect(getComputedStyle(dock.element).overflow).not.toBe('hidden');
+
+    await wrapper.get('[data-test="aurora-player-quality"] button').trigger('click');
+    expect(ctrl.showQualityMenu).toBe(true);
+
+    // Re-open with menu forced visible for option click
+    ctrl.showQualityMenu = true;
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="aurora-quality-menu"]').exists()).toBe(true);
+    await wrapper.get('[data-test="aurora-quality-option-320"]').trigger('click');
+    expect(handleSelectQuality).toHaveBeenCalledWith('320');
+
+    wrapper.unmount();
+  });
+
   it('cover click opens the normal lyric page without entering fullscreen', async () => {
     const openLyricView = vi.fn();
     const openLyricImmersion = vi.fn();

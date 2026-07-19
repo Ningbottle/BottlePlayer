@@ -258,17 +258,27 @@ function onRelease(e: MouseEvent) {
         </button>
 
         <transition name="menu-fade">
-          <div v-if="c.showQualityMenu" class="np-pb-q-menu" @click="c.closeQualityMenu">
-            <div
+          <div
+            v-if="c.showQualityMenu"
+            class="np-pb-q-menu"
+            data-test="newsprint-quality-menu"
+            role="listbox"
+            aria-label="音质选项"
+          >
+            <button
               v-for="q in c.qualityOptions"
               :key="q"
+              type="button"
               class="np-pb-q-option"
+              role="option"
+              :aria-selected="c.isCurrentQuality(q)"
               :class="{ active: c.isCurrentQuality(q) }"
-              @click="c.handleSelectQuality(q)"
+              :data-test="`newsprint-quality-option-${q}`"
+              @click.stop="c.handleSelectQuality(q)"
             >
               <span>{{ c.getQualityLabel(q) }}</span>
               <span v-if="c.isCurrentQuality(q)" class="np-pb-q-current">·</span>
-            </div>
+            </button>
           </div>
         </transition>
       </div>
@@ -591,11 +601,17 @@ function onRelease(e: MouseEvent) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   padding: 6px 12px;
+  border: 0;
+  background: transparent;
   cursor: pointer;
   transition: background 0.15s;
+  font: inherit;
   font-size: 12px;
   font-weight: 600;
+  text-align: left;
+  color: inherit;
 }
 
 .np-pb-q-option:hover {

@@ -215,9 +215,15 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   }
 
   function handleSelectQuality(q: string) {
-    if (quality.value === q) return;
-    storeSetQuality(q);
+    if (quality.value === q) {
+      showQualityMenu.value = false;
+      return;
+    }
     showQualityMenu.value = false;
+    // Fire-and-forget; setQuality only commits on success and surfaces errors on the bar.
+    void Promise.resolve(storeSetQuality(q)).catch((e) => {
+      console.error('Quality switch failed', e);
+    });
   }
 
   function closeQualityMenu() {
