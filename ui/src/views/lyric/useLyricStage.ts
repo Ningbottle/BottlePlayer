@@ -153,8 +153,33 @@ export function useLyricStage(): UseLyricStageReturn {
     void nextTick(() => {
       if (!mounted || ownerGeneration !== followGeneration || myToken !== scrollToken) return;
       const el = document.getElementById(`lyric-line-${idx}`);
-      if (el) {
-        el.scrollIntoView({ behavior, block: 'center' });
+      if (!el) return;
+
+      // Prefer scrolling only the lyric list — scrollIntoView(block:center) on the
+      // last lines can drag the whole page up and expose layered shell chrome.
+      const container =
+        typeof (el as HTMLElement).closest === 'function'
+          ? ((el as HTMLElement).closest('.lyric-scroll') as HTMLElement | null)
+          : null;
+      if (
+        container
+        && typeof container.getBoundingClientRect === 'function'
+        && typeof container.scrollTo === 'function'
+      ) {
+        const elRect = el.getBoundingClientRect();
+        const cRect = container.getBoundingClientRect();
+        const elMid =
+          container.scrollTop + (elRect.top - cRect.top) + elRect.height / 2;
+        const target = elMid - cRect.height / 2;
+        const maxScroll = Math.max(0, container.scrollHeight - container.clientHeight);
+        const top = Math.max(0, Math.min(maxScroll, target));
+        container.scrollTo({ top, behavior });
+        return;
+      }
+
+      // Fallback for tests / odd DOM: nearest avoids outer page crawl.
+      if (typeof (el as HTMLElement).scrollIntoView === 'function') {
+        (el as HTMLElement).scrollIntoView({ behavior, block: 'nearest' });
       }
     });
   }

@@ -179,10 +179,12 @@ onUnmounted(() => {
     </template>
   </component>
 
-  <!-- Newsprint keeps top-right overlay; Aurora embeds these under the left-column progress bar -->
+  <!-- Top-right: always show window minimize in lyric fullscreen.
+       Aurora moves exit-fullscreen under the album/progress; Newsprint keeps both here. -->
   <FullscreenWindowControls
-    v-if="lyricFullscreen && themeStore.skinId.value !== 'aurora'"
+    v-if="lyricFullscreen"
     class="fs-controls-overlay"
+    :show-exit="themeStore.skinId.value !== 'aurora'"
   />
 </template>
 

@@ -83,7 +83,7 @@ function onStageDblClick(e: MouseEvent): void {
     target.closest('.lyric-line')
     || target.closest('.aurora-cover')
     || target.closest('.aurora-fs-controls')
-    || target.closest('.aurora-fs-window-controls')
+    || target.closest('.aurora-fs-exit-row')
   ) {
     return;
   }
@@ -421,15 +421,15 @@ onBeforeUnmount(() => {
           @seek="(s: number) => emit('seek', s)"
         />
       </div>
-      <!-- Window min + exit-fs under progress (replaces top-right overlay on Aurora) -->
+      <!-- Exit fullscreen only — under album/progress; window minimize stays top-right -->
       <div
         v-if="model.fullscreen"
-        class="aurora-fs-window-controls"
-        data-test="aurora-fs-window-controls"
+        class="aurora-fs-exit-row"
+        data-test="aurora-fs-exit-row"
         @click.stop
         @dblclick.stop
       >
-        <FullscreenWindowControls />
+        <FullscreenWindowControls :show-minimize="false" :show-exit="true" />
       </div>
     </div>
 
@@ -526,6 +526,8 @@ export default { name: 'AuroraLyricStage' };
 .aurora-lyric-fullscreen {
   min-height: 100vh;
   height: 100vh;
+  max-height: 100vh;
+  overflow: hidden;
   width: 100%;
   gap: clamp(32px, 4vw, 64px);
   padding: clamp(20px, 3vh, 40px) clamp(24px, 3.5vw, 48px) clamp(20px, 3vh, 40px) clamp(28px, 4vw, 64px);
@@ -705,6 +707,8 @@ export default { name: 'AuroraLyricStage' };
   height: 100%;
   overflow-y: auto;
   overflow-x: hidden;
+  /* Keep end-of-song follow from chaining scroll into the page shell */
+  overscroll-behavior: contain;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -899,8 +903,8 @@ export default { name: 'AuroraLyricStage' };
   width: min(36vw, 50vh, 420px);
 }
 
-/* Window minimize + exit-fullscreen: under progress, always available */
-.aurora-fs-window-controls {
+/* Exit-fullscreen only: under album text + progress; minimize stays top-right */
+.aurora-fs-exit-row {
   flex: 0 0 auto;
   width: min(34vw, 46vh, 380px);
   max-width: 100%;
@@ -911,11 +915,11 @@ export default { name: 'AuroraLyricStage' };
   z-index: 2;
 }
 
-.aurora-lyric-fullscreen .aurora-fs-window-controls {
+.aurora-lyric-fullscreen .aurora-fs-exit-row {
   width: min(36vw, 50vh, 420px);
 }
 
-.aurora-fs-window-controls :deep(.fs-controls) {
+.aurora-fs-exit-row :deep(.fs-controls) {
   display: flex;
   gap: 8px;
   justify-content: center;

@@ -23,10 +23,24 @@ describe('FullscreenWindowControls', () => {
     setLyricFullscreen(false);
   });
 
-  it('renders exactly 2 buttons', () => {
+  it('renders exactly 2 buttons by default', () => {
     const wrapper = mount(FullscreenWindowControls);
     expect(wrapper.findAll('button')).toHaveLength(2);
     expect(wrapper.text().trim()).toBe('');
+  });
+
+  it('can hide minimize or exit independently', () => {
+    const minOnly = mount(FullscreenWindowControls, {
+      props: { showMinimize: true, showExit: false },
+    });
+    expect(minOnly.find('[data-test="fs-minimize"]').exists()).toBe(true);
+    expect(minOnly.find('[data-test="fs-exit-fullscreen"]').exists()).toBe(false);
+
+    const exitOnly = mount(FullscreenWindowControls, {
+      props: { showMinimize: false, showExit: true },
+    });
+    expect(exitOnly.find('[data-test="fs-minimize"]').exists()).toBe(false);
+    expect(exitOnly.find('[data-test="fs-exit-fullscreen"]').exists()).toBe(true);
   });
 
   it('has a minimize button with accessible label', () => {

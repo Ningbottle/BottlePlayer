@@ -989,19 +989,22 @@ describe('Aurora lyric focus modes', () => {
     expect(meta.element.contains(controls.element)).toBe(true);
     const metaText = meta.find('.aurora-lyric-track-meta');
     expect(metaText.exists()).toBe(true);
-    const windowControls = fullscreen.find('[data-test="aurora-fs-window-controls"]');
-    expect(windowControls.exists()).toBe(true);
-    expect(meta.element.contains(windowControls.element)).toBe(true);
-    // DOM order: cover → track-meta → transport → window controls
+    const exitRow = fullscreen.find('[data-test="aurora-fs-exit-row"]');
+    expect(exitRow.exists()).toBe(true);
+    expect(meta.element.contains(exitRow.element)).toBe(true);
+    // Exit-fs only under meta (no window-minimize here).
+    expect(exitRow.find('[data-test="fs-exit-fullscreen"]').exists()).toBe(true);
+    expect(exitRow.find('[data-test="fs-minimize"]').exists()).toBe(false);
+    // DOM order: cover → track-meta → transport → exit-fs
     const kids = Array.from(meta.element.children) as HTMLElement[];
     const coverIdx = kids.indexOf(cover.element as HTMLElement);
     const metaIdx = kids.indexOf(metaText.element as HTMLElement);
     const controlsIdx = kids.indexOf(controls.element as HTMLElement);
-    const windowIdx = kids.indexOf(windowControls.element as HTMLElement);
+    const exitIdx = kids.indexOf(exitRow.element as HTMLElement);
     expect(coverIdx).toBeGreaterThanOrEqual(0);
     expect(metaIdx).toBeGreaterThan(coverIdx);
     expect(controlsIdx).toBeGreaterThan(metaIdx);
-    expect(windowIdx).toBeGreaterThan(controlsIdx);
+    expect(exitIdx).toBeGreaterThan(controlsIdx);
     expect(
       fullscreen.find('[data-test="lyric-content-column"] [data-test="aurora-fs-controls"]').exists(),
     ).toBe(false);
