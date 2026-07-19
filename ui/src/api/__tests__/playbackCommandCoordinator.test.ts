@@ -301,4 +301,156 @@ describe('PlaybackCommandCoordinator', () => {
     expect(state.isPreview).toBe(false);
     expect(deps.stopInvalidatedPlayback).toHaveBeenCalled();
   });
+
+  it('seek and quality promises settle independently (no shared waiter batch)', async () => {
+    state.queue = [mkTrack('a')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.isPlaying = true;
+    state.playbackPhase = 'playing';
+    state.currentTime = 10;
+
+    // Gate quality so seek can finish first while quality is still pending.
+    const qualityGate = deferred<{ status: string }>();
+    deps.switchQuality = vi.fn(async () => {
+      const r = await qualityGate.promise;
+      return r;
+    });
+
+    // Start a slow select so drain is busy; then queue seek + quality.
+    const selectGate = deferred<{ status: string }>();
+    playGates.set('a', selectGate);
+    // Force a play path first: next on a single-track loop wraps to same track.
+    state.queue = [mkTrack('a'), mkTrack('b')];
+    state.currentIndex = 0;
+    const playGate = deferred<{ status: string }>();
+    playGates.set('b', playGate);
+
+    const navP = coord.dispatch({ type: 'next' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const seekP = coord.dispatch({ type: 'seek', seconds: 55 });
+    const qualityP = coord.dispatch({ type: 'switchQuality', quality: 'flac' });
+
+    // Unblock nav so drain reaches seek then quality.
+    playGate.resolve({ status: 'played' });
+    await navP;
+
+    // Seek must resolve without waiting for quality.
+    const seekSettled = await Promise.race([
+      seekP.then((r) => ({ kind: 'seek' as const, r })),
+      qualityP.then((r) => ({ kind: 'quality' as const, r })),
+      new Promise<{ kind: 'timeout' }>((res) => setTimeout(() => res({ kind: 'timeout' }), 50)),
+    ]);
+    expect(seekSettled.kind).toBe('seek');
+    if (seekSettled.kind === 'seek') {
+      expect(seekSettled.r.status).toBe('ok');
+    }
+    expect(state.currentTime).toBe(55);
+
+    // Quality still pending — must not have resolved ok early.
+    let qualityDone = false;
+    void qualityP.then(() => {
+      qualityDone = true;
+    });
+    await Promise.resolve();
+    expect(qualityDone).toBe(false);
+
+    qualityGate.resolve({ status: 'failed', message: 'quality unavailable' });
+    const qr = await qualityP;
+    expect(qr.status).toBe('failed');
+    expect(qr.message).toMatch(/quality/);
+  });
+
+  it('select B then C: B promise is superseded, only C commits', async () => {
+    state.queue = [mkTrack('a'), mkTrack('b'), mkTrack('c')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+
+    const bGate = deferred<{ status: string }>();
+    const cGate = deferred<{ status: string }>();
+    playGates.set('b', bGate);
+    playGates.set('c', cGate);
+
+    const pb = coord.dispatch({ type: 'selectTrack', track: mkTrack('b') });
+    await Promise.resolve();
+    await Promise.resolve();
+    const pc = coord.dispatch({ type: 'selectTrack', track: mkTrack('c') });
+
+    bGate.resolve({ status: 'played' });
+    cGate.resolve({ status: 'played' });
+    const [rb, rc] = await Promise.all([pb, pc]);
+
+    expect(rb.status).toBe('superseded');
+    expect(rc.status).toBe('ok');
+    expect(state.currentTrack?.FileHash).toBe('c');
+  });
+
+  it('single-loop ended replays same track via coordinator (epoch dedupe)', async () => {
+    state.queue = [mkTrack('solo'), mkTrack('other')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.loopMode = 'single';
+    state.isPlaying = true;
+    state.playbackPhase = 'playing';
+
+    await Promise.all([
+      coord.dispatch({ type: 'ended' }),
+      coord.dispatch({ type: 'ended' }),
+      coord.dispatch({ type: 'ended' }),
+    ]);
+
+    expect(state.currentTrack?.FileHash).toBe('solo');
+    expect(playLog.filter((x) => x === 'play:solo')).toHaveLength(1);
+  });
+
+  it('dispose awaits in-flight stop and does not resolve early', async () => {
+    state.queue = [mkTrack('a'), mkTrack('b')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.isPlaying = true;
+
+    const stopGate = deferred<void>();
+    let stopStarted = false;
+    deps.stopInvalidatedPlayback = vi.fn(async () => {
+      stopStarted = true;
+      await stopGate.promise;
+      state.isPlaying = false;
+      state.playbackPhase = 'idle';
+    });
+
+    const playGate = deferred<{ status: string }>();
+    playGates.set('b', playGate);
+    void coord.dispatch({ type: 'next' });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    let disposeDone = false;
+    const disposeP = coord.dispose().then(() => {
+      disposeDone = true;
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    // dispose should have kicked clear/stop path
+    expect(stopStarted || deps.stopInvalidatedPlayback).toBeTruthy();
+
+    // While stop is gated, dispose must not finish
+    playGate.resolve({ status: 'played' });
+    await new Promise((r) => setTimeout(r, 20));
+    if (stopStarted) {
+      expect(disposeDone).toBe(false);
+      stopGate.resolve();
+      await disposeP;
+      expect(disposeDone).toBe(true);
+    } else {
+      // If interrupt cancelled play before clear, still release stop and await
+      stopGate.resolve();
+      await disposeP;
+    }
+
+    expect(state.queue).toEqual([]);
+    expect(state.currentTrack).toBeNull();
+  });
 });

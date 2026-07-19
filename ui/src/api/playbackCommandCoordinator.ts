@@ -9,6 +9,9 @@
  * - ended: once per playback epoch
  * - switchQuality: exclusive transaction when drained
  * - togglePlay: after current track intent settles
+ *
+ * Each dispatch Promise is bound to its intent ticket — settling seek must
+ * never resolve a pending quality/select Promise.
  */
 
 import { normalizeTrack, type Track } from './normalizer';
@@ -76,6 +79,11 @@ type Waiter = {
   resolve: (r: PlaybackCommandResult) => void;
 };
 
+type RemoveJob = {
+  index: number;
+  waiter: Waiter;
+};
+
 function clearResiduals(_state: CoordinatorState, patch: CoordinatorDeps['patchState']): void {
   patch({
     errorMsg: '',
@@ -89,10 +97,18 @@ function clearResiduals(_state: CoordinatorState, patch: CoordinatorDeps['patchS
   });
 }
 
+function takeWaiters(bucket: Waiter[]): Waiter[] {
+  const w = bucket.splice(0, bucket.length);
+  return w;
+}
+
+function resolveWaiters(waiters: Waiter[], result: PlaybackCommandResult): void {
+  for (const w of waiters) w.resolve(result);
+}
+
 export class PlaybackCommandCoordinator {
   private deps: CoordinatorDeps;
   private disposed = false;
-  private draining = false;
 
   /** Merged next(+1)/prev(-1) displacement. */
   private navDelta = 0;
@@ -108,10 +124,18 @@ export class PlaybackCommandCoordinator {
     queueMode: QueueMode;
   } | null = null;
   private pendingAdds: Track[] = [];
-  private pendingRemoves: number[] = [];
+  private pendingRemoves: RemoveJob[] = [];
 
-  /** Waiters for the current coalesce generation (resolved when drain finishes a batch). */
-  private waiters: Waiter[] = [];
+  /** Per-intent waiter buckets — never share across command kinds. */
+  private clearWaiters: Waiter[] = [];
+  private playAllWaiters: Waiter[] = [];
+  private selectWaiters: Waiter[] = [];
+  private navWaiters: Waiter[] = [];
+  private seekWaiters: Waiter[] = [];
+  private qualityWaiters: Waiter[] = [];
+  private toggleWaiters: Waiter[] = [];
+  private endedWaiters: Waiter[] = [];
+  private addWaiters: Waiter[] = [];
 
   /** Playback epoch — bumped on clear and successful track commit. */
   private epoch = 0;
@@ -119,6 +143,9 @@ export class PlaybackCommandCoordinator {
   private endedEpochHandled = -1;
   /** Interrupt in-flight play/nav so a newer select/nav/clear can start immediately. */
   private interruptPlay: (() => void) | null = null;
+
+  /** Serialize drain so dispose() can await in-flight work. */
+  private drainTail: Promise<void> = Promise.resolve();
 
   constructor(deps: CoordinatorDeps) {
     this.deps = deps;
@@ -149,15 +176,29 @@ export class PlaybackCommandCoordinator {
     }
 
     return new Promise<PlaybackCommandResult>((resolve) => {
-      this.waiters.push({ resolve });
-      this.ingest(command);
+      this.ingest(command, { resolve });
       void this.scheduleDrain();
     });
   }
 
+  /**
+   * Reliable shutdown: supersede pending intents, barrier-clear, await stop.
+   * Safe to call while a drain is in flight — chains onto the drain tail.
+   */
   async dispose(): Promise<void> {
+    if (this.disposed) {
+      await this.drainTail;
+      return;
+    }
     this.disposed = true;
+    this.bumpInterrupt();
+    this.supersedeMailbox({ status: 'superseded', message: 'coordinator_disposed' });
     this.pendingClear = true;
+    // No external clear waiter; drain still runs barrier stop.
+    await this.scheduleDrain();
+  }
+
+  private supersedeMailbox(result: PlaybackCommandResult): void {
     this.navDelta = 0;
     this.pendingSelect = null;
     this.pendingSeek = null;
@@ -166,105 +207,200 @@ export class PlaybackCommandCoordinator {
     this.pendingEnded = false;
     this.pendingPlayAll = null;
     this.pendingAdds = [];
-    this.pendingRemoves = [];
-    await this.scheduleDrain();
+    const removes = this.pendingRemoves.splice(0);
+    resolveWaiters(takeWaiters(this.navWaiters), result);
+    resolveWaiters(takeWaiters(this.selectWaiters), result);
+    resolveWaiters(takeWaiters(this.seekWaiters), result);
+    resolveWaiters(takeWaiters(this.qualityWaiters), result);
+    resolveWaiters(takeWaiters(this.toggleWaiters), result);
+    resolveWaiters(takeWaiters(this.endedWaiters), result);
+    resolveWaiters(takeWaiters(this.playAllWaiters), result);
+    resolveWaiters(takeWaiters(this.addWaiters), result);
+    for (const job of removes) job.waiter.resolve(result);
   }
 
-  private ingest(command: PlaybackCommand): void {
+  private ingest(command: PlaybackCommand, waiter: Waiter): void {
     switch (command.type) {
       case 'clearQueue':
-        this.pendingClear = true;
-        // Barrier: drop uncommitted intents.
-        this.navDelta = 0;
-        this.pendingSelect = null;
-        this.pendingSeek = null;
-        this.pendingToggle = false;
-        this.pendingQuality = null;
-        this.pendingEnded = false;
-        this.pendingPlayAll = null;
-        this.pendingAdds = [];
-        this.pendingRemoves = [];
         this.bumpInterrupt();
+        this.supersedeMailbox({ status: 'superseded', message: 'cleared' });
+        this.pendingClear = true;
+        this.clearWaiters.push(waiter);
         break;
       case 'next':
-        if (this.pendingClear) break;
-        this.pendingSelect = null; // nav and select compete: nav after select clears select
+        if (this.pendingClear) {
+          waiter.resolve({ status: 'superseded', message: 'cleared' });
+          break;
+        }
+        if (this.pendingSelect) {
+          this.pendingSelect = null;
+          resolveWaiters(takeWaiters(this.selectWaiters), {
+            status: 'superseded',
+            message: 'nav',
+          });
+        }
         this.navDelta += 1;
+        this.navWaiters.push(waiter);
         this.bumpInterrupt();
         break;
       case 'prev':
-        if (this.pendingClear) break;
-        this.pendingSelect = null;
+        if (this.pendingClear) {
+          waiter.resolve({ status: 'superseded', message: 'cleared' });
+          break;
+        }
+        if (this.pendingSelect) {
+          this.pendingSelect = null;
+          resolveWaiters(takeWaiters(this.selectWaiters), {
+            status: 'superseded',
+            message: 'nav',
+          });
+        }
         this.navDelta -= 1;
+        this.navWaiters.push(waiter);
         this.bumpInterrupt();
         break;
       case 'selectTrack':
-        if (this.pendingClear) break;
+        if (this.pendingClear) {
+          waiter.resolve({ status: 'superseded', message: 'cleared' });
+          break;
+        }
+        if (this.navDelta !== 0) {
+          this.navDelta = 0;
+          resolveWaiters(takeWaiters(this.navWaiters), {
+            status: 'superseded',
+            message: 'select',
+          });
+        }
+        // latest-wins: prior select tickets are superseded
+        if (this.pendingSelect) {
+          resolveWaiters(takeWaiters(this.selectWaiters), {
+            status: 'superseded',
+            message: 'latest_select',
+          });
+        }
         this.pendingSelect = normalizeTrack(command.track);
-        this.navDelta = 0; // latest select replaces pending navigation
+        this.selectWaiters.push(waiter);
         this.bumpInterrupt();
         break;
       case 'seek':
-        if (this.pendingClear) break;
+        if (this.pendingClear) {
+          waiter.resolve({ status: 'superseded', message: 'cleared' });
+          break;
+        }
+        // latest-wins: all seek waiters share the final seek result
         this.pendingSeek = command.seconds;
+        this.seekWaiters.push(waiter);
         break;
       case 'togglePlay':
-        if (this.pendingClear) break;
+        if (this.pendingClear) {
+          waiter.resolve({ status: 'superseded', message: 'cleared' });
+          break;
+        }
         this.pendingToggle = !this.pendingToggle;
+        this.toggleWaiters.push(waiter);
         // Cancel in-flight load (toggle-while-loading) without waiting for playUrl.
         if (this.interruptPlay) this.bumpInterrupt();
+        // If toggled back to no-op (double toggle before drain), resolve as noop when drained
         break;
       case 'switchQuality':
-        if (this.pendingClear) break;
+        if (this.pendingClear) {
+          waiter.resolve({ status: 'superseded', message: 'cleared' });
+          break;
+        }
+        if (this.pendingQuality != null) {
+          resolveWaiters(takeWaiters(this.qualityWaiters), {
+            status: 'superseded',
+            message: 'latest_quality',
+          });
+        }
         this.pendingQuality = command.quality;
+        this.qualityWaiters.push(waiter);
         break;
       case 'removeTrack':
-        if (this.pendingClear) break;
-        this.pendingRemoves.push(command.index);
+        if (this.pendingClear) {
+          waiter.resolve({ status: 'superseded', message: 'cleared' });
+          break;
+        }
+        this.pendingRemoves.push({ index: command.index, waiter });
         break;
       case 'ended':
-        if (this.pendingClear) break;
-        if (this.endedEpochHandled === this.epoch) break;
+        if (this.pendingClear) {
+          waiter.resolve({ status: 'superseded', message: 'cleared' });
+          break;
+        }
+        if (this.endedEpochHandled === this.epoch) {
+          waiter.resolve({ status: 'noop' });
+          break;
+        }
         this.pendingEnded = true;
+        this.endedWaiters.push(waiter);
         break;
       case 'playAll':
-        if (this.pendingClear) break;
+        if (this.pendingClear) {
+          waiter.resolve({ status: 'superseded', message: 'cleared' });
+          break;
+        }
+        if (this.pendingPlayAll) {
+          resolveWaiters(takeWaiters(this.playAllWaiters), {
+            status: 'superseded',
+            message: 'latest_playAll',
+          });
+        }
+        // playAll replaces pending select/nav/ended
+        if (this.pendingSelect) {
+          this.pendingSelect = null;
+          resolveWaiters(takeWaiters(this.selectWaiters), {
+            status: 'superseded',
+            message: 'playAll',
+          });
+        }
+        if (this.navDelta !== 0) {
+          this.navDelta = 0;
+          resolveWaiters(takeWaiters(this.navWaiters), {
+            status: 'superseded',
+            message: 'playAll',
+          });
+        }
+        if (this.pendingEnded) {
+          this.pendingEnded = false;
+          resolveWaiters(takeWaiters(this.endedWaiters), {
+            status: 'superseded',
+            message: 'playAll',
+          });
+        }
         this.pendingPlayAll = {
           tracks: command.tracks.map(normalizeTrack),
           startIndex: command.startIndex ?? 0,
           queueMode: command.queueMode ?? 'normal',
         };
-        this.navDelta = 0;
-        this.pendingSelect = null;
-        this.pendingEnded = false;
+        this.playAllWaiters.push(waiter);
+        this.bumpInterrupt();
         break;
       case 'addToQueue':
-        if (this.pendingClear) break;
+        if (this.pendingClear) {
+          waiter.resolve({ status: 'superseded', message: 'cleared' });
+          break;
+        }
         this.pendingAdds.push(normalizeTrack(command.track));
+        this.addWaiters.push(waiter);
         break;
       default:
+        waiter.resolve({ status: 'noop' });
         break;
     }
   }
 
-  private async scheduleDrain(): Promise<void> {
-    if (this.draining) return;
-    this.draining = true;
-    try {
-      // Loop until mailbox empty (new commands may arrive during await).
-      while (!this.disposed && this.hasWork()) {
-        await this.drainOnce();
-      }
-      // If disposed with clear, one more drain for stop.
-      if (this.disposed && this.pendingClear) {
-        await this.drainOnce();
-      }
-    } finally {
-      this.draining = false;
-      // If work arrived after we checked, schedule again.
-      if (!this.disposed && this.hasWork()) {
-        void this.scheduleDrain();
-      }
+  private scheduleDrain(): Promise<void> {
+    this.drainTail = this.drainTail.then(
+      () => this.runDrain(),
+      () => this.runDrain(),
+    );
+    return this.drainTail;
+  }
+
+  private async runDrain(): Promise<void> {
+    while (this.hasWork()) {
+      await this.drainOnce();
     }
   }
 
@@ -276,29 +412,20 @@ export class PlaybackCommandCoordinator {
       || this.pendingAdds.length > 0
       || this.pendingSelect != null
       || this.navDelta !== 0
+      || this.navWaiters.length > 0 // next+prev may cancel to delta 0 with waiters left
       || this.pendingSeek != null
       || this.pendingToggle
+      || this.toggleWaiters.length > 0
       || this.pendingQuality != null
       || this.pendingEnded
     );
   }
 
-  private takeWaiters(): Waiter[] {
-    const w = this.waiters;
-    this.waiters = [];
-    return w;
-  }
-
-  private resolveWaiters(waiters: Waiter[], result: PlaybackCommandResult): void {
-    for (const w of waiters) w.resolve(result);
-  }
-
   private async drainOnce(): Promise<void> {
-    const batchWaiters = this.takeWaiters();
-
     // 1) Barrier clear
     if (this.pendingClear) {
       this.pendingClear = false;
+      const waiters = takeWaiters(this.clearWaiters);
       const seq = this.deps.invalidatePlaybackIntent();
       this.deps.skipSession();
       this.deps.patchState({
@@ -323,7 +450,7 @@ export class PlaybackCommandCoordinator {
       this.deps.saveQueue();
       this.epoch += 1;
       this.endedEpochHandled = this.epoch;
-      this.resolveWaiters(batchWaiters, { status: 'ok' });
+      resolveWaiters(waiters, { status: 'ok' });
       return;
     }
 
@@ -331,6 +458,7 @@ export class PlaybackCommandCoordinator {
     if (this.pendingPlayAll) {
       const job = this.pendingPlayAll;
       this.pendingPlayAll = null;
+      const waiters = takeWaiters(this.playAllWaiters);
       const start = Math.max(0, Math.min(job.startIndex, Math.max(0, job.tracks.length - 1)));
       this.deps.patchState({
         queue: job.tracks,
@@ -344,17 +472,18 @@ export class PlaybackCommandCoordinator {
           this.epoch += 1;
           this.endedEpochHandled = -1;
         }
-        this.resolveWaiters(batchWaiters, r);
+        resolveWaiters(waiters, r);
         return;
       }
-      this.resolveWaiters(batchWaiters, { status: 'ok' });
+      resolveWaiters(waiters, { status: 'ok' });
       return;
     }
 
-    // 3) Adds
+    // 3) Adds (resolve only add tickets)
     if (this.pendingAdds.length) {
       const adds = this.pendingAdds;
       this.pendingAdds = [];
+      const waiters = takeWaiters(this.addWaiters);
       const state = this.deps.getState();
       const queue = [...state.queue];
       for (const t of adds) {
@@ -362,13 +491,16 @@ export class PlaybackCommandCoordinator {
       }
       this.deps.patchState({ queue });
       this.deps.saveQueue();
+      resolveWaiters(waiters, { status: 'ok' });
+      // Continue same drain step only if more work remains; return so loop re-enters.
+      return;
     }
 
-    // 4) Removes (serial, one per drain step for clarity — process all in order)
+    // 4) Removes (serial, one per step — waiter bound to this index)
     if (this.pendingRemoves.length) {
-      const index = this.pendingRemoves.shift()!;
-      await this.applyRemove(index);
-      this.resolveWaiters(batchWaiters, { status: 'ok' });
+      const job = this.pendingRemoves.shift()!;
+      await this.applyRemove(job.index);
+      job.waiter.resolve({ status: 'ok' });
       return;
     }
 
@@ -376,62 +508,74 @@ export class PlaybackCommandCoordinator {
     if (this.pendingSelect) {
       const track = this.pendingSelect;
       this.pendingSelect = null;
+      const waiters = takeWaiters(this.selectWaiters);
       this.navDelta = 0;
+      resolveWaiters(takeWaiters(this.navWaiters), {
+        status: 'superseded',
+        message: 'select',
+      });
       const r = await this.playInterruptible(track);
       if (r.status === 'ok') {
         this.epoch += 1;
         this.endedEpochHandled = -1;
       }
-      this.resolveWaiters(batchWaiters, r);
+      resolveWaiters(waiters, r);
       return;
     }
 
-    // 6) Relative navigation
-    if (this.navDelta !== 0) {
+    // 6) Relative navigation (including net-zero next+prev cancel)
+    if (this.navDelta !== 0 || this.navWaiters.length > 0) {
       const delta = this.navDelta;
       this.navDelta = 0;
+      const waiters = takeWaiters(this.navWaiters);
+      if (delta === 0) {
+        resolveWaiters(waiters, { status: 'ok' });
+        return;
+      }
       const r = await this.applyNav(delta);
       if (r.status === 'ok') {
         this.epoch += 1;
         this.endedEpochHandled = -1;
       }
-      this.resolveWaiters(batchWaiters, r);
+      resolveWaiters(waiters, r);
       return;
     }
 
-    // 7) Seek latest
+    // 7) Seek latest — only seek waiters
     if (this.pendingSeek != null) {
       const sec = this.pendingSeek;
       this.pendingSeek = null;
+      const waiters = takeWaiters(this.seekWaiters);
       await this.deps.seek(sec);
       this.deps.patchState({ currentTime: sec });
-      this.resolveWaiters(batchWaiters, { status: 'ok' });
+      resolveWaiters(waiters, { status: 'ok' });
       return;
     }
 
-    // 8) Quality transaction
+    // 8) Quality transaction — only quality waiters
     if (this.pendingQuality != null) {
       const q = this.pendingQuality;
       this.pendingQuality = null;
+      const waiters = takeWaiters(this.qualityWaiters);
       const before = snapshotPlayback(this.deps.getState());
       try {
         const r = await this.deps.switchQuality(q);
         if (r && typeof r === 'object' && r.status === 'failed') {
           restorePlayback(this.deps, before);
-          this.resolveWaiters(batchWaiters, {
+          resolveWaiters(waiters, {
             status: 'failed',
             message: r.message || 'quality_switch_failed',
           });
           return;
         }
         if (r && typeof r === 'object' && r.status === 'superseded') {
-          this.resolveWaiters(batchWaiters, { status: 'superseded' });
+          resolveWaiters(waiters, { status: 'superseded' });
           return;
         }
-        this.resolveWaiters(batchWaiters, { status: 'ok' });
+        resolveWaiters(waiters, { status: 'ok' });
       } catch (e) {
         restorePlayback(this.deps, before);
-        this.resolveWaiters(batchWaiters, {
+        resolveWaiters(waiters, {
           status: 'failed',
           message: e instanceof Error ? e.message : 'quality_switch_failed',
         });
@@ -439,23 +583,28 @@ export class PlaybackCommandCoordinator {
       return;
     }
 
-    // 9) Toggle play
-    if (this.pendingToggle) {
+    // 9) Toggle play — only toggle waiters (even toggles net to noop)
+    if (this.pendingToggle || this.toggleWaiters.length > 0) {
+      const shouldFlip = this.pendingToggle;
       this.pendingToggle = false;
+      const waiters = takeWaiters(this.toggleWaiters);
+      if (!shouldFlip) {
+        resolveWaiters(waiters, { status: 'noop' });
+        return;
+      }
       const state = this.deps.getState();
       if (!state.currentTrack) {
-        this.resolveWaiters(batchWaiters, { status: 'noop' });
+        resolveWaiters(waiters, { status: 'noop' });
         return;
       }
       if (state.isLoading) {
-        // cancel handled by resume path consumers; treat as pause intent
         const seq = this.deps.invalidatePlaybackIntent();
         await this.deps.stopInvalidatedPlayback(seq);
         this.deps.patchState({
           playbackPhase: 'paused',
           ...flagsFromPhase('paused'),
         });
-        this.resolveWaiters(batchWaiters, { status: 'ok' });
+        resolveWaiters(waiters, { status: 'ok' });
         return;
       }
       if (state.isPlaying) {
@@ -467,15 +616,16 @@ export class PlaybackCommandCoordinator {
       } else {
         await this.deps.resumeOrReload();
       }
-      this.resolveWaiters(batchWaiters, { status: 'ok' });
+      resolveWaiters(waiters, { status: 'ok' });
       return;
     }
 
-    // 10) Ended (once per epoch) — mark epoch handled before await so late ended no-ops
+    // 10) Ended (once per epoch) — only ended waiters
     if (this.pendingEnded) {
       this.pendingEnded = false;
+      const waiters = takeWaiters(this.endedWaiters);
       if (this.endedEpochHandled === this.epoch) {
-        this.resolveWaiters(batchWaiters, { status: 'noop' });
+        resolveWaiters(waiters, { status: 'noop' });
         return;
       }
       const epochAtStart = this.epoch;
@@ -483,16 +633,13 @@ export class PlaybackCommandCoordinator {
       const r = await this.applyNav(1, /* fromEnded */ true);
       if (r.status === 'ok') {
         this.epoch = epochAtStart + 1;
-        // New epoch accepts a future ended; do not mark it handled yet.
         if (this.endedEpochHandled === epochAtStart) {
           this.endedEpochHandled = -1;
         }
       }
-      this.resolveWaiters(batchWaiters, r);
+      resolveWaiters(waiters, r);
       return;
     }
-
-    this.resolveWaiters(batchWaiters, { status: 'noop' });
   }
 
   /**
@@ -516,7 +663,6 @@ export class PlaybackCommandCoordinator {
         interruptPromise,
       ]);
       if (interrupted) {
-        // Keep playPromise running; a newer drain step starts another playTrack.
         void playPromise.catch(() => {});
       }
       return result;
@@ -548,7 +694,6 @@ export class PlaybackCommandCoordinator {
 
     let nextIdx = idx;
     if (loop === 'random' && state.queue.length > 1) {
-      // Apply |delta| random steps for coalesced next/prev storms.
       const steps = Math.abs(delta) || 1;
       for (let s = 0; s < steps; s++) {
         let pick = Math.floor(Math.random() * state.queue.length);
@@ -563,7 +708,6 @@ export class PlaybackCommandCoordinator {
         if (this.deps.appendPersonalFm) {
           const ok = await this.deps.appendPersonalFm();
           if (!ok) return { status: 'noop', message: 'fm_exhausted' };
-          // re-read queue after append
           const q = this.deps.getState().queue;
           nextIdx = Math.min(idx + delta, q.length - 1);
           if (nextIdx < 0 || nextIdx >= q.length) return { status: 'noop' };
@@ -668,8 +812,6 @@ function snapshotPlayback(state: CoordinatorState): PlaybackSnapshot {
 }
 
 function restorePlayback(deps: CoordinatorDeps, snap: PlaybackSnapshot): void {
-  // Phase is source of truth; flags re-derived (snapshot flags kept for tests that
-  // read before phase projection if patch does not reproject).
   deps.patchState({
     currentTime: snap.currentTime,
     duration: snap.duration,

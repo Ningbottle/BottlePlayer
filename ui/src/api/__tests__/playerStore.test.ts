@@ -221,7 +221,8 @@ describe('playerStore integration', () => {
   it('rolls back currentIndex when /song/url fails so the failed track is not persisted as current', async () => {
     // #13: playTrack persisted currentIndex BEFORE the fetch; on failure the
     // bad track stayed as current and got re-persisted, trapping the user.
-    playAll([mkTrack('good')], 0);
+    // playAll is async via coordinator — must await before snapshotting index.
+    await playAll([mkTrack('good')], 0);
     const before = playerStore.currentIndex; // 0
     initPlayerBackend();
 

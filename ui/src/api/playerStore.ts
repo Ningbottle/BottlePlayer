@@ -309,15 +309,10 @@ function handlePlaybackEvent(e: PlaybackEvent) {
     playerStore.errorMsg = '';
   } else if (e.type === 'ended') {
     playSession.onEnded();
-    if (playerStore.loopMode === 'single') {
-      playbackOrchestrator
-        .replaySameTrack()
-        .catch((err) => console.error('single-loop replay failed', err));
-    } else {
-      ensureCoordinator()
-        .dispatch({ type: 'ended' })
-        .catch((err) => console.error('auto-next failed', err));
-    }
+    // All ended paths go through coordinator (incl. single-loop via applyNav fromEnded).
+    ensureCoordinator()
+      .dispatch({ type: 'ended' })
+      .catch((err) => console.error('auto-next failed', err));
   } else if (e.type === 'error' && e.error) {
     playSession.onPause();
     playerStore.errorMsg = e.error;
