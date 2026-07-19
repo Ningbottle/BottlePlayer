@@ -106,6 +106,14 @@ function resolveWaiters(waiters: Waiter[], result: PlaybackCommandResult): void 
   for (const w of waiters) w.resolve(result);
 }
 
+function failMessage(e: unknown, fallback: string): string {
+  return e instanceof Error ? e.message : fallback;
+}
+
+function failedResult(e: unknown, fallback: string): PlaybackCommandResult {
+  return { status: 'failed', message: failMessage(e, fallback) };
+}
+
 export class PlaybackCommandCoordinator {
   private deps: CoordinatorDeps;
   private disposed = false;
@@ -222,16 +230,14 @@ export class PlaybackCommandCoordinator {
   private ingest(command: PlaybackCommand, waiter: Waiter): void {
     switch (command.type) {
       case 'clearQueue':
+        // Barrier cancels only intents already in the mailbox (pre-clear).
+        // Commands submitted after this clear remain queued and run post-stop.
         this.bumpInterrupt();
         this.supersedeMailbox({ status: 'superseded', message: 'cleared' });
         this.pendingClear = true;
         this.clearWaiters.push(waiter);
         break;
       case 'next':
-        if (this.pendingClear) {
-          waiter.resolve({ status: 'superseded', message: 'cleared' });
-          break;
-        }
         if (this.pendingSelect) {
           this.pendingSelect = null;
           resolveWaiters(takeWaiters(this.selectWaiters), {
@@ -241,13 +247,10 @@ export class PlaybackCommandCoordinator {
         }
         this.navDelta += 1;
         this.navWaiters.push(waiter);
-        this.bumpInterrupt();
+        // Interrupt only when not waiting on a clear barrier (post-clear nav waits).
+        if (!this.pendingClear) this.bumpInterrupt();
         break;
       case 'prev':
-        if (this.pendingClear) {
-          waiter.resolve({ status: 'superseded', message: 'cleared' });
-          break;
-        }
         if (this.pendingSelect) {
           this.pendingSelect = null;
           resolveWaiters(takeWaiters(this.selectWaiters), {
@@ -257,13 +260,9 @@ export class PlaybackCommandCoordinator {
         }
         this.navDelta -= 1;
         this.navWaiters.push(waiter);
-        this.bumpInterrupt();
+        if (!this.pendingClear) this.bumpInterrupt();
         break;
       case 'selectTrack':
-        if (this.pendingClear) {
-          waiter.resolve({ status: 'superseded', message: 'cleared' });
-          break;
-        }
         if (this.navDelta !== 0) {
           this.navDelta = 0;
           resolveWaiters(takeWaiters(this.navWaiters), {
@@ -280,33 +279,20 @@ export class PlaybackCommandCoordinator {
         }
         this.pendingSelect = normalizeTrack(command.track);
         this.selectWaiters.push(waiter);
-        this.bumpInterrupt();
+        if (!this.pendingClear) this.bumpInterrupt();
         break;
       case 'seek':
-        if (this.pendingClear) {
-          waiter.resolve({ status: 'superseded', message: 'cleared' });
-          break;
-        }
         // latest-wins: all seek waiters share the final seek result
         this.pendingSeek = command.seconds;
         this.seekWaiters.push(waiter);
         break;
       case 'togglePlay':
-        if (this.pendingClear) {
-          waiter.resolve({ status: 'superseded', message: 'cleared' });
-          break;
-        }
         this.pendingToggle = !this.pendingToggle;
         this.toggleWaiters.push(waiter);
         // Cancel in-flight load (toggle-while-loading) without waiting for playUrl.
-        if (this.interruptPlay) this.bumpInterrupt();
-        // If toggled back to no-op (double toggle before drain), resolve as noop when drained
+        if (!this.pendingClear && this.interruptPlay) this.bumpInterrupt();
         break;
       case 'switchQuality':
-        if (this.pendingClear) {
-          waiter.resolve({ status: 'superseded', message: 'cleared' });
-          break;
-        }
         if (this.pendingQuality != null) {
           resolveWaiters(takeWaiters(this.qualityWaiters), {
             status: 'superseded',
@@ -317,18 +303,10 @@ export class PlaybackCommandCoordinator {
         this.qualityWaiters.push(waiter);
         break;
       case 'removeTrack':
-        if (this.pendingClear) {
-          waiter.resolve({ status: 'superseded', message: 'cleared' });
-          break;
-        }
         this.pendingRemoves.push({ index: command.index, waiter });
         break;
       case 'ended':
-        if (this.pendingClear) {
-          waiter.resolve({ status: 'superseded', message: 'cleared' });
-          break;
-        }
-        if (this.endedEpochHandled === this.epoch) {
+        if (this.endedEpochHandled === this.epoch && !this.pendingEnded) {
           waiter.resolve({ status: 'noop' });
           break;
         }
@@ -336,17 +314,13 @@ export class PlaybackCommandCoordinator {
         this.endedWaiters.push(waiter);
         break;
       case 'playAll':
-        if (this.pendingClear) {
-          waiter.resolve({ status: 'superseded', message: 'cleared' });
-          break;
-        }
         if (this.pendingPlayAll) {
           resolveWaiters(takeWaiters(this.playAllWaiters), {
             status: 'superseded',
             message: 'latest_playAll',
           });
         }
-        // playAll replaces pending select/nav/ended
+        // playAll replaces pending select/nav/ended (not a pending clear barrier)
         if (this.pendingSelect) {
           this.pendingSelect = null;
           resolveWaiters(takeWaiters(this.selectWaiters), {
@@ -354,7 +328,7 @@ export class PlaybackCommandCoordinator {
             message: 'playAll',
           });
         }
-        if (this.navDelta !== 0) {
+        if (this.navDelta !== 0 || this.navWaiters.length > 0) {
           this.navDelta = 0;
           resolveWaiters(takeWaiters(this.navWaiters), {
             status: 'superseded',
@@ -374,13 +348,9 @@ export class PlaybackCommandCoordinator {
           queueMode: command.queueMode ?? 'normal',
         };
         this.playAllWaiters.push(waiter);
-        this.bumpInterrupt();
+        if (!this.pendingClear) this.bumpInterrupt();
         break;
       case 'addToQueue':
-        if (this.pendingClear) {
-          waiter.resolve({ status: 'superseded', message: 'cleared' });
-          break;
-        }
         this.pendingAdds.push(normalizeTrack(command.track));
         this.addWaiters.push(waiter);
         break;
@@ -400,7 +370,12 @@ export class PlaybackCommandCoordinator {
 
   private async runDrain(): Promise<void> {
     while (this.hasWork()) {
-      await this.drainOnce();
+      try {
+        await this.drainOnce();
+      } catch (e) {
+        // Per-command paths should settle waiters; this keeps drainTail alive.
+        console.error('playbackCommandCoordinator drainOnce', e);
+      }
     }
   }
 
@@ -426,31 +401,37 @@ export class PlaybackCommandCoordinator {
     if (this.pendingClear) {
       this.pendingClear = false;
       const waiters = takeWaiters(this.clearWaiters);
-      const seq = this.deps.invalidatePlaybackIntent();
-      this.deps.skipSession();
-      this.deps.patchState({
-        queue: [],
-        currentIndex: -1,
-        currentTrack: null,
-      });
-      clearResiduals(this.deps.getState(), this.deps.patchState);
-      if (this.deps.hasBackend()) {
-        await this.deps.stopInvalidatedPlayback(seq);
-      } else {
-        const audio = this.deps.getState().audio;
-        if (audio) {
-          try {
-            audio.pause();
-            audio.src = '';
-          } catch {
-            /* ignore */
+      try {
+        const seq = this.deps.invalidatePlaybackIntent();
+        this.deps.skipSession();
+        this.deps.patchState({
+          queue: [],
+          currentIndex: -1,
+          currentTrack: null,
+        });
+        clearResiduals(this.deps.getState(), this.deps.patchState);
+        if (this.deps.hasBackend()) {
+          await this.deps.stopInvalidatedPlayback(seq);
+        } else {
+          const audio = this.deps.getState().audio;
+          if (audio) {
+            try {
+              audio.pause();
+              audio.src = '';
+            } catch {
+              /* ignore */
+            }
           }
         }
+        this.deps.saveQueue();
+        this.epoch += 1;
+        this.endedEpochHandled = this.epoch;
+        resolveWaiters(waiters, { status: 'ok' });
+      } catch (e) {
+        this.epoch += 1;
+        this.endedEpochHandled = this.epoch;
+        resolveWaiters(waiters, failedResult(e, 'clear_failed'));
       }
-      this.deps.saveQueue();
-      this.epoch += 1;
-      this.endedEpochHandled = this.epoch;
-      resolveWaiters(waiters, { status: 'ok' });
       return;
     }
 
@@ -459,23 +440,27 @@ export class PlaybackCommandCoordinator {
       const job = this.pendingPlayAll;
       this.pendingPlayAll = null;
       const waiters = takeWaiters(this.playAllWaiters);
-      const start = Math.max(0, Math.min(job.startIndex, Math.max(0, job.tracks.length - 1)));
-      this.deps.patchState({
-        queue: job.tracks,
-        currentIndex: job.tracks.length ? start : -1,
-        queueMode: job.queueMode,
-      });
-      this.deps.saveQueue();
-      if (job.tracks.length) {
-        const r = await this.playInterruptible(job.tracks[start]);
-        if (r.status === 'ok') {
-          this.epoch += 1;
-          this.endedEpochHandled = -1;
+      try {
+        const start = Math.max(0, Math.min(job.startIndex, Math.max(0, job.tracks.length - 1)));
+        this.deps.patchState({
+          queue: job.tracks,
+          currentIndex: job.tracks.length ? start : -1,
+          queueMode: job.queueMode,
+        });
+        this.deps.saveQueue();
+        if (job.tracks.length) {
+          const r = await this.playInterruptible(job.tracks[start]);
+          if (r.status === 'ok') {
+            this.epoch += 1;
+            this.endedEpochHandled = -1;
+          }
+          resolveWaiters(waiters, r);
+          return;
         }
-        resolveWaiters(waiters, r);
-        return;
+        resolveWaiters(waiters, { status: 'ok' });
+      } catch (e) {
+        resolveWaiters(waiters, failedResult(e, 'playAll_failed'));
       }
-      resolveWaiters(waiters, { status: 'ok' });
       return;
     }
 
@@ -484,23 +469,30 @@ export class PlaybackCommandCoordinator {
       const adds = this.pendingAdds;
       this.pendingAdds = [];
       const waiters = takeWaiters(this.addWaiters);
-      const state = this.deps.getState();
-      const queue = [...state.queue];
-      for (const t of adds) {
-        if (!queue.some((q) => q.FileHash === t.FileHash)) queue.push(t);
+      try {
+        const state = this.deps.getState();
+        const queue = [...state.queue];
+        for (const t of adds) {
+          if (!queue.some((q) => q.FileHash === t.FileHash)) queue.push(t);
+        }
+        this.deps.patchState({ queue });
+        this.deps.saveQueue();
+        resolveWaiters(waiters, { status: 'ok' });
+      } catch (e) {
+        resolveWaiters(waiters, failedResult(e, 'add_failed'));
       }
-      this.deps.patchState({ queue });
-      this.deps.saveQueue();
-      resolveWaiters(waiters, { status: 'ok' });
-      // Continue same drain step only if more work remains; return so loop re-enters.
       return;
     }
 
     // 4) Removes (serial, one per step — waiter bound to this index)
     if (this.pendingRemoves.length) {
       const job = this.pendingRemoves.shift()!;
-      await this.applyRemove(job.index);
-      job.waiter.resolve({ status: 'ok' });
+      try {
+        await this.applyRemove(job.index);
+        job.waiter.resolve({ status: 'ok' });
+      } catch (e) {
+        job.waiter.resolve(failedResult(e, 'remove_failed'));
+      }
       return;
     }
 
@@ -514,12 +506,16 @@ export class PlaybackCommandCoordinator {
         status: 'superseded',
         message: 'select',
       });
-      const r = await this.playInterruptible(track);
-      if (r.status === 'ok') {
-        this.epoch += 1;
-        this.endedEpochHandled = -1;
+      try {
+        const r = await this.playInterruptible(track);
+        if (r.status === 'ok') {
+          this.epoch += 1;
+          this.endedEpochHandled = -1;
+        }
+        resolveWaiters(waiters, r);
+      } catch (e) {
+        resolveWaiters(waiters, failedResult(e, 'select_failed'));
       }
-      resolveWaiters(waiters, r);
       return;
     }
 
@@ -532,12 +528,16 @@ export class PlaybackCommandCoordinator {
         resolveWaiters(waiters, { status: 'ok' });
         return;
       }
-      const r = await this.applyNav(delta);
-      if (r.status === 'ok') {
-        this.epoch += 1;
-        this.endedEpochHandled = -1;
+      try {
+        const r = await this.applyNav(delta);
+        if (r.status === 'ok') {
+          this.epoch += 1;
+          this.endedEpochHandled = -1;
+        }
+        resolveWaiters(waiters, r);
+      } catch (e) {
+        resolveWaiters(waiters, failedResult(e, 'nav_failed'));
       }
-      resolveWaiters(waiters, r);
       return;
     }
 
@@ -546,9 +546,13 @@ export class PlaybackCommandCoordinator {
       const sec = this.pendingSeek;
       this.pendingSeek = null;
       const waiters = takeWaiters(this.seekWaiters);
-      await this.deps.seek(sec);
-      this.deps.patchState({ currentTime: sec });
-      resolveWaiters(waiters, { status: 'ok' });
+      try {
+        await this.deps.seek(sec);
+        this.deps.patchState({ currentTime: sec });
+        resolveWaiters(waiters, { status: 'ok' });
+      } catch (e) {
+        resolveWaiters(waiters, failedResult(e, 'seek_failed'));
+      }
       return;
     }
 
@@ -575,10 +579,7 @@ export class PlaybackCommandCoordinator {
         resolveWaiters(waiters, { status: 'ok' });
       } catch (e) {
         restorePlayback(this.deps, before);
-        resolveWaiters(waiters, {
-          status: 'failed',
-          message: e instanceof Error ? e.message : 'quality_switch_failed',
-        });
+        resolveWaiters(waiters, failedResult(e, 'quality_switch_failed'));
       }
       return;
     }
@@ -592,31 +593,35 @@ export class PlaybackCommandCoordinator {
         resolveWaiters(waiters, { status: 'noop' });
         return;
       }
-      const state = this.deps.getState();
-      if (!state.currentTrack) {
-        resolveWaiters(waiters, { status: 'noop' });
-        return;
-      }
-      if (state.isLoading) {
-        const seq = this.deps.invalidatePlaybackIntent();
-        await this.deps.stopInvalidatedPlayback(seq);
-        this.deps.patchState({
-          playbackPhase: 'paused',
-          ...flagsFromPhase('paused'),
-        });
+      try {
+        const state = this.deps.getState();
+        if (!state.currentTrack) {
+          resolveWaiters(waiters, { status: 'noop' });
+          return;
+        }
+        if (state.isLoading) {
+          const seq = this.deps.invalidatePlaybackIntent();
+          await this.deps.stopInvalidatedPlayback(seq);
+          this.deps.patchState({
+            playbackPhase: 'paused',
+            ...flagsFromPhase('paused'),
+          });
+          resolveWaiters(waiters, { status: 'ok' });
+          return;
+        }
+        if (state.isPlaying) {
+          await this.deps.pause();
+          this.deps.patchState({
+            playbackPhase: 'paused',
+            ...flagsFromPhase('paused'),
+          });
+        } else {
+          await this.deps.resumeOrReload();
+        }
         resolveWaiters(waiters, { status: 'ok' });
-        return;
+      } catch (e) {
+        resolveWaiters(waiters, failedResult(e, 'toggle_failed'));
       }
-      if (state.isPlaying) {
-        await this.deps.pause();
-        this.deps.patchState({
-          playbackPhase: 'paused',
-          ...flagsFromPhase('paused'),
-        });
-      } else {
-        await this.deps.resumeOrReload();
-      }
-      resolveWaiters(waiters, { status: 'ok' });
       return;
     }
 
@@ -630,14 +635,18 @@ export class PlaybackCommandCoordinator {
       }
       const epochAtStart = this.epoch;
       this.endedEpochHandled = epochAtStart;
-      const r = await this.applyNav(1, /* fromEnded */ true);
-      if (r.status === 'ok') {
-        this.epoch = epochAtStart + 1;
-        if (this.endedEpochHandled === epochAtStart) {
-          this.endedEpochHandled = -1;
+      try {
+        const r = await this.applyNav(1, /* fromEnded */ true);
+        if (r.status === 'ok') {
+          this.epoch = epochAtStart + 1;
+          if (this.endedEpochHandled === epochAtStart) {
+            this.endedEpochHandled = -1;
+          }
         }
+        resolveWaiters(waiters, r);
+      } catch (e) {
+        resolveWaiters(waiters, failedResult(e, 'ended_failed'));
       }
-      resolveWaiters(waiters, r);
       return;
     }
   }
@@ -649,7 +658,12 @@ export class PlaybackCommandCoordinator {
   private async playInterruptible(
     track: Track,
   ): Promise<PlaybackCommandResult> {
-    const playPromise = this.deps.playTrack(track);
+    const playPromise = this.deps
+      .playTrack(track)
+      .then(
+        (r) => mapPlayResult(r),
+        (e) => failedResult(e, 'play_failed'),
+      );
     let interrupted = false;
     const interruptPromise = new Promise<PlaybackCommandResult>((resolve) => {
       this.interruptPlay = () => {
@@ -658,10 +672,7 @@ export class PlaybackCommandCoordinator {
       };
     });
     try {
-      const result = await Promise.race([
-        playPromise.then((r) => mapPlayResult(r)),
-        interruptPromise,
-      ]);
+      const result = await Promise.race([playPromise, interruptPromise]);
       if (interrupted) {
         void playPromise.catch(() => {});
       }

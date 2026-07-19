@@ -311,7 +311,7 @@ describe('PlaybackCommandCoordinator', () => {
     state.currentTime = 10;
 
     // Gate quality so seek can finish first while quality is still pending.
-    const qualityGate = deferred<{ status: string }>();
+    const qualityGate = deferred<{ status: string; message?: string }>();
     deps.switchQuality = vi.fn(async () => {
       const r = await qualityGate.promise;
       return r;
@@ -403,6 +403,57 @@ describe('PlaybackCommandCoordinator', () => {
 
     expect(state.currentTrack?.FileHash).toBe('solo');
     expect(playLog.filter((x) => x === 'play:solo')).toHaveLength(1);
+  });
+
+  it('seek reject settles dispatch as failed (does not leave waiter pending)', async () => {
+    state.queue = [mkTrack('a')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.isPlaying = true;
+    state.playbackPhase = 'playing';
+
+    deps.seek = vi.fn(async () => {
+      throw new Error('seek_boom');
+    });
+
+    const r = await coord.dispatch({ type: 'seek', seconds: 9 });
+    expect(r.status).toBe('failed');
+    expect(r.message).toMatch(/seek_boom/);
+    // Drain must stay healthy for subsequent commands
+    const r2 = await coord.dispatch({ type: 'seek', seconds: 3 });
+    // second seek still uses rejecting mock
+    expect(r2.status).toBe('failed');
+  });
+
+  it('clearQueue then playAll without await keeps the new queue', async () => {
+    state.queue = [mkTrack('old0'), mkTrack('old1')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.isPlaying = true;
+    state.playbackPhase = 'playing';
+
+    const stopGate = deferred<void>();
+    deps.stopInvalidatedPlayback = vi.fn(async () => {
+      await stopGate.promise;
+    });
+
+    const clearP = coord.dispatch({ type: 'clearQueue' });
+    // Do not await clear — immediately replace queue (real UI fire-and-forget)
+    const playP = coord.dispatch({
+      type: 'playAll',
+      tracks: [mkTrack('n0'), mkTrack('n1')],
+      startIndex: 0,
+    });
+
+    await Promise.resolve();
+    await Promise.resolve();
+    stopGate.resolve();
+    const [cr, pr] = await Promise.all([clearP, playP]);
+
+    expect(cr.status).toBe('ok');
+    expect(pr.status).toBe('ok');
+    expect(state.queue.map((t) => t.FileHash)).toEqual(['n0', 'n1']);
+    expect(state.currentTrack?.FileHash).toBe('n0');
   });
 
   it('dispose awaits in-flight stop and does not resolve early', async () => {

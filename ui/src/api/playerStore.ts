@@ -97,6 +97,18 @@ function audioGlobal(): BottleMusicAudioGlobal {
   return window as unknown as BottleMusicAudioGlobal;
 }
 
+async function disposeCoordinatorInstance(): Promise<void> {
+  const coord = playbackCoordinator;
+  playbackCoordinator = null;
+  if (coord) {
+    try {
+      await coord.dispose();
+    } catch {
+      /* shutdown best-effort */
+    }
+  }
+}
+
 function cleanupCurrentModuleForHmr() {
   initListenerCleanup?.();
   initListenerCleanup = null;
@@ -105,6 +117,8 @@ function cleanupCurrentModuleForHmr() {
   activeBackend = null;
   if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
   closeWebAudioEq();
+  // Fire-and-forget dispose so HMR does not block; drain still serializes stop.
+  void disposeCoordinatorInstance();
 }
 
 function publishPlayerCleanup() {
@@ -485,6 +499,27 @@ export function clearQueue() {
   return readyForPlayback().dispatch({ type: 'clearQueue' });
 }
 
+/**
+ * Production shutdown / HMR seam: await coordinator barrier stop, then drop
+ * media event subscription. Safe to call multiple times.
+ */
+export async function disposePlayerRuntime(): Promise<void> {
+  await disposeCoordinatorInstance();
+  initListenerCleanup?.();
+  initListenerCleanup = null;
+  eventUnsub?.();
+  eventUnsub = null;
+  if (activeBackend) {
+    try {
+      await activeBackend.shutdown();
+    } catch {
+      /* ignore */
+    }
+    activeBackend = null;
+  }
+  closeWebAudioEq();
+}
+
 /** Test-only: reset coordinator between tests. */
 export function __resetPlaybackCoordinatorForTests() {
   playbackCoordinator = null;
@@ -492,3 +527,10 @@ export function __resetPlaybackCoordinatorForTests() {
 }
 
 export type { PlaybackCommand };
+
+// Best-effort shutdown when the shell unloads (cannot await beforeunload).
+if (typeof window !== 'undefined') {
+  window.addEventListener('pagehide', () => {
+    void disposePlayerRuntime();
+  });
+}
