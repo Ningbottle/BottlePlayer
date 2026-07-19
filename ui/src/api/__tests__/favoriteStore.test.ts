@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { flushPromises } from '@vue/test-utils';
 
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
@@ -253,6 +254,148 @@ describe('favoriteStore', () => {
       expect(favoriteStore.isFavorite('lo1')).toBe(false);
       expect(favoriteStore.loaded).toBe(false);
       expect(favoriteStore.getLikedPlaylist()).toBeNull();
+    });
+  });
+
+  describe('account-epoch isolation (no cross-account pollution)', () => {
+    it('discards user A reconcile response after switching to user B', async () => {
+      let resolveATracks!: (v: unknown) => void;
+      mockApiGet.mockImplementation((path: string, query?: Record<string, unknown>) => {
+        if (path === '/user/playlist') {
+          const listid = currentUser === 'uA' ? 'aL' : 'bL';
+          return Promise.resolve(likedPlaylistResponse(listid, currentUser));
+        }
+        if (path === '/playlist/track/all') {
+          const id = String(query?.id ?? '');
+          if (id.includes('aL')) return new Promise((r) => { resolveATracks = r; });
+          if (id.includes('bL')) {
+            return Promise.resolve({ status: 1, data: { list: [mkTrack('b1', '2')], total: 1 } });
+          }
+          return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        }
+        return Promise.resolve({ status: 1, data: {} });
+      });
+
+      currentUser = 'uA';
+      const aLogin = favoriteStore.onLogin('uA'); // A reconcile starts; track fetch pending
+      await flushPromises();
+
+      // Switch to B while A's fetch is in flight.
+      currentUser = 'uB';
+      await favoriteStore.onLogin('uB');
+      expect(favoriteStore.isFavorite('b1')).toBe(true);
+      expect(favoriteStore.isFavorite('a1')).toBe(false);
+
+      // A's response arrives with a1 - must NOT pollute B's state.
+      resolveATracks({ status: 1, data: { list: [mkTrack('a1', '1')], total: 1 } });
+      await aLogin;
+      await flushPromises();
+
+      expect(favoriteStore.isFavorite('a1')).toBe(false);
+      expect(favoriteStore.isFavorite('b1')).toBe(true);
+    });
+
+    it('does not write user A outbox op into user B after a mid-flight switch', async () => {
+      currentUser = 'uA';
+      setupLiked([mkTrack('a1', '1')]);
+      await favoriteStore.onLogin('uA');
+
+      // Start a setFavorite whose add is gated.
+      let resolveAdd!: (v: unknown) => void;
+      mockApiPost.mockImplementation(() => new Promise((r) => { resolveAdd = r; }));
+      const setP = favoriteStore.setFavorite(mkTrack('a1', '1'), false); // unfavorite a1
+      await flushPromises();
+
+      // Switch to B while the del is in flight.
+      currentUser = 'uB';
+      mockApiPost.mockReset();
+      mockApiGet.mockReset();
+      setupLiked([mkTrack('b1', '2')]);
+      await favoriteStore.onLogin('uB');
+      expect(favoriteStore.isFavorite('b1')).toBe(true);
+
+      // A's del resolves with a transport error - must NOT enqueue into B's outbox.
+      resolveAdd(Promise.reject(new Error('network down')));
+      await setP.catch(() => {});
+      await flushPromises();
+
+      expect(favoriteStore.pendingOutbox).toBe(0); // B's outbox untouched
+      expect(favoriteStore.isFavorite('b1')).toBe(true);
+    });
+  });
+
+  describe('outbox concurrency', () => {
+    it('preserves new outbox ops added during a flushOutbox network wait', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') {
+          return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        }
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      await favoriteStore.onLogin('u1');
+
+      // op1 (X) queued offline.
+      mockApiPost.mockRejectedValue(new Error('down'));
+      await favoriteStore.setFavorite(mkTrack('X', '1'), true);
+      expect(favoriteStore.pendingOutbox).toBe(1);
+
+      // flushOutbox: op1's replay is gated.
+      let resolveReplay!: (v: unknown) => void;
+      mockApiPost.mockImplementation(() => new Promise((r) => { resolveReplay = r; }));
+      const flushP = favoriteStore.flushOutbox();
+      await flushPromises();
+
+      // op2 (Y) queued while op1 is mid-replay.
+      mockApiPost.mockImplementation(() => Promise.reject(new Error('down')));
+      await favoriteStore.setFavorite(mkTrack('Y', '2'), true);
+      expect(favoriteStore.pendingOutbox).toBe(2);
+
+      // op1 replay succeeds.
+      resolveReplay({ status: 1 });
+      await flushP;
+
+      // op2 must survive (not overwritten by flushOutbox's snapshot).
+      expect(favoriteStore.pendingOutbox).toBe(1);
+    });
+  });
+
+  describe('anonymous favorites (not logged in)', () => {
+    it('persists anonymous favorites locally and migrates them on login', async () => {
+      userStore.isLoggedIn = false;
+      userStore.userId = '';
+
+      const result = await favoriteStore.setFavorite(mkTrack('anon1', '1'), true);
+      expect(result.status).toBe('anonymous');
+      expect(favoriteStore.isFavorite('anon1')).toBe(true);
+
+      // Simulate a page reload: in-memory state lost, but local persistence survives.
+      __resetFavoriteStoreForTests();
+      expect(favoriteStore.isFavorite('anon1')).toBe(false);
+
+      // Log in: the anonymous favorite migrates to the outbox and is replayed.
+      userStore.isLoggedIn = true;
+      userStore.userId = 'u1';
+      const serverHashes = new Set<string>();
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') {
+          const tracks = [...serverHashes].map((h) => mkTrack(h, h));
+          return Promise.resolve({ status: 1, data: { list: tracks, total: tracks.length } });
+        }
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      mockApiPost.mockImplementation((path: string) => {
+        if (path === '/playlist/tracks/add') {
+          serverHashes.add('anon1');
+          return Promise.resolve({ status: 1 });
+        }
+        return Promise.resolve({ status: 1 });
+      });
+      await favoriteStore.onLogin('u1');
+
+      expect(favoriteStore.isFavorite('anon1')).toBe(true);
+      expect(serverHashes.has('anon1')).toBe(true); // migrated op reached the server
     });
   });
 });

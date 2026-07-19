@@ -267,6 +267,17 @@ describe('usePlayerControls', () => {
     expect(ctrl.isFavorite).toBe(false);
   });
 
+  it('handleFavorite shows a local/pending message (not premature confirmed success) when not logged in', async () => {
+    __resetFavoriteMarkersForTests();
+    mocks.store.currentTrack = mkTrack({ FileHash: 'anon-heart' });
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
+    await ctrl.handleFavorite();
+    expect(ctrl.isFavorite).toBe(true); // local favorite
+    // Must NOT claim confirmed server-side success.
+    expect(ctrl.favoriteMsg).not.toContain('已收藏到「我喜欢的音乐」');
+    expect(ctrl.favoriteMsg.length).toBeGreaterThan(0);
+  });
+
   it('closeAddModal closes the modal', () => {
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
     ctrl.showAddModal = true;

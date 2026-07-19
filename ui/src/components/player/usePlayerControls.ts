@@ -56,7 +56,7 @@ export interface PlayerController {
   openLyricView: () => void;
   /** Open lyric view + fullscreen immersion (explicit fullscreen entry). */
   openLyricImmersion: () => void;
-  handleFavorite: () => void;
+  handleFavorite: () => Promise<void>;
   handleSelectQuality: (q: string) => void;
   closeQualityMenu: () => void;
   closeAddModal: () => void;
@@ -206,17 +206,40 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     setLyricFullscreen(true);
   }
 
-  function handleFavorite() {
+  function messageForFavoriteResult(result: {
+    status: string;
+    favorite: boolean;
+    error?: string;
+  }): string {
+    const on = result.favorite;
+    switch (result.status) {
+      case 'confirmed':
+        return on ? '已收藏到「我喜欢的音乐」' : '已取消收藏';
+      case 'pending':
+        return on ? '已收藏（联网后同步）' : '已取消收藏（联网后同步）';
+      case 'anonymous':
+        return on ? '已收藏到本地（登录后同步）' : '已取消本地收藏';
+      case 'failed':
+        return `${on ? '收藏' : '取消收藏'}失败：${result.error || '未知错误'}`;
+      default:
+        return '';
+    }
+  }
+
+  async function handleFavorite() {
     const track = currentTrack.value;
     if (!track) return;
     // The heart is the explicit favorite toggle: add/remove the track from
     //「我喜欢的音乐」via the shared favoriteStore (optimistic, operation-id
     // guarded; offline ops land in the outbox). This does NOT open the
-    // add-to-playlist modal - that stays available from the search page.
+    // add-to-playlist modal - that stays available from the search page. The
+    // message reflects the actual result (confirmed / pending / anonymous /
+    // failed) rather than claiming success prematurely.
     const nextFav = !isFavorite.value;
-    void favoriteStore.setFavorite(track, nextFav);
-    favoriteMsg.value = nextFav ? '已收藏到「我喜欢的音乐」' : '已取消收藏';
     if (favToastTimer) clearTimeout(favToastTimer);
+    favoriteMsg.value = nextFav ? '收藏中…' : '取消中…';
+    const result = await favoriteStore.setFavorite(track, nextFav);
+    favoriteMsg.value = messageForFavoriteResult(result);
     favToastTimer = setTimeout(() => { favoriteMsg.value = ''; favToastTimer = null; }, 2000);
   }
 

@@ -17,6 +17,10 @@ import {
   clearLegacyMarkers,
   isLegacyMigrated,
   markLegacyMigrated,
+  loadAnonymousFavorites,
+  saveAnonymousFavorite,
+  removeAnonymousFavorite,
+  clearAnonymousFavorites,
   type LikedPlaylistInfo,
   type FavoriteOp,
 } from './favoriteRepository';
@@ -172,6 +176,21 @@ async function fetchAllLikedTracks(gid: string): Promise<Track[]> {
 
 // ── Authoritative favorite state ──
 
+/**
+ * Outcome of a setFavorite call. The UI must surface these distinctly instead
+ * of claiming success before the result is known.
+ * - confirmed: the server accepted the add/del.
+ * - pending: transport error; the op is queued in the outbox for replay.
+ * - anonymous: not logged in; saved to a local anonymous store (migrated on login).
+ * - failed: business failure (server responded with status !== 1, or no liked
+ *   playlist to target); the optimistic state is rolled back.
+ */
+export type SetFavoriteResult =
+  | { status: 'confirmed'; favorite: boolean }
+  | { status: 'pending'; favorite: boolean }
+  | { status: 'anonymous'; favorite: boolean }
+  | { status: 'failed'; favorite: boolean; error: string };
+
 interface FavoriteState {
   /** Authoritative set of favorite FileHashes (liked-playlist membership). */
   hashes: Set<string>;
@@ -190,6 +209,13 @@ const state = reactive<FavoriteState>({
 });
 
 let boundUserId = '';
+/**
+ * Account epoch: bumped on every onLogin/onLogout. Long-running sync ops
+ * capture it at start and verify it before applying any state/repo write, so a
+ * mid-flight account switch can never pollute the new user's favorites or
+ * persisted keys.
+ */
+let accountEpoch = 0;
 let likedPlaylist: LikedPlaylistInfo | null = null;
 /** FileHash -> Track archive for del (fileid lookup) and outbox replay. */
 const trackArchive = new Map<string, Track>();
@@ -214,12 +240,15 @@ function resetInMemory(): void {
   lastOpId.clear();
   opCounter = 0;
   reconcileInFlight = null;
+  boundUserId = '';
 }
 
 async function resolveLikedPlaylist(): Promise<LikedPlaylistInfo | null> {
   if (likedPlaylist) return likedPlaylist;
-  if (boundUserId) {
-    const persisted = loadLikedPlaylist(boundUserId);
+  const epoch = accountEpoch;
+  const userId = boundUserId;
+  if (userId) {
+    const persisted = loadLikedPlaylist(userId);
     if (persisted) {
       likedPlaylist = persisted;
       return likedPlaylist;
@@ -227,11 +256,13 @@ async function resolveLikedPlaylist(): Promise<LikedPlaylistInfo | null> {
   }
   // First-migration fallback: locate the liked playlist by name regex.
   const playlists = await getUserPlaylists();
+  // Account switched while fetching - do not cache/save under the new user.
+  if (epoch !== accountEpoch || userId !== boundUserId) return null;
   const liked = playlists.find((p) => isLikedPlaylistName(p.name));
   if (liked && liked.listid) {
     const info: LikedPlaylistInfo = { gid: liked.id, listid: liked.listid, name: liked.name };
     likedPlaylist = info;
-    if (boundUserId) saveLikedPlaylist(boundUserId, info);
+    if (userId) saveLikedPlaylist(userId, info);
     return info;
   }
   return null;
@@ -240,11 +271,13 @@ async function resolveLikedPlaylist(): Promise<LikedPlaylistInfo | null> {
 async function reconcile(): Promise<void> {
   if (!boundUserId) return;
   if (reconcileInFlight) return reconcileInFlight;
+  const epoch = accountEpoch;
   state.reconciling = true;
   state.lastError = null;
-  reconcileInFlight = (async () => {
+  const promise = (async () => {
     try {
       const liked = await resolveLikedPlaylist();
+      if (epoch !== accountEpoch) return; // account switched mid-fetch
       if (!liked) {
         state.hashes.clear();
         trackArchive.clear();
@@ -252,6 +285,7 @@ async function reconcile(): Promise<void> {
         return;
       }
       const tracks = await fetchAllLikedTracks(liked.gid);
+      if (epoch !== accountEpoch) return; // account switched mid-fetch
       // Rebuild from ground truth.
       state.hashes.clear();
       trackArchive.clear();
@@ -263,12 +297,19 @@ async function reconcile(): Promise<void> {
       }
       state.loaded = true;
     } catch (e) {
-      state.lastError = e instanceof Error ? e.message : String(e);
+      if (epoch === accountEpoch) {
+        state.lastError = e instanceof Error ? e.message : String(e);
+      }
     } finally {
-      state.reconciling = false;
-      reconcileInFlight = null;
+      // Only release the flag if this reconcile still belongs to the current
+      // account epoch; a newer epoch (account switch) owns the flag now.
+      if (epoch === accountEpoch) {
+        state.reconciling = false;
+        reconcileInFlight = null;
+      }
     }
   })();
+  reconcileInFlight = promise;
   return reconcileInFlight;
 }
 
@@ -296,42 +337,63 @@ function dequeueOutboxOp(hash: string, opId: number): void {
 }
 
 /**
+ * Remove only the snapshot ops for `hash` from the CURRENT outbox, preserving
+ * any new ops added during the replay wait (different opIds) and other hashes.
+ * `snapshotOpIds` is the set of opIds captured when this flush started.
+ */
+function removeSnapshotOpsForHash(userId: string, hash: string, snapshotOpIds: Set<number>): void {
+  const current = loadOutbox(userId);
+  const filtered = current.filter(
+    (o) => !(o.fileHash === hash && snapshotOpIds.has(o.opId)),
+  );
+  saveOutbox(userId, filtered);
+  refreshOutboxCount();
+}
+
+/**
  * Replay pending offline operations (compacted to the latest op per hash = net
- * intent). Transport failures keep the op for the next replay; business
- * responses (success or status !== 1) drop the op since the server has
- * authoritative state.
+ * intent at snapshot time). Transport failures keep the op for the next replay;
+ * business responses (success or status !== 1) drop the op since the server has
+ * authoritative state. New ops added during the replay wait are preserved.
  */
 async function flushOutbox(): Promise<void> {
   if (!boundUserId) return;
-  const ops = loadOutbox(boundUserId);
-  if (ops.length === 0) {
+  const epoch = accountEpoch;
+  const userId = boundUserId;
+  const snapshot = loadOutbox(userId);
+  if (snapshot.length === 0) {
     refreshOutboxCount();
     return;
   }
+  const snapshotOpIds = new Set(snapshot.map((o) => o.opId));
   const liked = await resolveLikedPlaylist();
-  if (!liked) return; // can't replay without the liked listid
+  if (epoch !== accountEpoch || !liked) return; // switched, or can't replay without the liked listid
   const playlist: UserPlaylist = { id: liked.gid, listid: liked.listid, name: liked.name };
 
+  // Latest snapshot op per hash = net intent at snapshot time.
   const latestByHash = new Map<string, FavoriteOp>();
-  for (const op of ops) latestByHash.set(op.fileHash, op);
+  for (const op of snapshot) latestByHash.set(op.fileHash, op);
 
-  const failed: FavoriteOp[] = [];
   for (const op of latestByHash.values()) {
+    if (epoch !== accountEpoch) return; // account switched mid-replay
+    let businessFailure = false;
     try {
       const res = op.favorite
         ? await addTrackToPlaylist(playlist, op.track)
         : await removeTrackFromPlaylist(playlist, op.track);
-      if (!res.success) {
-        // Business failure on replay: drop the op; reconcile will re-sync.
-        void reconcile();
-      }
+      businessFailure = !res.success;
     } catch {
-      // Transport error: keep for the next replay.
-      failed.push(op);
+      // Transport error: keep the snapshot ops for this hash for the next replay.
+      continue;
+    }
+    if (epoch !== accountEpoch) return; // account switched while awaiting the adapter
+    // Server responded (success or business failure): drop the snapshot ops for
+    // this hash, preserving any new ops added during the wait.
+    removeSnapshotOpsForHash(userId, op.fileHash, snapshotOpIds);
+    if (businessFailure) {
+      void reconcile();
     }
   }
-  saveOutbox(boundUserId, failed);
-  refreshOutboxCount();
 }
 
 async function sync(): Promise<void> {
@@ -341,19 +403,31 @@ async function sync(): Promise<void> {
   await reconcile();
 }
 
-async function setFavorite(track: Track, favorite: boolean): Promise<void> {
+async function setFavorite(track: Track, favorite: boolean): Promise<SetFavoriteResult> {
   const hash = track?.FileHash;
-  if (!hash) return;
+  if (!hash) return { status: 'failed', favorite, error: '无效曲目' };
 
   const opId = ++opCounter;
   lastOpId.set(hash, opId);
   trackArchive.set(hash, track);
   applyFavorite(hash, favorite); // optimistic, before any await
 
-  if (!boundUserId) return; // not logged in: in-memory only
+  // Not logged in: persist anonymously so it survives a reload and can be
+  // migrated to the liked playlist on login.
+  if (!boundUserId) {
+    if (favorite) saveAnonymousFavorite(track);
+    else removeAnonymousFavorite(hash);
+    return { status: 'anonymous', favorite };
+  }
 
+  const epoch = accountEpoch;
   const liked = await resolveLikedPlaylist();
-  if (!liked) return; // no liked playlist to target
+  if (epoch !== accountEpoch) return { status: 'pending', favorite }; // account switched
+  if (!liked) {
+    // No liked playlist to target: roll back the optimistic change.
+    if (lastOpId.get(hash) === opId) applyFavorite(hash, !favorite);
+    return { status: 'failed', favorite, error: '未找到「我喜欢的音乐」歌单' };
+  }
 
   const playlist: UserPlaylist = { id: liked.gid, listid: liked.listid, name: liked.name };
   try {
@@ -361,23 +435,30 @@ async function setFavorite(track: Track, favorite: boolean): Promise<void> {
       ? await addTrackToPlaylist(playlist, track)
       : await removeTrackFromPlaylist(playlist, track);
 
+    if (epoch !== accountEpoch) return { status: 'pending', favorite }; // account switched
+
     // Only the LATEST op for this hash may confirm state.
     if (lastOpId.get(hash) !== opId) {
       // Stale: a newer op supersedes this. Never relight from an old response.
       dequeueOutboxOp(hash, opId);
-      return;
+      return { status: 'pending', favorite };
     }
     dequeueOutboxOp(hash, opId);
     if (!res.success) {
-      // Business failure on the latest op: re-sync from the server.
+      // Business failure on the latest op: roll back and re-sync from server.
+      applyFavorite(hash, !favorite);
       void reconcile();
+      return { status: 'failed', favorite, error: res.error || '收藏失败' };
     }
+    return { status: 'confirmed', favorite };
   } catch {
     // Transport error (offline / circuit open): persist for replay, but only if
-    // this is still the latest op for the hash (a newer op owns the state).
-    if (lastOpId.get(hash) === opId) {
+    // this is still the latest op for the hash AND the account hasn't switched.
+    if (epoch === accountEpoch && lastOpId.get(hash) === opId) {
       enqueueOutboxOp({ opId, fileHash: hash, favorite, track, ts: Date.now() });
+      return { status: 'pending', favorite };
     }
+    return { status: 'pending', favorite };
   }
 }
 
@@ -397,6 +478,8 @@ function hydrateLikedPage(tracks: Track[]): void {
 
 async function onLogin(userId: string): Promise<void> {
   if (!userId) return;
+  // New epoch invalidates any in-flight sync from a previous account.
+  accountEpoch += 1;
   if (boundUserId && boundUserId !== userId) {
     resetInMemory();
   }
@@ -410,11 +493,27 @@ async function onLogin(userId: string): Promise<void> {
     clearLegacyMarkers();
   }
 
+  // Migrate anonymous favorites (created while logged out) into this user's
+  // outbox so sync replays them to the liked playlist.
+  const anon = loadAnonymousFavorites();
+  if (anon.length) {
+    clearAnonymousFavorites();
+    for (const track of anon) {
+      if (!track.FileHash) continue;
+      const opId = ++opCounter;
+      lastOpId.set(track.FileHash, opId);
+      trackArchive.set(track.FileHash, track);
+      applyFavorite(track.FileHash, true); // preliminary until reconcile confirms
+      enqueueOutboxOp({ opId, fileHash: track.FileHash, favorite: true, track, ts: Date.now() });
+    }
+  }
+
   refreshOutboxCount();
   await sync();
 }
 
 function onLogout(): void {
+  accountEpoch += 1;
   // Keep persisted outbox/liked for the user (they may log back in); only clear
   // in-memory state.
   resetInMemory();
@@ -445,7 +544,7 @@ export const favoriteStore = {
   getLikedPlaylist(): { gid: string; listid: string } | null {
     return likedPlaylist ? { gid: likedPlaylist.gid, listid: likedPlaylist.listid } : null;
   },
-  setFavorite(track: Track, favorite: boolean): Promise<void> {
+  setFavorite(track: Track, favorite: boolean): Promise<SetFavoriteResult> {
     return setFavorite(track, favorite);
   },
   markFavoriteByHash(hash: string, favorite: boolean): void {
@@ -504,6 +603,7 @@ if (typeof window !== 'undefined') {
 
 /** Test-only: reset all in-memory state (does not touch persisted storage). */
 export function __resetFavoriteStoreForTests(): void {
+  accountEpoch += 1; // invalidate any in-flight async from a prior test
   resetInMemory();
 }
 

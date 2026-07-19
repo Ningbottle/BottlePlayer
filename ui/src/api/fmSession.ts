@@ -177,9 +177,18 @@ export async function appendPersonalFmRecommendations(
     }
 
     const existing = new Set(latest.queue.map((track) => track.FileHash).filter(Boolean));
-    const fresh = extractSongList(response)
-      .map(normalizeTrack)
-      .filter((track) => track.FileHash && !existing.has(track.FileHash));
+    // Dedup against the existing queue AND within this response (a single
+    // /personal/fm payload can list the same FileHash more than once).
+    const fresh: Track[] = [];
+    const seenInResponse = new Set<string>();
+    for (const raw of extractSongList(response)) {
+      const track = normalizeTrack(raw);
+      if (!track.FileHash) continue;
+      if (existing.has(track.FileHash)) continue;
+      if (seenInResponse.has(track.FileHash)) continue;
+      seenInResponse.add(track.FileHash);
+      fresh.push(track);
+    }
 
     if (fresh.length === 0) {
       exhausted = true;

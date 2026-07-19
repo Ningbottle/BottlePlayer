@@ -26,6 +26,7 @@ export interface FavoriteOp {
 }
 
 const LEGACY_MARKER_KEY = 'player_favorite_markers';
+const ANON_FAVORITES_KEY = 'bm_fav_anonymous';
 const likedKey = (uid: string) => `bm_fav_liked_${uid}`;
 const outboxKey = (uid: string) => `bm_fav_outbox_${uid}`;
 const legacyMigratedKey = (uid: string) => `bm_fav_legacy_migrated_${uid}`;
@@ -120,6 +121,46 @@ export function markLegacyMigrated(uid: string): void {
   if (!uid) return;
   try {
     localStorage.setItem(legacyMigratedKey(uid), '1');
+  } catch {
+    /* ignore */
+  }
+}
+
+/**
+ * Anonymous favorites (created while logged out). Stored as full tracks so they
+ * can be replayed to the liked playlist after login. Keyed globally (not per-
+ * user) since there is no bound user.
+ */
+export function loadAnonymousFavorites(): Track[] {
+  const parsed = safeParse<unknown>(localStorage.getItem(ANON_FAVORITES_KEY), []);
+  if (!Array.isArray(parsed)) return [];
+  return parsed.filter((v): v is Track => !!v && typeof v === 'object' && !!(v as Track).FileHash);
+}
+
+export function saveAnonymousFavorite(track: Track): void {
+  if (!track?.FileHash) return;
+  const list = loadAnonymousFavorites().filter((t) => t.FileHash !== track.FileHash);
+  list.push(track);
+  try {
+    localStorage.setItem(ANON_FAVORITES_KEY, JSON.stringify(list));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+export function removeAnonymousFavorite(fileHash: string): void {
+  if (!fileHash) return;
+  const list = loadAnonymousFavorites().filter((t) => t.FileHash !== fileHash);
+  try {
+    localStorage.setItem(ANON_FAVORITES_KEY, JSON.stringify(list));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+export function clearAnonymousFavorites(): void {
+  try {
+    localStorage.removeItem(ANON_FAVORITES_KEY);
   } catch {
     /* ignore */
   }

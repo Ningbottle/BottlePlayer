@@ -85,6 +85,29 @@ describe('personal FM session', () => {
     expect(saveQueue).toHaveBeenCalled();
   });
 
+  it('dedups duplicate FileHashes within a single FM response', async () => {
+    const state = makeState({
+      queue: [mkTrack('a'), mkTrack('b')],
+      currentIndex: 1,
+      currentTrack: mkTrack('b'),
+    });
+    // The response lists the same FileHash twice - only one may be appended.
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: {
+        song_list: [
+          { hash: 'c', songname: 'c-one', singername: 'X', duration: 1 },
+          { hash: 'c', songname: 'c-two', singername: 'X', duration: 1 },
+          { hash: 'd', songname: 'd', singername: 'X', duration: 1 },
+        ],
+      },
+    });
+
+    await appendPersonalFmRecommendations({ getState: () => state, saveQueue: vi.fn() });
+
+    expect(state.queue.map((t) => t.FileHash)).toEqual(['a', 'b', 'c', 'd']);
+  });
+
   it('marks the session exhausted when a successful response yields no fresh tracks', async () => {
     const state = makeState({
       queue: [mkTrack('a'), mkTrack('b')],
