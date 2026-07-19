@@ -373,7 +373,24 @@ onBeforeUnmount(() => {
           :is-playing="model.isPlaying"
         />
       </div>
-      <!-- Fullscreen transport: under cover in left column (auto-hide kept) -->
+      <button
+        v-if="!model.fullscreen"
+        type="button"
+        class="aurora-lyric-enter-fullscreen"
+        data-test="lyric-enter-fullscreen"
+        aria-label="进入全屏歌词"
+        title="进入全屏歌词"
+        @click.stop="emit('enter-fullscreen')"
+      >
+        <PhArrowsOutSimple :size="16" weight="bold" aria-hidden="true" />
+      </button>
+      <div class="aurora-lyric-track-meta">
+        <span class="aurora-lyric-kicker">正在播放</span>
+        <h2>{{ model.currentTrack?.SongName }}</h2>
+        <p>{{ model.currentTrack?.SingerName }}</p>
+        <small>{{ model.currentTrack?.AlbumName || '未知专辑' }}</small>
+      </div>
+      <!-- Fullscreen transport: under title/meta text in left column (auto-hide kept) -->
       <div
         v-if="model.fullscreen && model.duration > 0"
         class="aurora-fs-controls"
@@ -401,23 +418,6 @@ onBeforeUnmount(() => {
           :duration="model.duration"
           @seek="(s: number) => emit('seek', s)"
         />
-      </div>
-      <button
-        v-if="!model.fullscreen"
-        type="button"
-        class="aurora-lyric-enter-fullscreen"
-        data-test="lyric-enter-fullscreen"
-        aria-label="进入全屏歌词"
-        title="进入全屏歌词"
-        @click.stop="emit('enter-fullscreen')"
-      >
-        <PhArrowsOutSimple :size="16" weight="bold" aria-hidden="true" />
-      </button>
-      <div class="aurora-lyric-track-meta">
-        <span class="aurora-lyric-kicker">正在播放</span>
-        <h2>{{ model.currentTrack?.SongName }}</h2>
-        <p>{{ model.currentTrack?.SingerName }}</p>
-        <small>{{ model.currentTrack?.AlbumName || '未知专辑' }}</small>
       </div>
     </div>
 
@@ -858,14 +858,14 @@ export default { name: 'AuroraLyricStage' };
   }
 }
 
-/* Fullscreen mini transport: left column, directly under cover (auto-hide). */
+/* Fullscreen mini transport: left column, under title/meta text (auto-hide). */
 .aurora-fs-controls {
   flex: 0 0 auto;
-  /* Match cover width so the bar sits flush under the image */
+  /* Match cover/meta column width so the bar aligns under the text block */
   width: min(34vw, 46vh, 380px);
   max-width: 100%;
   align-self: center;
-  margin-top: 10px;
+  margin-top: 12px;
   margin-bottom: 2px;
   padding: 2px 5px;
   box-sizing: border-box;

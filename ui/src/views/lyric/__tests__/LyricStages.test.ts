@@ -984,9 +984,19 @@ describe('Aurora lyric focus modes', () => {
     expect(controls.attributes('data-visual-weight')).toBe('subtle');
     expect(controls.find('[data-test="aurora-fs-play"], [data-test="aurora-fs-pause"]').exists()).toBe(true);
     expect(controls.findComponent({ name: 'PlayerProgress' }).exists()).toBe(true);
-    // Anchored under cover in the left meta column (not the lyric column).
+    // Anchored under title/meta text in the left column (not under cover, not lyric column).
     expect(meta.element.contains(cover.element)).toBe(true);
     expect(meta.element.contains(controls.element)).toBe(true);
+    const metaText = meta.find('.aurora-lyric-track-meta');
+    expect(metaText.exists()).toBe(true);
+    // DOM order: cover → track-meta → controls
+    const kids = Array.from(meta.element.children) as HTMLElement[];
+    const coverIdx = kids.indexOf(cover.element as HTMLElement);
+    const metaIdx = kids.indexOf(metaText.element as HTMLElement);
+    const controlsIdx = kids.indexOf(controls.element as HTMLElement);
+    expect(coverIdx).toBeGreaterThanOrEqual(0);
+    expect(metaIdx).toBeGreaterThan(coverIdx);
+    expect(controlsIdx).toBeGreaterThan(metaIdx);
     expect(
       fullscreen.find('[data-test="lyric-content-column"] [data-test="aurora-fs-controls"]').exists(),
     ).toBe(false);
