@@ -4,7 +4,7 @@ import { useRoute } from 'vue-router';
 import { check } from '@tauri-apps/plugin-updater';
 import { apiGet } from '../api/backend';
 import { userStore } from '../api/userStore';
-import { normalizePlaylists, UserPlaylist } from '../api/favorite';
+import { normalizePlaylists, type UserPlaylist } from '../api/favoriteStore';
 import { useSkippedVersion, getSkippedVersion } from '../api/skippedVersion';
 import { useThemeStore } from '../api/themeStore';
 

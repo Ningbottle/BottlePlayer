@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { gsap } from 'gsap';
-import { getUserPlaylists, addTrackToPlaylist, UserPlaylist } from '../api/favorite';
+import { addTrackToPlaylist, type UserPlaylist } from '../api/favorite';
+import { getUserPlaylists } from '../api/favoriteStore';
 import { Track } from '../api/normalizer';
 import { userStore } from '../api/userStore';
 import { transitionEnter, transitionLeave } from '../api/motion';
@@ -33,7 +34,14 @@ async function handleSelect(playlist: UserPlaylist) {
   if (!props.track || adding.value) return;
 
   adding.value = playlist.id;
-  const result = await addTrackToPlaylist(playlist, props.track);
+  let result: { success: boolean; error?: string };
+  try {
+    result = await addTrackToPlaylist(playlist, props.track);
+  } catch (e: any) {
+    // addTrackToPlaylist throws on transport errors (offline / circuit open);
+    // surface them as a regular error toast.
+    result = { success: false, error: e?.message || '收藏失败' };
+  }
   adding.value = null;
 
   if (result.success) {
