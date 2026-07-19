@@ -674,4 +674,95 @@ describe('favoriteStore', () => {
       expect(favoriteStore.isFavorite('Q')).toBe(true); // optimistic in-memory state kept
     });
   });
+
+  describe('same-account re-login vs in-flight ops', () => {
+    it('does not clobber an in-flight setFavorite when checkLoginStatus re-fires onLogin', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      // Session 1: offline favorite X -> outbox has op(X, opId=1, true).
+      mockApiPost.mockRejectedValue(new Error('down'));
+      await favoriteStore.onLogin('u1');
+      await favoriteStore.setFavorite(mkTrack('X', '1'), true);
+      expect(favoriteStore.pendingOutbox).toBe(1);
+
+      // Restart.
+      __resetFavoriteStoreForTests();
+
+      // Session 2: onLogin restores the outbox (X=true). add (op1) stays
+      // offline; del will be gated. Distinguish add (query.data) from del (query.fileids).
+      let resolveDel!: (v: unknown) => void;
+      mockApiPost.mockImplementation((_path: string, _body: unknown, query?: Record<string, unknown>) => {
+        if (query && 'fileids' in query) return new Promise((r) => { resolveDel = r; }); // del gated
+        return Promise.reject(new Error('down')); // add stays offline (op1 remains in outbox)
+      });
+      await favoriteStore.onLogin('u1');
+      expect(favoriteStore.isFavorite('X')).toBe(true); // restored
+
+      // Start unfavorite X (opId=2). Gated del.
+      const setP = favoriteStore.setFavorite(mkTrack('X', '1'), false);
+      await flushPromises();
+      expect(favoriteStore.isFavorite('X')).toBe(false); // optimistic
+
+      // Same-account re-login (e.g. VIP claim -> checkLoginStatus) during the
+      // in-flight del. Must NOT re-restore (which would reset X=true, lastOpId=1
+      // and make the opId=2 response look stale).
+      await favoriteStore.onLogin('u1');
+      expect(favoriteStore.isFavorite('X')).toBe(false); // not reset to true
+
+      // The del succeeds on the server.
+      resolveDel({ status: 1 });
+      await setP;
+      await flushPromises();
+
+      // The unfavorite (opId=2) must be confirmed, not discarded as stale.
+      expect(favoriteStore.isFavorite('X')).toBe(false);
+    });
+  });
+
+  describe('sync single-flight', () => {
+    it('concurrent onLogin and onOnline share a single sync (no duplicate submissions)', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      // Session 1: offline favorite -> outbox has op(X, true).
+      mockApiPost.mockRejectedValue(new Error('down'));
+      await favoriteStore.onLogin('u1');
+      await favoriteStore.setFavorite(mkTrack('X', '1'), true);
+
+      // Restart.
+      __resetFavoriteStoreForTests();
+
+      // Session 2: onLogin with a GATED add (flushOutbox replay) so sync stays in flight.
+      let resolveReplay!: (v: unknown) => void;
+      let addCalls = 0;
+      mockApiPost.mockImplementation((_path: string, _body: unknown, query?: Record<string, unknown>) => {
+        if (query && 'data' in query) {
+          addCalls++;
+          return new Promise((r) => { resolveReplay = r; });
+        }
+        return Promise.resolve({ status: 1 });
+      });
+      const loginP = favoriteStore.onLogin('u1');
+      await flushPromises();
+      const callsAfterLogin = addCalls; // flushOutbox replayed op1 once
+      expect(callsAfterLogin).toBe(1);
+
+      // Concurrent onOnline (same account) while sync is in flight.
+      const onlineP = favoriteStore.onOnline();
+      await flushPromises();
+      expect(addCalls).toBe(callsAfterLogin); // no duplicate add call (single-flight)
+
+      resolveReplay({ status: 1 });
+      await loginP;
+      await onlineP;
+      await flushPromises();
+
+      expect(addCalls).toBe(1); // exactly one server submission
+    });
+  });
 });

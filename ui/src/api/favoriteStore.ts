@@ -243,6 +243,13 @@ const lastOpId = new Map<string, number>();
  */
 const pendingIntent = new Map<string, boolean>();
 let reconcileInFlight: Promise<void> | null = null;
+/**
+ * Single-flight for sync(): onLogin / onOnline / visibilitychange can fire
+ * concurrently. Without this, two flushOutbox calls read the same snapshot and
+ * submit duplicate favorite requests. Scoped by account epoch (a switch starts
+ * a fresh flight after resetInFlight clears it).
+ */
+let syncInFlight: Promise<void> | null = null;
 
 function applyFavorite(hash: string, favorite: boolean): void {
   if (favorite) state.hashes.add(hash);
@@ -277,6 +284,7 @@ function resetInMemory(): void {
   pendingIntent.clear();
   opCounter = 0;
   reconcileInFlight = null;
+  syncInFlight = null;
   boundUserId = '';
 }
 
@@ -420,6 +428,11 @@ function restoreOutboxIntent(userId: string): void {
   const compacted = Array.from(latestByHash.values());
   saveOutbox(userId, compacted);
   for (const op of compacted) {
+    // Defensive: don't clobber an in-memory op that is NEWER than the persisted
+    // one (e.g. an in-flight setFavorite that hasn't been persisted). On a clean
+    // bind/switch lastOpId is empty so this never skips.
+    const current = lastOpId.get(op.fileHash);
+    if (current !== undefined && op.opId < current) continue;
     pendingIntent.set(op.fileHash, op.favorite);
     if (op.track?.FileHash) trackArchive.set(op.fileHash, op.track);
     lastOpId.set(op.fileHash, op.opId);
@@ -482,10 +495,22 @@ async function flushOutbox(): Promise<void> {
 }
 
 async function sync(): Promise<void> {
-  // Flush pending offline ops FIRST so the server reflects them before we
-  // re-fetch ground truth.
-  await flushOutbox();
-  await reconcile();
+  if (syncInFlight) return syncInFlight;
+  const epoch = accountEpoch;
+  const promise = (async () => {
+    try {
+      // Flush pending offline ops FIRST so the server reflects them before we
+      // re-fetch ground truth.
+      await flushOutbox();
+      await reconcile();
+    } finally {
+      // Only release if this flight still belongs to the current epoch; a
+      // switch starts a newer flight (resetInMemory already cleared the ref).
+      if (epoch === accountEpoch) syncInFlight = null;
+    }
+  })();
+  syncInFlight = promise;
+  return promise;
 }
 
 async function setFavorite(track: Track, favorite: boolean): Promise<SetFavoriteResult> {
@@ -591,6 +616,7 @@ async function onLogin(userId: string): Promise<void> {
   // reconcile's finally (epoch mismatch) never releases reconcileInFlight, and
   // every subsequent reconcile returns the stale promise forever.
   const switching = !!boundUserId && boundUserId !== userId;
+  const firstBind = !boundUserId;
   if (switching) {
     accountEpoch += 1;
     resetInMemory();
@@ -599,9 +625,13 @@ async function onLogin(userId: string): Promise<void> {
 
   // Restore the persisted outbox into in-memory intent (heart stays lit for
   // pending favorites) and lift opCounter past every persisted opId so new ops
-  // can't collide with replayed snapshot ops. Done before migration + sync so
-  // the migrated ops get higher opIds and sync sees the restored state.
-  restoreOutboxIntent(userId);
+  // can't collide with replayed snapshot ops. Only on a fresh bind or an actual
+  // account switch - a same-account re-login (e.g. VIP claim -> checkLoginStatus)
+  // must NOT re-restore, or it would clobber an in-flight setFavorite's newer
+  // opId/lastOpId and make its response look stale.
+  if (switching || firstBind) {
+    restoreOutboxIntent(userId);
+  }
 
   // One-time legacy marker migration: import the old flat cache as preliminary
   // favorites until reconcile confirms ground truth, then clear it.
