@@ -1,6 +1,7 @@
-// Database WAL mode + RO read-after-write + concurrent access (stability).
-// The Storage Actor serializes all DB access on a dedicated thread, so
-// multi-threaded command submission is safe (no TLS, no concurrent sqlite).
+// Database WAL mode + actor-serialized concurrent access (stability).
+// The Storage Actor serializes all DB access on a dedicated thread.
+// This target must never be built against the JSON fallback: that would
+// turn a SQLite/WAL regression into a false green.
 
 #include <atomic>
 #include <cassert>
@@ -13,6 +14,10 @@
 #include <nlohmann/json.hpp>
 
 #include "echo/storage/Database.h"
+
+#if !defined(ECHO_NATIVE_HAS_SQLITE)
+#error "EchoDatabaseWalConcurrencyTest requires SQLite"
+#endif
 
 #if defined(_MSC_VER)
 #include <crtdbg.h>
@@ -41,7 +46,6 @@ int main() {
   db.Open(path);
   db.Initialize();
 
-#if defined(ECHO_NATIVE_HAS_SQLITE)
   // journal_mode should be WAL after InitializeSchema.
   auto modeRows = db.ExecuteQuery("PRAGMA journal_mode;");
   assert(!modeRows.empty() && !modeRows[0].empty());
@@ -50,7 +54,6 @@ int main() {
     if (c >= 'A' && c <= 'Z') c = static_cast<char>(c - 'A' + 'a');
   }
   assert(mode == "wal");
-#endif
 
   db.SetJson("k", nlohmann::json{{"i", 7}, {"s", "wal-ok"}});
   auto j = db.GetJson("k");

@@ -30,6 +30,7 @@ struct EchoContext {
   // atomic: written without api_rwlock (EchoShutdown), read under shared_lock.
   std::atomic<bool> shutdown{false};
   std::unique_ptr<echo::stats::PlayStatsService> stats;
+  std::string last_error;
 };
 
 static EchoContext& Ctx() {
@@ -74,7 +75,7 @@ static void EnsureInitializedLocked(const char* app_data_dir) {
     if (Ctx().shutdown.load(std::memory_order_acquire)) return;
     if(!Ctx().scheduler.Restart()) {
         Ctx().shutdown.store(true, std::memory_order_release);
-        return;
+        throw std::runtime_error("request scheduler restart failed");
     }
     if(!Ctx().db) {
         Ctx().db = std::make_unique<echo::storage::Database>();
@@ -94,28 +95,55 @@ static void EnsureInitializedLocked(const char* app_data_dir) {
     }
 }
 
-void EchoInitializeWithPaths(const char* app_data_dir) {
+int EchoInitializeWithPathsV2(const char* app_data_dir) {
     std::unique_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     Ctx().shutdown.store(false, std::memory_order_release);  // allow re-init after shutdown
+    Ctx().last_error.clear();
     try {
         EnsureInitializedLocked(app_data_dir);
+        if (!Ctx().api || !Ctx().db || !Ctx().stats) {
+            throw std::runtime_error("backend context is incomplete");
+        }
+        return 0;
     } catch (const std::exception& e) {
         // Never let C++ exceptions cross the extern "C" FFI boundary.
-        // Log and leave Ctx().api null — subsequent requests will get 500.
+        Ctx().last_error = std::string("initialize failed: ") + e.what();
         Ctx().api.reset();
+        Ctx().stats.reset();
         Ctx().db.reset();
+        Ctx().shutdown.store(true, std::memory_order_release);
+        Ctx().scheduler.Shutdown(std::chrono::milliseconds(3000));
+        return 1;
     } catch (...) {
+        Ctx().last_error = "initialize failed: unknown error";
         Ctx().api.reset();
+        Ctx().stats.reset();
         Ctx().db.reset();
+        Ctx().shutdown.store(true, std::memory_order_release);
+        Ctx().scheduler.Shutdown(std::chrono::milliseconds(3000));
+        return 1;
     }
 }
 
-void EchoInitialize() {
-    EchoInitializeWithPaths(nullptr);
+int EchoInitializeV2() {
+    return EchoInitializeWithPathsV2(nullptr);
 }
 
-// Returns the number of abandoned (detached) scheduler workers.
-// Non-zero ⇒ DLL must NOT be unloaded (Rust should forget the Library).
+void EchoInitializeWithPaths(const char* app_data_dir) {
+    (void)EchoInitializeWithPathsV2(app_data_dir);
+}
+
+void EchoInitialize() {
+    (void)EchoInitializeV2();
+}
+
+char* EchoGetLastError() {
+    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+    return const_cast<char*>(_dup_str(Ctx().last_error.c_str()));
+}
+
+// Returns zero only when the DLL is safe to unload. Non-zero means detached
+// workers or lock holders may still execute inside it.
 // See P0-B: drop(_lib) after abandoned workers → use-after-unload.
 int EchoShutdown() {
     // Phase 1: stop accepting new jobs and drain the scheduler with a hard
@@ -154,7 +182,9 @@ int EchoShutdown() {
             std::this_thread::sleep_for(std::chrono::milliseconds(10));
         }
         if (!lock.owns_lock()) {
-            return 0;
+            // A direct C API caller still holds the shared lock. Signal the
+            // loader to retain the DLL mapping just as for an abandoned worker.
+            return 1;
         }
         Ctx().api.reset();
         Ctx().stats.reset();

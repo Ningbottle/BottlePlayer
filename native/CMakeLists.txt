@@ -25,6 +25,8 @@ find_package(httplib CONFIG QUIET)
 find_package(spdlog CONFIG QUIET)
 find_package(wil CONFIG QUIET)
 
+set(ECHO_NATIVE_SQLITE_AVAILABLE FALSE)
+
 add_library(EchoStorage STATIC
   storage/AppPaths.cpp
   storage/ApiCache.cpp
@@ -39,9 +41,11 @@ target_link_libraries(EchoStorage
   PRIVATE crypt32
 )
 if(unofficial-sqlite3_FOUND)
+  set(ECHO_NATIVE_SQLITE_AVAILABLE TRUE)
   target_compile_definitions(EchoStorage PUBLIC ECHO_NATIVE_HAS_SQLITE=1)
   target_link_libraries(EchoStorage PUBLIC unofficial::sqlite3::sqlite3)
 elseif(SQLite3_FOUND)
+  set(ECHO_NATIVE_SQLITE_AVAILABLE TRUE)
   target_compile_definitions(EchoStorage PUBLIC ECHO_NATIVE_HAS_SQLITE=1)
   target_link_libraries(EchoStorage PUBLIC SQLite::SQLite3)
 else()
@@ -195,10 +199,12 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoDatabaseActorLifecycleTest PRIVATE EchoStorage)
   add_test(NAME EchoDatabaseActorLifecycleTest COMMAND EchoDatabaseActorLifecycleTest)
 
-  add_executable(EchoDatabaseWalConcurrencyTest tests/database_wal_concurrency_test.cpp)
-  target_include_directories(EchoDatabaseWalConcurrencyTest PRIVATE include)
-  target_link_libraries(EchoDatabaseWalConcurrencyTest PRIVATE EchoStorage)
-  add_test(NAME EchoDatabaseWalConcurrencyTest COMMAND EchoDatabaseWalConcurrencyTest)
+  if(ECHO_NATIVE_SQLITE_AVAILABLE)
+    add_executable(EchoDatabaseWalConcurrencyTest tests/database_wal_concurrency_test.cpp)
+    target_include_directories(EchoDatabaseWalConcurrencyTest PRIVATE include)
+    target_link_libraries(EchoDatabaseWalConcurrencyTest PRIVATE EchoStorage)
+    add_test(NAME EchoDatabaseWalConcurrencyTest COMMAND EchoDatabaseWalConcurrencyTest)
+  endif()
 
   add_executable(EchoPlayStatsTest tests/play_stats_test.cpp)
   target_include_directories(EchoPlayStatsTest PRIVATE include)
@@ -215,9 +221,21 @@ if(ECHO_NATIVE_BUILD_TESTS)
     EchoHttpClientResilienceTest
     EchoRequestSchedulerResilienceTest
     EchoDatabaseActorLifecycleTest
-    EchoDatabaseWalConcurrencyTest
     EchoPlayStatsTest
   )
+  if(ECHO_NATIVE_SQLITE_AVAILABLE)
+    list(APPEND ECHO_NATIVE_TESTS EchoDatabaseWalConcurrencyTest)
+  endif()
+  # These test binaries use the standard assert macro as their failure
+  # mechanism. Keep assertions enabled even when a Release preset defines
+  # NDEBUG, otherwise CTest can report false greens.
+  foreach(_echo_test IN LISTS ECHO_NATIVE_TESTS)
+    if(MSVC)
+      target_compile_options(${_echo_test} PRIVATE /UNDEBUG)
+    else()
+      target_compile_options(${_echo_test} PRIVATE -UNDEBUG)
+    endif()
+  endforeach()
   # 测试进程也需要找到 vcpkg 的动态库；把 bin 目录临时挂到 PATH，
   # 避免普通 PowerShell/CTest 启动时报 0xc0000135。
   set_tests_properties(${ECHO_NATIVE_TESTS} PROPERTIES

@@ -5,6 +5,7 @@
 #include <cassert>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -199,6 +200,36 @@ int main() {
     assert((*j)["a"] == 1);
     db.Close();
     std::cout << "[ActorLifecycle] reopen ok\n";
+  }
+
+  // ── 7) Failed Open never publishes an accepting actor ──
+  {
+    const auto invalidParent =
+        std::filesystem::temp_directory_path() / "bm-actor-invalid-parent";
+    std::error_code ec;
+    std::filesystem::remove_all(invalidParent, ec);
+    {
+      std::ofstream marker(invalidParent);
+      marker << "not-a-directory";
+    }
+
+    echo::storage::Database db;
+    bool openFailed = false;
+    try {
+      db.Open(invalidParent / "t.db");
+    } catch (...) {
+      openFailed = true;
+    }
+    assert(openFailed);
+    ExpectNotAccepting(db);
+
+    const auto validDir = MakeDbDir("bm-actor-recover-after-open-failure");
+    db.Open(validDir / "t.db");
+    db.Initialize();
+    db.SetJson("recovered", nlohmann::json{{"ok", true}});
+    assert(db.GetJson("recovered").has_value());
+    db.Close();
+    std::cout << "[ActorLifecycle] failed_open_not_published ok\n";
   }
 
   std::cout << "[ActorLifecycle] all ok\n";

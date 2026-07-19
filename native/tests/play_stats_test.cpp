@@ -6,6 +6,7 @@
 #include <cmath>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 #include <string>
 
@@ -47,10 +48,29 @@ int main() {
   _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
 #endif
 
+  const auto invalidDataDir =
+      std::filesystem::temp_directory_path() / L"bottlemusic-init-failure-file";
+  std::filesystem::remove_all(invalidDataDir);
+  {
+    std::ofstream marker(invalidDataDir);
+    marker << "not-a-directory";
+  }
+
+  const auto invalidPathUtf8 = invalidDataDir.string();
+  const int invalidInitStatus = EchoInitializeWithPathsV2(invalidPathUtf8.c_str());
+  assert(invalidInitStatus != 0);
+  char* initError = EchoGetLastError();
+  assert(initError != nullptr);
+  assert(std::string(initError).find("initialize") != std::string::npos);
+  EchoFreeString(initError);
+  const int failedInitShutdownStatus = EchoShutdown();
+  assert(failedInitShutdownStatus == 0);
+
   const auto testDir = TestDirPath(L"bottlemusic-playstats-test");
   std::cout << "[PlayStatsTest] test dir: " << testDir.string() << std::endl;
 
-  EchoInitializeWithPaths(testDir.string().c_str());
+  const int initStatus = EchoInitializeWithPathsV2(testDir.string().c_str());
+  assert(initStatus == 0);
 
   // ── Seed data ────────────────────────────────────────────────────────
   // 6 counted plays across 2 days, 3 songs, 2 artists, 2 albums.

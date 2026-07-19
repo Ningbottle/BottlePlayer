@@ -135,10 +135,6 @@ void Database::StartActor() {
         {
           std::lock_guard<std::mutex> lk(queue_mutex_);
           actor_tid_ = std::this_thread::get_id();
-          // Do not clobber Closing if Close raced during Starting.
-          if (state_ == ActorState::Starting) {
-            state_ = ActorState::Open;
-          }
         }
         queue_cv_.notify_all();
         try {
@@ -253,7 +249,45 @@ void Database::Open(const std::filesystem::path& path) {
   Close();
   StartActor();
   const auto p = path;
-  Submit([this, p] { OpenLocked(p); });
+  auto opened = std::make_shared<std::promise<void>>();
+  auto openedFuture = opened->get_future();
+  {
+    std::lock_guard<std::mutex> lock(queue_mutex_);
+    if (state_ != ActorState::Starting) {
+      throw std::runtime_error("database_not_accepting");
+    }
+    task_queue_.emplace([this, p, opened] {
+      try {
+        OpenLocked(p);
+        {
+          std::lock_guard<std::mutex> lock(queue_mutex_);
+          if (state_ != ActorState::Starting) {
+            throw std::runtime_error("database_not_accepting");
+          }
+          state_ = ActorState::Open;
+        }
+        opened->set_value();
+      } catch (...) {
+        try {
+          CloseLocked();
+        } catch (...) {
+        }
+        {
+          std::lock_guard<std::mutex> lock(queue_mutex_);
+          if (state_ == ActorState::Starting) {
+            state_ = ActorState::Failed;
+          }
+        }
+        try {
+          opened->set_exception(std::current_exception());
+        } catch (...) {
+        }
+        queue_cv_.notify_all();
+      }
+    });
+  }
+  queue_cv_.notify_one();
+  openedFuture.get();
 }
 
 void Database::Initialize() {
