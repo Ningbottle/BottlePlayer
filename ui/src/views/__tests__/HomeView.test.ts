@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import HomeView from '../HomeView.vue';
-import { playPersonalFm, playTrack, playerStore } from '../../api/playerStore';
+import { playAll, playPersonalFm, playTrack, playerStore } from '../../api/playerStore';
 import { __resetHomeFeedForTest } from '../../api/homeFeedStore';
 
 const mockApiGet = vi.fn();
@@ -59,7 +59,7 @@ describe('HomeView sections', () => {
     expect(wrapper.text()).toContain('Test PL');
   });
 
-  it('labels everyday recommendations clearly and plays them from the hero CTA', async () => {
+  it('labels everyday recommendations clearly and plays them from the hero CTA via playAll (normal queue, not personal FM)', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/everyday/recommend') {
         return Promise.resolve({
@@ -95,16 +95,19 @@ describe('HomeView sections', () => {
 
     await wrapper.get('button.play-cta').trigger('click');
 
-    expect(playPersonalFm).toHaveBeenCalledWith(
+    // Daily Picks are a refreshable snapshot played as a NORMAL queue.
+    // They must NOT enter the personal-FM session.
+    expect(playAll).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ FileHash: 'daily-1', SongName: '不只是场梦' }),
         expect.objectContaining({ FileHash: 'daily-2', SongName: '无聊' }),
       ]),
       0,
     );
+    expect(playPersonalFm).not.toHaveBeenCalled();
   });
 
-  it('plays a daily-rail row via personal FM (rail is 每日推荐, not playback queue)', async () => {
+  it('plays a daily-rail row via playAll as a normal queue (rail is 每日推荐, not an FM session)', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/everyday/recommend') {
         return Promise.resolve({
@@ -131,13 +134,52 @@ describe('HomeView sections', () => {
 
     await wrapper.get('[data-test="queue-track-daily-1"]').trigger('click');
 
-    expect(playPersonalFm).toHaveBeenCalledWith(
+    expect(playAll).toHaveBeenCalledWith(
       expect.arrayContaining([
         expect.objectContaining({ FileHash: 'daily-1' }),
         expect.objectContaining({ FileHash: 'daily-2' }),
       ]),
       0,
     );
+    expect(playPersonalFm).not.toHaveBeenCalled();
+    expect(playTrack).not.toHaveBeenCalled();
+  });
+
+  it('refreshing daily recommendations does not touch the playback queue or invoke playback', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/everyday/recommend') {
+        return Promise.resolve({
+          status: 1,
+          data: {
+            data: {
+              song_list: [
+                { FileHash: 'daily-1', SongName: 'Daily', SingerName: 'Artist', Duration: 180 },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({
+        status: 1,
+        data: {
+          data: { info: [{ specialid: 1, specialname: 'PL', nickname: 'T', imgurl: '', playcount: 0 }] },
+        },
+      });
+    });
+
+    const queueBefore = playerStore.queue;
+    const wrapper = mount(HomeView);
+    await flushPromises();
+
+    // Trigger a refresh of the daily snapshot.
+    await wrapper.get('[data-test="refresh"]').trigger('click');
+    await flushPromises();
+
+    // Daily Picks are a refreshable snapshot: refreshing must not mutate the
+    // current playback queue nor start any playback.
+    expect(playerStore.queue).toBe(queueBefore);
+    expect(playAll).not.toHaveBeenCalled();
+    expect(playPersonalFm).not.toHaveBeenCalled();
     expect(playTrack).not.toHaveBeenCalled();
   });
 
