@@ -209,6 +209,9 @@ export class PlaybackCommandCoordinator {
   /**
    * HMR / module-replace: drop the mailbox and stop accepting commands without
    * running clear barrier, pause, or emptying the shared <audio> element.
+   *
+   * Also invalidates the orchestrator transitionSeq so an in-flight resolve
+   * cannot proceed to playUrl on the shared element after this module dies.
    */
   async detach(): Promise<void> {
     if (this.disposed) {
@@ -217,6 +220,12 @@ export class PlaybackCommandCoordinator {
     }
     this.disposed = true;
     this.bumpInterrupt();
+    // Pure invalidate — no stop — so late switchTrack cannot commit media.
+    try {
+      this.deps.invalidatePlaybackIntent();
+    } catch {
+      /* ignore */
+    }
     this.supersedeMailbox({ status: 'superseded', message: 'coordinator_detached' });
     // Drop any barrier that was mid-flight so drain does not stop media.
     this.pendingClear = false;

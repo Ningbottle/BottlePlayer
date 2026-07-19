@@ -1234,6 +1234,59 @@ describe('playerStore integration', () => {
     expect(playerStore.audio!.src).toBe(srcBefore);
   });
 
+  it('HMR cleanup invalidates in-flight resolve so stale playUrl never runs', async () => {
+    // Delay /song/url until after HMR detach; orphan switchTrack must not playUrl.
+    initPlayer();
+    initPlayerBackend();
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    let releaseResolve!: () => void;
+    const resolveGate = new Promise<void>((resolve) => {
+      releaseResolve = resolve;
+    });
+    let resolveEntered = false;
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'stats_record_play') return '';
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/x';
+      // Gate URL resolve (native_request /song/url)
+      resolveEntered = true;
+      await resolveGate;
+      return JSON.stringify({
+        status: 200,
+        headers: {},
+        body: { status: 1, url: 'http://127.0.0.1:17631/audio/stale-after-hmr' },
+      });
+    });
+
+    const backend = __getActiveBackend()!;
+    const playUrlSpy = vi.spyOn(backend, 'playUrl');
+
+    const track = mkTrack('hmr-stale-resolve');
+    track.Image = 'http://img/';
+    const playP = playTrack(track);
+
+    await vi.waitFor(() => expect(resolveEntered).toBe(true));
+    expect(playUrlSpy).not.toHaveBeenCalled();
+
+    const cleanup = (window as any).__bottlemusic_player_cleanup__ as (() => void) | undefined;
+    expect(cleanup).toEqual(expect.any(Function));
+    cleanup!();
+
+    releaseResolve();
+    await Promise.allSettled([playP]);
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(
+      playUrlSpy,
+      'after HMR detach, late URL resolve must not start playUrl on shared audio',
+    ).not.toHaveBeenCalled();
+
+    const audio = playerStore.audio!;
+    // Should not have been loaded with the stale URL
+    expect(audio.src).not.toContain('stale-after-hmr');
+  });
+
   it('syncs playing state from a reused audio element after HMR', () => {
     const oldAudio = document.createElement('audio') as HTMLAudioElement;
     oldAudio.src = 'http://127.0.0.1:17631/audio/hmr-playing';

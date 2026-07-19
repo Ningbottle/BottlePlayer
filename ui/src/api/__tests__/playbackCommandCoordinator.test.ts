@@ -464,6 +464,8 @@ describe('PlaybackCommandCoordinator', () => {
 
     const stop = vi.fn(async () => {});
     deps.stopInvalidatedPlayback = stop;
+    let seq = 1;
+    deps.invalidatePlaybackIntent = vi.fn(() => ++seq);
 
     const gate = deferred<{ status: string }>();
     playGates.set('b', gate);
@@ -476,8 +478,8 @@ describe('PlaybackCommandCoordinator', () => {
 
     expect(r.status).toBe('superseded');
     expect(stop, 'detach must not barrier-stop backend').not.toHaveBeenCalled();
+    expect(deps.invalidatePlaybackIntent, 'detach must invalidate orchestrator epoch').toHaveBeenCalled();
     expect(state.queue.length).toBe(2);
-    // Orphan play may still settle later; detach must not clear the queue.
     gate.resolve({ status: 'played' });
   });
 

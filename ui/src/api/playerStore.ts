@@ -127,11 +127,12 @@ function cleanupCurrentModuleForHmr() {
   initListenerCleanup = null;
   eventUnsub?.();
   eventUnsub = null;
+  // Detach first (invalidate orchestrator) while backend ref still exists for
+  // any in-flight path that needs consistent deps; do not barrier-stop audio.
+  detachCoordinatorForHmr();
   activeBackend = null;
   if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
   closeWebAudioEq();
-  // Detach only — preserve shared <audio> for the next module instance.
-  detachCoordinatorForHmr();
 }
 
 function publishPlayerCleanup() {
