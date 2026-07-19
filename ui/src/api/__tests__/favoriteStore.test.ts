@@ -412,7 +412,7 @@ describe('favoriteStore', () => {
       const origClearAnon = favoriteRepository.clearAnonymousFavorites;
       vi.spyOn(favoriteRepository, 'saveOutbox').mockImplementation((uid: string, ops) => {
         order.push('outbox-write');
-        origSaveOutbox(uid, ops);
+        return origSaveOutbox(uid, ops);
       });
       vi.spyOn(favoriteRepository, 'clearAnonymousFavorites').mockImplementation(() => {
         order.push('anon-clear');
@@ -506,6 +506,85 @@ describe('favoriteStore', () => {
       await favoriteStore.onOnline();
       expect(serverHashes.has('off-first')).toBe(true);
       expect(favoriteStore.pendingOutbox).toBe(0);
+    });
+  });
+
+  describe('reconcile vs concurrent optimistic intent', () => {
+    it('preserves a favorite made during the reconcile fetch (stale snapshot does not clobber)', async () => {
+      let resolveTracks!: (v: unknown) => void;
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return new Promise((r) => { resolveTracks = r; });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      mockApiPost.mockResolvedValue({ status: 1 }); // addTrackToPlaylist succeeds
+
+      // Start onLogin; its reconcile blocks on the gated track fetch.
+      const loginP = favoriteStore.onLogin('u1');
+      await flushPromises();
+
+      // During the reconcile wait, favorite X (online, succeeds).
+      await favoriteStore.setFavorite(mkTrack('X', '1'), true);
+      expect(favoriteStore.isFavorite('X')).toBe(true);
+
+      // The stale snapshot (taken before the add reached the server) lacks X.
+      resolveTracks({ status: 1, data: { list: [], total: 0 } });
+      await loginP;
+      await flushPromises();
+
+      // X must survive the stale reconcile.
+      expect(favoriteStore.isFavorite('X')).toBe(true);
+    });
+
+    it('preserves an offline (outbox) favorite made during the reconcile fetch', async () => {
+      let resolveTracks!: (v: unknown) => void;
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return new Promise((r) => { resolveTracks = r; });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+
+      const loginP = favoriteStore.onLogin('u1');
+      await flushPromises();
+
+      // setFavorite is offline -> enqueued to outbox (pending intent).
+      mockApiPost.mockRejectedValue(new Error('down'));
+      await favoriteStore.setFavorite(mkTrack('Y', '2'), true);
+      expect(favoriteStore.isFavorite('Y')).toBe(true);
+
+      // Stale snapshot lacks Y.
+      resolveTracks({ status: 1, data: { list: [], total: 0 } });
+      await loginP;
+      await flushPromises();
+
+      // Y must survive (outbox intent preserved over the stale snapshot).
+      expect(favoriteStore.isFavorite('Y')).toBe(true);
+      expect(favoriteStore.pendingOutbox).toBe(1);
+    });
+  });
+
+  describe('anonymous migration write-failure safety', () => {
+    it('does not clear the anonymous source when the outbox write fails', async () => {
+      userStore.isLoggedIn = false;
+      userStore.userId = '';
+      await favoriteStore.setFavorite(mkTrack('anonQ', '1'), true);
+      expect(favoriteRepository.loadAnonymousFavorites()).toHaveLength(1);
+
+      // Simulate quota / private-mode: saveOutbox reports failure.
+      vi.spyOn(favoriteRepository, 'saveOutbox').mockReturnValue(false);
+
+      userStore.isLoggedIn = true;
+      userStore.userId = 'u1';
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      mockApiPost.mockResolvedValue({ status: 1 });
+      await favoriteStore.onLogin('u1');
+
+      // The anonymous source must still be present (write failed -> not cleared).
+      expect(favoriteRepository.loadAnonymousFavorites()).toHaveLength(1);
     });
   });
 });

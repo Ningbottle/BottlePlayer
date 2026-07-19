@@ -230,11 +230,35 @@ const trackArchive = new Map<string, Track>();
 let opCounter = 0;
 /** Per-hash latest operation id; an older response must not relight the heart. */
 const lastOpId = new Map<string, number>();
+/**
+ * Per-hash intended favorite state for ops not yet reflected in a server
+ * snapshot we've seen (in-flight API call, queued outbox op, or
+ * confirmed-but-not-yet-reconciled). reconcile re-applies this on top of the
+ * server snapshot so a stale fetch can't clobber a concurrent setFavorite, then
+ * clears entries the server agrees with.
+ */
+const pendingIntent = new Map<string, boolean>();
 let reconcileInFlight: Promise<void> | null = null;
 
 function applyFavorite(hash: string, favorite: boolean): void {
   if (favorite) state.hashes.add(hash);
   else state.hashes.delete(hash);
+}
+
+/**
+ * Re-apply pending optimistic intent on top of a freshly-fetched server
+ * snapshot, then drop entries the server has caught up to. Called only when
+ * the account epoch is unchanged.
+ */
+function reapplyIntent(serverHashes: Set<string>): void {
+  for (const [hash, fav] of pendingIntent) {
+    if (fav) state.hashes.add(hash);
+    else state.hashes.delete(hash);
+    if (serverHashes.has(hash) === fav) {
+      // Server agrees -> the op is resolved; stop overriding future reconciles.
+      pendingIntent.delete(hash);
+    }
+  }
 }
 
 function resetInMemory(): void {
@@ -246,6 +270,7 @@ function resetInMemory(): void {
   likedPlaylist = null;
   trackArchive.clear();
   lastOpId.clear();
+  pendingIntent.clear();
   opCounter = 0;
   reconcileInFlight = null;
   boundUserId = '';
@@ -291,20 +316,25 @@ async function reconcile(): Promise<void> {
       if (!liked) {
         state.hashes.clear();
         trackArchive.clear();
+        reapplyIntent(new Set());
         state.loaded = true;
         return;
       }
       const tracks = await fetchAllLikedTracks(liked.gid);
       if (epoch !== accountEpoch) return; // account switched mid-fetch
-      // Rebuild from ground truth.
+      // Rebuild from ground truth, then re-apply any concurrent optimistic
+      // intent so a stale snapshot can't unlight a favorite just made.
       state.hashes.clear();
       trackArchive.clear();
+      const serverHashes = new Set<string>();
       for (const t of tracks) {
         if (t.FileHash) {
           state.hashes.add(t.FileHash);
           trackArchive.set(t.FileHash, t);
+          serverHashes.add(t.FileHash);
         }
       }
+      reapplyIntent(serverHashes);
       state.loaded = true;
     } catch (e) {
       if (epoch === accountEpoch) {
@@ -331,12 +361,14 @@ function refreshOutboxCount(): void {
   state.pendingOutbox = outboxCount();
 }
 
-function enqueueOutboxOp(op: FavoriteOp): void {
-  if (!boundUserId) return;
+/** Returns true if the op was persisted to the outbox, false on quota/private-mode failure. */
+function enqueueOutboxOp(op: FavoriteOp): boolean {
+  if (!boundUserId) return false;
   const ops = loadOutbox(boundUserId);
   ops.push(op);
-  saveOutbox(boundUserId, ops);
+  const ok = saveOutbox(boundUserId, ops);
   refreshOutboxCount();
+  return ok;
 }
 
 function dequeueOutboxOp(hash: string, opId: number): void {
@@ -436,6 +468,11 @@ async function setFavorite(track: Track, favorite: boolean): Promise<SetFavorite
     return { status: 'anonymous', favorite };
   }
 
+  // Logged in: record the optimistic intent so a concurrent reconcile can't
+  // clobber it before the server snapshot catches up. Cleared by reconcile once
+  // the server agrees, or here on a terminal failure.
+  pendingIntent.set(hash, favorite);
+
   const epoch = accountEpoch;
   let liked: LikedPlaylistInfo | null;
   try {
@@ -452,7 +489,10 @@ async function setFavorite(track: Track, favorite: boolean): Promise<SetFavorite
   if (epoch !== accountEpoch) return { status: 'pending', favorite }; // account switched
   if (!liked) {
     // Genuinely no liked playlist to target: roll back the optimistic change.
-    if (lastOpId.get(hash) === opId) applyFavorite(hash, !favorite);
+    if (lastOpId.get(hash) === opId) {
+      applyFavorite(hash, !favorite);
+      pendingIntent.delete(hash);
+    }
     return { status: 'failed', favorite, error: '未找到「我喜欢的音乐」歌单' };
   }
 
@@ -474,9 +514,12 @@ async function setFavorite(track: Track, favorite: boolean): Promise<SetFavorite
     if (!res.success) {
       // Business failure on the latest op: roll back and re-sync from server.
       applyFavorite(hash, !favorite);
+      pendingIntent.delete(hash);
       void reconcile();
       return { status: 'failed', favorite, error: res.error || '收藏失败' };
     }
+    // Confirmed: keep pendingIntent so a stale in-flight reconcile can't
+    // unlight this; the next reconcile clears it once the server agrees.
     return { status: 'confirmed', favorite };
   } catch {
     // Transport error (offline / circuit open): persist for replay, but only if
@@ -526,18 +569,21 @@ async function onLogin(userId: string): Promise<void> {
 
   // Migrate anonymous favorites (created while logged out) into this user's
   // outbox so sync replays them to the liked playlist. Persist the outbox
-  // FIRST, then clear the anonymous source - so a crash/failed write between
-  // them cannot lose the favorites.
+  // FIRST, then clear the anonymous source - and only if every op actually
+  // persisted, so a quota/private-mode write failure cannot lose the favorites.
   const anon = loadAnonymousFavorites();
+  let allPersisted = true;
   for (const track of anon) {
     if (!track.FileHash) continue;
     const opId = ++opCounter;
     lastOpId.set(track.FileHash, opId);
     trackArchive.set(track.FileHash, track);
     applyFavorite(track.FileHash, true); // preliminary until reconcile confirms
-    enqueueOutboxOp({ opId, fileHash: track.FileHash, favorite: true, track, ts: Date.now() });
+    pendingIntent.set(track.FileHash, true);
+    const ok = enqueueOutboxOp({ opId, fileHash: track.FileHash, favorite: true, track, ts: Date.now() });
+    if (!ok) allPersisted = false;
   }
-  if (anon.length) clearAnonymousFavorites();
+  if (anon.length && allPersisted) clearAnonymousFavorites();
 
   refreshOutboxCount();
   await sync();

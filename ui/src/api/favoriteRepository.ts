@@ -69,12 +69,18 @@ export function loadOutbox(uid: string): FavoriteOp[] {
   return Array.isArray(parsed) ? (parsed as FavoriteOp[]) : [];
 }
 
-export function saveOutbox(uid: string, ops: FavoriteOp[]): void {
-  if (!uid) return;
+/**
+ * Persist the outbox. Returns false on quota/private-mode failure (the op list
+ * is NOT persisted) so callers can avoid dropping a source they're migrating
+ * from.
+ */
+export function saveOutbox(uid: string, ops: FavoriteOp[]): boolean {
+  if (!uid) return false;
   try {
     localStorage.setItem(outboxKey(uid), JSON.stringify(ops));
+    return true;
   } catch {
-    /* quota / private mode - keep in-memory only */
+    return false; // quota / private mode - keep in-memory only
   }
 }
 
