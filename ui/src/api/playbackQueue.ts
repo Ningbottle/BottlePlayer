@@ -32,16 +32,15 @@ export type PlaybackQueueDeps = {
 };
 
 /**
- * Module-level serial entry for queue mutations.
- * When the lock is free, `fn` starts in the current turn (sync prefix runs immediately
- * so fire-and-forget playAll still assigns queue/currentIndex before the caller continues).
- * Concurrent callers wait on the promise tail and cannot interleave mid-mutation.
+ * @deprecated Phase 2: production playback uses PlaybackCommandCoordinator.
+ * This helper remains for isolated playbackQueue unit tests only — do not add
+ * a second production lock on top of the coordinator.
  */
 let commandTail: Promise<unknown> = Promise.resolve();
 let queueLocked = false;
 
 /**
- * Run `fn` exclusively. Errors surface to the caller; the chain continues either way.
+ * Run `fn` exclusively (test/legacy helper). Prefer coordinator.dispatch in app code.
  */
 export function enqueueQueueCommand<T>(fn: () => T | Promise<T>): Promise<T> {
   const run = (async (): Promise<T> => {

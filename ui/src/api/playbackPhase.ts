@@ -48,3 +48,20 @@ export function transitionPhase(from: PlaybackPhase, to: PlaybackPhase): Playbac
   }
   return to;
 }
+
+/**
+ * Project compatibility flags from authoritative phase (one-way only).
+ * - playing  → isPlaying=true
+ * - all other phases → isPlaying=false
+ * - resolving | loading | recovering → isLoading=true
+ */
+export function flagsFromPhase(phase: PlaybackPhase): {
+  isPlaying: boolean;
+  isLoading: boolean;
+} {
+  return {
+    isPlaying: phase === 'playing',
+    isLoading:
+      phase === 'resolving' || phase === 'loading' || phase === 'recovering',
+  };
+}

@@ -30,6 +30,7 @@ import {
   __getActiveBackend,
   __getPlaySession,
   __resetWebAudioEqForTests,
+  __resetPlaybackCoordinatorForTests,
   eqState,
   retryEq,
 } from '../playerStore';
@@ -152,12 +153,14 @@ function resetStore() {
   playerStore.currentTime = 0;
   playerStore.duration = 0;
   playerStore.errorMsg = '';
+  playerStore.playbackPhase = 'idle';
   (playerStore as any).audio = null;
   // Clear the zombie-audio sentinel so initPlayer() doesn't run its teardown
   // path (which nulls activeBackend) and skip re-creating the backend.
   (window as any).__bottlemusic_audio__ = undefined;
   (window as any).__bottlemusic_player_cleanup__ = undefined;
   __resetWebAudioEqForTests();
+  __resetPlaybackCoordinatorForTests();
   eqState.available = false;
   eqState.reason = '';
   eqState.retryFailCount = 0;
@@ -218,7 +221,8 @@ describe('playerStore integration', () => {
   it('rolls back currentIndex when /song/url fails so the failed track is not persisted as current', async () => {
     // #13: playTrack persisted currentIndex BEFORE the fetch; on failure the
     // bad track stayed as current and got re-persisted, trapping the user.
-    playAll([mkTrack('good')], 0);
+    // playAll is async via coordinator — must await before snapshotting index.
+    await playAll([mkTrack('good')], 0);
     const before = playerStore.currentIndex; // 0
     initPlayerBackend();
 
@@ -1181,6 +1185,106 @@ describe('playerStore integration', () => {
     expect(pauseSpy).not.toHaveBeenCalled();
     expect(loadSpy).not.toHaveBeenCalled();
     expect(removeAttrSpy).not.toHaveBeenCalledWith('src');
+  });
+
+  it('HMR module cleanup detaches coordinator without pause or clearing shared audio src', async () => {
+    // Full path: old module cleanup must not run dispose barrier on shared <audio>.
+    initPlayer();
+    initPlayerBackend();
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/x';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({
+        status: 200,
+        headers: {},
+        body: { status: 1, url: 'http://127.0.0.1:17631/audio/hmr-keep' },
+      });
+    });
+
+    const track = mkTrack('hmr-keep');
+    track.Image = 'http://img/';
+    await playTrack(track);
+
+    const audio = playerStore.audio!;
+    expect(audio.src).toBeTruthy();
+    const srcBefore = audio.src;
+    const pauseSpy = vi.spyOn(audio, 'pause');
+
+    const cleanup = (window as any).__bottlemusic_player_cleanup__ as (() => void) | undefined;
+    expect(cleanup, 'HMR cleanup must be published').toEqual(expect.any(Function));
+    cleanup!();
+
+    // Allow any async detach/dispose microtasks to settle.
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 30));
+
+    expect(pauseSpy, 'HMR must not pause shared audio').not.toHaveBeenCalled();
+    expect(audio.src, 'HMR must not clear shared audio src').toBe(srcBefore);
+    expect(audio.src).not.toBe('');
+    expect(audio.src).not.toMatch(/about:blank|^$/);
+
+    // New module instance reuses the same element without unload.
+    (playerStore as any).audio = null;
+    (window as any).__bottlemusic_audio__ = audio;
+    initPlayer();
+    expect(playerStore.audio).toBe(audio);
+    expect(playerStore.audio!.src).toBe(srcBefore);
+  });
+
+  it('HMR cleanup invalidates in-flight resolve so stale playUrl never runs', async () => {
+    // Delay /song/url until after HMR detach; orphan switchTrack must not playUrl.
+    initPlayer();
+    initPlayerBackend();
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    let releaseResolve!: () => void;
+    const resolveGate = new Promise<void>((resolve) => {
+      releaseResolve = resolve;
+    });
+    let resolveEntered = false;
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'stats_record_play') return '';
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/x';
+      // Gate URL resolve (native_request /song/url)
+      resolveEntered = true;
+      await resolveGate;
+      return JSON.stringify({
+        status: 200,
+        headers: {},
+        body: { status: 1, url: 'http://127.0.0.1:17631/audio/stale-after-hmr' },
+      });
+    });
+
+    const backend = __getActiveBackend()!;
+    const playUrlSpy = vi.spyOn(backend, 'playUrl');
+
+    const track = mkTrack('hmr-stale-resolve');
+    track.Image = 'http://img/';
+    const playP = playTrack(track);
+
+    await vi.waitFor(() => expect(resolveEntered).toBe(true));
+    expect(playUrlSpy).not.toHaveBeenCalled();
+
+    const cleanup = (window as any).__bottlemusic_player_cleanup__ as (() => void) | undefined;
+    expect(cleanup).toEqual(expect.any(Function));
+    cleanup!();
+
+    releaseResolve();
+    await Promise.allSettled([playP]);
+    await new Promise((r) => setTimeout(r, 40));
+
+    expect(
+      playUrlSpy,
+      'after HMR detach, late URL resolve must not start playUrl on shared audio',
+    ).not.toHaveBeenCalled();
+
+    const audio = playerStore.audio!;
+    // Should not have been loaded with the stale URL
+    expect(audio.src).not.toContain('stale-after-hmr');
   });
 
   it('syncs playing state from a reused audio element after HMR', () => {
