@@ -30,6 +30,7 @@ import {
   __getActiveBackend,
   __getPlaySession,
   __resetWebAudioEqForTests,
+  __resetPlaybackCoordinatorForTests,
   eqState,
   retryEq,
 } from '../playerStore';
@@ -152,12 +153,14 @@ function resetStore() {
   playerStore.currentTime = 0;
   playerStore.duration = 0;
   playerStore.errorMsg = '';
+  playerStore.playbackPhase = 'idle';
   (playerStore as any).audio = null;
   // Clear the zombie-audio sentinel so initPlayer() doesn't run its teardown
   // path (which nulls activeBackend) and skip re-creating the backend.
   (window as any).__bottlemusic_audio__ = undefined;
   (window as any).__bottlemusic_player_cleanup__ = undefined;
   __resetWebAudioEqForTests();
+  __resetPlaybackCoordinatorForTests();
   eqState.available = false;
   eqState.reason = '';
   eqState.retryFailCount = 0;
