@@ -1,6 +1,10 @@
 import { normalizeTrack, type Track } from './normalizer';
 import type { DiagEvent } from './playbackDiagnostics';
-import { transitionPhase, type PlaybackPhase } from './playbackPhase';
+import {
+  canTransition,
+  flagsFromPhase,
+  type PlaybackPhase,
+} from './playbackPhase';
 
 export interface QualityOption {
   quality: string;
@@ -108,8 +112,7 @@ export class PlaybackOrchestrator {
       currentTime: 0,
       duration: normalized.Duration || 0,
       errorMsg: '正在加载音频源…',
-      isPlaying: false,
-      isLoading: true,
+      // isPlaying/isLoading projected from playbackPhase (applyPhase above)
     });
     this.fetchMissingCover(normalized);
 
@@ -193,7 +196,6 @@ export class PlaybackOrchestrator {
       return { status: 'failed', message: '播放失败' };
     }
 
-    this.deps.patchState({ isLoading: false });
     this.applyPhase('playing');
     this.deps.saveQueue();
     this.deps.uploadPlayHistory(normalized);
@@ -206,11 +208,7 @@ export class PlaybackOrchestrator {
     await this.stopBackend(seq, this.deps.backend());
     if (!this.isCurrent(seq)) return;
 
-    this.deps.patchState({
-      isLoading: false,
-      isPlaying: false,
-      errorMsg: '',
-    });
+    this.deps.patchState({ errorMsg: '' });
     this.applyPhase('idle');
   }
 
@@ -224,11 +222,7 @@ export class PlaybackOrchestrator {
     await this.stopBackend(seq, this.deps.backend());
     if (!this.isCurrent(seq)) return;
 
-    this.deps.patchState({
-      isLoading: false,
-      isPlaying: false,
-      errorMsg: '',
-    });
+    this.deps.patchState({ errorMsg: '' });
     this.applyPhase('idle');
   }
 
@@ -249,7 +243,15 @@ export class PlaybackOrchestrator {
     }
 
     const position = positionOverride ?? state.currentTime;
-    const autoplay = autoplayOverride ?? state.isPlaying;
+    // Prefer phase intent: mid resolve/load still means "want to play" even if
+    // flags briefly flipped while a superseded switchTrack entered resolving.
+    const autoplay =
+      autoplayOverride
+      ?? (state.isPlaying
+        || state.playbackPhase === 'playing'
+        || state.playbackPhase === 'resolving'
+        || state.playbackPhase === 'loading'
+        || state.playbackPhase === 'recovering');
     const cached = state.availableQualities.find((q) => q.quality === quality && q.url);
     let finalUrl = cached?.url;
 
@@ -287,14 +289,14 @@ export class PlaybackOrchestrator {
       if (!this.isCurrent(seq)) return this.superseded(current, 'switchQuality switchUrl rejected');
       const message = err instanceof Error ? err.message : '播放失败';
       this.deps.playSession.skip();
-      this.deps.patchState({ errorMsg: message, isLoading: false, isPlaying: false });
+      this.deps.patchState({ errorMsg: message });
       this.applyPhase('error');
       return { status: 'failed', message };
     }
     if (!this.isCurrent(seq)) return this.superseded(current, 'switchQuality switchUrl completed');
     if (!ok) {
       this.deps.playSession.skip();
-      this.deps.patchState({ errorMsg: '播放失败', isPlaying: false });
+      this.deps.patchState({ errorMsg: '播放失败' });
       this.applyPhase('error');
       return { status: 'failed', message: '播放失败' };
     }
@@ -384,6 +386,17 @@ export class PlaybackOrchestrator {
     return ++this.transitionSeq;
   }
 
+  /**
+   * Pure invalidation for HMR/module-replace: bump transitionSeq so an in-flight
+   * resolve cannot commit media on the shared <audio>, WITHOUT finalizing the
+   * play session as skipped (the session stays alive in the new module). Use
+   * invalidatePlaybackIntent() for normal stop/supersede where stats should
+   * settle; use this for detach.
+   */
+  detachPlaybackIntent(): number {
+    return ++this.transitionSeq;
+  }
+
   private isCurrent(seq: number): boolean {
     return this.isTransitionCurrent(seq);
   }
@@ -433,8 +446,6 @@ export class PlaybackOrchestrator {
     this.deps.patchState({
       currentIndex: prevIndex,
       currentTrack: prevTrack,
-      isPlaying: false,
-      isLoading: false,
       isPreview: false,
       vipRequired: false,
       errorMsg,
@@ -443,10 +454,20 @@ export class PlaybackOrchestrator {
     this.deps.saveQueue();
   }
 
-  /** Apply a legal phase transition via patchState; no-op when already there. */
+  /**
+   * Phase is authoritative: also project isPlaying/isLoading.
+   * Soft-ignore illegal edges (stale races) instead of throwing.
+   */
   private applyPhase(to: PlaybackPhase): void {
     const from = this.deps.getState().playbackPhase ?? 'idle';
-    if (from === to) return;
-    this.deps.patchState({ playbackPhase: transitionPhase(from, to) });
+    if (from === to) {
+      this.deps.patchState(flagsFromPhase(to));
+      return;
+    }
+    if (!canTransition(from, to)) return;
+    this.deps.patchState({
+      playbackPhase: to,
+      ...flagsFromPhase(to),
+    });
   }
 }

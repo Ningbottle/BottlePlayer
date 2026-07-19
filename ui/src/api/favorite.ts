@@ -1,147 +1,87 @@
-import { apiGet, apiPost } from './backend';
+import { apiPost } from './backend';
 import { userStore } from './userStore';
-import { Track } from './normalizer';
+import type { Track } from './normalizer';
 
-// ── 歌单解析工具（供 Sidebar / AddToPlaylistModal 共用） ──
+/**
+ * favorite.ts is ONLY the /playlist/tracks/add and /playlist/tracks/del adapter.
+ * Playlist discovery (getUserPlaylists / normalizePlaylists) and favorite-state
+ * authority live in favoriteStore.ts. Read the native contract before changing
+ * parameter names - see native/core/compat_routes/PlaylistRoutes.cpp and
+ * native/core/PlaylistService.cpp.
+ */
 
 export interface UserPlaylist {
   id: string;
   name: string;
   songcount?: number;
-  /** 酷狗 listid（纯数字，用于 AddPlaylistTracks API） */
+  /** 酷狗 listid（纯数字，用于 AddPlaylistTracks / DeletePlaylistTracks） */
   listid?: string;
 }
 
-type RawRecord = Record<string, unknown>;
-
-const PLAYLIST_ARRAY_KEYS = [
-  'list', 'lists', 'info', 'special_list', 'specialList',
-  'cloud_list', 'cloudList', 'playlist', 'playlists', 'data',
-];
-
-const PLAYLIST_ID_KEYS = [
-  'global_collection_id', 'global_collectionid', 'listid', 'list_id',
-  'specialid', 'special_id', 'id', 'list_create_listid', 'collection_id', 'gid',
-];
-
-const PLAYLIST_NAME_KEYS = [
-  'name', 'listname', 'list_name', 'specialname', 'special_name', 'title', 'filename',
-];
-
-function asRecord(value: unknown): RawRecord | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? value as RawRecord : null;
+/**
+ * Build the `name|hash|album_id|mixsongid` record the native
+ * AddPlaylistTracks handler expects (comma-separated list of these records).
+ * SongName may contain `|`, so escape it to avoid field misalignment.
+ */
+function buildTrackInfo(track: Track): string {
+  const safeName = (track.SongName || '').replace(/\|/g, '%7C');
+  return `${safeName}|${track.FileHash || ''}|${track.AlbumID || 0}|${track.AlbumAudioID || 0}`;
 }
 
-function readField(source: RawRecord, keys: string[]): string {
-  for (const key of keys) {
-    const value = source[key];
-    if (typeof value === 'string' && value.trim()) return value.trim();
-    if (typeof value === 'number' && Number.isFinite(value)) return String(value);
-    if (typeof value === 'bigint') return value.toString();
-  }
-  return '';
-}
-
-function looksLikePlaylist(value: unknown): boolean {
-  const record = asRecord(value);
-  if (!record) return false;
-  return !!readField(record, PLAYLIST_ID_KEYS) || !!readField(record, PLAYLIST_NAME_KEYS);
-}
-
-function collectPlaylistCandidates(value: unknown, output: RawRecord[], depth = 0): void {
-  if (depth > 5 || value == null) return;
-
-  if (Array.isArray(value)) {
-    const records = value.map(asRecord).filter((item): item is RawRecord => !!item);
-    if (records.some(looksLikePlaylist)) {
-      output.push(...records.filter(looksLikePlaylist));
-      return;
-    }
-    records.forEach((item) => collectPlaylistCandidates(item, output, depth + 1));
-    return;
-  }
-
-  const record = asRecord(value);
-  if (!record) return;
-
-  if (looksLikePlaylist(record)) {
-    output.push(record);
-  }
-
-  for (const key of PLAYLIST_ARRAY_KEYS) {
-    if (key in record) {
-      collectPlaylistCandidates(record[key], output, depth + 1);
-    }
-  }
-}
-
-/** 从 API 响应中提取并规范化歌单列表 */
-export function normalizePlaylists(payload: unknown): UserPlaylist[] {
-  const candidates: RawRecord[] = [];
-  collectPlaylistCandidates(payload, candidates);
-
-  const seen = new Set<string>();
-  return candidates
-    .map((item) => {
-      const id = readField(item, PLAYLIST_ID_KEYS);
-      // 优先使用 listid（纯数字），用于 C++ 后端 AddPlaylistTracks
-      const listid = readField(item, ['listid', 'list_id']);
-      return {
-        id,
-        name: readField(item, PLAYLIST_NAME_KEYS) || '无标题歌单',
-        songcount: Number(item.songcount || item.song_count || 0),
-        listid: listid || undefined,
-      };
-    })
-    .filter((item) => {
-      if (!item.id || seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
-    });
-}
-
-/** 收藏歌曲到指定歌单 */
+/**
+ * 收藏歌曲到指定歌单 (POST /playlist/tracks/add).
+ *
+ * Contract (HandlePlaylistTracksAdd → AddPlaylistTracks): the route reads
+ * `listid` and `data` from the query (or JSON body). `data` is a
+ * comma-separated list of `name|hash|album_id|mixsongid` records. AddPlaylistTracks
+ * extracts the numeric listid from a `collection_…` gid, so either form works.
+ *
+ * Transport failures (network / circuit_open / non-2xx) THROW so callers can
+ * route them to the outbox; business failures (status !== 1) return
+ * `{ success: false, error }`.
+ */
 export async function addTrackToPlaylist(
   playlist: UserPlaylist,
-  track: Track
+  track: Track,
 ): Promise<{ success: boolean; error?: string }> {
-  if (!userStore.isLoggedIn) {
-    return { success: false, error: '请先登录' };
-  }
+  if (!userStore.isLoggedIn) return { success: false, error: '请先登录' };
 
   const apiId = playlist.listid || playlist.id;
+  const res = await apiPost<any>('/playlist/tracks/add', undefined, {
+    listid: apiId,
+    data: buildTrackInfo(track),
+  });
 
-  try {
-    // 构造歌曲信息：name|hash|album_id|mixsongid
-    // SongName 中可能含 | 字符，需要转义以避免后端解析错位
-    const safeName = track.SongName.replace(/\|/g, '%7C');
-    const trackInfo = `${safeName}|${track.FileHash}|${track.AlbumID || 0}|${track.AlbumAudioID || 0}`;
-    
-    const res = await apiPost<any>('/playlist/tracks/add', undefined, {
-      listid: apiId,
-      data: trackInfo  // 后端期望参数名 "data"
-    });
-
-    if (res?.status === 1) {
-      return { success: true };
-    }
-    return { success: false, error: res?.error || '收藏失败' };
-  } catch (e: any) {
-    return { success: false, error: e.message || '收藏失败' };
-  }
+  if (res?.status === 1) return { success: true };
+  return { success: false, error: res?.error || '收藏失败' };
 }
 
-/** 获取用户歌单列表 */
-export async function getUserPlaylists(): Promise<UserPlaylist[]> {
-  if (!userStore.isLoggedIn) {
-    return [];
-  }
+/**
+ * 从指定歌单移除歌曲 (POST /playlist/tracks/del).
+ *
+ * Contract (HandlePlaylistTracksDel → DeletePlaylistTracks): the route reads
+ * `listid` and `fileids` from the query. `fileids` is a comma-separated list of
+ * NUMERIC fileids (= the track's `audio_id`, NOT its FileHash). Unlike add,
+ * DeletePlaylistTracks does NOT extract a numeric id from a `collection_…` gid,
+ * so the numeric `listid` must be passed.
+ *
+ * Transport failures THROW; business failures return `{ success: false, error }`.
+ */
+export async function removeTrackFromPlaylist(
+  playlist: UserPlaylist,
+  track: Track,
+): Promise<{ success: boolean; error?: string }> {
+  if (!userStore.isLoggedIn) return { success: false, error: '请先登录' };
 
-  try {
-    const res = await apiGet<any>('/user/playlist', { page: 1, pagesize: 100 });
-    return normalizePlaylists(res);
-  } catch (e) {
-    console.error('获取歌单列表失败', e);
-    return [];
-  }
+  const apiId = playlist.listid || playlist.id;
+  const fileid = String(track.fileid ?? track.audio_id ?? '');
+  if (!fileid) return { success: false, error: '缺少曲目 fileid，无法取消收藏' };
+
+  const res = await apiPost<any>('/playlist/tracks/del', undefined, {
+    listid: apiId,
+    fileids: fileid,
+  });
+
+  if (res?.status === 1) return { success: true };
+  return { success: false, error: res?.error || '取消收藏失败' };
 }

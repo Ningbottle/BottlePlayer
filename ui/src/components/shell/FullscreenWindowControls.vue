@@ -3,6 +3,19 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { Minimize2, Minus } from '@lucide/vue';
 import { setLyricFullscreen } from '../../api/lyricFullscreen';
 
+const props = withDefaults(
+  defineProps<{
+    /** Window minimize (top-right chrome). */
+    showMinimize?: boolean;
+    /** Exit lyric fullscreen. */
+    showExit?: boolean;
+  }>(),
+  {
+    showMinimize: true,
+    showExit: true,
+  },
+);
+
 async function minimize(): Promise<void> {
   try { await getCurrentWindow().minimize(); } catch (e) { console.warn('Tauri window minimize failed', e); }
 }
@@ -19,6 +32,7 @@ function exitFullscreen(): void {
     data-contrast="high"
   >
     <button
+      v-if="props.showMinimize"
       class="control-btn min"
       data-test="fs-minimize"
       data-tauri-drag-region="false"
@@ -32,6 +46,7 @@ function exitFullscreen(): void {
       <Minus :size="13" :stroke-width="1.7" aria-hidden="true" />
     </button>
     <button
+      v-if="props.showExit"
       class="control-btn exit-fs"
       data-test="fs-exit-fullscreen"
       data-tauri-drag-region="false"

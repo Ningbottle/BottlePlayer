@@ -10,10 +10,11 @@ import {
 } from '../../api/playerStore';
 import { setLyricFullscreen } from '../../api/lyricFullscreen';
 import {
-  favoriteMarkersReadonly,
+  isFavoriteMarker,
   markFavorite,
   reloadFavoriteMarkers,
 } from '../../api/favoriteMarkers';
+import { favoriteStore } from '../../api/favoriteStore';
 import type { Track } from '../../api/normalizer';
 import type { LoopMode } from '../../api/playerStore';
 
@@ -55,7 +56,7 @@ export interface PlayerController {
   openLyricView: () => void;
   /** Open lyric view + fullscreen immersion (explicit fullscreen entry). */
   openLyricImmersion: () => void;
-  handleFavorite: () => void;
+  handleFavorite: () => Promise<void>;
   handleSelectQuality: (q: string) => void;
   closeQualityMenu: () => void;
   closeAddModal: () => void;
@@ -108,11 +109,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   const volumePercent = computed(() => volume.value * 100);
 
   const isLyricView = computed(() => options.activeView() === 'lyric');
-  const favoriteMarkers = favoriteMarkersReadonly();
-  const isFavorite = computed(() => {
-    const hash = currentTrack.value?.FileHash;
-    return Boolean(hash && favoriteMarkers.hashes.has(hash));
-  });
+  const isFavorite = computed(() => isFavoriteMarker(currentTrack.value?.FileHash));
 
   const showQualityMenu = ref(false);
   const showAddModal = ref(false);
@@ -209,9 +206,45 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     setLyricFullscreen(true);
   }
 
-  function handleFavorite() {
-    if (!currentTrack.value) return;
-    showAddModal.value = true;
+  function messageForFavoriteResult(result: {
+    status: string;
+    favorite: boolean;
+    error?: string;
+  }): string {
+    const on = result.favorite;
+    switch (result.status) {
+      case 'confirmed':
+        return on ? '已收藏到「我喜欢的音乐」' : '已取消收藏';
+      case 'pending':
+        return on ? '已收藏（联网后同步）' : '已取消收藏（联网后同步）';
+      case 'local':
+        // Outbox write failed (quota / private mode): kept in memory only, NOT
+        // in the sync queue - must not claim it will sync.
+        return on ? '已收藏到本地（存储不足，未进入同步队列）' : '已取消本地收藏（存储不足，未进入同步队列）';
+      case 'anonymous':
+        return on ? '已收藏到本地（登录后同步）' : '已取消本地收藏';
+      case 'failed':
+        return `${on ? '收藏' : '取消收藏'}失败：${result.error || '未知错误'}`;
+      default:
+        return '';
+    }
+  }
+
+  async function handleFavorite() {
+    const track = currentTrack.value;
+    if (!track) return;
+    // The heart is the explicit favorite toggle: add/remove the track from
+    //「我喜欢的音乐」via the shared favoriteStore (optimistic, operation-id
+    // guarded; offline ops land in the outbox). This does NOT open the
+    // add-to-playlist modal - that stays available from the search page. The
+    // message reflects the actual result (confirmed / pending / anonymous /
+    // failed) rather than claiming success prematurely.
+    const nextFav = !isFavorite.value;
+    if (favToastTimer) clearTimeout(favToastTimer);
+    favoriteMsg.value = nextFav ? '收藏中…' : '取消中…';
+    const result = await favoriteStore.setFavorite(track, nextFav);
+    favoriteMsg.value = messageForFavoriteResult(result);
+    favToastTimer = setTimeout(() => { favoriteMsg.value = ''; favToastTimer = null; }, 2000);
   }
 
   function handleSelectQuality(q: string) {

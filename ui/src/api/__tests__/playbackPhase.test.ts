@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   canTransition,
+  flagsFromPhase,
   transitionPhase,
   type PlaybackPhase,
 } from '../playbackPhase';
@@ -58,5 +59,22 @@ describe('playbackPhase state machine', () => {
     expect(() => transitionPhase('error', 'paused')).toThrowError(
       /illegal_playback_transition.*error.*paused/,
     );
+  });
+
+  it('flagsFromPhase: only playing has isPlaying=true', () => {
+    for (const phase of ALL_PHASES) {
+      const flags = flagsFromPhase(phase);
+      expect(flags.isPlaying, phase).toBe(phase === 'playing');
+    }
+  });
+
+  it('flagsFromPhase: loading phases set isLoading', () => {
+    expect(flagsFromPhase('resolving').isLoading).toBe(true);
+    expect(flagsFromPhase('loading').isLoading).toBe(true);
+    expect(flagsFromPhase('recovering').isLoading).toBe(true);
+    expect(flagsFromPhase('playing').isLoading).toBe(false);
+    expect(flagsFromPhase('paused').isLoading).toBe(false);
+    expect(flagsFromPhase('idle').isLoading).toBe(false);
+    expect(flagsFromPhase('error').isLoading).toBe(false);
   });
 });

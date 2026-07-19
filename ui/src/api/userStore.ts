@@ -2,6 +2,7 @@ import { reactive } from 'vue';
 import { apiGet, apiPost } from './backend';
 import { resolveVip } from './vipResolver';
 import { recentPlayedStore } from './recentPlayedStore';
+import { favoriteStore } from './favoriteStore';
 
 interface UserState {
   isLoggedIn: boolean;
@@ -42,6 +43,10 @@ function resetLoginState() {
   userStore.username = '未登录';
   userStore.avatar = '';
   resetVipState();
+  // Reconcile favorites: dropping the session clears the in-memory favorite
+  // set so the next account starts clean (persisted outbox/liked are retained
+  // per-user in case the same account logs back in).
+  favoriteStore.onLogout();
 }
 
 export async function checkLoginStatus() {
@@ -53,6 +58,11 @@ export async function checkLoginStatus() {
       userStore.username = detail.data.nickname || detail.data.username || '听歌用户';
       userStore.avatar = detail.data.pic || detail.data.avatar || '';
       userStore.isLoggedIn = true;
+
+      // Reconcile favorites for this user (resolves the liked playlist, pages
+      // in its tracks, and replays any persisted offline outbox). Fire-and-
+      // forget: favorite sync must not block the login flow.
+      void favoriteStore.onLogin(userStore.userId);
 
       // Trigger lazy device registration with KuGou's risk service so that
       // /song/url returns full VIP audio (instead of 60s previews) and

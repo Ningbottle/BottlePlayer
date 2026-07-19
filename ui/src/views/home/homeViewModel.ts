@@ -30,6 +30,8 @@ export interface HomeViewModel {
   /** Zero-based offset of queuePreview within the full playback queue. */
   queueWindowStart: number;
   queueTotal: number;
+  /** When personalFm, the home rail should follow the live queue (auto-appends). */
+  queueMode: 'normal' | 'personalFm';
   activeQueueHash: string | null;
   isPlaying: boolean;
   isInitialLoading: boolean;
@@ -149,6 +151,7 @@ export function useHomeViewModel(): ComputedRef<HomeViewModel> {
       queuePreview: playerStore.queue.slice(queueWindowStart, queueWindowStart + QUEUE_WINDOW_SIZE),
       queueWindowStart,
       queueTotal: playerStore.queue.length,
+      queueMode: playerStore.queueMode === 'personalFm' ? 'personalFm' : 'normal',
       activeQueueHash: playerStore.currentTrack?.FileHash ?? null,
       isPlaying: playerStore.isPlaying,
       isInitialLoading:

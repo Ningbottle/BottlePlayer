@@ -241,27 +241,67 @@ describe('usePlayerControls', () => {
 
   // ── handleFavorite ──
 
-  it('handleFavorite opens modal when track exists', () => {
-    mocks.store.currentTrack = mkTrack();
+  it('handleFavorite toggles favorite on when the track is not a favorite', () => {
+    __resetFavoriteMarkersForTests();
+    mocks.store.currentTrack = mkTrack({ FileHash: 'fav-toggle' });
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
-    expect(ctrl.showAddModal).toBe(false);
+    expect(ctrl.isFavorite).toBe(false);
     ctrl.handleFavorite();
-    expect(ctrl.showAddModal).toBe(true);
+    expect(ctrl.isFavorite).toBe(true);
+  });
+
+  it('handleFavorite toggles favorite off when the track is already a favorite', () => {
+    __resetFavoriteMarkersForTests();
+    mocks.store.currentTrack = mkTrack({ FileHash: 'fav-toggle' });
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
+    ctrl.handleFavorite(); // on
+    expect(ctrl.isFavorite).toBe(true);
+    ctrl.handleFavorite(); // off
+    expect(ctrl.isFavorite).toBe(false);
   });
 
   it('handleFavorite does nothing when no track', () => {
+    __resetFavoriteMarkersForTests();
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
     ctrl.handleFavorite();
-    expect(ctrl.showAddModal).toBe(false);
+    expect(ctrl.isFavorite).toBe(false);
+  });
+
+  it('handleFavorite shows a local/pending message (not premature confirmed success) when not logged in', async () => {
+    __resetFavoriteMarkersForTests();
+    mocks.store.currentTrack = mkTrack({ FileHash: 'anon-heart' });
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
+    await ctrl.handleFavorite();
+    expect(ctrl.isFavorite).toBe(true); // local favorite
+    // Must NOT claim confirmed server-side success.
+    expect(ctrl.favoriteMsg).not.toContain('已收藏到「我喜欢的音乐」');
+    expect(ctrl.favoriteMsg.length).toBeGreaterThan(0);
   });
 
   it('closeAddModal closes the modal', () => {
-    mocks.store.currentTrack = mkTrack();
     const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
-    ctrl.handleFavorite();
-    expect(ctrl.showAddModal).toBe(true);
+    ctrl.showAddModal = true;
     ctrl.closeAddModal();
     expect(ctrl.showAddModal).toBe(false);
+  });
+
+  it('both skin player bars read the same shared favorite state', () => {
+    __resetFavoriteMarkersForTests();
+    mocks.store.currentTrack = mkTrack({ FileHash: 'shared-1' });
+    // Two controller instances model the Aurora and Newsprint player bars,
+    // which must read the SAME favorite store.
+    const auroraCtrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
+    const newsprintCtrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
+    expect(auroraCtrl.isFavorite).toBe(false);
+    expect(newsprintCtrl.isFavorite).toBe(false);
+
+    auroraCtrl.handleFavorite(); // favorite via one skin
+    expect(auroraCtrl.isFavorite).toBe(true);
+    expect(newsprintCtrl.isFavorite).toBe(true); // visible on the other skin
+
+    newsprintCtrl.handleFavorite(); // unfavorite via the other skin
+    expect(auroraCtrl.isFavorite).toBe(false);
+    expect(newsprintCtrl.isFavorite).toBe(false);
   });
 
   it('marks the current track as collected after a successful add and restores the marker', () => {

@@ -1060,10 +1060,12 @@ describe('PlaybackOrchestrator', () => {
     await expect(a).resolves.toEqual({ status: 'superseded' });
     expect(h.backend.stop.mock.calls.length, 'superseded A must not re-stop B').toBe(stopCallsBefore);
 
-    // B is still current, not clobbered.
+    // B is still current, not clobbered. Phase authority projects isPlaying
+    // from playbackPhase='playing' after a successful switchTrack.
     expect(h.state.currentTrack?.FileHash).toBe('b');
     expect(h.state.isLoading).toBe(false);
-    expect(h.state.isPlaying).toBe(false);
+    expect(h.state.playbackPhase).toBe('playing');
+    expect(h.state.isPlaying).toBe(true);
   });
 
   it('a superseded playUrl completion without a prior cancel does not re-stop B', async () => {

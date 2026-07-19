@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { normalizePlaylists } from '../favorite';
+import { normalizePlaylists } from '../favoriteStore';
 
 describe('normalizePlaylists', () => {
   // 基本场景：标准 API 响应格式

@@ -179,7 +179,13 @@ onUnmounted(() => {
     </template>
   </component>
 
-  <FullscreenWindowControls v-if="lyricFullscreen" class="fs-controls-overlay" />
+  <!-- Top-right: always show window minimize in lyric fullscreen.
+       Aurora moves exit-fullscreen under the album/progress; Newsprint keeps both here. -->
+  <FullscreenWindowControls
+    v-if="lyricFullscreen"
+    class="fs-controls-overlay"
+    :show-exit="themeStore.skinId.value !== 'aurora'"
+  />
 </template>
 
 <style scoped>

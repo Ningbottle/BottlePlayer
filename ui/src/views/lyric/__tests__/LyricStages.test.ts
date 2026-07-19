@@ -974,6 +974,8 @@ describe('Aurora lyric focus modes', () => {
     });
     const readability = fullscreen.find('[data-test="aurora-fs-readability"]');
     const controls = fullscreen.find('[data-test="aurora-fs-controls"]');
+    const meta = fullscreen.get('[data-test="lyric-meta-column"]');
+    const cover = fullscreen.get('[data-test="lyric-cover"]');
 
     expect(readability.exists()).toBe(true);
     expect(readability.attributes('data-contrast')).toBe('high');
@@ -982,6 +984,30 @@ describe('Aurora lyric focus modes', () => {
     expect(controls.attributes('data-visual-weight')).toBe('subtle');
     expect(controls.find('[data-test="aurora-fs-play"], [data-test="aurora-fs-pause"]').exists()).toBe(true);
     expect(controls.findComponent({ name: 'PlayerProgress' }).exists()).toBe(true);
+    // Anchored under title/meta text in the left column (not under cover, not lyric column).
+    expect(meta.element.contains(cover.element)).toBe(true);
+    expect(meta.element.contains(controls.element)).toBe(true);
+    const metaText = meta.find('.aurora-lyric-track-meta');
+    expect(metaText.exists()).toBe(true);
+    const exitRow = fullscreen.find('[data-test="aurora-fs-exit-row"]');
+    expect(exitRow.exists()).toBe(true);
+    expect(meta.element.contains(exitRow.element)).toBe(true);
+    // Exit-fs only under meta (no window-minimize here).
+    expect(exitRow.find('[data-test="fs-exit-fullscreen"]').exists()).toBe(true);
+    expect(exitRow.find('[data-test="fs-minimize"]').exists()).toBe(false);
+    // DOM order: cover → track-meta → transport → exit-fs
+    const kids = Array.from(meta.element.children) as HTMLElement[];
+    const coverIdx = kids.indexOf(cover.element as HTMLElement);
+    const metaIdx = kids.indexOf(metaText.element as HTMLElement);
+    const controlsIdx = kids.indexOf(controls.element as HTMLElement);
+    const exitIdx = kids.indexOf(exitRow.element as HTMLElement);
+    expect(coverIdx).toBeGreaterThanOrEqual(0);
+    expect(metaIdx).toBeGreaterThan(coverIdx);
+    expect(controlsIdx).toBeGreaterThan(metaIdx);
+    expect(exitIdx).toBeGreaterThan(controlsIdx);
+    expect(
+      fullscreen.find('[data-test="lyric-content-column"] [data-test="aurora-fs-controls"]').exists(),
+    ).toBe(false);
   });
 
   it('clicking a lyric line emits seek-line with that line timestamp', async () => {

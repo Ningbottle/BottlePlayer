@@ -50,9 +50,29 @@ function Sync-RuntimeDll {
 
 Sync-RuntimeDll -Source $src -Destination (Join-Path $dstDir 'EchoCAPI.dll')
 
-$sqliteSrc = Join-Path $uiRoot '..\native\vcpkg_installed\x64-windows\bin\sqlite3.dll'
-if (Test-Path $sqliteSrc) {
+# Resolve sqlite next to the real EchoCAPI output (handles git worktrees that only
+# junction native/out to the main tree while vcpkg_installed lives on main).
+$resolvedSrc = (Resolve-Path -LiteralPath $src).Path
+$nativeRootFromDll = Split-Path -Parent (Split-Path -Parent $resolvedSrc) # .../native
+$sqliteCandidates = @(
+    (Join-Path $uiRoot '..\native\vcpkg_installed\x64-windows\bin\sqlite3.dll'),
+    (Join-Path $nativeRootFromDll 'vcpkg_installed\x64-windows\bin\sqlite3.dll'),
+    (Join-Path $dstDir 'sqlite3.dll')
+)
+$sqliteSrc = $null
+foreach ($c in $sqliteCandidates) {
+    if (Test-Path -LiteralPath $c) { $sqliteSrc = (Resolve-Path -LiteralPath $c).Path; break }
+}
+if ($sqliteSrc) {
     Sync-RuntimeDll -Source $sqliteSrc -Destination (Join-Path $dstDir 'sqlite3.dll')
+    # Also stage next to cargo target debug exe so LoadLibrary finds deps at runtime.
+    $debugDir = Join-Path $uiRoot 'src-tauri\target\debug'
+    if (Test-Path -LiteralPath $debugDir) {
+        Sync-RuntimeDll -Source $src -Destination (Join-Path $debugDir 'EchoCAPI.dll')
+        Sync-RuntimeDll -Source $sqliteSrc -Destination (Join-Path $debugDir 'sqlite3.dll')
+    }
 } else {
-    Write-Warning "sqlite3.dll not found at $sqliteSrc; EchoCAPI.dll may fail to load with Windows error 126."
+    Write-Warning "sqlite3.dll not found; tried:"
+    foreach ($c in $sqliteCandidates) { Write-Warning "  $c" }
+    Write-Warning 'EchoCAPI.dll may fail to load with Windows error 126.'
 }

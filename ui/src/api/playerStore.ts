@@ -13,6 +13,7 @@ import {
 } from './playbackOrchestrator';
 import {
   canTransition,
+  flagsFromPhase,
   transitionPhase,
   type PlaybackPhase,
 } from './playbackPhase';
@@ -21,15 +22,14 @@ import {
   loadJSON,
   bindQueuePersistence,
   saveQueue,
+  flushSaveQueue,
 } from './playerPersistence';
-import { appendPersonalFmRecommendations as appendFm } from './fmSession';
+import { appendPersonalFmRecommendations as appendFm, disposeFmSession } from './fmSession';
+import { __resetQueueCommandChainForTests } from './playbackQueue';
 import {
-  playAll as playAllImpl,
-  playPersonalFm as playPersonalFmImpl,
-  addToQueue as addToQueueImpl,
-  removeFromQueue as removeFromQueueImpl,
-  clearQueue as clearQueueImpl,
-} from './playbackQueue';
+  PlaybackCommandCoordinator,
+  type PlaybackCommand,
+} from './playbackCommandCoordinator';
 import { resolveTrack } from './songUrlResolver';
 import { uploadPlayHistory } from './playHistory';
 import { createPlayerEq } from './usePlayerEq';
@@ -87,15 +87,46 @@ interface PlayerState {
 type BottleMusicAudioGlobal = Window & {
   __bottlemusic_audio__?: HTMLAudioElement;
   __bottlemusic_player_cleanup__?: () => void;
+  /** Single-owner pagehide handler; replaced on HMR/re-import. */
+  __bottlemusic_pagehide__?: (event: Event) => void;
 };
 
 let activeBackend: PlayerBackend | null = null;
 export let eventUnsub: (() => void) | null = null;
 let initListenerCleanup: (() => void) | null = null;
-let endedAdvanceInFlight = false;
+let playbackCoordinator: PlaybackCommandCoordinator | null = null;
 
 function audioGlobal(): BottleMusicAudioGlobal {
   return window as unknown as BottleMusicAudioGlobal;
+}
+
+/**
+ * App exit: stop media without clearing the queue (queue already flushed).
+ * Do NOT use dispose() here — that barrier empties the queue and would
+ * overwrite localStorage with an empty session.
+ */
+async function shutdownCoordinatorInstance(): Promise<void> {
+  const coord = playbackCoordinator;
+  playbackCoordinator = null;
+  if (coord) {
+    try {
+      await coord.shutdown();
+    } catch {
+      /* shutdown best-effort */
+    }
+  }
+}
+
+/**
+ * HMR: cancel in-flight intents without pause / src clear on the shared audio.
+ * Must NOT call dispose() — that barrier empties <audio> when backend is already null.
+ */
+function detachCoordinatorForHmr(): void {
+  const coord = playbackCoordinator;
+  playbackCoordinator = null;
+  if (coord) {
+    void coord.detach().catch(() => {});
+  }
 }
 
 function cleanupCurrentModuleForHmr() {
@@ -103,6 +134,12 @@ function cleanupCurrentModuleForHmr() {
   initListenerCleanup = null;
   eventUnsub?.();
   eventUnsub = null;
+  // Detach first (invalidate orchestrator) while backend ref still exists for
+  // any in-flight path that needs consistent deps; do not barrier-stop audio.
+  detachCoordinatorForHmr();
+  // Cancel any pending FM retry timer and invalidate the in-flight FM fetch so
+  // neither can append to / save a queue that belongs to a dying module.
+  disposeFmSession();
   activeBackend = null;
   if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
   closeWebAudioEq();
@@ -234,6 +271,30 @@ export function initPlayer() {
   };
   publishPlayerCleanup();
 
+  // Bind the persistence snapshot to THIS module's playerStore. Done in
+  // initPlayer (not at module top level) so a re-evaluated orphan module (HMR /
+  // vi.resetModules) that never calls initPlayer cannot steal the global
+  // getSnapshot pointer - only the live module that owns the <audio> does.
+  bindQueuePersistence(() => ({
+    queue: playerStore.queue,
+    currentIndex: playerStore.currentIndex,
+  }));
+
+  // Single-owner pagehide handler, bound in initPlayer (not at module top
+  // level) so only the LIVE module - the one that owns the <audio> - registers
+  // it. A re-evaluated orphan (HMR / vi.resetModules) that never calls
+  // initPlayer cannot own the listener, so it cannot flush a stale (empty)
+  // queue and overwrite the live module's just-saved session.
+  const g2 = audioGlobal();
+  if (g2.__bottlemusic_pagehide__) {
+    window.removeEventListener('pagehide', g2.__bottlemusic_pagehide__);
+  }
+  const onPageHide = () => {
+    void disposePlayerRuntime();
+  };
+  g2.__bottlemusic_pagehide__ = onPageHide;
+  window.addEventListener('pagehide', onPageHide);
+
   // Restore previous track on init without playing
   if (playerStore.currentIndex >= 0 && playerStore.currentIndex < playerStore.queue.length) {
     playerStore.currentTrack = playerStore.queue[playerStore.currentIndex];
@@ -265,12 +326,27 @@ export async function initPlayerBackend() {
   eventUnsub = activeBackend.onEvent(handlePlaybackEvent);
 }
 
-/** Soft phase apply for backend events — never throw on racey illegal edges. */
+/**
+ * Phase is authoritative: project isPlaying / isLoading from phase.
+ * Soft-ignore illegal edges (backend races) instead of throwing.
+ */
 function applyStorePhase(to: PlaybackPhase) {
   const from = playerStore.playbackPhase;
-  if (from === to) return;
+  if (from === to) {
+    Object.assign(playerStore, flagsFromPhase(to));
+    return;
+  }
   if (!canTransition(from, to)) return;
   playerStore.playbackPhase = transitionPhase(from, to);
+  Object.assign(playerStore, flagsFromPhase(to));
+}
+
+/** Patch store; when playbackPhase is set, flags are always derived from it. */
+function patchPlayerState(patch: Partial<typeof playerStore>) {
+  Object.assign(playerStore, patch);
+  if (patch.playbackPhase != null) {
+    Object.assign(playerStore, flagsFromPhase(patch.playbackPhase));
+  }
 }
 
 function handlePlaybackEvent(e: PlaybackEvent) {
@@ -287,43 +363,22 @@ function handlePlaybackEvent(e: PlaybackEvent) {
     if (e.state === 'playing') {
       playSession.onPlay();
       playbackDiagnostics.markActivity();
-      playerStore.isLoading = false;
-      playerStore.isPlaying = true;
       applyStorePhase('playing');
     } else if (e.state === 'paused') {
       playSession.onPause();
-      playerStore.isLoading = false;
-      playerStore.isPlaying = false;
       applyStorePhase('paused');
     }
     playerStore.errorMsg = '';
   } else if (e.type === 'ended') {
-    // Single event owner for 'ended' (#2): finalize the completed session, then
-    // either replay (single-loop) or advance. next() no longer handles single-loop.
     playSession.onEnded();
-    if (playerStore.loopMode === 'single') {
-      playbackOrchestrator
-        .replaySameTrack()
-        .catch((err) => console.error('single-loop replay failed', err));
-    } else {
-      advanceAfterEnded().catch((err) => console.error('auto-next failed', err));
-    }
+    // All ended paths go through coordinator (incl. single-loop via applyNav fromEnded).
+    ensureCoordinator()
+      .dispatch({ type: 'ended' })
+      .catch((err) => console.error('auto-next failed', err));
   } else if (e.type === 'error' && e.error) {
     playSession.onPause();
-    playerStore.isLoading = false;
-    playerStore.isPlaying = false;
     playerStore.errorMsg = e.error;
     applyStorePhase('error');
-  }
-}
-
-async function advanceAfterEnded() {
-  if (endedAdvanceInFlight) return;
-  endedAdvanceInFlight = true;
-  try {
-    await next();
-  } finally {
-    endedAdvanceInFlight = false;
   }
 }
 
@@ -346,11 +401,6 @@ watch(() => playerStore.queueMode, (newMode) => {
   localStorage.setItem('player_queue_mode', newMode);
 });
 
-bindQueuePersistence(() => ({
-  queue: playerStore.queue,
-  currentIndex: playerStore.currentIndex,
-}));
-
 const playbackOrchestrator = new PlaybackOrchestrator({
   backend: () => activeBackend!,
   playSession,
@@ -360,153 +410,176 @@ const playbackOrchestrator = new PlaybackOrchestrator({
   recordRecentPlayed: (track) => recentPlayedStore.recordRecentPlayed(track),
   recordDiagnostic: (e) => playbackDiagnostics.recordEvent(e),
   getState: () => playerStore,
-  patchState: (patch) => Object.assign(playerStore, patch),
+  patchState: patchPlayerState,
   saveQueue,
 });
 
-// Actions
-export async function playTrack(track: Track) {
+/** Core play — only coordinator (and tests) should call this, not UI. */
+async function playTrackCore(track: Track) {
   resetRetryState();
   initPlayer();
-  // Ensure the backend exists — native is disabled, so HTML5 always initializes
-  // synchronously here. This keeps playTrack a single code path (no legacy
-  // direct-audio branches) while remaining robust if called before App's
-  // onMounted initPlayerBackend().
   if (!activeBackend) initPlayerBackend();
   return playbackOrchestrator.switchTrack(track);
 }
 
-/** 切换音质等级 */
+function ensureCoordinator(): PlaybackCommandCoordinator {
+  if (!playbackCoordinator) {
+    playbackCoordinator = new PlaybackCommandCoordinator({
+      getState: () => playerStore as any,
+      patchState: patchPlayerState,
+      saveQueue,
+      playTrack: async (track) => playTrackCore(track),
+      switchQuality: async (quality) => {
+        if (!activeBackend) initPlayerBackend();
+        return playbackOrchestrator.switchQuality(quality);
+      },
+      seek: async (seconds) => {
+        if (!activeBackend) initPlayerBackend();
+        await activeBackend!.seek(seconds);
+      },
+      pause: async () => {
+        if (activeBackend) await activeBackend.pause();
+      },
+      resumeOrReload: async () => {
+        if (!activeBackend) initPlayerBackend();
+        return playbackOrchestrator.resumeOrReloadCurrent();
+      },
+      invalidatePlaybackIntent: () => playbackOrchestrator.invalidatePlaybackIntent(),
+      detachPlaybackIntent: () => playbackOrchestrator.detachPlaybackIntent(),
+      stopInvalidatedPlayback: (seq) => playbackOrchestrator.stopInvalidatedPlayback(seq),
+      skipSession: () => playSession.skip(),
+      hasBackend: () => !!activeBackend,
+      appendPersonalFm: async (options) =>
+        appendFm({
+          getState: () => playerStore,
+          saveQueue,
+        }, options),
+    });
+  }
+  return playbackCoordinator;
+}
+
+function readyForPlayback() {
+  initPlayer();
+  if (!activeBackend) initPlayerBackend();
+  return ensureCoordinator();
+}
+
+// ── Public adapters (preserve exports; all intents go through coordinator) ──
+
+export async function playTrack(track: Track) {
+  return readyForPlayback().dispatch({ type: 'selectTrack', track });
+}
+
+/** 切换音质等级 — commit only on success (coordinator restores snapshot on failure). */
 export async function setQuality(quality: string) {
   if (!playerStore.currentTrack) {
     playerStore.quality = quality;
     localStorage.setItem('player_quality', quality);
-    return;
+    return { status: 'ok' as const };
   }
 
-  initPlayer();
-  if (!activeBackend) initPlayerBackend();
-  try {
-    const result = await playbackOrchestrator.switchQuality(quality);
-    if (result.status === 'played') {
-      playerStore.quality = quality;
-      localStorage.setItem('player_quality', quality);
-    } else if (result.status === 'failed') {
-      playerStore.errorMsg = result.message;
-    }
-    return result;
-  } catch (e) {
-    console.error('Quality switch failed', e);
-    playerStore.errorMsg = e instanceof Error ? e.message : '切换音质失败';
+  const result = await readyForPlayback().dispatch({ type: 'switchQuality', quality });
+  if (result.status === 'ok') {
+    playerStore.quality = quality;
+    localStorage.setItem('player_quality', quality);
+  } else if (result.status === 'failed' && result.message) {
+    playerStore.errorMsg = result.message;
   }
-}
-
-async function appendPersonalFmRecommendations(): Promise<boolean> {
-  return appendFm({
-    getState: () => playerStore,
-    saveQueue,
-  });
+  return result;
 }
 
 export async function togglePlay() {
   if (!playerStore.currentTrack) return;
-
-  if (!activeBackend) initPlayerBackend();
-
-  if (playerStore.isLoading) {
-    await playbackOrchestrator.cancelPendingPlayback();
-    return;
-  }
-
-  if (playerStore.isPlaying) {
-    await activeBackend!.pause();
-  } else {
-    await playbackOrchestrator.resumeOrReloadCurrent();
-  }
+  return readyForPlayback().dispatch({ type: 'togglePlay' });
 }
 
 export async function next() {
   if (playerStore.queue.length === 0) return;
-
-  let nextIdx = playerStore.currentIndex;
-  // #11: next() always advances — single-loop replay is handled in the 'ended'
-  // handler, not here. Coupling loop semantics to the transient isPlaying flag
-  // made UI-next and auto-next disagree.
-  if (playerStore.loopMode === 'random') {
-    nextIdx = Math.floor(Math.random() * playerStore.queue.length);
-  } else if (playerStore.queueMode === 'personalFm' && playerStore.currentIndex >= playerStore.queue.length - 1) {
-    try {
-      const appended = await appendPersonalFmRecommendations();
-      if (!appended) return;
-      nextIdx = playerStore.currentIndex + 1;
-    } catch (e) {
-      console.warn('Personal FM recommendation append failed:', e);
-      return;
-    }
-  } else {
-    nextIdx = (playerStore.currentIndex + 1) % playerStore.queue.length;
-  }
-
-  if (nextIdx >= 0 && nextIdx < playerStore.queue.length) {
-    await playTrack(playerStore.queue[nextIdx]);
-  }
+  return readyForPlayback().dispatch({ type: 'next' });
 }
 
-export function prev() {
+export async function prev() {
   if (playerStore.queue.length === 0) return;
-
-  let prevIdx = playerStore.currentIndex;
-  if (playerStore.loopMode === 'random') {
-    prevIdx = Math.floor(Math.random() * playerStore.queue.length);
-  } else {
-    prevIdx = playerStore.currentIndex - 1;
-    if (prevIdx < 0) prevIdx = playerStore.queue.length - 1;
-  }
-
-  if (prevIdx >= 0 && prevIdx < playerStore.queue.length) {
-    playTrack(playerStore.queue[prevIdx]);
-  }
+  return readyForPlayback().dispatch({ type: 'prev' });
 }
 
 export async function seek(seconds: number) {
-  await activeBackend!.seek(seconds);
-  playerStore.currentTime = seconds;
+  return readyForPlayback().dispatch({ type: 'seek', seconds });
 }
 
 export async function setVolume(vol: number) {
   playerStore.volume = Math.max(0, Math.min(1, vol));
 }
 
-function queueDeps() {
-  return {
-    getState: () => playerStore,
-    saveQueue,
-    playTrack,
-    skipSession: () => playSession.skip(),
-    invalidatePlaybackIntent: () => playbackOrchestrator.invalidatePlaybackIntent(),
-    stopInvalidatedPlayback: (seq: number) =>
-      playbackOrchestrator.stopInvalidatedPlayback(seq),
-    hasBackend: () => !!activeBackend,
-  };
-}
-
 export function playAll(tracks: Track[], startIndex = 0) {
-  return playAllImpl(queueDeps(), tracks, startIndex);
+  return readyForPlayback().dispatch({
+    type: 'playAll',
+    tracks,
+    startIndex,
+    queueMode: 'normal',
+  });
 }
 
 export function playPersonalFm(tracks: Track[], startIndex = 0) {
-  return playPersonalFmImpl(queueDeps(), tracks, startIndex);
+  return readyForPlayback().dispatch({
+    type: 'playAll',
+    tracks,
+    startIndex,
+    queueMode: 'personalFm',
+  });
 }
 
 export function addToQueue(track: Track) {
-  return addToQueueImpl(queueDeps(), track);
+  return readyForPlayback().dispatch({ type: 'addToQueue', track });
 }
 
 export function removeFromQueue(index: number) {
-  return removeFromQueueImpl(queueDeps(), index);
+  return readyForPlayback().dispatch({ type: 'removeTrack', index });
 }
 
 /** Empty the play queue and stop the active backend when one is available. */
 export function clearQueue() {
-  return clearQueueImpl(queueDeps());
+  return readyForPlayback().dispatch({ type: 'clearQueue' });
 }
+
+/**
+ * App exit / pagehide: persist queue first, then stop media WITHOUT clearing
+ * the queue. Do not use for HMR (use module cleanup → detach).
+ */
+export async function disposePlayerRuntime(): Promise<void> {
+  // Critical: flush current queue before any stop so we never persist [].
+  try {
+    flushSaveQueue();
+  } catch {
+    /* ignore */
+  }
+  // Cancel FM retry timer / in-flight fetch so it cannot append after unload.
+  disposeFmSession();
+  // Keep activeBackend until after stop so backend.stop is available.
+  await shutdownCoordinatorInstance();
+  initListenerCleanup?.();
+  initListenerCleanup = null;
+  eventUnsub?.();
+  eventUnsub = null;
+  if (activeBackend) {
+    try {
+      await activeBackend.shutdown();
+    } catch {
+      /* ignore */
+    }
+    activeBackend = null;
+  }
+  closeWebAudioEq();
+}
+
+/** Test-only: reset coordinator between tests. */
+export function __resetPlaybackCoordinatorForTests() {
+  playbackCoordinator = null;
+  __resetQueueCommandChainForTests();
+}
+
+export type { PlaybackCommand };
+
+// The pagehide handler is registered in initPlayer() (single global owner) so
+// only the live module owns it - see initPlayer for the rationale.
