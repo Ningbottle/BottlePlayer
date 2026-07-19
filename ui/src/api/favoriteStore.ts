@@ -188,7 +188,10 @@ async function fetchAllLikedTracks(gid: string): Promise<Track[]> {
  * Outcome of a setFavorite call. The UI must surface these distinctly instead
  * of claiming success before the result is known.
  * - confirmed: the server accepted the add/del.
- * - pending: transport error; the op is queued in the outbox for replay.
+ * - pending: transport error; the op is persisted to the outbox and will sync.
+ * - local: transport error AND the outbox write failed (quota / private mode);
+ *   the op lives only in memory and will NOT sync. The UI must not claim it
+ *   entered the sync queue.
  * - anonymous: not logged in; saved to a local anonymous store (migrated on login).
  * - failed: business failure (server responded with status !== 1, or no liked
  *   playlist to target); the optimistic state is rolled back.
@@ -196,6 +199,7 @@ async function fetchAllLikedTracks(gid: string): Promise<Track[]> {
 export type SetFavoriteResult =
   | { status: 'confirmed'; favorite: boolean }
   | { status: 'pending'; favorite: boolean }
+  | { status: 'local'; favorite: boolean }
   | { status: 'anonymous'; favorite: boolean }
   | { status: 'failed'; favorite: boolean; error: string };
 
@@ -393,6 +397,39 @@ function removeSnapshotOpsForHash(userId: string, hash: string, snapshotOpIds: S
 }
 
 /**
+ * Restore the persisted outbox into in-memory state on login. Compacts the
+ * outbox to the latest op per hash (net intent), persists the compacted form,
+ * and re-applies that intent to `state.hashes` / `pendingIntent` /
+ * `trackArchive` / `lastOpId` so the heart reflects pending favorites and a
+ * stale reconcile can't clobber them. Also lifts `opCounter` past every
+ * persisted opId so new ops never collide with (and get removed alongside)
+ * replayed snapshot ops.
+ */
+function restoreOutboxIntent(userId: string): void {
+  const ops = loadOutbox(userId);
+  if (ops.length === 0) {
+    refreshOutboxCount();
+    return;
+  }
+  const latestByHash = new Map<string, FavoriteOp>();
+  let maxOpId = 0;
+  for (const op of ops) {
+    latestByHash.set(op.fileHash, op);
+    if (op.opId > maxOpId) maxOpId = op.opId;
+  }
+  const compacted = Array.from(latestByHash.values());
+  saveOutbox(userId, compacted);
+  for (const op of compacted) {
+    pendingIntent.set(op.fileHash, op.favorite);
+    if (op.track?.FileHash) trackArchive.set(op.fileHash, op.track);
+    lastOpId.set(op.fileHash, op.opId);
+    applyFavorite(op.fileHash, op.favorite);
+  }
+  if (maxOpId > opCounter) opCounter = maxOpId;
+  refreshOutboxCount();
+}
+
+/**
  * Replay pending offline operations (compacted to the latest op per hash = net
  * intent at snapshot time). Transport failures keep the op for the next replay;
  * business responses (success or status !== 1) drop the op since the server has
@@ -482,7 +519,8 @@ async function setFavorite(track: Track, favorite: boolean): Promise<SetFavorite
     // offline, no cached id): queue for replay rather than rolling back, so the
     // favorite survives and is applied once the liked id resolves.
     if (epoch === accountEpoch && lastOpId.get(hash) === opId) {
-      enqueueOutboxOp({ opId, fileHash: hash, favorite, track, ts: Date.now() });
+      const persisted = enqueueOutboxOp({ opId, fileHash: hash, favorite, track, ts: Date.now() });
+      return persisted ? { status: 'pending', favorite } : { status: 'local', favorite };
     }
     return { status: 'pending', favorite };
   }
@@ -525,8 +563,8 @@ async function setFavorite(track: Track, favorite: boolean): Promise<SetFavorite
     // Transport error (offline / circuit open): persist for replay, but only if
     // this is still the latest op for the hash AND the account hasn't switched.
     if (epoch === accountEpoch && lastOpId.get(hash) === opId) {
-      enqueueOutboxOp({ opId, fileHash: hash, favorite, track, ts: Date.now() });
-      return { status: 'pending', favorite };
+      const persisted = enqueueOutboxOp({ opId, fileHash: hash, favorite, track, ts: Date.now() });
+      return persisted ? { status: 'pending', favorite } : { status: 'local', favorite };
     }
     return { status: 'pending', favorite };
   }
@@ -558,6 +596,12 @@ async function onLogin(userId: string): Promise<void> {
     resetInMemory();
   }
   boundUserId = userId;
+
+  // Restore the persisted outbox into in-memory intent (heart stays lit for
+  // pending favorites) and lift opCounter past every persisted opId so new ops
+  // can't collide with replayed snapshot ops. Done before migration + sync so
+  // the migrated ops get higher opIds and sync sees the restored state.
+  restoreOutboxIntent(userId);
 
   // One-time legacy marker migration: import the old flat cache as preliminary
   // favorites until reconcile confirms ground truth, then clear it.

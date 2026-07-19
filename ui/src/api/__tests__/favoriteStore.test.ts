@@ -68,6 +68,9 @@ function setupLiked(tracks: Track[], total = tracks.length) {
 
 describe('favoriteStore', () => {
   beforeEach(() => {
+    // Restore vi.spyOn spies (e.g. on favoriteRepository.saveOutbox) so a
+    // previous test's spy can't change this test's persistence behavior.
+    vi.restoreAllMocks();
     __resetFavoriteStoreForTests();
     __resetFavoriteRepositoryForTests();
     mockApiGet.mockReset();
@@ -585,6 +588,90 @@ describe('favoriteStore', () => {
 
       // The anonymous source must still be present (write failed -> not cleared).
       expect(favoriteRepository.loadAnonymousFavorites()).toHaveLength(1);
+    });
+  });
+
+  describe('restart outbox restoration', () => {
+    it('restores the persisted outbox to in-memory intent on restart (heart stays lit while offline)', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      mockApiPost.mockRejectedValue(new Error('down')); // offline
+
+      // Session 1: favorite X offline -> op persisted in the outbox.
+      await favoriteStore.onLogin('u1');
+      await favoriteStore.setFavorite(mkTrack('X', '1'), true);
+      expect(favoriteStore.isFavorite('X')).toBe(true);
+      expect(favoriteStore.pendingOutbox).toBe(1);
+
+      // Restart: in-memory state lost, outbox persisted.
+      __resetFavoriteStoreForTests();
+      expect(favoriteStore.isFavorite('X')).toBe(false);
+
+      // Still offline. onLogin must restore the outbox intent so the heart
+      // stays lit and pendingOutbox reflects the persisted op.
+      await favoriteStore.onLogin('u1');
+      expect(favoriteStore.isFavorite('X')).toBe(true);
+      expect(favoriteStore.pendingOutbox).toBe(1);
+    });
+
+    it('new opIds do not collide with persisted outbox opIds after restart', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      // Session 1: one offline favorite -> outbox has op(X, opId=1).
+      mockApiPost.mockRejectedValue(new Error('down'));
+      await favoriteStore.onLogin('u1');
+      await favoriteStore.setFavorite(mkTrack('X', '1'), true);
+
+      // Restart.
+      __resetFavoriteStoreForTests();
+
+      // onLogin with a GATED flushOutbox replay so a new op can interleave.
+      let resolveReplay!: (v: unknown) => void;
+      mockApiPost.mockImplementation(() => new Promise((r) => { resolveReplay = r; }));
+      const loginP = favoriteStore.onLogin('u1');
+      await flushPromises(); // flushOutbox reaches the gated addTrackToPlaylist for op(X,1)
+
+      // During the gated replay, unfavorite X (offline -> enqueued). Without
+      // opCounter restoration this reuses opId=1 and collides with the old op.
+      mockApiPost.mockImplementation(() => Promise.reject(new Error('down')));
+      await favoriteStore.setFavorite(mkTrack('X', '1'), false);
+
+      // Resolve the old op's replay (success -> removeSnapshotOpsForHash(X, {1})).
+      mockApiPost.mockImplementation(() => Promise.resolve({ status: 1 }));
+      resolveReplay({ status: 1 });
+      await loginP;
+      await flushPromises();
+
+      // The new op (X=false) must survive (opId did not collide with 1). The
+      // latest intent is preserved and will replay to remove X from the server.
+      expect(favoriteStore.pendingOutbox).toBe(1);
+      expect(favoriteStore.isFavorite('X')).toBe(false);
+    });
+  });
+
+  describe('outbox write-failure status', () => {
+    it('returns a non-pending status when the outbox write fails (quota)', async () => {
+      mockApiGet.mockImplementation((path: string) => {
+        if (path === '/user/playlist') return Promise.resolve(likedPlaylistResponse('999', 'u1'));
+        if (path === '/playlist/track/all') return Promise.resolve({ status: 1, data: { list: [], total: 0 } });
+        return Promise.resolve({ status: 1, data: {} });
+      });
+      await favoriteStore.onLogin('u1');
+
+      // Offline + outbox write fails (quota / private mode).
+      vi.spyOn(favoriteRepository, 'saveOutbox').mockReturnValue(false);
+      mockApiPost.mockRejectedValue(new Error('down'));
+
+      const result = await favoriteStore.setFavorite(mkTrack('Q', '1'), true);
+      expect(result.status).not.toBe('pending'); // must NOT claim it entered the sync queue
+      expect(favoriteStore.pendingOutbox).toBe(0); // not persisted
+      expect(favoriteStore.isFavorite('Q')).toBe(true); // optimistic in-memory state kept
     });
   });
 });

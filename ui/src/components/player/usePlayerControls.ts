@@ -217,6 +217,10 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
         return on ? '已收藏到「我喜欢的音乐」' : '已取消收藏';
       case 'pending':
         return on ? '已收藏（联网后同步）' : '已取消收藏（联网后同步）';
+      case 'local':
+        // Outbox write failed (quota / private mode): kept in memory only, NOT
+        // in the sync queue - must not claim it will sync.
+        return on ? '已收藏到本地（存储不足，未进入同步队列）' : '已取消本地收藏（存储不足，未进入同步队列）';
       case 'anonymous':
         return on ? '已收藏到本地（登录后同步）' : '已取消本地收藏';
       case 'failed':
