@@ -43,6 +43,32 @@ export function markFavorite(fileHash: string): void {
   persist(next);
 }
 
+/** Bulk-mark FileHashes (e.g. after loading「我喜欢的音乐」). */
+export function markFavorites(fileHashes: readonly string[]): void {
+  if (!fileHashes.length) return;
+  const next = new Set(state.hashes);
+  let changed = false;
+  for (const hash of fileHashes) {
+    if (!hash || next.has(hash)) continue;
+    next.add(hash);
+    changed = true;
+  }
+  if (!changed) return;
+  state.hashes = next;
+  persist(next);
+}
+
+/**
+ * True for KuGou "liked" playlist names used as the heart source of truth.
+ * Match is intentionally loose (云盘/本地命名差异).
+ */
+export function isLikedPlaylistName(name: string | null | undefined): boolean {
+  if (!name) return false;
+  const n = name.trim();
+  if (!n) return false;
+  return /我喜欢|喜欢的音乐|我的最爱|我的收藏|favorites?|liked\s*songs?/i.test(n);
+}
+
 export function unmarkFavorite(fileHash: string): void {
   if (!fileHash || !state.hashes.has(fileHash)) return;
   const next = new Set(state.hashes);

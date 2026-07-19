@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue';
 import { apiGet } from '../api/backend';
 import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
+import { isLikedPlaylistName, markFavorites } from '../api/favoriteMarkers';
 import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 
 
@@ -40,6 +41,10 @@ async function loadPlaylistTracks() {
     if (res.status === 1 && res.data) {
       songs.value = (res.data.list || []).map(normalizeTrack);
       totalCount.value = res.data.total || songs.value.length;
+      // 「我喜欢的音乐」中的曲目应点亮底栏红心（不必再次点收藏）。
+      if (isLikedPlaylistName(props.playlistName)) {
+        markFavorites(songs.value.map((s) => s.FileHash).filter(Boolean));
+      }
     } else {
       error.value = res.error || '无法获取歌单曲目';
     }
@@ -72,15 +77,22 @@ onMounted(() => {
   loadPlaylistTracks();
 });
 
+function syncLikedMarkersFromCurrentPage(): void {
+  if (!isLikedPlaylistName(props.playlistName)) return;
+  markFavorites(songs.value.map((s) => s.FileHash).filter(Boolean));
+}
+
 function handlePlay(song: SongInfo) {
   // 用整张歌单作为播放队列，从点击的这首开始 —— 这样“下一首”才会沿着歌单走，
   // 而不是把单曲追加到一个无关的历史队列里。
+  syncLikedMarkersFromCurrentPage();
   const idx = songs.value.findIndex(s => s.FileHash === song.FileHash);
   playAll(songs.value, idx >= 0 ? idx : 0);
 }
 
 function handlePlayAll() {
   if (songs.value.length === 0) return;
+  syncLikedMarkersFromCurrentPage();
   playAll(songs.value, 0);
 }
 

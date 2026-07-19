@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
+import {
+  __resetFavoriteMarkersForTests,
+  isFavoriteMarker,
+} from '../../api/favoriteMarkers';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 
@@ -106,6 +110,37 @@ describe('PlaylistView request generation', () => {
     expect(wrapper.text()).toContain('Song B');
     expect(wrapper.text()).not.toContain('Song A');
     expect(wrapper.find('.spinner').exists()).toBe(false);
+  });
+
+  it('marks tracks from 我喜欢的音乐 so the player heart can light up', async () => {
+    __resetFavoriteMarkersForTests();
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: { list: [trackA, trackB], total: 2 },
+    });
+
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: 'liked-1', playlistName: '我喜欢的音乐' },
+    });
+    await flushPromises();
+
+    expect(isFavoriteMarker('hash-a')).toBe(true);
+    expect(isFavoriteMarker('hash-b')).toBe(true);
+  });
+
+  it('does not mark tracks from ordinary playlists', async () => {
+    __resetFavoriteMarkersForTests();
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: { list: [trackA], total: 1 },
+    });
+
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: 'pl-other', playlistName: '通勤精选' },
+    });
+    await flushPromises();
+
+    expect(isFavoriteMarker('hash-a')).toBe(false);
   });
 
   it('does not double-fetch when playlistId changes while page > 1', async () => {
