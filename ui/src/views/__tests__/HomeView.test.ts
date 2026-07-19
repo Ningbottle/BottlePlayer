@@ -104,7 +104,7 @@ describe('HomeView sections', () => {
     );
   });
 
-  it('plays a queue row without rebuilding the daily recommendation queue', async () => {
+  it('plays a daily-rail row via personal FM (rail is 每日推荐, not playback queue)', async () => {
     mockApiGet.mockImplementation((path: string) => {
       if (path === '/everyday/recommend') {
         return Promise.resolve({
@@ -113,6 +113,7 @@ describe('HomeView sections', () => {
             data: {
               song_list: [
                 { FileHash: 'daily-1', SongName: '不只是场梦', SingerName: '李玖哲', Duration: 212 },
+                { FileHash: 'daily-2', SongName: '无聊', SingerName: '李荣浩', Duration: 253 },
               ],
             },
           },
@@ -120,8 +121,8 @@ describe('HomeView sections', () => {
       }
       return Promise.resolve({ status: 1, data: { data: { info: [] } } });
     });
+    // Playback queue is separate; rail must not play this as a single-track path.
     playerStore.queue = [
-      { FileHash: 'daily-1', SongName: '不只是场梦', SingerName: '李玖哲', Duration: 212 },
       { FileHash: 'queued-extra', SongName: '队列追加', SingerName: '测试', Duration: 180 },
     ];
 
@@ -130,8 +131,14 @@ describe('HomeView sections', () => {
 
     await wrapper.get('[data-test="queue-track-daily-1"]').trigger('click');
 
-    expect(playTrack).toHaveBeenCalledWith(expect.objectContaining({ FileHash: 'daily-1' }));
-    expect(playPersonalFm).not.toHaveBeenCalled();
+    expect(playPersonalFm).toHaveBeenCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ FileHash: 'daily-1' }),
+        expect.objectContaining({ FileHash: 'daily-2' }),
+      ]),
+      0,
+    );
+    expect(playTrack).not.toHaveBeenCalled();
   });
 
   it('does not request the home feed again after remounting', async () => {

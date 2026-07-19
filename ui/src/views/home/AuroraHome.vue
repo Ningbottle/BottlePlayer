@@ -125,48 +125,15 @@ const heroAlbumLine = computed(() => {
   return album;
 });
 
-const queueCount = computed(() => {
-  return props.model.queueTotal ?? props.model.queuePreview.length;
-});
+/** Stage-right rail: 每日推荐 (not the playback queue — that lives in the player bar). */
+const DAILY_RAIL_LIMIT = 12;
 
-const isQueueHovered = ref(false);
-const queueSnapshot = ref<readonly Track[]>(props.model.queuePreview.slice(0, 12));
-const queueSnapshotStart = ref(props.model.queueWindowStart);
-const queueSnapshotActiveHash = ref(props.model.activeQueueHash);
-
-function syncQueueSnapshot(): void {
-  queueSnapshot.value = props.model.queuePreview.slice(0, 12);
-  queueSnapshotStart.value = props.model.queueWindowStart;
-  queueSnapshotActiveHash.value = props.model.activeQueueHash;
-}
-
-watch(
-  [
-    () => props.model.queuePreview,
-    () => props.model.queueWindowStart,
-    () => props.model.activeQueueHash,
-  ],
-  () => {
-    if (!isQueueHovered.value) syncQueueSnapshot();
-  },
-  { immediate: true },
-);
-
-function freezeQueueFollow(): void {
-  isQueueHovered.value = true;
-}
-
-function resumeQueueFollow(): void {
-  isQueueHovered.value = false;
-  syncQueueSnapshot();
-}
-
-const displayedQueuePreview = computed(() => queueSnapshot.value);
-
-const emptyQueueSuggestions = computed(() => {
+const dailyRailTracks = computed(() => {
   const daily = props.model.dailyTracks ?? [];
-  return (Array.isArray(daily) ? daily : []).slice(0, 3);
+  return (Array.isArray(daily) ? daily : []).slice(0, DAILY_RAIL_LIMIT);
 });
+
+const dailyRailCount = computed(() => props.model.dailyTracks?.length ?? 0);
 
 function onHeroPlay() {
   const t = props.model.heroTrack;
@@ -177,16 +144,12 @@ function onTrackPlay(track: Track): void {
   emit('play-track', track);
 }
 
-function onQueueTrackPlay(track: Track): void {
-  emit('play-queue-track', track);
-}
-
 function onOpenLyrics(): void {
   emit('navigate', 'lyric');
 }
 
-function isActiveQueueTrack(track: Track): boolean {
-  return track.FileHash === queueSnapshotActiveHash.value;
+function isActiveDailyTrack(track: Track): boolean {
+  return !!props.model.activeQueueHash && track.FileHash === props.model.activeQueueHash;
 }
 
 function onPlaylistClick(pl: PlaylistInfo) {
@@ -197,9 +160,13 @@ function onCoverError() {
   coverError.value = true;
 }
 
-function formatDuration(sec: number): string {
-  const m = Math.floor(sec / 60);
-  const s = sec % 60;
+/** Safe mm:ss; missing/invalid duration shows an em dash (never NaN). */
+function formatDuration(sec: number | undefined | null): string {
+  const n = Number(sec);
+  if (!Number.isFinite(n) || n <= 0) return '—';
+  const total = Math.floor(n);
+  const m = Math.floor(total / 60);
+  const s = total % 60;
   return `${m}:${String(s).padStart(2, '0')}`;
 }
 </script>
@@ -298,33 +265,32 @@ function formatDuration(sec: number): string {
           </button>
         </div>
 
-        <aside class="aurora-queue-rail" data-test="queue-rail" aria-label="播放队列">
+        <aside class="aurora-queue-rail" data-test="queue-rail" aria-label="每日推荐">
           <header class="aurora-queue-rail-head">
-            <h2>播放队列 <span>{{ queueCount }}</span></h2>
+            <h2>每日推荐 <span>{{ dailyRailCount }}</span></h2>
             <button
               type="button"
               class="aurora-queue-clear"
-              data-test="queue-clear"
-              :disabled="!model.queueTotal"
-              aria-label="清空播放队列"
-              @click="emit('clear-queue')"
-            >清空</button>
+              data-test="daily-rail-refresh"
+              :disabled="model.sections.daily.loading || model.sections.daily.refreshing"
+              aria-label="刷新每日推荐"
+              @click="model.sections.daily.retry()"
+            >{{ model.sections.daily.refreshing ? '刷新中' : '刷新' }}</button>
           </header>
           <ol
-            v-if="displayedQueuePreview.length"
+            v-if="dailyRailTracks.length"
             class="aurora-queue-list"
-            @mouseenter="freezeQueueFollow"
-            @mouseleave="resumeQueueFollow"
+            data-test="daily-rail-list"
           >
-            <li v-for="(track, index) in displayedQueuePreview" :key="track.FileHash" class="aurora-queue-row">
+            <li v-for="(track, index) in dailyRailTracks" :key="track.FileHash" class="aurora-queue-row">
               <button
                 type="button"
                 :data-test="`queue-track-${track.FileHash}`"
-                :class="{ 'is-active': isActiveQueueTrack(track) }"
-                :aria-current="isActiveQueueTrack(track) ? 'true' : undefined"
-                @click="onQueueTrackPlay(track)"
+                :class="{ 'is-active': isActiveDailyTrack(track) }"
+                :aria-current="isActiveDailyTrack(track) ? 'true' : undefined"
+                @click="onTrackPlay(track)"
               >
-                <span class="aurora-queue-index">{{ String(queueSnapshotStart + index + 1).padStart(2, '0') }}</span>
+                <span class="aurora-queue-index">{{ String(index + 1).padStart(2, '0') }}</span>
                 <span class="aurora-queue-copy"><b>{{ track.SongName }}</b><small>{{ track.SingerName }}</small></span>
                 <span class="aurora-queue-duration">{{ formatDuration(track.Duration) }}</span>
               </button>
@@ -335,19 +301,17 @@ function formatDuration(sec: number): string {
             class="aurora-queue-empty"
             data-test="queue-empty-state"
           >
-            <p class="aurora-queue-empty-title">队列还是空的</p>
-            <p class="aurora-queue-empty-hint">播放每日推荐或歌单后，曲目会出现在这里</p>
-            <ul
-              v-if="emptyQueueSuggestions.length"
-              class="aurora-queue-suggestions"
+            <p class="aurora-queue-empty-title">今日推荐还在路上</p>
+            <p class="aurora-queue-empty-hint">点击刷新拉取每日推荐；真实播放队列在底部播放栏列表中</p>
+            <button
+              type="button"
+              class="aurora-play"
+              data-test="daily-rail-empty-retry"
+              :disabled="model.sections.daily.loading || model.sections.daily.refreshing"
+              @click="model.sections.daily.retry()"
             >
-              <li v-for="track in emptyQueueSuggestions" :key="track.FileHash">
-                <button type="button" @click="onTrackPlay(track)">
-                  {{ track.SongName }}
-                  <small>{{ track.SingerName }}</small>
-                </button>
-              </li>
-            </ul>
+              {{ model.sections.daily.error ? '重试' : '刷新推荐' }}
+            </button>
           </div>
         </aside>
       </div>
@@ -896,6 +860,10 @@ export default { name: 'AuroraHome' };
   color: var(--text-muted);
   font-size: 11px;
   font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  flex: none;
+  min-width: 2.25em;
+  text-align: right;
 }
 
 .aurora-queue-copy {

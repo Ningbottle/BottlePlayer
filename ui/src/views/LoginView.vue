@@ -1,8 +1,12 @@
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import QRCode from 'qrcode';
 import { apiGet, apiPost } from '../api/backend';
 import { userStore, checkLoginStatus, claimVip, logoutLocal } from '../api/userStore';
+import { useThemeStore } from '../api/themeStore';
+
+const themeStore = useThemeStore();
+const isAurora = computed(() => themeStore.skinId.value === 'aurora');
 
 const emit = defineEmits<{
   (e: 'navigate', view: string): void;
@@ -15,6 +19,8 @@ const statusMessage = ref('正在生成登录二维码…');
 let pollTimer: any = null;
 let pollAbort = false;
 let pollFailures = 0;
+/** Login-success delayed navigate; cleared on unmount. */
+let postLoginTimer: ReturnType<typeof setTimeout> | null = null;
 
 const POLL_BASE_MS = 2_000;
 const POLL_MAX_MS = 10_000;
@@ -71,7 +77,9 @@ function handleQrResponse(res: any) {
     statusMessage.value = '登录成功，正在同步档案…';
     stopPolling();
 
-    setTimeout(async () => {
+    if (postLoginTimer) clearTimeout(postLoginTimer);
+    postLoginTimer = setTimeout(async () => {
+      postLoginTimer = null;
       await checkLoginStatus();
       if (userStore.isLoggedIn) {
         emit('navigate', 'home');
@@ -140,52 +148,63 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopPolling();
+  if (postLoginTimer) {
+    clearTimeout(postLoginTimer);
+    postLoginTimer = null;
+  }
 });
 </script>
 
 <template>
-  <div class="list-view login-view">
+  <div class="list-view login-view" :class="{ 'login-view--aurora': isAurora }">
     <div class="page-head">
       <div>
-        <div class="kicker">SECURE LOG IN · 账户鉴权</div>
+        <div class="kicker">{{ isAurora ? 'ACCOUNT · 账户' : 'SECURE LOG IN · 账户鉴权' }}</div>
         <h1>{{ userStore.isLoggedIn ? '我的账户' : '扫码登录' }}</h1>
       </div>
       <div class="date">
-        <b>BOTTLE PLAYER</b> · 经典新闻纸质感
+        <b>BOTTLE PLAYER</b> · {{ isAurora ? '极光账户中心' : '经典新闻纸质感' }}
       </div>
     </div>
 
     <div class="login-card">
-      <!-- Standard custom retro border -->
-      <div class="retro-box">
+      <div class="retro-box" :class="{ 'retro-box--aurora': isAurora }">
         <!-- Logged in state -->
         <div v-if="userStore.isLoggedIn" class="logged-in-profile">
           <div class="avatar-large">
             <img v-if="userStore.avatar" :src="userStore.avatar" alt="avatar" />
             <div v-else class="avatar-placeholder">听</div>
           </div>
-          <h2>{{ userStore.username }}</h2>
-          <div class="user-id">ID: {{ userStore.userId }}</div>
+          <h2 class="profile-name">{{ userStore.username }}</h2>
+          <p class="user-id">ID {{ userStore.userId }}</p>
 
-          <div class="vip-status-box" :class="{ 'is-vip': userStore.isVip }">
-            <div class="vip-label">{{ userStore.isVip ? 'VIP 会员' : '普通用户' }}</div>
-            <div v-if="userStore.isVip" class="vip-details">
-              等级: Lv.{{ userStore.vipLevel }} · 截止日期: {{ userStore.vipEndDate || '无期' }}
-            </div>
-            <div v-else class="vip-details">VIP 能解锁高质量音频源</div>
-          </div>
+          <!-- Membership is plain profile copy + one CTA — no nested card. -->
+          <p class="membership-line" :class="{ 'is-vip': userStore.isVip }">
+            <template v-if="userStore.isVip">
+              VIP · Lv.{{ userStore.vipLevel }}
+              <span class="membership-sep" aria-hidden="true">·</span>
+              至 {{ userStore.vipEndDate || '无期限' }}
+            </template>
+            <template v-else>
+              普通用户 · 领取后可解锁更高音质
+            </template>
+          </p>
 
-          <div class="actions-section">
-            <button class="play-cta" @click="handleClaimVip" :disabled="userStore.loading">
-              {{ userStore.loading ? '正在领取…' : '领取每日免费 VIP' }}
-            </button>
-            <div v-if="userStore.claimMessage" class="claim-msg">
-              {{ userStore.claimMessage }}
-            </div>
-          </div>
+          <button
+            class="play-cta claim-cta"
+            type="button"
+            data-test="claim-vip"
+            @click="handleClaimVip"
+            :disabled="userStore.loading"
+          >
+            {{ userStore.loading ? '领取中…' : (userStore.isVip ? '续领今日 VIP' : '领取每日免费 VIP') }}
+          </button>
+          <p v-if="userStore.claimMessage" class="claim-msg" role="status">
+            {{ userStore.claimMessage }}
+          </p>
 
-          <button class="logout-btn" @click="handleLogout">
-            退出登录 (Logout)
+          <button class="logout-btn" type="button" @click="handleLogout">
+            退出登录
           </button>
         </div>
 
@@ -281,61 +300,129 @@ onUnmounted(() => {
   font-weight: 700;
 }
 
-.user-id {
-  font-family: monospace;
-  font-size: 13px;
-  color: var(--ink-mute);
-  margin-top: 4px;
-}
-
-.vip-status-box {
-  margin-top: 20px;
-  padding: 12px 20px;
-  border: 1px dashed var(--ink-mute);
-  width: 100%;
-  background: rgba(34,27,18,0.03);
-}
-
-.vip-status-box.is-vip {
-  border: 1px solid var(--accent);
-  background: rgba(168,49,27,0.05);
-}
-
-.vip-label {
+.profile-name {
+  margin: 0;
+  font-size: 1.35rem;
   font-weight: 700;
-  font-size: 16px;
+  line-height: 1.25;
 }
 
-.vip-status-box.is-vip .vip-label {
-  color: var(--accent);
-}
-
-.vip-details {
+.user-id {
+  margin: 6px 0 0;
+  font-family: ui-monospace, monospace;
   font-size: 12px;
-  color: var(--ink-mute);
-  margin-top: 4px;
+  color: var(--ink-mute, #8a7e6a);
+  letter-spacing: 0.02em;
 }
 
-.actions-section {
-  margin-top: 24px;
+/* Inline membership row — part of the profile stack, not a nested card. */
+.membership-line {
+  margin: 14px 0 0;
+  max-width: 28em;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--ink-mute, #8a7e6a);
+}
+
+.membership-line.is-vip {
+  color: var(--accent, #a8311b);
+  font-weight: 600;
+}
+
+.membership-sep {
+  margin: 0 0.35em;
+  opacity: 0.55;
+}
+
+.claim-cta {
+  margin-top: 22px;
   width: 100%;
+  max-width: 280px;
+  justify-content: center;
+}
+
+.claim-cta:disabled {
+  opacity: 0.55;
+  cursor: default;
 }
 
 .claim-msg {
-  margin-top: 10px;
-  font-size: 13px;
-  color: var(--accent);
-  font-style: italic;
+  margin: 12px 0 0;
+  max-width: 28em;
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--accent, #a8311b);
 }
 
 .logout-btn {
-  margin-top: 30px;
+  margin-top: 28px;
   background: none;
   border: none;
-  color: var(--ink-mute);
+  color: var(--ink-mute, #8a7e6a);
   text-decoration: underline;
+  text-underline-offset: 3px;
   cursor: pointer;
   font-size: 12px;
+}
+
+/* Aurora: one surface only — profile copy + CTA sit on the same glass panel. */
+.login-view--aurora {
+  max-width: min(560px, 100%);
+}
+
+.login-view--aurora .page-head h1 {
+  letter-spacing: -0.02em;
+}
+
+.login-view--aurora .login-card {
+  margin-top: 28px;
+}
+
+.retro-box--aurora {
+  max-width: 100%;
+  border: 1px solid color-mix(in srgb, var(--text-primary, #e8e6f2) 10%, transparent);
+  background: color-mix(in srgb, var(--surface-elevated, #1a1b28) 82%, transparent);
+  box-shadow:
+    0 20px 50px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 color-mix(in srgb, #fff 7%, transparent);
+  border-radius: 20px;
+  padding: 36px 32px 32px;
+  color: var(--text-primary, #e8e6f2);
+  backdrop-filter: blur(20px);
+}
+
+.login-view--aurora .avatar-large {
+  border-color: color-mix(in srgb, var(--text-primary, #e8e6f2) 18%, transparent);
+  box-shadow: none;
+  background: color-mix(in srgb, var(--text-primary, #e8e6f2) 6%, transparent);
+}
+
+.login-view--aurora .user-id,
+.login-view--aurora .membership-line:not(.is-vip),
+.login-view--aurora .logout-btn {
+  color: var(--text-muted, #9a97ad);
+}
+
+.login-view--aurora .membership-line.is-vip {
+  color: color-mix(in srgb, var(--accent, #8b7cf6) 85%, #fff);
+}
+
+.login-view--aurora .claim-cta {
+  max-width: 100%;
+  border: 0;
+  border-radius: 999px;
+  min-height: 44px;
+  background: linear-gradient(
+    135deg,
+    var(--accent, #8b7cf6),
+    color-mix(in srgb, var(--accent, #8b7cf6) 55%, #5ad1ff)
+  );
+  color: #0b0c12;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent, #8b7cf6) 30%, transparent);
+}
+
+.login-view--aurora .claim-msg {
+  color: color-mix(in srgb, var(--accent, #8b7cf6) 80%, #fff);
 }
 
 .logout-btn:hover {

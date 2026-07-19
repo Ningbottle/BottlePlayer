@@ -3,6 +3,7 @@ import { ref, onMounted, watch } from 'vue';
 import { apiGet } from '../api/backend';
 import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
+import { isLikedPlaylistName, markFavorites } from '../api/favoriteMarkers';
 import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 
 
@@ -17,8 +18,15 @@ const totalCount = ref(0);
 const page = ref(1);
 const error = ref('');
 
+/** Bumps on every load so slower older responses cannot overwrite newer playlist/page state. */
+let playlistGeneration = 0;
+
 async function loadPlaylistTracks() {
-  if (!props.playlistId) return;
+  const gen = ++playlistGeneration;
+  if (!props.playlistId) {
+    loading.value = false;
+    return;
+  }
   loading.value = true;
   error.value = '';
   try {
@@ -28,23 +36,37 @@ async function loadPlaylistTracks() {
       pagesize: 50
     });
 
+    if (gen !== playlistGeneration) return;
+
     if (res.status === 1 && res.data) {
       songs.value = (res.data.list || []).map(normalizeTrack);
       totalCount.value = res.data.total || songs.value.length;
+      // 「我喜欢的音乐」中的曲目应点亮底栏红心（不必再次点收藏）。
+      if (isLikedPlaylistName(props.playlistName)) {
+        markFavorites(songs.value.map((s) => s.FileHash).filter(Boolean));
+      }
     } else {
       error.value = res.error || '无法获取歌单曲目';
     }
   } catch (err: any) {
+    if (gen !== playlistGeneration) return;
     console.error('Playlist load error', err);
     error.value = '连接 C++ 后端 Sidecar 出错';
   } finally {
-    loading.value = false;
+    if (gen === playlistGeneration) {
+      loading.value = false;
+    }
   }
 }
 
+// Single load entry: when playlistId changes on page>1, only reset page and let
+// the page watcher fetch — avoid page=1 + loadPlaylistTracks() double request.
 watch(() => props.playlistId, () => {
-  page.value = 1;
-  loadPlaylistTracks();
+  if (page.value !== 1) {
+    page.value = 1;
+  } else {
+    loadPlaylistTracks();
+  }
 });
 
 watch(page, () => {
@@ -55,15 +77,22 @@ onMounted(() => {
   loadPlaylistTracks();
 });
 
+function syncLikedMarkersFromCurrentPage(): void {
+  if (!isLikedPlaylistName(props.playlistName)) return;
+  markFavorites(songs.value.map((s) => s.FileHash).filter(Boolean));
+}
+
 function handlePlay(song: SongInfo) {
   // 用整张歌单作为播放队列，从点击的这首开始 —— 这样“下一首”才会沿着歌单走，
   // 而不是把单曲追加到一个无关的历史队列里。
+  syncLikedMarkersFromCurrentPage();
   const idx = songs.value.findIndex(s => s.FileHash === song.FileHash);
   playAll(songs.value, idx >= 0 ? idx : 0);
 }
 
 function handlePlayAll() {
   if (songs.value.length === 0) return;
+  syncLikedMarkersFromCurrentPage();
   playAll(songs.value, 0);
 }
 

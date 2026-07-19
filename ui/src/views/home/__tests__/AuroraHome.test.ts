@@ -176,58 +176,72 @@ describe('AuroraHome', () => {
     expect(wrapper.text()).toContain('Daily First');
   });
 
-  it('shows queue preview with real tracks', () => {
+  it('shows daily rail tracks (not playback queue)', () => {
     const vm = createViewModel({
-      queuePreview: [
-        createTrack({ SongName: 'Queue 1', FileHash: 'q1' }),
-        createTrack({ SongName: 'Queue 2', FileHash: 'q2' }),
-        createTrack({ SongName: 'Queue 3', FileHash: 'q3' }),
+      dailyTracks: [
+        createTrack({ SongName: 'Daily 1', FileHash: 'd1', Duration: 125 }),
+        createTrack({ SongName: 'Daily 2', FileHash: 'd2', Duration: 0 }),
+        createTrack({ SongName: 'Daily 3', FileHash: 'd3' }),
       ],
+      queuePreview: [createTrack({ SongName: 'Should Not Show Queue Song', FileHash: 'q1' })],
     });
 
     const wrapper = mount(AuroraHome, {
       props: { model: vm },
     });
 
-    expect(wrapper.text()).toContain('Queue 1');
-    expect(wrapper.text()).toContain('Queue 2');
-    expect(wrapper.text()).toContain('Queue 3');
+    expect(wrapper.text()).toContain('Daily 1');
+    expect(wrapper.text()).toContain('Daily 2');
+    expect(wrapper.text()).toContain('Daily 3');
+    expect(wrapper.text()).not.toContain('Should Not Show Queue Song');
+    expect(wrapper.get('[data-test="queue-track-d1"]').text()).toMatch(/2:05/);
+    expect(wrapper.get('[data-test="queue-track-d2"]').text()).toContain('—');
   });
 
-  it('renders a labelled queue rail and marks the active queued track', () => {
-    const queue = Array.from({ length: 12 }, (_, index) => createTrack({
-      FileHash: `queue-${index + 1}`,
-      SongName: `Queue ${index + 1}`,
+  it('renders a labelled daily rail and marks the active playing daily track', () => {
+    const daily = Array.from({ length: 12 }, (_, index) => createTrack({
+      FileHash: `daily-${index + 1}`,
+      SongName: `Daily ${index + 1}`,
+      Duration: 90,
     }));
-    const wrapper = mount(AuroraHome, {
-      props: { model: createViewModel({ queuePreview: queue, queueTotal: 15, activeQueueHash: 'queue-3' }) },
-    });
-
-    expect(wrapper.get('[data-test="queue-rail"]').attributes('aria-label')).toBe('播放队列');
-    expect(wrapper.findAll('[data-test^="queue-track-"]')).toHaveLength(12);
-    expect(wrapper.get('[data-test="queue-track-queue-3"]').attributes('aria-current')).toBe('true');
-    expect(wrapper.text()).toContain('15');
-  });
-
-  it('limits the queue rail to twelve tracks when the model preview is longer', () => {
-    const queue = Array.from({ length: 13 }, (_, index) => createTrack({
-      FileHash: `queue-${index + 1}`,
-      SongName: `Queue ${index + 1}`,
-    }));
-    const wrapper = mount(AuroraHome, {
-      props: { model: createViewModel({ queuePreview: queue, queueTotal: 13 }) },
-    });
-
-    expect(wrapper.findAll('[data-test^="queue-track-"]')).toHaveLength(12);
-    expect(wrapper.find('[data-test="queue-track-queue-13"]').exists()).toBe(false);
-  });
-
-  it('displays zero when queue total is zero', () => {
     const wrapper = mount(AuroraHome, {
       props: {
         model: createViewModel({
+          dailyTracks: daily,
+          queueTotal: 99,
+          activeQueueHash: 'daily-3',
+        }),
+      },
+    });
+
+    expect(wrapper.get('[data-test="queue-rail"]').attributes('aria-label')).toBe('每日推荐');
+    expect(wrapper.findAll('[data-test^="queue-track-"]')).toHaveLength(12);
+    expect(wrapper.get('[data-test="queue-track-daily-3"]').attributes('aria-current')).toBe('true');
+    expect(wrapper.get('.aurora-queue-rail-head h2 span').text()).toBe('12');
+    expect(wrapper.text()).toContain('每日推荐');
+    expect(wrapper.find('[data-test="queue-clear"]').exists()).toBe(false);
+  });
+
+  it('limits the daily rail to twelve tracks when daily list is longer', () => {
+    const daily = Array.from({ length: 13 }, (_, index) => createTrack({
+      FileHash: `daily-${index + 1}`,
+      SongName: `Daily ${index + 1}`,
+    }));
+    const wrapper = mount(AuroraHome, {
+      props: { model: createViewModel({ dailyTracks: daily }) },
+    });
+
+    expect(wrapper.findAll('[data-test^="queue-track-"]')).toHaveLength(12);
+    expect(wrapper.find('[data-test="queue-track-daily-13"]').exists()).toBe(false);
+  });
+
+  it('displays zero when daily list is empty', () => {
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          dailyTracks: [],
           queuePreview: [createTrack({ FileHash: 'queued-track' })],
-          queueTotal: 0,
+          queueTotal: 5,
         }),
       },
     });
@@ -235,7 +249,7 @@ describe('AuroraHome', () => {
     expect(wrapper.get('.aurora-queue-rail-head h2 span').text()).toBe('0');
   });
 
-  it('renders enriched empty queue state when queue is empty', () => {
+  it('renders enriched empty daily rail when recommendations are empty', () => {
     const wrapper = mount(AuroraHome, {
       props: {
         model: createViewModel({
@@ -249,7 +263,7 @@ describe('AuroraHome', () => {
       },
     });
     const empty = wrapper.get('[data-test="queue-empty-state"]');
-    expect(empty.text()).toMatch(/队列|推荐/);
+    expect(empty.text()).toMatch(/推荐|播放栏/);
     expect(empty.text()).not.toBe('暂无队列');
   });
 
@@ -289,19 +303,18 @@ describe('AuroraHome', () => {
     expect(paused.find('canvas[data-test="aurora-atmosphere"]').exists()).toBe(true);
   });
 
-  it('keeps list rows when queue has tracks', () => {
+  it('keeps list rows when daily recommendations have tracks', () => {
     const wrapper = mount(AuroraHome, {
       props: {
         model: createViewModel({
-          queuePreview: [
+          dailyTracks: [
             createTrack({
-              FileHash: 'q-has-1',
-              SongName: 'Queued Song',
-              SingerName: 'Queued Artist',
+              FileHash: 'd-has-1',
+              SongName: 'Daily Song',
+              SingerName: 'Daily Artist',
               Duration: 200,
             }),
           ],
-          queueTotal: 1,
         }),
       },
     });
@@ -309,66 +322,66 @@ describe('AuroraHome', () => {
     expect(wrapper.findAll('[data-test^="queue-track-"]').length).toBeGreaterThan(0);
   });
 
-  it('keeps queue ordinals aligned with the moving queue window', () => {
+  it('numbers daily rail rows from 01 without playback-window offsets', () => {
+    const daily = [
+      createTrack({ FileHash: 'daily-a', SongName: 'A' }),
+      createTrack({ FileHash: 'daily-b', SongName: 'B' }),
+    ];
     const wrapper = mount(AuroraHome, {
       props: {
         model: createViewModel({
-          queuePreview: [createTrack({ FileHash: 'queue-8' })],
-          queueTotal: 20,
+          dailyTracks: daily,
           queueWindowStart: 7,
         }),
       },
     });
 
-    expect(wrapper.get('[data-test="queue-track-queue-8"]').text()).toContain('08');
+    expect(wrapper.get('[data-test="queue-track-daily-a"]').text()).toContain('01');
+    expect(wrapper.get('[data-test="queue-track-daily-b"]').text()).toContain('02');
   });
 
-  it('pauses queue follow while hovered and resumes at the current track on mouseleave', async () => {
-    const initial = createTrack({ FileHash: 'queue-1', SongName: 'Queue 1' });
-    const current = createTrack({ FileHash: 'queue-8', SongName: 'Queue 8' });
+  it('updates the daily rail when recommendations change (no freeze-follow for playback queue)', async () => {
+    const first = createTrack({ FileHash: 'daily-1', SongName: 'Daily 1' });
+    const second = createTrack({ FileHash: 'daily-2', SongName: 'Daily 2' });
     const wrapper = mount(AuroraHome, {
       props: {
         model: createViewModel({
-          queuePreview: [initial],
-          queueTotal: 20,
-          activeQueueHash: initial.FileHash,
+          dailyTracks: [first],
+          activeQueueHash: first.FileHash,
         }),
       },
     });
 
-    const list = wrapper.get('.aurora-queue-list');
-    await list.trigger('mouseenter');
+    expect(wrapper.find('[data-test="queue-track-daily-1"]').exists()).toBe(true);
+
     await wrapper.setProps({
       model: createViewModel({
-        queuePreview: [current],
-        queueWindowStart: 7,
-        queueTotal: 20,
-        activeQueueHash: current.FileHash,
+        dailyTracks: [second],
+        activeQueueHash: second.FileHash,
       }),
     });
 
-    expect(wrapper.find('[data-test="queue-track-queue-1"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="queue-track-queue-8"]').exists()).toBe(false);
-
-    await list.trigger('mouseleave');
-
-    const resumed = wrapper.get('[data-test="queue-track-queue-8"]');
-    expect(resumed.attributes('aria-current')).toBe('true');
-    expect(resumed.text()).toContain('08');
+    expect(wrapper.find('[data-test="queue-track-daily-1"]').exists()).toBe(false);
+    const row = wrapper.get('[data-test="queue-track-daily-2"]');
+    expect(row.attributes('aria-current')).toBe('true');
+    expect(row.text()).toContain('01');
   });
 
-  it('emits a dedicated queue event without changing the daily-card event', async () => {
-    const queued = createTrack({ FileHash: 'queue-play', SongName: 'Queue Play' });
+  it('emits play-track from both the daily rail and daily cards', async () => {
+    const railOnly = createTrack({ FileHash: 'rail-play', SongName: 'Rail Play' });
     const daily = createTrack({ FileHash: 'daily-play', SongName: 'Daily Play' });
     const wrapper = mount(AuroraHome, {
-      props: { model: createViewModel({ queuePreview: [queued], dailyTracks: [daily] }) },
+      props: {
+        model: createViewModel({
+          dailyTracks: [railOnly, daily],
+        }),
+      },
     });
 
-    await wrapper.get('[data-test="queue-track-queue-play"]').trigger('click');
+    await wrapper.get('[data-test="queue-track-rail-play"]').trigger('click');
     await wrapper.get('[data-test="daily-track-daily-play"]').trigger('click');
 
-    expect(wrapper.emitted('play-queue-track')).toEqual([[queued]]);
-    expect(wrapper.emitted('play-track')).toEqual([[daily]]);
+    expect(wrapper.emitted('play-track')).toEqual([[railOnly], [daily]]);
   });
 
   it('handles long song name without squeezing play button', () => {
@@ -438,14 +451,11 @@ describe('AuroraHome', () => {
     expect(wrapper.emitted('navigate')).toEqual([['lyric']]);
   });
 
-  it('still renders stage, queue rail, and controls under reduced motion', () => {
-    const queue = [createTrack({ FileHash: 'queue-rm', SongName: 'RM Song' })];
+  it('still renders stage, daily rail, and controls under reduced motion', () => {
     const daily = [createTrack({ FileHash: 'daily-rm', SongName: 'Daily RM' })];
     const wrapper = mount(AuroraHome, {
       props: {
         model: createViewModel({
-          queuePreview: queue,
-          queueTotal: 1,
           dailyTracks: daily,
         }),
       },
@@ -454,14 +464,14 @@ describe('AuroraHome', () => {
     expect(wrapper.find('[data-test="aurora-stage"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="queue-rail"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="hero-play"]').exists()).toBe(true);
-    expect(wrapper.find('[data-test="queue-track-queue-rm"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="queue-track-daily-rm"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="daily-track-daily-rm"]').exists()).toBe(true);
   });
 
-  it('uses buttons for every interactive daily and queue item', () => {
+  it('uses buttons for every interactive daily rail and daily card item', () => {
     const track = createTrack({ FileHash: 'interactive-track' });
     const wrapper = mount(AuroraHome, {
-      props: { model: createViewModel({ dailyTracks: [track], queuePreview: [track] }) },
+      props: { model: createViewModel({ dailyTracks: [track] }) },
     });
 
     expect(wrapper.get('[data-test="daily-track-interactive-track"]').element.tagName).toBe('BUTTON');

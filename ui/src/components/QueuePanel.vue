@@ -24,17 +24,55 @@ const filteredQueue = computed(() => {
   );
 });
 
-async function fetchMissingCovers() {
+/**
+ * In-flight cover fetches: FileHash → generation that owns the pending slot.
+ * Do not mutate Image to mark pending. Stale completions must only clear their
+ * own generation so they never drop a newer request's pending mark.
+ */
+const pendingCoverFetches = new Map<string, number>();
+/** Bumped when queue FileHash identity changes so stale responses no-op. */
+let coverFetchGeneration = 0;
+let lastQueueIdentity = '';
+
+function queueCoverIdentity(): string {
+  return playerStore.queue.map((t) => t.FileHash || '').join('\0');
+}
+
+function clearPendingIfOwner(hash: string, gen: number) {
+  if (pendingCoverFetches.get(hash) === gen) {
+    pendingCoverFetches.delete(hash);
+  }
+}
+
+function fetchMissingCovers() {
+  const identity = queueCoverIdentity();
+  if (identity !== lastQueueIdentity) {
+    lastQueueIdentity = identity;
+    coverFetchGeneration += 1;
+    // Drop pending slots; in-flight work is owned by prior gens and must not
+    // block re-queue of the same FileHash under the new generation.
+    pendingCoverFetches.clear();
+  }
+  const gen = coverFetchGeneration;
+
   for (const item of playerStore.queue) {
-    if (!item.Image) {
-      item.Image = '';
-      fetchCoverImage(item.FileHash).then((img) => {
-        if (img) {
-          item.Image = img;
-          localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
-        }
+    const hash = item.FileHash;
+    if (!hash || item.Image || pendingCoverFetches.has(hash)) continue;
+
+    pendingCoverFetches.set(hash, gen);
+    fetchCoverImage(hash)
+      .then((img) => {
+        clearPendingIfOwner(hash, gen);
+        if (gen !== coverFetchGeneration) return;
+        if (!img) return;
+        const track = playerStore.queue.find((t) => t.FileHash === hash);
+        if (!track || track.Image) return;
+        track.Image = img;
+        localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
+      })
+      .catch(() => {
+        clearPendingIfOwner(hash, gen);
       });
-    }
   }
 }
 

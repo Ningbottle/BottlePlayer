@@ -1,5 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
+import {
+  __resetFavoriteMarkersForTests,
+  isFavoriteMarker,
+} from '../../api/favoriteMarkers';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 
@@ -12,6 +16,30 @@ vi.mock('../../api/playerStore', () => ({
 }));
 
 import PlaylistView from '../PlaylistView.vue';
+
+function deferred<T>() {
+  let resolve!: (value: T | PromiseLike<T>) => void;
+  let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((res, rej) => {
+    resolve = res;
+    reject = rej;
+  });
+  return { promise, resolve, reject };
+}
+
+const trackA = {
+  FileHash: 'hash-a',
+  SongName: 'Song A',
+  SingerName: 'Artist A',
+  Duration: 100,
+};
+
+const trackB = {
+  FileHash: 'hash-b',
+  SongName: 'Song B',
+  SingerName: 'Artist B',
+  Duration: 200,
+};
 
 describe('PlaylistView skin header', () => {
   let wrapper: VueWrapper<any> | undefined;
@@ -36,5 +64,139 @@ describe('PlaylistView skin header', () => {
     expect(wrapper.find('.skin-page-header').exists()).toBe(true);
     expect(wrapper.find('.skin-page-header-title').text()).toContain('Demo');
     expect(wrapper.find('.skin-page-header-kicker').text()).toMatch(/PLAYLIST/i);
+  });
+});
+
+describe('PlaylistView request generation', () => {
+  let wrapper: VueWrapper<any> | undefined;
+
+  beforeEach(() => {
+    mockApiGet.mockReset();
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+  });
+
+  it('ignores a stale playlist response after a newer playlistId resolves', async () => {
+    const a = deferred<{ status: number; data: { list: typeof trackA[]; total: number } }>();
+    const b = deferred<{ status: number; data: { list: typeof trackB[]; total: number } }>();
+
+    mockApiGet
+      .mockImplementationOnce(() => a.promise)
+      .mockImplementationOnce(() => b.promise);
+
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: 'pl-a', playlistName: 'Playlist A' },
+    });
+    await Promise.resolve();
+
+    await wrapper.setProps({ playlistId: 'pl-b', playlistName: 'Playlist B' });
+    await Promise.resolve();
+
+    // B resolves first
+    b.resolve({ status: 1, data: { list: [trackB], total: 1 } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Song B');
+    expect(wrapper.text()).not.toContain('Song A');
+    expect(wrapper.find('.spinner').exists()).toBe(false);
+
+    // Stale A must not overwrite B
+    a.resolve({ status: 1, data: { list: [trackA], total: 1 } });
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Song B');
+    expect(wrapper.text()).not.toContain('Song A');
+    expect(wrapper.find('.spinner').exists()).toBe(false);
+  });
+
+  it('marks tracks from 我喜欢的音乐 so the player heart can light up', async () => {
+    __resetFavoriteMarkersForTests();
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: { list: [trackA, trackB], total: 2 },
+    });
+
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: 'liked-1', playlistName: '我喜欢的音乐' },
+    });
+    await flushPromises();
+
+    expect(isFavoriteMarker('hash-a')).toBe(true);
+    expect(isFavoriteMarker('hash-b')).toBe(true);
+  });
+
+  it('does not mark tracks from ordinary playlists', async () => {
+    __resetFavoriteMarkersForTests();
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: { list: [trackA], total: 1 },
+    });
+
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: 'pl-other', playlistName: '通勤精选' },
+    });
+    await flushPromises();
+
+    expect(isFavoriteMarker('hash-a')).toBe(false);
+  });
+
+  it('does not double-fetch when playlistId changes while page > 1', async () => {
+    const pageful = Array.from({ length: 50 }, (_, i) => ({
+      ...trackA,
+      FileHash: `hash-${i}`,
+      SongName: `Song ${i}`,
+    }));
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: { list: pageful, total: 200 },
+    });
+
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: 'pl-a', playlistName: 'Playlist A' },
+    });
+    await flushPromises();
+
+    const next = wrapper.findAll('button').find((b) => /Next/i.test(b.text()));
+    expect(next).toBeTruthy();
+    await next!.trigger('click');
+    await flushPromises();
+
+    mockApiGet.mockClear();
+    await wrapper.setProps({ playlistId: 'pl-b', playlistName: 'Playlist B' });
+    await flushPromises();
+
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(mockApiGet.mock.calls[0][0]).toBe('/playlist/track/all');
+    expect(mockApiGet.mock.calls[0][1]).toMatchObject({ id: 'pl-b', page: 1 });
+  });
+
+  it('ignores a stale playlist error after a newer playlistId succeeds', async () => {
+    const a = deferred<{ status: number; data: { list: typeof trackA[]; total: number } }>();
+    const b = deferred<{ status: number; data: { list: typeof trackB[]; total: number } }>();
+
+    mockApiGet
+      .mockImplementationOnce(() => a.promise)
+      .mockImplementationOnce(() => b.promise);
+
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: 'pl-a', playlistName: 'Playlist A' },
+    });
+    await Promise.resolve();
+
+    await wrapper.setProps({ playlistId: 'pl-b', playlistName: 'Playlist B' });
+    await Promise.resolve();
+
+    b.resolve({ status: 1, data: { list: [trackB], total: 1 } });
+    await flushPromises();
+
+    a.reject(new Error('network down for pl-a'));
+    await flushPromises();
+
+    expect(wrapper.text()).toContain('Song B');
+    expect(wrapper.text()).not.toContain('连接 C++ 后端 Sidecar 出错');
+    expect(wrapper.find('.spinner').exists()).toBe(false);
   });
 });

@@ -267,17 +267,27 @@ function onRelease(e: MouseEvent) {
         </button>
 
         <transition name="menu-fade">
-          <div v-if="c.showQualityMenu" class="aurora-pb-q-menu" @click="c.closeQualityMenu">
-            <div
+          <div
+            v-if="c.showQualityMenu"
+            class="aurora-pb-q-menu"
+            data-test="aurora-quality-menu"
+            role="listbox"
+            aria-label="音质选项"
+          >
+            <button
               v-for="q in c.qualityOptions"
               :key="q"
+              type="button"
               class="aurora-pb-q-option"
+              role="option"
+              :aria-selected="c.isCurrentQuality(q)"
               :class="{ active: c.isCurrentQuality(q) }"
-              @click="c.handleSelectQuality(q)"
+              :data-test="`aurora-quality-option-${q}`"
+              @click.stop="c.handleSelectQuality(q)"
             >
               <span>{{ c.getQualityLabel(q) }}</span>
               <span v-if="c.isCurrentQuality(q)" class="aurora-pb-q-current">当前</span>
-            </div>
+            </button>
           </div>
         </transition>
       </div>
@@ -342,7 +352,8 @@ function onRelease(e: MouseEvent) {
     0 18px 40px rgba(0, 0, 0, 0.38),
     0 2px 0 color-mix(in srgb, #fff 6%, transparent) inset,
     0 -1px 0 rgba(0, 0, 0, 0.25) inset;
-  overflow: hidden;
+  /* Must stay visible: quality / volume menus open upward out of the dock. */
+  overflow: visible;
 }
 
 .aurora-pb > *:not(.aurora-pb-particles) {
@@ -352,6 +363,9 @@ function onRelease(e: MouseEvent) {
 
 .aurora-pb-particles {
   z-index: 0;
+  overflow: hidden;
+  border-radius: inherit;
+  pointer-events: none;
 }
 
 :global(:root[data-mode='light']) .aurora-pb {
@@ -495,7 +509,12 @@ function onRelease(e: MouseEvent) {
 }
 
 .aurora-pb-fav.is-active {
-  color: var(--accent);
+  color: #e85d6c;
+}
+
+.aurora-pb-fav.is-active :deep(svg) {
+  color: #e85d6c;
+  fill: currentColor;
 }
 
 .aurora-pb-fav.is-disabled,
@@ -739,10 +758,15 @@ function onRelease(e: MouseEvent) {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  width: 100%;
   padding: 8px 14px;
+  border: 0;
+  background: transparent;
   cursor: pointer;
+  font: inherit;
   font-size: 13px;
   color: var(--text-primary);
+  text-align: left;
 }
 
 .aurora-pb-q-option:hover {

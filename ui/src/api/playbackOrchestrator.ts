@@ -1,5 +1,6 @@
 import { normalizeTrack, type Track } from './normalizer';
 import type { DiagEvent } from './playbackDiagnostics';
+import { transitionPhase, type PlaybackPhase } from './playbackPhase';
 
 export interface QualityOption {
   quality: string;
@@ -34,6 +35,8 @@ export interface PlaybackStateSlice {
   vipRequired: boolean;
   quality: string;
   availableQualities: QualityOption[];
+  /** Explicit phase for UI / stability guards (see playbackPhase.ts). */
+  playbackPhase: PlaybackPhase;
 }
 
 export type PlaybackResult =
@@ -81,6 +84,7 @@ export class PlaybackOrchestrator {
     const prevIndex = state.currentIndex;
     const prevTrack = prevIndex >= 0 ? state.queue[prevIndex] ?? null : null;
 
+    this.applyPhase('resolving');
     this.deps.playSession.skip();
     await this.stopBackend(seq, backend);
     if (!this.isCurrent(seq)) return this.superseded(track, 'switchTrack stopped before start');
@@ -167,6 +171,7 @@ export class PlaybackOrchestrator {
       vipRequired: !!result.vip_required,
     });
 
+    this.applyPhase('loading');
     this.deps.playSession.intend(normalized);
 
     let ok: boolean;
@@ -189,6 +194,7 @@ export class PlaybackOrchestrator {
     }
 
     this.deps.patchState({ isLoading: false });
+    this.applyPhase('playing');
     this.deps.saveQueue();
     this.deps.uploadPlayHistory(normalized);
     this.deps.recordRecentPlayed(normalized);
@@ -205,6 +211,7 @@ export class PlaybackOrchestrator {
       isPlaying: false,
       errorMsg: '',
     });
+    this.applyPhase('idle');
   }
 
   async clearCurrentPlayback(): Promise<void> {
@@ -222,6 +229,7 @@ export class PlaybackOrchestrator {
       isPlaying: false,
       errorMsg: '',
     });
+    this.applyPhase('idle');
   }
 
   async switchQuality(quality: string): Promise<PlaybackResult> {
@@ -280,16 +288,19 @@ export class PlaybackOrchestrator {
       const message = err instanceof Error ? err.message : '播放失败';
       this.deps.playSession.skip();
       this.deps.patchState({ errorMsg: message, isLoading: false, isPlaying: false });
+      this.applyPhase('error');
       return { status: 'failed', message };
     }
     if (!this.isCurrent(seq)) return this.superseded(current, 'switchQuality switchUrl completed');
     if (!ok) {
       this.deps.playSession.skip();
       this.deps.patchState({ errorMsg: '播放失败', isPlaying: false });
+      this.applyPhase('error');
       return { status: 'failed', message: '播放失败' };
     }
 
     this.deps.patchState({ errorMsg: '' });
+    if (autoplay) this.applyPhase('playing');
     return { status: 'played' };
   }
 
@@ -303,12 +314,14 @@ export class PlaybackOrchestrator {
 
     const backend = this.deps.backend();
     if (!backend.hasSource()) {
+      this.applyPhase('recovering');
       return this.switchTrack(current);
     }
 
     await this.waitForStops(seq);
     if (!this.isCurrent(seq)) return this.superseded(current, 'resume waited for stop');
     if (!backend.hasSource()) {
+      this.applyPhase('recovering');
       return this.switchQualityAtPosition(state.quality, state.currentTime, true);
     }
 
@@ -316,12 +329,14 @@ export class PlaybackOrchestrator {
       await backend.resume();
     } catch (err) {
       if (!this.isCurrent(seq)) return this.superseded(current, 'resume rejected');
+      this.applyPhase('error');
       return {
         status: 'failed',
         message: err instanceof Error ? err.message : '恢复播放失败',
       };
     }
     if (!this.isCurrent(seq)) return this.superseded(current, 'resume completed');
+    this.applyPhase('playing');
     return { status: 'played' };
   }
 
@@ -424,6 +439,14 @@ export class PlaybackOrchestrator {
       vipRequired: false,
       errorMsg,
     });
+    this.applyPhase('error');
     this.deps.saveQueue();
+  }
+
+  /** Apply a legal phase transition via patchState; no-op when already there. */
+  private applyPhase(to: PlaybackPhase): void {
+    const from = this.deps.getState().playbackPhase ?? 'idle';
+    if (from === to) return;
+    this.deps.patchState({ playbackPhase: transitionPhase(from, to) });
   }
 }

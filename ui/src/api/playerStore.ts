@@ -11,6 +11,11 @@ import {
   PlaybackOrchestrator,
   type QualityOption,
 } from './playbackOrchestrator';
+import {
+  canTransition,
+  transitionPhase,
+  type PlaybackPhase,
+} from './playbackPhase';
 import { loadNumber } from './safeStorage';
 import {
   loadJSON,
@@ -67,6 +72,8 @@ interface PlayerState {
   errorMsg: string;
   isPreview: boolean;
   vipRequired: boolean;
+  /** Explicit playback phase (observability; see playbackPhase.ts). */
+  playbackPhase: PlaybackPhase;
   /** 当前音质等级，如 '128', '320', 'flac' 等 */
   quality: string;
   /** 当前歌曲可用的音质选项列表 */
@@ -130,6 +137,7 @@ export const playerStore = reactive<PlayerState>({
   errorMsg: '',
   isPreview: false,
   vipRequired: false,
+  playbackPhase: 'idle',
   quality: localStorage.getItem('player_quality') || '128',
   availableQualities: [],
   backend: null,
@@ -257,6 +265,14 @@ export async function initPlayerBackend() {
   eventUnsub = activeBackend.onEvent(handlePlaybackEvent);
 }
 
+/** Soft phase apply for backend events — never throw on racey illegal edges. */
+function applyStorePhase(to: PlaybackPhase) {
+  const from = playerStore.playbackPhase;
+  if (from === to) return;
+  if (!canTransition(from, to)) return;
+  playerStore.playbackPhase = transitionPhase(from, to);
+}
+
 function handlePlaybackEvent(e: PlaybackEvent) {
   if (e.type === 'position') {
     if (typeof e.position === 'number') {
@@ -273,10 +289,12 @@ function handlePlaybackEvent(e: PlaybackEvent) {
       playbackDiagnostics.markActivity();
       playerStore.isLoading = false;
       playerStore.isPlaying = true;
+      applyStorePhase('playing');
     } else if (e.state === 'paused') {
       playSession.onPause();
       playerStore.isLoading = false;
       playerStore.isPlaying = false;
+      applyStorePhase('paused');
     }
     playerStore.errorMsg = '';
   } else if (e.type === 'ended') {
@@ -291,8 +309,11 @@ function handlePlaybackEvent(e: PlaybackEvent) {
       advanceAfterEnded().catch((err) => console.error('auto-next failed', err));
     }
   } else if (e.type === 'error' && e.error) {
+    playSession.onPause();
     playerStore.isLoading = false;
+    playerStore.isPlaying = false;
     playerStore.errorMsg = e.error;
+    applyStorePhase('error');
   }
 }
 
@@ -356,16 +377,27 @@ export async function playTrack(track: Track) {
 }
 
 /** 切换音质等级 */
-export function setQuality(quality: string) {
-  playerStore.quality = quality;
-  localStorage.setItem('player_quality', quality);
+export async function setQuality(quality: string) {
+  if (!playerStore.currentTrack) {
+    playerStore.quality = quality;
+    localStorage.setItem('player_quality', quality);
+    return;
+  }
 
-  if (playerStore.currentTrack) {
-    initPlayer();
-    if (!activeBackend) initPlayerBackend();
-    playbackOrchestrator
-      .switchQuality(quality)
-      .catch((e) => console.error('Quality switch failed', e));
+  initPlayer();
+  if (!activeBackend) initPlayerBackend();
+  try {
+    const result = await playbackOrchestrator.switchQuality(quality);
+    if (result.status === 'played') {
+      playerStore.quality = quality;
+      localStorage.setItem('player_quality', quality);
+    } else if (result.status === 'failed') {
+      playerStore.errorMsg = result.message;
+    }
+    return result;
+  } catch (e) {
+    console.error('Quality switch failed', e);
+    playerStore.errorMsg = e instanceof Error ? e.message : '切换音质失败';
   }
 }
 
@@ -459,22 +491,22 @@ function queueDeps() {
 }
 
 export function playAll(tracks: Track[], startIndex = 0) {
-  playAllImpl(queueDeps(), tracks, startIndex);
+  return playAllImpl(queueDeps(), tracks, startIndex);
 }
 
 export function playPersonalFm(tracks: Track[], startIndex = 0) {
-  playPersonalFmImpl(queueDeps(), tracks, startIndex);
+  return playPersonalFmImpl(queueDeps(), tracks, startIndex);
 }
 
 export function addToQueue(track: Track) {
-  addToQueueImpl(queueDeps(), track);
+  return addToQueueImpl(queueDeps(), track);
 }
 
 export function removeFromQueue(index: number) {
-  removeFromQueueImpl(queueDeps(), index);
+  return removeFromQueueImpl(queueDeps(), index);
 }
 
 /** Empty the play queue and stop the active backend when one is available. */
 export function clearQueue() {
-  clearQueueImpl(queueDeps());
+  return clearQueueImpl(queueDeps());
 }

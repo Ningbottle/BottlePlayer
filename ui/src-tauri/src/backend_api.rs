@@ -30,6 +30,7 @@ pub struct CApiHandle {
         out_response: *mut *mut c_char,
     ),
     pub(crate) free_str: unsafe extern "C" fn(str: *mut c_char),
+    shutdown: unsafe extern "C" fn() -> c_int,
     // EchoStats C API exports
     pub(crate) stats_record_play: unsafe extern "C" fn(*const c_char),
     pub(crate) stats_get_summary: unsafe extern "C" fn(*const c_char) -> *mut c_char,
@@ -74,16 +75,29 @@ pub fn init_with_paths(dll_path: &str, app_data_dir: Option<&str>) -> Result<(),
     unsafe {
         let lib = Library::new(dll_path).map_err(|e| e.to_string())?;
 
-        if let Some(dir) = app_data_dir {
-            let init_func: Symbol<unsafe extern "C" fn(*const c_char)> =
-                lib.get(b"EchoInitializeWithPaths").map_err(|e| e.to_string())?;
-            let c_dir = CString::new(dir).map_err(|e| e.to_string())?;
-            init_func(c_dir.as_ptr());
-        } else {
-            let init_func: Symbol<unsafe extern "C" fn()> =
-                lib.get(b"EchoInitialize").map_err(|e| e.to_string())?;
-            init_func();
-        }
+        // Resolve every required symbol before initialization. If the DLL is
+        // incompatible, dropping Library is safe because no C++ thread exists.
+        let init_with_paths_ptr = {
+            let sym: Symbol<unsafe extern "C" fn(*const c_char) -> c_int> = lib
+                .get(b"EchoInitializeWithPathsV2")
+                .map_err(|e| e.to_string())?;
+            *sym
+        };
+        let init_ptr = {
+            let sym: Symbol<unsafe extern "C" fn() -> c_int> =
+                lib.get(b"EchoInitializeV2").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let get_last_error_ptr = {
+            let sym: Symbol<unsafe extern "C" fn() -> *mut c_char> =
+                lib.get(b"EchoGetLastError").map_err(|e| e.to_string())?;
+            *sym
+        };
+        let shutdown_ptr = {
+            let sym: Symbol<unsafe extern "C" fn() -> c_int> =
+                lib.get(b"EchoShutdown").map_err(|e| e.to_string())?;
+            *sym
+        };
 
         let handle_req_ptr = {
             let sym: Symbol<unsafe extern "C" fn(
@@ -135,10 +149,33 @@ pub fn init_with_paths(dll_path: &str, app_data_dir: Option<&str>) -> Result<(),
             *sym
         };
 
+        let init_status = if let Some(dir) = app_data_dir {
+            let c_dir = CString::new(dir).map_err(|e| e.to_string())?;
+            init_with_paths_ptr(c_dir.as_ptr())
+        } else {
+            init_ptr()
+        };
+        if init_status != 0 {
+            let error_ptr = get_last_error_ptr();
+            let message = if error_ptr.is_null() {
+                format!("C API initialization failed with status {init_status}")
+            } else {
+                let text = CStr::from_ptr(error_ptr).to_string_lossy().into_owned();
+                free_str_ptr(error_ptr);
+                text
+            };
+            let shutdown_status = shutdown_ptr();
+            if shutdown_status > 0 {
+                std::mem::forget(lib);
+            }
+            return Err(message);
+        }
+
         *guard = Some(CApiHandle {
             _lib: lib,
             handle_req: handle_req_ptr,
             free_str: free_str_ptr,
+            shutdown: shutdown_ptr,
             stats_record_play: stats_record_play_ptr,
             stats_get_summary: stats_get_summary_ptr,
             stats_get_top: stats_get_top_ptr,
@@ -154,10 +191,9 @@ pub fn shutdown_c_api() {
     // Bounded shutdown: try to acquire the write guard for up to 5 seconds
     // using only non-blocking try_write. If we can't get it in time, we
     // do NOT fall back to blocking write() — that would hang forever if
-    // in-flight spawn_blocking tasks still hold read guards. Instead we
-    // just return; the C++ EchoShutdown has its own bounded lock and will
-    // force-tear-down. Residual handle_request calls return Err("C API
-    // not loaded") once the handle is eventually taken.
+    // in-flight spawn_blocking tasks still hold read guards. Instead we leave
+    // the initialized handle and DLL mapping alive for the OS to reclaim at
+    // process exit.
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let mut guard = loop {
         match get_handle().try_write() {
@@ -175,22 +211,13 @@ pub fn shutdown_c_api() {
         }
     };
     if let Some(handle) = guard.take() {
-        // P0-B: EchoShutdown returns abandoned worker count. If > 0, detached
-        // C++ workers are still executing inside the DLL — FreeLibrary via
-        // drop(_lib) would unmap their code pages (use-after-unload). Leak
-        // the Library mapping until process exit (OS reclaims).
-        let abandoned = unsafe {
-            match handle
-                ._lib
-                .get::<Symbol<unsafe extern "C" fn() -> c_int>>(b"EchoShutdown")
-            {
-                Ok(shutdown_func) => shutdown_func(),
-                Err(_) => 0,
-            }
-        };
-        if abandoned != 0 {
+        // P0-B: a non-zero status means C++ workers or lock holders may still
+        // execute inside the DLL. FreeLibrary would unmap their code pages, so
+        // retain the mapping until process exit (the OS reclaims it).
+        let shutdown_status = unsafe { (handle.shutdown)() };
+        if shutdown_status != 0 {
             eprintln!(
-                "[EchoCAPI WARN] shutdown_c_api: {abandoned} abandoned worker(s); \
+                "[EchoCAPI WARN] shutdown_c_api: unsafe-to-unload status {shutdown_status}; \
                  leaking DLL mapping to avoid use-after-unload"
             );
             std::mem::forget(handle);
@@ -361,71 +388,147 @@ mod tests {
     use super::*;
     use std::thread;
 
+    fn test_dll_path() -> String {
+        let candidates: Vec<String> = {
+            let mut paths: Vec<String> = std::env::var("ECHO_CAPI_DLL").ok().into_iter().collect();
+            if cfg!(target_os = "windows") {
+                paths.push(format!(
+                    "{}/../../native/out/bottlemusic-check/EchoCAPI.dll",
+                    env!("CARGO_MANIFEST_DIR")
+                ));
+                paths.push("../../native/out/bottlemusic-check/EchoCAPI.dll".into());
+                paths.push(format!(
+                    "{}/target/debug/EchoCAPI.dll",
+                    env!("CARGO_MANIFEST_DIR")
+                ));
+                paths.push(format!("{}/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR")));
+            } else {
+                paths.push(format!(
+                    "{}/../../native/out/bottlemusic-check/libEchoCAPI.so",
+                    env!("CARGO_MANIFEST_DIR")
+                ));
+                paths.push("../../native/out/bottlemusic-check/libEchoCAPI.so".into());
+                paths.push(format!(
+                    "{}/target/debug/libEchoCAPI.so",
+                    env!("CARGO_MANIFEST_DIR")
+                ));
+            }
+            paths
+        };
+        candidates
+            .iter()
+            .find(|path| std::path::Path::new(path.as_str()).exists())
+            .cloned()
+            .unwrap_or_else(|| {
+                panic!("Could not find EchoCAPI library in candidates: {candidates:?}")
+            })
+    }
+
+    #[test]
+    fn initialization_failure_is_returned_without_publishing_a_handle() {
+        let _lock = lock_test_c_api();
+        let dll_path = test_dll_path();
+        let invalid_dir = std::env::temp_dir().join(format!(
+            "bottlemusic-ffi-invalid-dir-{}",
+            std::process::id(),
+        ));
+        let _ = std::fs::remove_dir_all(&invalid_dir);
+        let _ = std::fs::remove_file(&invalid_dir);
+        std::fs::write(&invalid_dir, b"not-a-directory").unwrap();
+
+        let error = init_with_paths(&dll_path, invalid_dir.to_str())
+            .expect_err("an ordinary file cannot be used as app_data_dir");
+
+        assert!(
+            error.contains("initialize failed"),
+            "unexpected error: {error}"
+        );
+        assert!(
+            api_handle().is_err(),
+            "failed initialization published a handle"
+        );
+        std::fs::remove_file(&invalid_dir).unwrap();
+    }
+
     #[test]
     fn test_m3_concurrency() {
         let _lock = lock_test_c_api();
 
-        // Try ECHO_CAPI_DLL env var first, then canonical paths.
-        let candidates: Vec<String> = {
-            let mut v: Vec<String> = std::env::var("ECHO_CAPI_DLL")
-                .ok()
-                .into_iter()
-                .collect();
-            if cfg!(target_os = "windows") {
-                v.push("../../../native/out/bottlemusic-check/EchoCAPI.dll".into());
-                v.push(format!("{}/target/debug/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR")));
-                v.push(format!("{}/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR")));
-            } else {
-                v.push("../../../native/out/bottlemusic-check/libEchoCAPI.so".into());
-                v.push(format!("{}/target/debug/libEchoCAPI.so", env!("CARGO_MANIFEST_DIR")));
-            }
-            v
-        };
-        let dll_path = candidates
-            .iter()
-            .find(|p| std::path::Path::new(p.as_str()).exists())
-            .cloned()
-            .unwrap_or_else(|| {
-                panic!("Could not find EchoCAPI.dll in candidates: {:?}", candidates);
-            });
+        let dll_path = test_dll_path();
         eprintln!("[test_m3_concurrency] using dll: {}", dll_path);
         
-        let app_data_dir = std::env::temp_dir().join("bottlemusic_test");
+        let app_data_dir = std::env::temp_dir().join(format!(
+            "bottlemusic-ffi-concurrency-{}",
+            std::process::id(),
+        ));
+        let _ = std::fs::remove_dir_all(&app_data_dir);
         std::fs::create_dir_all(&app_data_dir).unwrap();
         
         // This will block/panic if the library cannot be found. Run via `cargo test`.
-        init_with_paths(&dll_path, Some(app_data_dir.to_str().unwrap())).expect("Failed to init C API");
-        set_log_callback().ok();
+        init_with_paths(&dll_path, Some(app_data_dir.to_str().unwrap()))
+            .expect("Failed to init C API");
+
+        // RequestScheduler maxQueue = workers*4; under 20 concurrent callers the
+        // queue may return 504 queue_full. That is backpressure, not a crash —
+        // each logical op must still succeed after retry. Zero thread panics.
+        fn request_until_ok(method: &str, path: &str) {
+            for attempt in 0..80u32 {
+                let res = handle_request(method, path, None, None, None)
+                    .unwrap_or_else(|e| panic!("{path} handle_request err: {e}"));
+                let response: serde_json::Value = serde_json::from_str(&res)
+                    .unwrap_or_else(|e| panic!("{path} invalid JSON response: {e}; {res}"));
+                let status = response.get("status").and_then(serde_json::Value::as_u64);
+                if status == Some(200) {
+                    return;
+                }
+                let transient = status == Some(504) || response.to_string().contains("queue_full");
+                if !transient {
+                    panic!(
+                        "{path} unexpected response: {}",
+                        res.chars().take(500).collect::<String>()
+                    );
+                }
+                std::thread::sleep(std::time::Duration::from_millis(
+                    2 + u64::from(attempt.min(20)),
+                ));
+            }
+            panic!("{path}: exhausted retries under scheduler backpressure");
+        }
 
         let mut handles = vec![];
-        
-        // Spawn 20 threads, each making 50 requests
+
+        // Spawn 20 threads, each making 50 successful request pairs (retry ok).
         for _ in 0..20 {
             let handle = thread::spawn(|| {
                 for _ in 0..50 {
-                    // /health: memory only, /playlist/tags: SQLite DB access
-                    let res_health = handle_request("GET", "/health", None, None, None).unwrap();
-                    assert!(res_health.contains("200"));
-                    
-                    let res_db = handle_request("GET", "/playlist/tags", None, None, None).unwrap();
-                    assert!(res_db.contains("200"));
+                    // /settings/device executes DeviceRepository reads (and the
+                    // first caller may create the device), so this pair exercises
+                    // both the scheduler and the Storage Actor through FFI.
+                    request_until_ok("GET", "/health");
+                    request_until_ok("GET", "/settings/device");
                 }
             });
             handles.push(handle);
         }
-        
+
         let mut thread_failures = 0usize;
         for h in handles {
             if h.join().is_err() {
                 thread_failures += 1;
             }
         }
-        eprintln!("[test_m3_concurrency] {} of 20 threads panicked", thread_failures);
-        // Best-effort: tolerate partial failure since the test mainly proves the
-        // DLL loads and handles concurrent calls without crashing. If at least
-        // one thread survived, the C API is at least functional under load.
-        assert!(thread_failures < 20, "all 20 threads panicked");
+        eprintln!(
+            "[test_m3_concurrency] {} of 20 threads panicked",
+            thread_failures
+        );
+        // Zero tolerated panics: every thread must complete all ops (with retry).
+        assert_eq!(
+            thread_failures, 0,
+            "concurrent C API stress: {} of 20 threads panicked",
+            thread_failures
+        );
 
         shutdown_c_api();
+        std::fs::remove_dir_all(&app_data_dir).expect("failed to clean FFI test database");
     }
 }

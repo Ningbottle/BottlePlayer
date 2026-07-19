@@ -10,10 +10,16 @@
 extern "C" {
 #endif
 
+// Legacy wrappers keep the original ABI for existing consumers.
 ECHO_C_API void EchoInitialize();
 ECHO_C_API void EchoInitializeWithPaths(const char* app_data_dir);
-// Returns abandoned worker count. Non-zero ⇒ do not unload the DLL
-// (detached C++ workers may still execute inside it). See P0-B.
+// Versioned initialization returns 0 on success. On failure,
+// EchoGetLastError returns an owned message released with EchoFreeString.
+ECHO_C_API int EchoInitializeV2();
+ECHO_C_API int EchoInitializeWithPathsV2(const char* app_data_dir);
+ECHO_C_API char* EchoGetLastError();
+// Returns 0 only when teardown completed and the DLL is safe to unload.
+// Non-zero means workers or lock holders may still execute inside it.
 ECHO_C_API int EchoShutdown();
 ECHO_C_API void EchoHandleRequest(const char* method, const char* path, const char* query_json, const char* headers_json, const char* body, char** out_response);
 ECHO_C_API void EchoFreeString(char* str);
