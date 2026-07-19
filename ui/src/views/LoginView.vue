@@ -15,6 +15,8 @@ const statusMessage = ref('正在生成登录二维码…');
 let pollTimer: any = null;
 let pollAbort = false;
 let pollFailures = 0;
+/** Login-success delayed navigate; cleared on unmount. */
+let postLoginTimer: ReturnType<typeof setTimeout> | null = null;
 
 const POLL_BASE_MS = 2_000;
 const POLL_MAX_MS = 10_000;
@@ -71,7 +73,9 @@ function handleQrResponse(res: any) {
     statusMessage.value = '登录成功，正在同步档案…';
     stopPolling();
 
-    setTimeout(async () => {
+    if (postLoginTimer) clearTimeout(postLoginTimer);
+    postLoginTimer = setTimeout(async () => {
+      postLoginTimer = null;
       await checkLoginStatus();
       if (userStore.isLoggedIn) {
         emit('navigate', 'home');
@@ -140,6 +144,10 @@ onMounted(() => {
 
 onUnmounted(() => {
   stopPolling();
+  if (postLoginTimer) {
+    clearTimeout(postLoginTimer);
+    postLoginTimer = null;
+  }
 });
 </script>
 

@@ -1,4 +1,4 @@
-import { computed, ref, reactive } from 'vue';
+import { computed, ref, reactive, getCurrentScope, onScopeDispose } from 'vue';
 import {
   playerStore,
   togglePlay as storeTogglePlay,
@@ -128,10 +128,28 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   let toastTimer: ReturnType<typeof setTimeout> | null = null;
   let favToastTimer: ReturnType<typeof setTimeout> | null = null;
 
+  function clearToastTimers() {
+    if (toastTimer) {
+      clearTimeout(toastTimer);
+      toastTimer = null;
+    }
+    if (favToastTimer) {
+      clearTimeout(favToastTimer);
+      favToastTimer = null;
+    }
+  }
+
+  // Only register when called inside a component/effect scope (avoids test noise).
+  if (getCurrentScope()) {
+    onScopeDispose(() => {
+      clearToastTimers();
+    });
+  }
+
   function showToast(msg: string) {
     toastMsg.value = msg;
     if (toastTimer) clearTimeout(toastTimer);
-    toastTimer = setTimeout(() => { toastMsg.value = ''; }, 2000);
+    toastTimer = setTimeout(() => { toastMsg.value = ''; toastTimer = null; }, 2000);
   }
 
   function togglePlay() {
@@ -224,13 +242,13 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     }
     favoriteMsg.value = `已收藏到「${playlistName}」`;
     if (favToastTimer) clearTimeout(favToastTimer);
-    favToastTimer = setTimeout(() => { favoriteMsg.value = ''; }, 2000);
+    favToastTimer = setTimeout(() => { favoriteMsg.value = ''; favToastTimer = null; }, 2000);
   }
 
   function handleFavoriteError(msg: string) {
     favoriteMsg.value = msg;
     if (favToastTimer) clearTimeout(favToastTimer);
-    favToastTimer = setTimeout(() => { favoriteMsg.value = ''; }, 2000);
+    favToastTimer = setTimeout(() => { favoriteMsg.value = ''; favToastTimer = null; }, 2000);
   }
 
   function getQualityLabel(q: string): string {
