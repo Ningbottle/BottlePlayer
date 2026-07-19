@@ -259,7 +259,6 @@ export class PlaybackOrchestrator {
         result = await this.deps.resolveTrack(current, quality);
       } catch (err) {
         if (!this.isCurrent(seq)) return this.superseded(current, 'switchQuality resolve rejected');
-        this.applyPhase('error');
         return {
           status: 'failed',
           message: err instanceof Error ? err.message : '获取歌曲链接失败',
@@ -267,7 +266,6 @@ export class PlaybackOrchestrator {
       }
       if (!this.isCurrent(seq)) return this.superseded(current, 'switchQuality resolve completed');
       if (result.status !== 1 || !result.url) {
-        this.applyPhase('error');
         return { status: 'failed', message: result.error || '获取歌曲链接失败' };
       }
       const availableQualities = result.data?.available_qualities || [];

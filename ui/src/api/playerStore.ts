@@ -309,7 +309,9 @@ function handlePlaybackEvent(e: PlaybackEvent) {
       advanceAfterEnded().catch((err) => console.error('auto-next failed', err));
     }
   } else if (e.type === 'error' && e.error) {
+    playSession.onPause();
     playerStore.isLoading = false;
+    playerStore.isPlaying = false;
     playerStore.errorMsg = e.error;
     applyStorePhase('error');
   }
@@ -375,16 +377,27 @@ export async function playTrack(track: Track) {
 }
 
 /** 切换音质等级 */
-export function setQuality(quality: string) {
-  playerStore.quality = quality;
-  localStorage.setItem('player_quality', quality);
+export async function setQuality(quality: string) {
+  if (!playerStore.currentTrack) {
+    playerStore.quality = quality;
+    localStorage.setItem('player_quality', quality);
+    return;
+  }
 
-  if (playerStore.currentTrack) {
-    initPlayer();
-    if (!activeBackend) initPlayerBackend();
-    playbackOrchestrator
-      .switchQuality(quality)
-      .catch((e) => console.error('Quality switch failed', e));
+  initPlayer();
+  if (!activeBackend) initPlayerBackend();
+  try {
+    const result = await playbackOrchestrator.switchQuality(quality);
+    if (result.status === 'played') {
+      playerStore.quality = quality;
+      localStorage.setItem('player_quality', quality);
+    } else if (result.status === 'failed') {
+      playerStore.errorMsg = result.message;
+    }
+    return result;
+  } catch (e) {
+    console.error('Quality switch failed', e);
+    playerStore.errorMsg = e instanceof Error ? e.message : '切换音质失败';
   }
 }
 

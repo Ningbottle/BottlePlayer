@@ -49,12 +49,19 @@ export function pickBucket(path: string): CircuitBucket {
 }
 
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error('request_timeout')), ms)
-    ),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => reject(new Error('request_timeout')), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
 }
 
 /** IPC 响应的统一结构 (对应 C_API.cpp 的输出) */

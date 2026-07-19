@@ -319,6 +319,25 @@ describe('PlaybackOrchestrator', () => {
     expect(h.state.errorMsg).toBe('quality proxy down');
   });
 
+  it('keeps the current playback phase when quality resolution fails before switching source', async () => {
+    const h = makeHarness();
+    const current = mkTrack('a');
+    h.state.currentTrack = current;
+    h.state.queue = [current];
+    h.state.currentIndex = 0;
+    h.state.isPlaying = true;
+    h.state.playbackPhase = 'playing';
+    h.resolveTrack.mockRejectedValueOnce(new Error('quality unavailable'));
+
+    await expect(h.orchestrator.switchQuality('320')).resolves.toEqual({
+      status: 'failed', message: 'quality unavailable',
+    });
+
+    expect(h.backend.switchUrl).not.toHaveBeenCalled();
+    expect(h.state.isPlaying).toBe(true);
+    expect(h.state.playbackPhase).toBe('playing');
+  });
+
   it('reports a late switchUrl rejection as superseded without contaminating B', async () => {
     const h = makeHarness();
     const current = mkTrack('a');

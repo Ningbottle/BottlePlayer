@@ -22,14 +22,26 @@ describe('backend resilience', () => {
   });
 
   it('times out slow invoke without frontend retry', { timeout: 30_000 }, async () => {
+    vi.useFakeTimers();
     mockInvoke.mockImplementation(
       () => new Promise(resolve => setTimeout(resolve, 60_000))
     );
-    const start = Date.now();
-    await expect(apiGet('/healthz')).rejects.toThrow('request_timeout');
-    expect(Date.now() - start).toBeGreaterThanOrEqual(13_000);
+    const request = expect(apiGet('/healthz')).rejects.toThrow('request_timeout');
+    await vi.advanceTimersByTimeAsync(14_000);
+    await request;
     // Unique retry owner is C++ HttpClient — frontend does not re-invoke.
     expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
+
+  it('clears the timeout after a successful invoke', async () => {
+    vi.useFakeTimers();
+    mockInvoke.mockResolvedValueOnce(
+      JSON.stringify({ status: 200, headers: {}, body: { ok: true } }),
+    );
+
+    await expect(apiGet('/healthz')).resolves.toEqual({ ok: true });
+
+    expect(vi.getTimerCount()).toBe(0);
   });
 
   it('does not retry after a single rejection (records circuit failure)', async () => {

@@ -1,4 +1,6 @@
 import { normalizeTrack, type Track } from './normalizer';
+import type { QualityOption } from './playbackOrchestrator';
+import type { PlaybackPhase } from './playbackPhase';
 
 export type QueueState = {
   queue: Track[];
@@ -10,6 +12,12 @@ export type QueueState = {
   audio: HTMLAudioElement | null;
   /** Optional; when present on extended store state, residual cleanup clears it. */
   errorMsg?: string;
+  currentTime?: number;
+  duration?: number;
+  isPreview?: boolean;
+  vipRequired?: boolean;
+  availableQualities?: QualityOption[];
+  playbackPhase?: PlaybackPhase;
 };
 
 export type PlaybackQueueDeps = {
@@ -67,6 +75,12 @@ function clearPlaybackResiduals(state: QueueState): void {
   if (state.errorMsg !== undefined) {
     state.errorMsg = '';
   }
+  if (state.currentTime !== undefined) state.currentTime = 0;
+  if (state.duration !== undefined) state.duration = 0;
+  if (state.isPreview !== undefined) state.isPreview = false;
+  if (state.vipRequired !== undefined) state.vipRequired = false;
+  if (state.availableQualities !== undefined) state.availableQualities = [];
+  if (state.playbackPhase !== undefined) state.playbackPhase = 'idle';
 }
 
 export function playAll(

@@ -18,6 +18,7 @@ import {
   playTrack,
   playAll,
   next,
+  setQuality,
   togglePlay,
   initWebAudioEQ,
   attachWebAudioEqSource,
@@ -229,6 +230,40 @@ describe('playerStore integration', () => {
     await playTrack(mkTrack('bad'));
     expect(playerStore.errorMsg).toBeTruthy();
     expect(playerStore.currentIndex).toBe(before);
+  });
+
+  it('does not commit a requested quality when resolving that quality fails', async () => {
+    const current = mkTrack('quality-current');
+    current.Image = 'http://img/';
+    playerStore.currentTrack = current;
+    playerStore.queue = [current];
+    playerStore.currentIndex = 0;
+    playerStore.quality = '128';
+    localStorage.setItem('player_quality', '128');
+    initPlayer();
+    initPlayerBackend();
+    mockInvoke.mockResolvedValue(JSON.stringify({
+      status: 200,
+      headers: {},
+      body: { status: 0, error: 'quality unavailable' },
+    }));
+
+    await setQuality('320');
+
+    expect(playerStore.quality).toBe('128');
+    expect(localStorage.getItem('player_quality')).toBe('128');
+  });
+
+  it('clears playing when the HTML5 backend emits a media error', () => {
+    initPlayer();
+    initPlayerBackend();
+    playerStore.isPlaying = true;
+    playerStore.playbackPhase = 'playing';
+
+    (playerStore.audio as HTMLAudioElement).dispatchEvent(new Event('error'));
+
+    expect(playerStore.isPlaying).toBe(false);
+    expect(playerStore.playbackPhase).toBe('error');
   });
 
   it('does not crash on corrupt localStorage queue JSON at import time', async () => {

@@ -164,6 +164,12 @@ describe('playbackQueue serial commands + residuals', () => {
       isPlaying: true,
       isLoading: true,
       errorMsg: 'stale error',
+      currentTime: 42,
+      duration: 180,
+      isPreview: true,
+      vipRequired: true,
+      availableQualities: [{ quality: '320', url: 'old' }],
+      playbackPhase: 'playing',
     });
     const deps = makeDeps(state);
 
@@ -175,6 +181,12 @@ describe('playbackQueue serial commands + residuals', () => {
     expect(state.isPlaying).toBe(false);
     expect(state.isLoading).toBe(false);
     expect(state.errorMsg).toBe('');
+    expect(state.currentTime).toBe(0);
+    expect(state.duration).toBe(0);
+    expect(state.isPreview).toBe(false);
+    expect(state.vipRequired).toBe(false);
+    expect(state.availableQualities).toEqual([]);
+    expect(state.playbackPhase).toBe('idle');
     expect(deps.invalidatePlaybackIntent).toHaveBeenCalled();
     expect(deps.stopInvalidatedPlayback).toHaveBeenCalled();
   });
@@ -189,6 +201,12 @@ describe('playbackQueue serial commands + residuals', () => {
       isLoading: true,
       errorMsg: 'load failed',
       audio: null,
+      currentTime: 24,
+      duration: 100,
+      isPreview: true,
+      vipRequired: true,
+      availableQualities: [{ quality: '128', url: 'old' }],
+      playbackPhase: 'paused',
     });
     const deps = makeDeps(state);
 
@@ -200,6 +218,12 @@ describe('playbackQueue serial commands + residuals', () => {
     expect(state.isPlaying).toBe(false);
     expect(state.isLoading).toBe(false);
     expect(state.errorMsg).toBe('');
+    expect(state.currentTime).toBe(0);
+    expect(state.duration).toBe(0);
+    expect(state.isPreview).toBe(false);
+    expect(state.vipRequired).toBe(false);
+    expect(state.availableQualities).toEqual([]);
+    expect(state.playbackPhase).toBe('idle');
     expect(deps.skipSession).toHaveBeenCalled();
     expect(deps.invalidatePlaybackIntent).toHaveBeenCalled();
     expect(deps.stopInvalidatedPlayback).toHaveBeenCalled();
