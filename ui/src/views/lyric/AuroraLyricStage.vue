@@ -10,6 +10,7 @@ import type { LyricStageModel } from './useLyricStage';
 import CoverWebGLParticles from './CoverWebGLParticles.vue';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
 import PlayerProgress from '../../components/player/PlayerProgress.vue';
+import FullscreenWindowControls from '../../components/shell/FullscreenWindowControls.vue';
 import { useAutoHideControls } from './useAutoHideControls';
 
 const props = defineProps<{ model: LyricStageModel }>();
@@ -82,6 +83,7 @@ function onStageDblClick(e: MouseEvent): void {
     target.closest('.lyric-line')
     || target.closest('.aurora-cover')
     || target.closest('.aurora-fs-controls')
+    || target.closest('.aurora-fs-window-controls')
   ) {
     return;
   }
@@ -418,6 +420,16 @@ onBeforeUnmount(() => {
           :duration="model.duration"
           @seek="(s: number) => emit('seek', s)"
         />
+      </div>
+      <!-- Window min + exit-fs under progress (replaces top-right overlay on Aurora) -->
+      <div
+        v-if="model.fullscreen"
+        class="aurora-fs-window-controls"
+        data-test="aurora-fs-window-controls"
+        @click.stop
+        @dblclick.stop
+      >
+        <FullscreenWindowControls />
       </div>
     </div>
 
@@ -885,6 +897,28 @@ export default { name: 'AuroraLyricStage' };
 
 .aurora-lyric-fullscreen .aurora-fs-controls {
   width: min(36vw, 50vh, 420px);
+}
+
+/* Window minimize + exit-fullscreen: under progress, always available */
+.aurora-fs-window-controls {
+  flex: 0 0 auto;
+  width: min(34vw, 46vh, 380px);
+  max-width: 100%;
+  align-self: center;
+  margin-top: 8px;
+  display: flex;
+  justify-content: center;
+  z-index: 2;
+}
+
+.aurora-lyric-fullscreen .aurora-fs-window-controls {
+  width: min(36vw, 50vh, 420px);
+}
+
+.aurora-fs-window-controls :deep(.fs-controls) {
+  display: flex;
+  gap: 8px;
+  justify-content: center;
 }
 
 .aurora-fs-controls.controls-visible,

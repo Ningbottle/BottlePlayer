@@ -179,7 +179,11 @@ onUnmounted(() => {
     </template>
   </component>
 
-  <FullscreenWindowControls v-if="lyricFullscreen" class="fs-controls-overlay" />
+  <!-- Newsprint keeps top-right overlay; Aurora embeds these under the left-column progress bar -->
+  <FullscreenWindowControls
+    v-if="lyricFullscreen && themeStore.skinId.value !== 'aurora'"
+    class="fs-controls-overlay"
+  />
 </template>
 
 <style scoped>

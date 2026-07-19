@@ -989,14 +989,19 @@ describe('Aurora lyric focus modes', () => {
     expect(meta.element.contains(controls.element)).toBe(true);
     const metaText = meta.find('.aurora-lyric-track-meta');
     expect(metaText.exists()).toBe(true);
-    // DOM order: cover → track-meta → controls
+    const windowControls = fullscreen.find('[data-test="aurora-fs-window-controls"]');
+    expect(windowControls.exists()).toBe(true);
+    expect(meta.element.contains(windowControls.element)).toBe(true);
+    // DOM order: cover → track-meta → transport → window controls
     const kids = Array.from(meta.element.children) as HTMLElement[];
     const coverIdx = kids.indexOf(cover.element as HTMLElement);
     const metaIdx = kids.indexOf(metaText.element as HTMLElement);
     const controlsIdx = kids.indexOf(controls.element as HTMLElement);
+    const windowIdx = kids.indexOf(windowControls.element as HTMLElement);
     expect(coverIdx).toBeGreaterThanOrEqual(0);
     expect(metaIdx).toBeGreaterThan(coverIdx);
     expect(controlsIdx).toBeGreaterThan(metaIdx);
+    expect(windowIdx).toBeGreaterThan(controlsIdx);
     expect(
       fullscreen.find('[data-test="lyric-content-column"] [data-test="aurora-fs-controls"]').exists(),
     ).toBe(false);
