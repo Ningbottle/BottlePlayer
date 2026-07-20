@@ -96,6 +96,34 @@ export async function checkLoginStatus() {
         console.warn('VIP detail refresh failed; keeping login state', e);
         resetVipState();
       }
+
+      // Auto-claim the daily free VIP on session/auto-login. claimVip() is only
+      // wired to the manual login button (LoginView), so an app restart that
+      // restores the session via checkLoginStatus would skip it and /song/url
+      // would return 60s preview URLs -> HTML5 media error ~60s into playback.
+      // Fire-and-forget; idempotent (an already-claimed day returns a business
+      // error we swallow). No UI side effects (no loading/claimMessage).
+      if (!userStore.isVip) {
+        void apiGet<any>('/youth/listen/song')
+          .then(async (listen) => {
+            if (listen?.status !== 1) return; // already claimed today, or business error
+            try {
+              const vip = await apiGet<any>('/user/vip/detail');
+              if (vip?.status === 1 && vip?.data) {
+                const r = resolveVip(vip.data, Date.now());
+                userStore.vipLevel = r.vipLevel;
+                userStore.vipType = r.vipType;
+                userStore.isVip = r.isVip;
+                userStore.vipEndDate = r.vipEndDate;
+              }
+            } catch {
+              /* keep prior state */
+            }
+          })
+          .catch(() => {
+            /* VIP claim is best-effort; don't block login */
+          });
+      }
     } else {
       resetLoginState();
     }

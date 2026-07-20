@@ -138,7 +138,6 @@ onBeforeUnmount(autoHideControls.dispose);
           :class="{ active: idx === model.activeIndex }"
           @click="onLineClick(line)"
         >
-          <span class="np-line-num">{{ String(idx + 1).padStart(2, '0') }}</span>
           <span class="np-line-text">{{ line.text }}</span>
         </button>
       </div>
@@ -425,9 +424,7 @@ export default { name: 'NewsprintLyricStage' };
 }
 
 .np-lyric-line {
-  display: grid;
-  grid-template-columns: 36px 1fr;
-  gap: 12px;
+  display: block;
   padding: 8px 12px;
   border: 0;
   border-bottom: 1px dotted var(--rule-soft, var(--rule));

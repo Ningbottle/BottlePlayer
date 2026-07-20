@@ -8,6 +8,21 @@ importers:
 
   .:
     dependencies:
+      '@fontsource/eb-garamond':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/inter':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/libre-caslon-display':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/noto-serif-sc':
+        specifier: ^5.3.0
+        version: 5.3.0
+      '@fontsource/zcool-xiaowei':
+        specifier: ^5.3.0
+        version: 5.3.0
       '@lucide/vue':
         specifier: ^1.24.0
         version: 1.24.0(vue@3.5.34(typescript@5.6.2))
@@ -305,6 +320,21 @@ packages:
     peerDependenciesMeta:
       '@noble/hashes':
         optional: true
+
+  '@fontsource/eb-garamond@5.3.0':
+    resolution: {integrity: sha512-VplwHpB8FLuzl+4G5LDci1b3Z4SghiuXH8XEgaxjnOb5aue5mEt1njmDKeO6iyLeGa73LffU7PC7hzncLRx0ZA==}
+
+  '@fontsource/inter@5.3.0':
+    resolution: {integrity: sha512-RofMylZmjlJEfELXeNHFWBRcSs75rGU/6bV2S2jfnvv/3rPXPGe0LgUJTklcHZ9lM4OZmAVFhcJPnACfb91A3g==}
+
+  '@fontsource/libre-caslon-display@5.3.0':
+    resolution: {integrity: sha512-WZEyiWTKBoXHWHNfdFQcexxmUOQ22XpSK4ivzczY2AnSt/u8DfmzRpYX6eKwUaFjva5BhSbUUArmouHTDwSEFQ==}
+
+  '@fontsource/noto-serif-sc@5.3.0':
+    resolution: {integrity: sha512-0/zaEFkidiWldE62rTeD74x8ygUsQvejiSNtO0LQxQk3qpaHnlMZ3w4C7yH80B4KTIg8VKeFP4oSgwWMchY9+g==}
+
+  '@fontsource/zcool-xiaowei@5.3.0':
+    resolution: {integrity: sha512-iRuUPl9ONFbYzi6JcEshpE4VedINyzQ4hv0Z5XEt0cB0pMPiQeqc2Qvv1NwJCNzkPwG02VCdcO+cF2K8ylYn2A==}
 
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
@@ -1430,6 +1460,16 @@ snapshots:
     optional: true
 
   '@exodus/bytes@1.15.1': {}
+
+  '@fontsource/eb-garamond@5.3.0': {}
+
+  '@fontsource/inter@5.3.0': {}
+
+  '@fontsource/libre-caslon-display@5.3.0': {}
+
+  '@fontsource/noto-serif-sc@5.3.0': {}
+
+  '@fontsource/zcool-xiaowei@5.3.0': {}
 
   '@isaacs/cliui@8.0.2':
     dependencies:

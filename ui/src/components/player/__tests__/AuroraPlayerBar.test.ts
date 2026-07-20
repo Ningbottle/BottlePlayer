@@ -54,6 +54,7 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     setQuality: vi.fn(),
     toggleShuffle: vi.fn(),
     toggleRepeat: vi.fn(),
+    cycleLoopMode: vi.fn(),
     toggleLyricView: vi.fn(),
     openLyricView: vi.fn(),
     openLyricImmersion: vi.fn(),
@@ -186,17 +187,17 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.get('.aurora-pb-info-btn').attributes('disabled')).toBeDefined();
   });
 
-  it('renders shuffle, prev, play/pause, next, repeat controls', () => {
+  it('renders loop, prev, play/pause, next controls (merged cycle button)', () => {
     const ctrl = createStubController({ currentTrack: mkTrack() });
     const wrapper = mount(AuroraPlayerBar, {
       props: { controller: ctrl },
     });
 
-    expect(wrapper.find('[aria-label="随机"]').exists()).toBe(true);
+    // Shuffle + repeat merged into one cycle button (list mode -> "列表顺序播放").
+    expect(wrapper.find('[aria-label="列表顺序播放"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="上一首"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="下一首"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="循环"]').exists()).toBe(true);
   });
 
   it('keeps previous, play/pause, and next in the core transport order', () => {
@@ -412,7 +413,7 @@ describe('AuroraPlayerBar', () => {
 
   it('keeps the primary player commands named for assistive technology', () => {
     const wrapper = mount(AuroraPlayerBar, { props: { controller: createStubController({ currentTrack: mkTrack() }) } });
-    for (const label of ['随机', '上一首', '播放', '下一首', '循环', '队列', '歌词']) {
+    for (const label of ['列表顺序播放', '上一首', '播放', '下一首', '队列', '歌词']) {
       expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
     }
   });

@@ -607,13 +607,13 @@ describe('Lyric stage structure differences', () => {
     expect(newsprint.find('.aurora-lyric-stage').exists()).toBe(false);
   });
 
-  it('Newsprint has line numbers, Aurora does not', () => {
+  it('neither Aurora nor Newsprint shows line numbers', () => {
     const model = createModel();
     const aurora = mount(AuroraLyricStage, { props: { model } });
     const newsprint = mount(NewsprintLyricStage, { props: { model } });
 
-    expect(newsprint.find('.np-line-num').exists()).toBe(true);
     expect(aurora.find('.np-line-num').exists()).toBe(false);
+    expect(newsprint.find('.np-line-num').exists()).toBe(false);
   });
 
   it('Aurora and Newsprint have different cover element classes', () => {

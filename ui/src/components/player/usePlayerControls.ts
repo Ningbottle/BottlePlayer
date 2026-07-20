@@ -51,6 +51,8 @@ export interface PlayerController {
   setQuality: (q: string) => void;
   toggleShuffle: () => void;
   toggleRepeat: () => void;
+  /** Cycle list -> single -> random -> list (single-button loop mode). */
+  cycleLoopMode: () => void;
   toggleLyricView: () => void;
   /** Open the regular lyric page and leave fullscreen mode. */
   openLyricView: () => void;
@@ -178,6 +180,18 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     const isSingle = loopMode.value === 'single';
     playerStore.loopMode = isSingle ? 'list' : 'single';
     showToast(isSingle ? '已切换为 列表顺序播放' : '已切换为 单曲循环');
+  }
+
+  function cycleLoopMode() {
+    const order: LoopMode[] = ['list', 'single', 'random'];
+    const cur = order.indexOf(loopMode.value);
+    const next = order[(cur + 1) % order.length];
+    playerStore.loopMode = next;
+    showToast(
+      next === 'list' ? '已切换为 列表顺序播放'
+        : next === 'single' ? '已切换为 单曲循环'
+        : '已切换为 随机播放',
+    );
   }
 
   function toggleLyricView() {
@@ -320,6 +334,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     setQuality,
     toggleShuffle,
     toggleRepeat,
+    cycleLoopMode,
     toggleLyricView,
     openLyricView,
     openLyricImmersion,
