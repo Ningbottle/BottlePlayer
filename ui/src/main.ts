@@ -1,5 +1,21 @@
 import { createApp } from "vue";
 import App from "./App.vue";
+// Self-hosted fonts (replace Google Fonts CDN - blocked offline / in CN, and
+// EB Garamond / Libre Caslon Display were never loaded at all -> blurry
+// substitution on machines without the fonts). Noto Serif SC limited to
+// 400/700 to keep the CJK payload bounded.
+import "@fontsource/inter/400.css";
+import "@fontsource/inter/500.css";
+import "@fontsource/inter/600.css";
+import "@fontsource/inter/700.css";
+import "@fontsource/eb-garamond/400.css";
+import "@fontsource/eb-garamond/500.css";
+import "@fontsource/eb-garamond/600.css";
+import "@fontsource/eb-garamond/700.css";
+import "@fontsource/libre-caslon-display/400.css";
+import "@fontsource/zcool-xiaowei/400.css";
+import "@fontsource/noto-serif-sc/400.css";
+import "@fontsource/noto-serif-sc/700.css";
 import "./styles/tokens.css";
 import "./styles/progress.css";
 import "./style.css";

@@ -78,9 +78,9 @@
                   inset 0 1px 0 rgba(255,255,255,0.8);
 
   --font-serif:
-    "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+    "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
   --font-sans:
-    "Noto Serif SC", "Source Han Serif SC", "Songti SC", serif;
+    "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
 }
 
 /* Aurora dark: graphite + emerald (do not inherit Newsprint/iOS dark paper reds) */
