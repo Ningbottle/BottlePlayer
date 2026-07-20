@@ -118,3 +118,12 @@ INITIALIZATION_SUMMARY.md
 CLAUDE.md
 .cursorrules
 .windsurfrules
+
+# AI 工具本地目录/文件（本地工具配置，勿入仓库）
+.claude/
+.agents/
+mcps/
+skills-lock.json
+.qoder/
+.superpowers/
+.tmp_*
