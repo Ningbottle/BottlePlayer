@@ -164,6 +164,17 @@ describe('usePlayerControls', () => {
     expect(mocks.store.loopMode).toBe('list');
   });
 
+  it('cycleLoopMode cycles list -> single -> random -> list', () => {
+    mocks.store.loopMode = 'list';
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
+    ctrl.cycleLoopMode();
+    expect(mocks.store.loopMode).toBe('single');
+    ctrl.cycleLoopMode();
+    expect(mocks.store.loopMode).toBe('random');
+    ctrl.cycleLoopMode();
+    expect(mocks.store.loopMode).toBe('list');
+  });
+
   // ── toggleLyricView ──
 
   it('toggleLyricView navigates to lyric when activeView is not lyric', () => {

@@ -8,6 +8,7 @@ import {
   Maximize2,
   Pause,
   Play,
+  Repeat1,
   Repeat2,
   Shuffle,
   SkipBack,
@@ -158,16 +159,18 @@ function onRelease(e: MouseEvent) {
       <button
         type="button"
         class="np-pb-btn"
-        :class="{ active: c.loopMode === 'random' }"
-        aria-label="随机"
-        :aria-pressed="c.loopMode === 'random'"
-        title="随机播放"
-        @click="c.toggleShuffle"
+        :class="{ active: c.loopMode !== 'list' }"
+        :aria-label="c.loopMode === 'random' ? '随机播放' : c.loopMode === 'single' ? '单曲循环' : '列表顺序播放'"
+        :aria-pressed="c.loopMode !== 'list'"
+        :title="c.loopMode === 'random' ? '随机播放' : c.loopMode === 'single' ? '单曲循环' : '列表顺序播放'"
+        @click="c.cycleLoopMode"
         @mousedown="onPress"
         @mouseup="onRelease"
         @mouseleave="onRelease"
       >
-        <Shuffle :size="15" :stroke-width="1.75" aria-hidden="true" />
+        <Shuffle v-if="c.loopMode === 'random'" :size="15" :stroke-width="1.75" aria-hidden="true" />
+        <Repeat1 v-else-if="c.loopMode === 'single'" :size="15" :stroke-width="1.75" aria-hidden="true" />
+        <Repeat2 v-else :size="15" :stroke-width="1.75" aria-hidden="true" />
       </button>
 
       <button
@@ -208,21 +211,6 @@ function onRelease(e: MouseEvent) {
         @mouseleave="onRelease"
       >
         <SkipForward :size="15" :stroke-width="1.75" aria-hidden="true" />
-      </button>
-
-      <button
-        type="button"
-        class="np-pb-btn"
-        :class="{ active: c.loopMode === 'single' }"
-        aria-label="循环"
-        :aria-pressed="c.loopMode === 'single'"
-        title="单曲循环"
-        @click="c.toggleRepeat"
-        @mousedown="onPress"
-        @mouseup="onRelease"
-        @mouseleave="onRelease"
-      >
-        <Repeat2 :size="15" :stroke-width="1.75" aria-hidden="true" />
       </button>
     </div>
     <div

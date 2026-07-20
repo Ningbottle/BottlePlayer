@@ -53,6 +53,7 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     setQuality: vi.fn(),
     toggleShuffle: vi.fn(),
     toggleRepeat: vi.fn(),
+    cycleLoopMode: vi.fn(),
     toggleLyricView: vi.fn(),
     openLyricView: vi.fn(),
     openLyricImmersion: vi.fn(),
@@ -158,17 +159,17 @@ describe('NewsprintPlayerBar', () => {
     expect(wrapper.find('[data-test="newsprint-player-empty-console"]').exists()).toBe(true);
   });
 
-  it('renders shuffle, prev, play/pause, next, repeat controls', () => {
+  it('renders loop, prev, play/pause, next controls (merged cycle button)', () => {
     const ctrl = createStubController({ currentTrack: mkTrack() });
     const wrapper = mount(NewsprintPlayerBar, {
       props: { controller: ctrl },
     });
 
-    expect(wrapper.find('[aria-label="随机"]').exists()).toBe(true);
+    // Shuffle + repeat merged into one cycle button (list mode -> "列表顺序播放").
+    expect(wrapper.find('[aria-label="列表顺序播放"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="上一首"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="播放"], [aria-label="暂停"]').exists()).toBe(true);
     expect(wrapper.find('[aria-label="下一首"]').exists()).toBe(true);
-    expect(wrapper.find('[aria-label="循环"]').exists()).toBe(true);
   });
 
   it('keeps previous, play/pause, and next in the core transport order', () => {
