@@ -153,12 +153,12 @@ function onRelease(e: MouseEvent) {
       </button>
     </div>
 
-    <!-- Center: transport only when a track is loaded -->
+    <!-- Center: transport is persistent — muted (disabled) without a track -->
     <div class="aurora-pb-center" data-test="aurora-player-console">
       <!-- Single integrated strip (same glass family as dock — no dark island) -->
       <div
-        v-if="c.currentTrack"
         class="aurora-pb-transport"
+        :class="{ 'is-muted': !c.currentTrack }"
         role="group"
         aria-label="播放控制"
         data-test="aurora-player-transport"
@@ -167,6 +167,7 @@ function onRelease(e: MouseEvent) {
           type="button"
           class="aurora-pb-btn"
           :class="{ 'is-active': c.loopMode !== 'list' }"
+          :disabled="!c.currentTrack"
           :aria-label="c.loopMode === 'random' ? '随机播放' : c.loopMode === 'single' ? '单曲循环' : '列表顺序播放'"
           :aria-pressed="c.loopMode !== 'list'"
           :title="c.loopMode === 'random' ? '随机播放' : c.loopMode === 'single' ? '单曲循环' : '列表顺序播放'"
@@ -183,6 +184,7 @@ function onRelease(e: MouseEvent) {
         <button
           type="button"
           class="aurora-pb-btn"
+          :disabled="!c.currentTrack"
           aria-label="上一首"
           title="上一首"
           @click="c.prev"
@@ -196,6 +198,7 @@ function onRelease(e: MouseEvent) {
         <button
           type="button"
           class="aurora-pb-btn aurora-pb-play"
+          :disabled="!c.currentTrack"
           :aria-label="c.showPauseIcon ? '暂停' : '播放'"
           :title="c.isLoading ? '取消加载' : (c.isPlaying ? '暂停' : '播放')"
           @click="c.togglePlay"
@@ -210,6 +213,7 @@ function onRelease(e: MouseEvent) {
         <button
           type="button"
           class="aurora-pb-btn"
+          :disabled="!c.currentTrack"
           aria-label="下一首"
           title="下一首"
           @click="c.next"
@@ -220,15 +224,8 @@ function onRelease(e: MouseEvent) {
           <PhSkipForward :size="16" weight="fill" aria-hidden="true" />
         </button>
       </div>
-      <div
-        v-else
-        class="aurora-pb-empty-console"
-        data-test="aurora-player-empty-console"
-      >
-        选择曲目后显示播放控制
-      </div>
 
-      <div v-if="c.currentTrack" class="aurora-pb-progress-wrap" data-test="aurora-player-progress">
+      <div class="aurora-pb-progress-wrap" data-test="aurora-player-progress">
         <PlayerProgress
           :current-time="c.currentTime"
           :duration="c.duration"
@@ -324,7 +321,7 @@ function onRelease(e: MouseEvent) {
   min-height: 72px;
   padding: 6px 16px 8px;
   box-sizing: border-box;
-  border-radius: 24px;
+  border-radius: 16px;
   border: 1px solid color-mix(in srgb, #fff 8%, transparent);
   background: var(--surface-elevated);
   background: linear-gradient(
@@ -525,16 +522,13 @@ function onRelease(e: MouseEvent) {
   padding-top: 2px;
 }
 
-.aurora-pb-empty-console {
-  min-width: 200px;
-  height: 36px;
-  display: grid;
-  place-items: center;
-  padding: 0 14px;
-  border-radius: 999px;
-  border: 1px dashed color-mix(in srgb, var(--text-secondary, #888) 35%, transparent);
-  color: var(--text-secondary, #8a8070);
-  font-size: 12px;
+/* Muted console: visible but inert without a track */
+.aurora-pb-transport.is-muted { opacity: 0.55; }
+.aurora-pb-transport.is-muted .aurora-pb-btn { cursor: default; }
+.aurora-pb-transport.is-muted .aurora-pb-play {
+  background: color-mix(in srgb, var(--accent) 30%, var(--surface-2));
+  color: color-mix(in srgb, var(--text-primary) 55%, transparent);
+  box-shadow: none;
 }
 
 /*
@@ -620,16 +614,18 @@ function onRelease(e: MouseEvent) {
   opacity: 0.68;
 }
 
+/* Play: the only filled object — deck button with inset depth + static indicator glow */
 .aurora-pb-play {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   margin: 0 2px;
   border-radius: 50%;
   background: var(--accent);
   color: #0a1410;
   box-shadow:
     0 1px 0 color-mix(in srgb, #fff 18%, transparent) inset,
-    0 3px 9px color-mix(in srgb, var(--accent) 20%, transparent);
+    0 -2px 5px rgba(0, 0, 0, 0.22) inset,
+    0 0 14px color-mix(in srgb, var(--accent) 22%, transparent);
 }
 
 .aurora-pb-play:hover {
@@ -681,12 +677,15 @@ function onRelease(e: MouseEvent) {
   background: var(--progress-fill);
 }
 
+/* Needle playhead — aurora-only deep override; PlayerProgress markup untouched */
 .aurora-pb-progress-wrap :deep(.progress-thumb) {
   width: 11px;
-  height: 11px;
-  border: 2px solid var(--progress-thumb-ring, var(--accent));
+  height: 13px;
+  border: 0;
+  border-radius: 2px;
   background: var(--progress-thumb-fill, #fff);
-  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
+  clip-path: polygon(50% 100%, 6% 12%, 94% 12%);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.4);
 }
 
 /* ── Right ── */
@@ -861,15 +860,18 @@ function onRelease(e: MouseEvent) {
   transform: translateY(-50%);
 }
 
+/* Volume knob: same object family as the play button */
 .aurora-pb-vol-thumb {
   position: absolute;
   right: -5px;
   top: 50%;
-  width: 10px;
-  height: 10px;
+  width: 12px;
+  height: 12px;
   border-radius: 50%;
   background: #fff;
-  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent), 0 1px 3px rgba(0, 0, 0, 0.35);
+  box-shadow:
+    0 0 0 1px color-mix(in srgb, var(--accent) 55%, transparent),
+    0 1px 3px rgba(0, 0, 0, 0.35);
   transform: translateY(-50%);
 }
 
@@ -921,7 +923,7 @@ function onRelease(e: MouseEvent) {
     grid-template-columns: 1fr;
     gap: 8px;
     min-height: 0;
-    border-radius: 28px;
+    border-radius: 18px;
     padding: 10px 12px 12px;
   }
 

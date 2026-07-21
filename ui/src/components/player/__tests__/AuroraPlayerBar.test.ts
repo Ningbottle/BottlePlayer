@@ -274,7 +274,7 @@ describe('AuroraPlayerBar', () => {
 
   // ── States ──
 
-  it('empty track shows placeholder without hollow transport or quality', () => {
+  it('empty track shows a muted transport, never a placeholder console', () => {
     const ctrl = createStubController();
     const wrapper = mount(AuroraPlayerBar, {
       props: { controller: ctrl },
@@ -284,9 +284,15 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.find('.aurora-pb-cover img').exists()).toBe(false);
     expect(wrapper.find('[data-test="player-cover-placeholder"]').exists()).toBe(true);
     expect(wrapper.find('.aurora-pb-info-btn').exists()).toBe(true);
-    expect(wrapper.find('.aurora-pb-transport').exists()).toBe(false);
+
+    const transport = wrapper.get('[data-test="aurora-player-transport"]');
+    expect(transport.classes()).toContain('is-muted');
+    const buttons = transport.findAll('button');
+    expect(buttons.length).toBeGreaterThanOrEqual(4);
+    expect(buttons.every((b) => b.attributes('disabled') !== undefined)).toBe(true);
+
     expect(wrapper.find('[data-test="aurora-player-quality"]').exists()).toBe(false);
-    expect(wrapper.find('[data-test="aurora-player-empty-console"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="aurora-player-empty-console"]').exists()).toBe(false);
   });
 
   it('loading state shows pause icon (showPauseIcon=true)', () => {
