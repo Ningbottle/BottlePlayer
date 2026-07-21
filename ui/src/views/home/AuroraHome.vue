@@ -1,11 +1,12 @@
 <script setup lang="ts">
-import { ref, computed, watch, onBeforeUpdate, onUnmounted, nextTick } from 'vue';
+import { ref, computed, watch, onBeforeUpdate, onMounted, onActivated, onDeactivated, onUnmounted, nextTick } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../api/normalizer';
 import type { PlaylistInfo } from '../../api/homeFeedStore';
 import { gsap } from 'gsap';
 import type { HomeEnterMode } from '../../api/homeEnterSession';
-import { animateStagger, isReducedMotion } from '../../api/motion';
+import { animateStagger, isReducedMotion, startVinylSpin } from '../../api/motion';
+import type { VinylSpinHandle } from '../../api/motion';
 import AuroraAtmosphere from './AuroraAtmosphere.vue';
 
 const props = withDefaults(
@@ -30,11 +31,38 @@ const emit = defineEmits<{
 
 const coverError = ref(false);
 const stageEl = ref<HTMLElement | null>(null);
+const vinylEl = ref<HTMLElement | null>(null);
+let vinylSpin: VinylSpinHandle | null = null;
+
+function bootVinyl(): void {
+  if (vinylSpin || !vinylEl.value) return;
+  vinylSpin = startVinylSpin(vinylEl.value, () => !!props.model.isPlaying);
+}
 const recommendationEls = ref<HTMLElement[]>([]);
 /** Stage + stagger enter handles (killed on re-enter). */
 const enterHandles: Array<{ kill(): void }> = [];
 
-watch(() => props.model.heroTrack, () => { coverError.value = false; });
+watch(() => props.model.heroTrack, () => {
+  coverError.value = false;
+  // heroTrack renders vinylEl — boot the deck once it exists.
+  void nextTick(() => bootVinyl());
+});
+
+watch(() => props.model.isPlaying, () => vinylSpin?.setPlaying());
+
+onMounted(() => {
+  bootVinyl();
+});
+
+onActivated(() => {
+  bootVinyl();
+  vinylSpin?.setPlaying();
+});
+
+onDeactivated(() => {
+  vinylSpin?.kill();
+  vinylSpin = null;
+});
 
 function setRecommendationRef(el: unknown): void {
   if (el instanceof HTMLElement) recommendationEls.value.push(el);
@@ -107,6 +135,8 @@ watch(
 );
 
 onUnmounted(() => {
+  vinylSpin?.kill();
+  vinylSpin = null;
   killEnterHandles();
 });
 
@@ -209,14 +239,18 @@ function formatDuration(sec: number | undefined | null): string {
       <AuroraAtmosphere :is-playing="model.isPlaying" />
       <div class="aurora-stage-hero">
         <div v-if="model.heroTrack" class="aurora-stage-main">
-          <div class="aurora-cover">
-            <img
-              v-if="heroCover"
-              :src="heroCover"
-              :alt="`${model.heroTrack?.SongName || '当前歌曲'}封面`"
-              @error="onCoverError"
-            />
-            <div v-else class="aurora-cover-placeholder">封面暂缺</div>
+          <div class="aurora-cover aurora-vinyl" data-test="hero-vinyl">
+            <div ref="vinylEl" class="aurora-vinyl-disc">
+              <img
+                v-if="heroCover"
+                :src="heroCover"
+                :alt="`${model.heroTrack?.SongName || '当前歌曲'}封面`"
+                @error="onCoverError"
+              />
+              <div v-else class="aurora-cover-placeholder">封面暂缺</div>
+              <div class="aurora-vinyl-grooves" aria-hidden="true" />
+            </div>
+            <div class="aurora-vinyl-spindle" aria-hidden="true" />
           </div>
 
           <div class="aurora-info">
@@ -273,18 +307,26 @@ function formatDuration(sec: number | undefined | null): string {
         </div>
 
         <div v-else class="aurora-stage-empty" data-test="aurora-stage-empty">
-          <p class="aurora-label"><span class="aurora-label-dot" aria-hidden="true" />还没有开始播放</p>
-          <h1>选择一首歌，开始沉浸聆听</h1>
-          <p>从每日推荐或左侧歌单开始，舞台会随播放状态展开。</p>
-          <button
-            type="button"
-            class="aurora-play"
-            data-test="empty-stage-refresh"
-            :disabled="model.sections.daily.loading || model.sections.daily.refreshing"
-            @click="model.sections.daily.retry()"
-          >
-            {{ model.sections.daily.error ? '重试' : model.sections.daily.refreshing ? '刷新中…' : '刷新推荐' }}
-          </button>
+          <div class="aurora-cover aurora-vinyl aurora-vinyl-empty" aria-hidden="true">
+            <div class="aurora-vinyl-disc">
+              <div class="aurora-vinyl-grooves" aria-hidden="true" />
+            </div>
+            <div class="aurora-vinyl-spindle" aria-hidden="true" />
+          </div>
+          <div class="aurora-stage-empty-copy">
+            <p class="aurora-label"><span class="aurora-label-dot" aria-hidden="true" />还没有开始播放</p>
+            <p class="aurora-stage-empty-title">选择一首歌，开始聆听</p>
+            <p class="aurora-stage-empty-hint">从每日推荐或左侧歌单开始，舞台会随播放状态展开。</p>
+            <button
+              type="button"
+              class="aurora-play"
+              data-test="empty-stage-refresh"
+              :disabled="model.sections.daily.loading || model.sections.daily.refreshing"
+              @click="model.sections.daily.retry()"
+            >
+              {{ model.sections.daily.error ? '重试' : model.sections.daily.refreshing ? '刷新中…' : '刷新推荐' }}
+            </button>
+          </div>
         </div>
 
         <aside
@@ -507,6 +549,16 @@ export default { name: 'AuroraHome' };
   flex: none;
 }
 
+/* Turntable night: static light cone from the top-right (zero rAF cost) */
+.aurora-stage::before {
+  content: '';
+  position: absolute;
+  inset: -10% -8% 32% 28%;
+  background: radial-gradient(ellipse 50% 66% at 84% 0%, color-mix(in srgb, var(--accent) 9%, transparent), transparent 62%);
+  pointer-events: none;
+  z-index: 0;
+}
+
 .aurora-stage-hero {
   position: relative;
   z-index: 1;
@@ -525,23 +577,43 @@ export default { name: 'AuroraHome' };
   gap: 22px;
   align-items: center;
   padding: 0;
-  background:
-    radial-gradient(ellipse 55% 65% at 70% 35%, color-mix(in srgb, var(--accent) 11%, transparent), transparent 62%);
 }
 
 .aurora-stage-empty {
   min-height: 280px;
+  display: grid;
+  grid-template-columns: minmax(200px, 280px) minmax(0, 1fr);
+  align-items: center;
+  gap: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  min-width: 0;
+}
+
+.aurora-stage-empty-copy {
   display: flex;
   flex-direction: column;
   align-items: flex-start;
-  justify-content: center;
-  gap: 12px;
-  padding: 28px clamp(20px, 4vw, 48px);
-  border: 1px solid color-mix(in srgb, var(--accent) 22%, transparent);
-  border-radius: 20px;
-  background: color-mix(in srgb, var(--surface-2) 78%, transparent);
-  box-shadow: 0 20px 54px color-mix(in srgb, var(--accent) 10%, transparent);
+  gap: 10px;
   min-width: 0;
+}
+
+.aurora-stage-empty-title {
+  margin: 0;
+  font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
+  font-size: clamp(20px, 2vw, 26px);
+  line-height: 1.3;
+  color: var(--text-primary);
+}
+
+.aurora-stage-empty-hint {
+  margin: 0;
+  max-width: 36rem;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.65;
 }
 
 .aurora-stage-loading {
@@ -587,44 +659,41 @@ export default { name: 'AuroraHome' };
   width: min(42%, 220px);
 }
 
-.aurora-stage-empty h1,
-.aurora-stage-empty p {
-  margin: 0;
-}
 
-.aurora-stage-empty h1 {
-  max-width: min(20ch, 100%);
-  font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
-  font-size: clamp(30px, 3vw, 46px);
-  line-height: 1.2;
-  color: var(--text-primary);
-  text-wrap: balance;
-}
 
-.aurora-stage-empty > p:not(.aurora-label) {
-  max-width: 36rem;
-  color: var(--text-secondary);
-  line-height: 1.65;
-}
-
+/* Turntable night: the cover is a vinyl record, not a rounded card */
 .aurora-cover {
   aspect-ratio: 1;
   width: 100%;
   max-width: 320px;
   height: auto;
-  border-radius: 16px;
-  overflow: hidden;
-  background: var(--surface-2);
-  box-shadow:
-    0 18px 40px rgba(0, 0, 0, 0.32),
-    0 0 0 1px color-mix(in srgb, #fff 6%, transparent);
+  border-radius: 50%;
   flex: none;
 }
 
-.aurora-cover img {
+.aurora-cover.aurora-vinyl {
+  position: relative;
+  background: #0a0a09;
+  box-shadow:
+    0 24px 48px rgba(0, 0, 0, 0.45),
+    0 0 0 1px color-mix(in srgb, #fff 5%, transparent);
+  overflow: visible;
+}
+
+.aurora-vinyl-disc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  will-change: transform;
+}
+
+.aurora-vinyl-disc img {
   width: 100%;
   height: 100%;
   object-fit: cover;
+  display: block;
+  border-radius: 50%;
 }
 
 .aurora-cover-placeholder {
@@ -635,6 +704,43 @@ export default { name: 'AuroraHome' };
   justify-content: center;
   color: var(--text-muted);
   font-size: 13px;
+  border-radius: 50%;
+}
+
+/* Grooves + the aurora specular arc — rotates with the disc */
+.aurora-vinyl-grooves {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 210deg,
+      transparent 0deg,
+      color-mix(in srgb, var(--accent) 14%, transparent) 18deg,
+      transparent 55deg),
+    repeating-radial-gradient(circle at 50% 50%,
+      rgba(255, 255, 255, 0.05) 0 1px,
+      transparent 1px 4px);
+  pointer-events: none;
+}
+
+/* Static center label + spindle hole (the aurora dot color) */
+.aurora-vinyl-spindle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%,
+    var(--app-bg) 0 11%,
+    color-mix(in srgb, var(--accent) 82%, #000 18%) 12% 100%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #fff 8%, transparent);
+  pointer-events: none;
+}
+
+.aurora-vinyl-empty .aurora-vinyl-disc {
+  background: #0a0a09;
 }
 
 .aurora-info {
@@ -650,8 +756,10 @@ export default { name: 'AuroraHome' };
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  font-size: 13px;
-  letter-spacing: 0.04em;
+  font-family: 'Inter', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--accent);
   font-weight: 500;
 }
@@ -666,18 +774,18 @@ export default { name: 'AuroraHome' };
 
 .aurora-song-name {
   font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
-  font-size: clamp(30px, 3vw, 44px);
+  font-size: clamp(26px, 2.6vw, 36px);
   font-weight: 700;
   line-height: 1.1;
   word-break: break-word;
   overflow-wrap: break-word;
   margin: 0;
-  letter-spacing: -0.02em;
+  letter-spacing: -0.01em;
   color: var(--text-primary);
 }
 
 .aurora-artist {
-  font-size: 18px;
+  font-size: 16px;
   color: var(--text-secondary);
   margin: 0;
   display: inline-flex;
@@ -791,9 +899,9 @@ export default { name: 'AuroraHome' };
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  border: 1px solid color-mix(in srgb, var(--text-primary) 8%, transparent);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--surface-2) 88%, transparent);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: color-mix(in srgb, var(--surface-1) 72%, transparent);
   padding: 12px 10px 10px;
   box-sizing: border-box;
 }
@@ -859,12 +967,12 @@ export default { name: 'AuroraHome' };
 .aurora-queue-row button {
   width: 100%;
   display: grid;
-  grid-template-columns: 22px minmax(0, 1fr) auto;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
-  padding: 9px 6px;
+  padding: 6px 8px;
   border: 0;
-  border-radius: 8px;
+  border-radius: 6px;
   background: transparent;
   color: inherit;
   cursor: pointer;
@@ -1091,9 +1199,10 @@ export default { name: 'AuroraHome' };
   aspect-ratio: 1;
   width: 100%;
   overflow: hidden;
-  border-radius: 12px;
+  border-radius: 8px;
   background: var(--surface-2);
-  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.28);
+  box-shadow: none;
+  border: 1px solid var(--border-subtle);
 }
 
 .aurora-track-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
@@ -1218,7 +1327,7 @@ export default { name: 'AuroraHome' };
 .aurora-card-cover {
   display: grid;
   aspect-ratio: 1;
-  border-radius: 10px;
+  border-radius: 8px;
   overflow: hidden;
   background: var(--surface-1);
   margin-bottom: 8px;
@@ -1334,11 +1443,17 @@ export default { name: 'AuroraHome' };
 
   .aurora-stage-empty {
     min-height: 200px;
-    padding: 22px 18px;
+    grid-template-columns: 1fr;
+    justify-items: center;
   }
 
-  .aurora-stage-empty h1 {
-    font-size: clamp(24px, 6vw, 34px);
+  .aurora-stage-empty-copy {
+    align-items: center;
+    text-align: center;
+  }
+
+  .aurora-vinyl-empty {
+    width: min(40vw, 180px);
   }
 
   .aurora-recommendation-grid {
