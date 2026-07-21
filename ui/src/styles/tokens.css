@@ -44,24 +44,24 @@
   --progress-time: #8b9792;
 }
 
-/* ─── Aurora Dark (graphite black / emerald) ─── */
+/* ─── Aurora Dark (warm charcoal / turntable night) ─── */
 :root[data-skin='aurora'][data-mode='dark'] {
-  --app-bg: #070b0c;
-  --surface-1: #0d1213;
-  --surface-2: #141a1b;
-  --surface-elevated: #1a2222;
-  --text-primary: #f2f5f2;
-  --text-secondary: #929c98;
-  --text-muted: #626d69;
+  --app-bg: #0c0b09;
+  --surface-1: #13110e;
+  --surface-2: #1a1713;
+  --surface-elevated: #221e19;
+  --text-primary: #f5f2ec;
+  --text-secondary: #a39d93;
+  --text-muted: #8a8378;
   --accent: #62d6a2;
   --focus-ring: rgba(98, 214, 162, 0.42);
-  --border-subtle: rgba(242, 245, 242, 0.1);
-  --progress-track: #394541;
-  --progress-buffered: #2a3230;
+  --border-subtle: rgba(245, 242, 236, 0.1);
+  --progress-track: #45403a;
+  --progress-buffered: #322e29;
   --progress-fill: #62d6a2;
   --progress-thumb-fill: #ffffff;
   --progress-thumb-ring: #62d6a2;
-  --progress-time: #626d69;
+  --progress-time: #8a8378;
 }
 
 /* ─── Newsprint Light (warm paper white) ─── */
