@@ -292,6 +292,75 @@ export function startAmbientMotion(
   };
 }
 
+export interface VinylSpinHandle {
+  kill: () => void;
+  /** Re-read isPlayingRef and ramp the deck toward the matching state. */
+  setPlaying: () => void;
+}
+
+/**
+ * Turntable spin for the Aurora hero vinyl. Infinite GSAP rotation whose
+ * timeScale ramps 0↔1 over profile.vinyl.rampSeconds, so the record speeds
+ * up / winds down like a real deck. Honors visibility, blur/focus,
+ * reduced-motion, and the skin profile (Newsprint → inert).
+ */
+export function startVinylSpin(
+  el: HTMLElement,
+  isPlayingRef: Ref<boolean> | (() => boolean),
+): VinylSpinHandle {
+  const profile = currentProfile();
+  const inert: VinylSpinHandle = { kill: () => {}, setPlaying: () => {} };
+  if (!profile.vinyl.enabled || isReducedMotion()) return inert;
+
+  const isPlaying = typeof isPlayingRef === 'function' ? isPlayingRef : () => isPlayingRef.value;
+  const spin = gsap.to(el, {
+    rotation: '+=360',
+    duration: profile.vinyl.spinSeconds,
+    ease: 'none',
+    repeat: -1,
+    paused: true,
+  });
+  let killed = false;
+  let ramp: { kill: () => void } | null = null;
+
+  function rampTo(target: 0 | 1): void {
+    if (ramp) { ramp.kill(); ramp = null; }
+    if (target === 1) spin.play();
+    ramp = gsap.to(spin, {
+      timeScale: target,
+      duration: profile.vinyl.rampSeconds,
+      ease: target === 1 ? 'power2.out' : 'power2.inOut',
+      onComplete: () => { if (target === 0) spin.pause(); },
+    });
+  }
+
+  function sync(): void {
+    if (killed) return;
+    rampTo(isPlaying() && !document.hidden ? 1 : 0);
+  }
+
+  function onVisibilityChange(): void { sync(); }
+  function onBlur(): void { if (!killed) rampTo(0); }
+  function onFocus(): void { sync(); }
+
+  document.addEventListener('visibilitychange', onVisibilityChange);
+  window.addEventListener('blur', onBlur);
+  window.addEventListener('focus', onFocus);
+  sync();
+
+  return {
+    kill(): void {
+      killed = true;
+      if (ramp) { ramp.kill(); ramp = null; }
+      spin.kill();
+      document.removeEventListener('visibilitychange', onVisibilityChange);
+      window.removeEventListener('blur', onBlur);
+      window.removeEventListener('focus', onFocus);
+    },
+    setPlaying(): void { sync(); },
+  };
+}
+
 /** True when the OS prefers reduced motion. */
 export function isReducedMotion(): boolean {
   return typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;

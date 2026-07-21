@@ -84,4 +84,13 @@ describe('motionProfiles', () => {
     expect(profile.particles.dock.speed.paused).toBeLessThan(0.65);
     expect(profile.particles.cover.timeScale.playing).toBeLessThan(0.9);
   });
+
+  it('owns the turntable vinyl spin profile', () => {
+    expect(getMotionProfile('aurora').vinyl).toEqual({
+      enabled: true,
+      spinSeconds: 24,
+      rampSeconds: 0.8,
+    });
+    expect(getMotionProfile('newsprint').vinyl.enabled).toBe(false);
+  });
 });

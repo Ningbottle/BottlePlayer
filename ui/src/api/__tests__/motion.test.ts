@@ -11,11 +11,11 @@ vi.mock('gsap', () => {
     }
     // Simulate the tween completing (real gsap calls onComplete when finished).
     if (opts.onComplete) opts.onComplete();
-    return { kill: vi.fn() };
+    return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
   });
   const fromTo = vi.fn((_, __, opts) => {
     if (opts.onComplete) opts.onComplete();
-    return { kill: vi.fn() };
+    return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
   });
   const set = vi.fn();
   const timeline = vi.fn(() => {
@@ -37,6 +37,7 @@ import {
   animateElement,
   animateStagger,
   startAmbientMotion,
+  startVinylSpin,
   pressBounceDown,
   pressBounceUp,
 } from '../motion';
@@ -56,11 +57,11 @@ describe('motion.ts', () => {
         opts.onUpdate();
       }
       if (opts.onComplete) opts.onComplete();
-      return { kill: vi.fn() };
+      return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
     });
     (gsap.fromTo as ReturnType<typeof vi.fn>).mockImplementation((_, __, opts) => {
       if (opts.onComplete) opts.onComplete();
-      return { kill: vi.fn() };
+      return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
     });
   });
 
@@ -136,7 +137,7 @@ describe('motion.ts', () => {
 
     (gsap.fromTo as ReturnType<typeof vi.fn>).mockImplementationOnce((_el, _from, opts) => {
       interrupt = opts.onInterrupt;
-      return { kill: vi.fn() };
+      return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
     });
 
     transitionEnter(el, done);
@@ -156,7 +157,7 @@ describe('motion.ts', () => {
 
     (gsap.to as ReturnType<typeof vi.fn>).mockImplementationOnce((_el, opts) => {
       interrupt = opts.onInterrupt;
-      return { kill: vi.fn() };
+      return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
     });
 
     transitionLeave(el, done);
@@ -179,7 +180,7 @@ describe('motion.ts', () => {
       .mockImplementationOnce(() => ({ kill: vi.fn() }))
       .mockImplementationOnce((_el, _from, opts) => {
         secondComplete = opts.onComplete;
-        return { kill: vi.fn() };
+        return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
       });
 
     transitionEnter(el, done1);
@@ -483,6 +484,89 @@ describe('motion.ts', () => {
 
     // Clear mock and dispatch visibility change - should not start new tween
     (gsap.to as ReturnType<typeof vi.fn>).mockClear();
+    Object.defineProperty(document, 'hidden', { value: false, configurable: true, writable: true });
+    document.dispatchEvent(new Event('visibilitychange'));
+
+    expect(gsap.to).not.toHaveBeenCalled();
+  });
+
+  // --- startVinylSpin tests ---
+
+  it('startVinylSpin creates a paused infinite spin from the aurora vinyl profile', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('div');
+
+    const handle = startVinylSpin(el, () => false);
+
+    expect(gsap.to).toHaveBeenCalledWith(
+      el,
+      expect.objectContaining({
+        rotation: '+=360',
+        duration: 24,
+        ease: 'none',
+        repeat: -1,
+        paused: true,
+      }),
+    );
+
+    handle.kill();
+  });
+
+  it('startVinylSpin ramps timeScale with playback state', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('div');
+    let playing = false;
+
+    const handle = startVinylSpin(el, () => playing);
+    // Initial sync: not playing → ramp the deck down to 0
+    expect(gsap.to).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ timeScale: 0, duration: 0.8 }),
+    );
+
+    playing = true;
+    handle.setPlaying();
+    expect(gsap.to).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({ timeScale: 1, duration: 0.8 }),
+    );
+
+    handle.kill();
+  });
+
+  it('startVinylSpin does not spin for newsprint', async () => {
+    const { gsap } = await import('gsap');
+    const { skinId } = useThemeStore();
+    skinId.value = 'newsprint';
+    const el = document.createElement('div');
+
+    const handle = startVinylSpin(el, () => true);
+
+    expect(gsap.to).not.toHaveBeenCalled();
+    handle.kill();
+  });
+
+  it('startVinylSpin is inert in reduced motion', async () => {
+    const { gsap } = await import('gsap');
+    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
+    const el = document.createElement('div');
+
+    const handle = startVinylSpin(el, () => true);
+
+    expect(gsap.to).not.toHaveBeenCalled();
+    handle.kill();
+  });
+
+  it('startVinylSpin kill prevents future ramps', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('div');
+    const playing = true;
+
+    const handle = startVinylSpin(el, () => playing);
+    handle.kill();
+
+    (gsap.to as ReturnType<typeof vi.fn>).mockClear();
+    handle.setPlaying();
     Object.defineProperty(document, 'hidden', { value: false, configurable: true, writable: true });
     document.dispatchEvent(new Event('visibilitychange'));
 
