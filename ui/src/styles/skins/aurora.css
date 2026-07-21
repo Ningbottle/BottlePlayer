@@ -227,10 +227,49 @@
   --on-accent: #ffffff;
 }
 
-/* Desktop / tablet breakpoints for shell geometry */
-@media (max-width: 1099px) {
+/* Mid-narrow: sidebar becomes a 64px icon rail (text hidden, icons kept) */
+@media (min-width: 900px) and (max-width: 1099px) {
   .app[data-shell="aurora"] {
-    grid-template-columns: minmax(208px, 22vw) minmax(0, 1fr);
+    grid-template-columns: 64px minmax(0, 1fr);
+  }
+
+  [data-skin-chrome='aurora'].sidebar .sidebar-wordmark,
+  [data-skin-chrome='aurora'].sidebar .aurora-nav-label,
+  [data-skin-chrome='aurora'].sidebar .section-label,
+  [data-skin-chrome='aurora'].sidebar .playlists,
+  [data-skin-chrome='aurora'].sidebar .user > div:not(.avatar) {
+    display: none;
+  }
+
+  [data-skin-chrome='aurora'].sidebar {
+    padding: 22px 8px 18px;
+  }
+
+  /* Brand lives in the titlebar — an empty masthead would leave a stray rule */
+  [data-skin-chrome='aurora'].sidebar .masthead {
+    display: none;
+  }
+
+  [data-skin-chrome='aurora'].sidebar .update-entry {
+    font-size: 0 !important; /* inline styles set 11px — must override */
+    gap: 0 !important;
+    padding: 4px !important;
+  }
+
+  [data-skin-chrome='aurora'].sidebar .user {
+    justify-content: center;
+  }
+
+  [data-skin-chrome='aurora'].sidebar .nav > a {
+    justify-content: center;
+    gap: 0;
+    font-size: 0; /* nav labels are bare text nodes */
+  }
+
+  [data-skin-chrome='aurora'].sidebar .nav > a .ico {
+    width: 20px;
+    height: 20px;
+    flex: none;
   }
 }
 
