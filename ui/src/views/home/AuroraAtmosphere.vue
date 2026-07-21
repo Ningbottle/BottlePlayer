@@ -1,6 +1,6 @@
 <script setup lang="ts">
 /**
- * Aurora home atmosphere: Canvas 2D soft particles + wash.
+ * Aurora home atmosphere: Canvas 2D cone-lit dust + static wash.
  * Non-audio, non-WebGL. KeepAlive-safe rAF lifecycle.
  */
 import {
@@ -16,10 +16,18 @@ import { isReducedMotion } from '../../api/motion';
 
 const props = defineProps<{ isPlaying: boolean }>();
 
-/** Higher caps = more visible motes when playing (still capped for cost). */
-const CAP_PAUSED = 100;
-const CAP_PLAYING = 140;
+/** Turntable night: dust motes inside a static light cone. Fewer, smaller, calmer. */
+const CAP_PAUSED = 30;
+const CAP_PLAYING = 60;
 const DPR_CAP = 2;
+
+/** Cone apex (fraction of stage size) and axis. Opens down-left from the top-right. */
+const CONE = {
+  ax: 0.84,
+  ay: -0.1,
+  angle: Math.PI * (2 / 3), // 120°
+  halfSpread: 0.2, // ~11.5°
+};
 
 const canvasRef = ref<HTMLCanvasElement | null>(null);
 /** Target particle budget exposed for tests / QA. */
@@ -114,17 +122,29 @@ function seedParticles(count: number): void {
   }
 }
 
+function spawnInCone(): { x: number; y: number } {
+  const axisLen = Math.max(cssW, cssH) * 1.05;
+  const t = 0.06 + Math.random() * 0.94;
+  const a = CONE.angle + (Math.random() * 2 - 1) * CONE.halfSpread;
+  const d = t * axisLen;
+  return {
+    x: CONE.ax * cssW + Math.cos(a) * d,
+    y: CONE.ay * cssH + Math.sin(a) * d,
+  };
+}
+
 function makeParticle(): Particle {
   const playing = props.isPlaying;
+  const { x, y } = spawnInCone();
   return {
-    x: Math.random() * cssW,
-    y: Math.random() * cssH,
-    vx: (Math.random() - 0.5) * (playing ? 0.24 : 0.14),
-    vy: (Math.random() - 0.5) * (playing ? 0.2 : 0.1) - (playing ? 0.05 : 0.025),
-    r: 0.7 + Math.random() * (playing ? 3.2 : 2.0),
-    baseAlpha: playing ? 0.18 + Math.random() * 0.28 : 0.08 + Math.random() * 0.16,
+    x,
+    y,
+    vx: (Math.random() - 0.5) * 0.08,
+    vy: (Math.random() - 0.5) * 0.06 + 0.012, // slow settle
+    r: 0.5 + Math.random() * 1.1,
+    baseAlpha: 0.05 + Math.random() * (playing ? 0.17 : 0.1),
     phase: Math.random() * Math.PI * 2,
-    speed: 0.5 + Math.random() * (playing ? 0.85 : 0.85),
+    speed: 0.4 + Math.random() * 0.5,
   };
 }
 
@@ -137,63 +157,61 @@ function ensureParticleBudget(): void {
   }
 }
 
+/** Static cone wash — painted every frame incl. reduced-motion. */
 function paintWash(ctx: CanvasRenderingContext2D): void {
-  const a = props.isPlaying ? 0.16 : 0.06;
-  const g = ctx.createRadialGradient(
-    cssW * 0.72,
-    cssH * 0.22,
-    0,
-    cssW * 0.72,
-    cssH * 0.22,
-    Math.max(cssW, cssH) * 0.62,
-  );
-  g.addColorStop(0, accentRGBA(a));
-  g.addColorStop(0.55, accentRGBA(a * 0.4));
+  const apexX = CONE.ax * cssW;
+  const apexY = CONE.ay * cssH;
+  const maxDim = Math.max(cssW, cssH);
+
+  // Apex glow
+  const g = ctx.createRadialGradient(apexX, apexY, 0, apexX, apexY, maxDim * 0.5);
+  g.addColorStop(0, accentRGBA(props.isPlaying ? 0.1 : 0.05));
   g.addColorStop(1, accentRGBA(0));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, cssW, cssH);
 
-  const g2 = ctx.createRadialGradient(
-    cssW * 0.18,
-    cssH * 0.75,
-    0,
-    cssW * 0.18,
-    cssH * 0.75,
-    Math.max(cssW, cssH) * 0.48,
-  );
-  const a2 = props.isPlaying ? 0.08 : 0.03;
-  g2.addColorStop(0, accentRGBA(a2));
-  g2.addColorStop(1, accentRGBA(0));
-  ctx.fillStyle = g2;
-  ctx.fillRect(0, 0, cssW, cssH);
+  // Axis band: soft gradient along the cone
+  ctx.save();
+  ctx.translate(apexX, apexY);
+  ctx.rotate(CONE.angle);
+  const band = ctx.createLinearGradient(0, 0, maxDim, 0);
+  band.addColorStop(0, accentRGBA(props.isPlaying ? 0.06 : 0.03));
+  band.addColorStop(1, accentRGBA(0));
+  ctx.fillStyle = band;
+  const halfW = Math.tan(CONE.halfSpread) * maxDim;
+  ctx.fillRect(0, -halfW, maxDim, halfW * 2);
+  ctx.restore();
 }
 
 function paintParticles(ctx: CanvasRenderingContext2D, dt: number): void {
   ensureParticleBudget();
-  const alphaBoost = props.isPlaying ? 1.08 : 1;
-  const sizeBoost = props.isPlaying ? 1.04 : 1;
+  const playing = props.isPlaying;
   for (const p of particles) {
-    p.phase += dt * 0.0014 * p.speed;
-    p.x += p.vx * p.speed * (dt * 0.07);
-    p.y += p.vy * p.speed * (dt * 0.07);
-    // Soft wrap
-    if (p.x < -8) p.x = cssW + 8;
-    if (p.x > cssW + 8) p.x = -8;
-    if (p.y < -8) p.y = cssH + 8;
-    if (p.y > cssH + 8) p.y = -8;
+    p.phase += dt * 0.001 * p.speed;
+    p.x += p.vx * (dt * 0.06);
+    p.y += p.vy * (dt * 0.06);
+    // Turntable hum: sub-pixel mechanical jitter while playing (<0.5px)
+    const jx = playing ? Math.sin(p.phase * 7.3) * 0.4 : 0;
+    const jy = playing ? Math.cos(p.phase * 6.1) * 0.3 : 0;
 
-    const pulse = 0.6 + 0.4 * Math.sin(p.phase);
-    const alpha = Math.min(0.95, p.baseAlpha * pulse * alphaBoost);
-    const radius = p.r * sizeBoost * (0.9 + 0.3 * pulse);
+    const pulse = 0.7 + 0.3 * Math.sin(p.phase);
+    const alpha = Math.min(0.6, p.baseAlpha * pulse);
+    const radius = p.r * (0.9 + 0.2 * pulse);
 
-    const grad = ctx.createRadialGradient(p.x, p.y, 0, p.x, p.y, radius * 3.6);
+    const grad = ctx.createRadialGradient(p.x + jx, p.y + jy, 0, p.x + jx, p.y + jy, radius * 3);
     grad.addColorStop(0, accentLightRGBA(alpha));
-    grad.addColorStop(0.35, accentRGBA(alpha * 0.6));
     grad.addColorStop(1, accentRGBA(0));
     ctx.fillStyle = grad;
     ctx.beginPath();
-    ctx.arc(p.x, p.y, radius * 3.6, 0, Math.PI * 2);
+    ctx.arc(p.x + jx, p.y + jy, radius * 3, 0, Math.PI * 2);
     ctx.fill();
+
+    // Respawn far-strayed motes back into the cone (no hard wrap lines)
+    if (p.x < -12 || p.x > cssW + 12 || p.y > cssH + 12) {
+      const s = spawnInCone();
+      p.x = s.x;
+      p.y = s.y;
+    }
   }
 }
 
@@ -332,17 +350,12 @@ watch(
   () => props.isPlaying,
   () => {
     ensureParticleBudget();
-    // Softly retune velocities/alphas for existing motes without multi-loop.
+    // Softly retune alphas for existing motes without multi-loop.
     for (const p of particles) {
       if (props.isPlaying) {
-        p.baseAlpha = Math.min(0.72, p.baseAlpha * 1.35 + 0.06);
-        p.r = Math.min(4.2, p.r * 1.12);
-        p.vx *= 1.08;
-        p.vy *= 1.06;
+        p.baseAlpha = Math.min(0.3, p.baseAlpha * 1.3 + 0.03);
       } else {
-        p.baseAlpha = Math.max(0.08, p.baseAlpha * 0.8);
-        p.vx *= 0.88;
-        p.vy *= 0.88;
+        p.baseAlpha = Math.max(0.05, p.baseAlpha * 0.8);
       }
     }
     if (treeActive && !isReducedMotion() && document.visibilityState !== 'hidden') {

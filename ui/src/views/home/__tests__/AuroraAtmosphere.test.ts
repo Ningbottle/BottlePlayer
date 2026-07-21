@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach, type Mock } from 'vitest';
 import { KeepAlive, defineComponent, h, nextTick, ref } from 'vue';
 import { mount } from '@vue/test-utils';
 import AuroraAtmosphere from '../AuroraAtmosphere.vue';
@@ -10,13 +10,18 @@ vi.mock('../../../api/motion', () => ({
 }));
 
 type FakeCtx = {
-  setTransform: ReturnType<typeof vi.fn>;
-  clearRect: ReturnType<typeof vi.fn>;
-  createRadialGradient: ReturnType<typeof vi.fn>;
-  fillRect: ReturnType<typeof vi.fn>;
-  beginPath: ReturnType<typeof vi.fn>;
-  arc: ReturnType<typeof vi.fn>;
-  fill: ReturnType<typeof vi.fn>;
+  setTransform: Mock;
+  clearRect: Mock;
+  createRadialGradient: Mock;
+  createLinearGradient: Mock;
+  fillRect: Mock;
+  beginPath: Mock;
+  arc: Mock;
+  fill: Mock;
+  save: Mock;
+  restore: Mock;
+  translate: Mock;
+  rotate: Mock;
   fillStyle: string | CanvasGradient;
   globalAlpha: number;
 };
@@ -29,10 +34,15 @@ function installCanvasMock(): FakeCtx {
     setTransform: vi.fn(),
     clearRect: vi.fn(),
     createRadialGradient: vi.fn(() => gradient),
+    createLinearGradient: vi.fn(() => gradient),
     fillRect: vi.fn(),
     beginPath: vi.fn(),
     arc: vi.fn(),
     fill: vi.fn(),
+    save: vi.fn(),
+    restore: vi.fn(),
+    translate: vi.fn(),
+    rotate: vi.fn(),
     fillStyle: '',
     globalAlpha: 1,
   };
@@ -144,15 +154,15 @@ describe('AuroraAtmosphere', () => {
     expect(canvas.element.tagName).toBe('CANVAS');
     expect(canvas.attributes('aria-hidden')).toBe('true');
     expect(canvas.classes()).toContain('aurora-atmosphere');
-    expect(Number(canvas.attributes('data-particle-cap'))).toBe(100);
+    expect(Number(canvas.attributes('data-particle-cap'))).toBe(30);
   });
 
   it('uses a calmer particle cap while playing', async () => {
     const wrapper = track(mount(AuroraAtmosphere, { props: { isPlaying: false } }));
-    expect(wrapper.get('[data-test="aurora-atmosphere"]').attributes('data-particle-cap')).toBe('100');
+    expect(wrapper.get('[data-test="aurora-atmosphere"]').attributes('data-particle-cap')).toBe('30');
 
     await wrapper.setProps({ isPlaying: true });
-    expect(wrapper.get('[data-test="aurora-atmosphere"]').attributes('data-particle-cap')).toBe('140');
+    expect(wrapper.get('[data-test="aurora-atmosphere"]').attributes('data-particle-cap')).toBe('60');
   });
 
   it('schedules a single rAF loop when motion is allowed', () => {
@@ -279,10 +289,15 @@ describe('AuroraAtmosphere', () => {
         setTransform: vi.fn(),
         clearRect: vi.fn(),
         createRadialGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
+        createLinearGradient: vi.fn(() => ({ addColorStop: vi.fn() })),
         fillRect: vi.fn(),
         beginPath: vi.fn(),
         arc: vi.fn(),
         fill: vi.fn(),
+        save: vi.fn(),
+        restore: vi.fn(),
+        translate: vi.fn(),
+        rotate: vi.fn(),
         fillStyle: '',
         globalAlpha: 1,
       } as unknown as CanvasRenderingContext2D;
