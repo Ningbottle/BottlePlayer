@@ -8,7 +8,7 @@ import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 import SkinButton from '../components/primitives/SkinButton.vue';
 import SkinEmptyState from '../components/primitives/SkinEmptyState.vue';
 
-type Range = '7d' | '30d' | 'all';
+type Range = '1d' | '7d' | '30d';
 const range = ref<Range>('30d');
 const loading = ref(true);
 const error = ref('');
@@ -57,9 +57,9 @@ const aiLoading = ref(false);
 const aiError = ref('');
 
 const rangeLabels: Record<Range, string> = {
-  '7d': '7天',
-  '30d': '30天',
-  'all': '全部',
+  '1d': '每日',
+  '7d': '每周',
+  '30d': '每月',
 };
 
 /** One LP ≈ 44 minutes — the turntable-night unit of listening time. */
@@ -211,7 +211,7 @@ watch(range, loadStats);
       <template #actions>
         <div class="range-tabs">
           <button
-            v-for="r in (['7d', '30d', 'all'] as Range[])"
+            v-for="r in (['1d', '7d', '30d'] as Range[])"
             :key="r"
             :class="{ active: range === r }"
             @click="range = r"
@@ -297,27 +297,34 @@ watch(range, loadStats);
 
         <div class="top-section">
           <h3>Top 歌手</h3>
-          <div v-for="(item, i) in topArtists" :key="i" class="top-item">
-            <img v-if="item.cover_url" :src="item.cover_url" class="top-cover artist" loading="lazy">
-            <div v-else class="top-cover placeholder artist"></div>
-            <div class="top-info">
-              <span class="top-name">{{ item.name }}</span>
+          <div class="top-cover-grid">
+            <div
+              v-for="(item, i) in topArtists"
+              :key="i"
+              class="top-cover-cell"
+              :title="`${item.name} · ${item.play_count}次`"
+            >
+              <img v-if="item.cover_url" :src="item.cover_url" class="top-cover artist" loading="lazy">
+              <div v-else class="top-cover placeholder artist"></div>
+              <span class="top-cover-name">{{ item.name }}</span>
             </div>
-            <span class="top-count">{{ item.play_count }}次</span>
           </div>
           <div v-if="topArtists.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></div>
         </div>
 
         <div class="top-section">
           <h3>Top 专辑</h3>
-          <div v-for="(item, i) in topAlbums" :key="i" class="top-item">
-            <img v-if="item.cover_url" :src="item.cover_url" class="top-cover" loading="lazy">
-            <div v-else class="top-cover placeholder"></div>
-            <div class="top-info">
-              <span class="top-name">{{ item.name }}</span>
-              <span class="top-sub" v-if="item.singer">{{ item.singer }}</span>
+          <div class="top-cover-grid">
+            <div
+              v-for="(item, i) in topAlbums"
+              :key="i"
+              class="top-cover-cell"
+              :title="`${item.name}${item.singer ? ' · ' + item.singer : ''} · ${item.play_count}次`"
+            >
+              <img v-if="item.cover_url" :src="item.cover_url" class="top-cover" loading="lazy">
+              <div v-else class="top-cover placeholder"></div>
+              <span class="top-cover-name">{{ item.name }}</span>
             </div>
-            <span class="top-count">{{ item.play_count }}次</span>
           </div>
           <div v-if="topAlbums.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></div>
         </div>
@@ -651,6 +658,45 @@ watch(range, loadStats);
     animation: none;
     height: 60%;
   }
+}
+
+/* Cover grids for artists / albums — airy, name-only, counts in tooltip */
+.top-cover-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.top-cover-cell {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.top-cover-cell .top-cover {
+  width: 64px;
+  height: 64px;
+  border-radius: 8px;
+}
+
+.top-cover-cell .top-cover.artist {
+  border-radius: 50%;
+}
+
+.top-cover-cell .top-cover.placeholder {
+  background: var(--surface-2);
+}
+
+.top-cover-name {
+  max-width: 100%;
+  font-size: 12px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: center;
 }
 
 .top-info {

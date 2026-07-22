@@ -40,6 +40,7 @@ long long PlayStatsService::RangeToTimestamp(const std::string& range) {
   auto now = std::chrono::duration_cast<std::chrono::milliseconds>(
                  std::chrono::system_clock::now().time_since_epoch())
                  .count();
+  if (range == "1d") return now - 1LL * 24 * 3600 * 1000;
   if (range == "7d") return now - 7LL * 24 * 3600 * 1000;
   if (range == "30d") return now - 30LL * 24 * 3600 * 1000;
   return 0;  // "all"

@@ -304,8 +304,12 @@ describe('StatsView component rendering', () => {
 
   it('keeps the newest range when a slower earlier request resolves last', async () => {
     const deferred: Array<() => void> = [];
-    vi.mocked(invoke).mockImplementation((cmd: string, args?: any) => {
-      const range = args?.range === 'all' ? 300 : args?.range === '7d' ? 7 : 30;
+    vi.mocked(invoke).mockImplementation((cmd: string, args?: unknown) => {
+      const rangeArg =
+        args && typeof args === 'object' && !Array.isArray(args) && 'range' in args
+          ? args.range
+          : undefined;
+      const range = rangeArg === '30d' ? 300 : rangeArg === '1d' ? 7 : 30;
       const payload = cmd === 'stats_get_summary'
         ? JSON.stringify({
           total_plays: range,
@@ -318,7 +322,7 @@ describe('StatsView component rendering', () => {
           ? JSON.stringify({ items: [{ date: '2026-06-24', count: range }] })
           : JSON.stringify({ items: [] });
 
-      if (args?.range === '7d') {
+      if (rangeArg === '1d') {
         return new Promise<string>((resolve) => deferred.push(() => resolve(payload)));
       }
       return Promise.resolve(payload);
