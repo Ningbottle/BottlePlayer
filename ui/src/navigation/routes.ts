@@ -9,6 +9,7 @@ import PlaylistView from '../views/PlaylistView.vue';
 import SearchView from '../views/SearchView.vue';
 import SettingsView from '../views/SettingsView.vue';
 import StatsView from '../views/StatsView.vue';
+import VisualizerView from '../views/VisualizerView.vue';
 
 export const routeNames = {
   home: 'home',
@@ -20,6 +21,7 @@ export const routeNames = {
   playlist: 'playlist',
   lyric: 'lyric',
   login: 'login',
+  visualizer: 'visualizer',
 } as const;
 
 export type AppRouteName = typeof routeNames[keyof typeof routeNames];
@@ -56,4 +58,5 @@ export const routeRecords: RouteRecordRaw[] = [
   },
   { path: '/lyric', name: routeNames.lyric, component: LyricView },
   { path: '/login', name: routeNames.login, component: LoginView },
+  { path: '/visualizer', name: routeNames.visualizer, component: VisualizerView },
 ];

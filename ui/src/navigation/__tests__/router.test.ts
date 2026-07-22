@@ -227,6 +227,7 @@ describe('navigation route contract', () => {
       '/playlist/:id',
       '/lyric',
       '/login',
+      '/visualizer',
     ]);
     expect(getRoute(routeNames.home).component).toBe(HomeView);
     expect(getRoute(routeNames.search).component).toBe(SearchView);

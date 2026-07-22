@@ -64,6 +64,11 @@
   padding: 0;
 }
 
+/* Visualizer stage owns the full content area edge-to-edge */
+[data-shell="aurora"] .scroll:has(.visualizer-page) {
+  padding: 0;
+}
+
 [data-shell="aurora"] .shell-playerbar {
   grid-row: 4 / 5;
   grid-column: 1 / 3;
