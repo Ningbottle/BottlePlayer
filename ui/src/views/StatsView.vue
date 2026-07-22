@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, watch, nextTick, type ComponentPublicInstance } from 'vue';
+import { ref, computed, onMounted, watch, nextTick, type ComponentPublicInstance } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { normalizeTrack, type Track } from '../api/normalizer';
 import { playAll, playerStore } from '../api/playerStore';
@@ -24,6 +24,7 @@ const summary = ref<Summary | null>(null);
 const displayTotalPlays = ref(0);
 const displayListenedSeconds = ref(0);
 const displayUniqueSongs = ref(0);
+const displayUniqueArtists = ref(0);
 const displayCompletionPercent = ref(0);
 
 interface TopItem {
@@ -60,6 +61,10 @@ const rangeLabels: Record<Range, string> = {
   '30d': '30天',
   'all': '全部',
 };
+
+/** One LP ≈ 44 minutes — the turntable-night unit of listening time. */
+const LP_SECONDS = 44 * 60;
+const vinylCount = computed(() => (displayListenedSeconds.value / LP_SECONDS).toFixed(1));
 
 function formatDuration(seconds: number): string {
   const h = Math.floor(seconds / 3600);
@@ -105,6 +110,7 @@ async function animateSummaryValues(s: Summary, isActive: () => boolean) {
     animateCountUp(displayTotalPlays, s.total_plays, { delay: 0, isActive }),
     animateCountUp(displayListenedSeconds, s.total_listened_seconds, { delay: 0.04, isActive }),
     animateCountUp(displayUniqueSongs, s.unique_songs, { delay: 0.08, isActive }),
+    animateCountUp(displayUniqueArtists, s.unique_artists, { delay: 0.1, isActive }),
     animateCountUp(displayCompletionPercent, Math.round(s.completion_rate * 100), { delay: 0.12, isActive }),
   ]);
 }
@@ -216,7 +222,7 @@ watch(range, loadStats);
 
     <div v-if="loading" class="spinner">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-        <circle cx="12" cy="12" r="10" stroke="var(--rule)"></circle>
+        <circle cx="12" cy="12" r="10" stroke="var(--border-subtle)"></circle>
         <path d="M12 2a10 10 0 0 1 10 10" stroke="currentColor"></path>
       </svg>
       正在汇总数据…
@@ -227,18 +233,31 @@ watch(range, loadStats);
     </div>
 
     <template v-else-if="summary">
+      <!-- Listening clock: total time as the page hero, measured in LPs -->
+      <section class="stats-hero" data-test="stats-hero">
+        <div class="stats-hero-copy">
+          <span class="stats-hero-kicker">LISTENING TIME · 听歌时钟</span>
+          <span class="stats-hero-value">{{ formatDuration(displayListenedSeconds) }}</span>
+          <span class="stats-hero-vinyl">≈ {{ vinylCount }} 张黑胶</span>
+        </div>
+        <div class="stats-hero-disc" aria-hidden="true">
+          <div class="stats-hero-disc-grooves"></div>
+          <div class="stats-hero-disc-label"></div>
+        </div>
+      </section>
+
       <div class="stats-overview">
         <div class="stat-card">
           <span class="stat-value">{{ displayTotalPlays }}</span>
           <span class="stat-label">总播放</span>
         </div>
         <div class="stat-card">
-          <span class="stat-value">{{ formatDuration(displayListenedSeconds) }}</span>
-          <span class="stat-label">总时长</span>
-        </div>
-        <div class="stat-card">
           <span class="stat-value">{{ displayUniqueSongs }}</span>
           <span class="stat-label">不同歌曲</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value">{{ displayUniqueArtists }}</span>
+          <span class="stat-label">不同艺人</span>
         </div>
         <div class="stat-card">
           <span class="stat-value">{{ displayCompletionPercent }}%</span>
@@ -256,12 +275,21 @@ watch(range, loadStats);
             :class="{ playable: !!item.song_hash, active: isCurrentHash(item.song_hash) }"
             @click="playTopSong(item)"
           >
-            <img v-if="item.cover_url" :src="item.cover_url" class="top-cover" loading="lazy">
-            <div v-else class="top-cover placeholder"></div>
+            <span class="vinyl-thumb" aria-hidden="true">
+              <img v-if="item.cover_url" :src="item.cover_url" class="top-cover" loading="lazy">
+              <span v-else class="top-cover placeholder"></span>
+              <span class="vinyl-thumb-spindle"></span>
+            </span>
             <div class="top-info">
               <span class="top-name">{{ item.name }}</span>
               <span class="top-sub" v-if="item.singer">{{ item.singer }}</span>
             </div>
+            <span
+              v-if="isCurrentHash(item.song_hash)"
+              class="aurora-eq"
+              :class="{ 'is-live': playerStore.isPlaying }"
+              aria-hidden="true"
+            ><i /><i /><i /></span>
             <span class="top-count">{{ item.play_count }}次</span>
           </div>
           <div v-if="topSongs.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></div>
@@ -295,11 +323,16 @@ watch(range, loadStats);
         </div>
       </div>
 
-      <!-- Timeline chart -->
+      <!-- Timeline: grooves the needle sweeps across -->
       <div class="stats-timeline" v-if="timeline.length > 0">
         <h3>播放时间线</h3>
         <div class="timeline-chart">
-          <div v-for="(item, i) in timeline" :key="item.date" class="timeline-bar">
+          <div
+            v-for="(item, i) in timeline"
+            :key="item.date"
+            class="timeline-bar"
+            :title="`${item.date} · ${item.count} 次`"
+          >
             <span class="bar-count">{{ item.count }}</span>
             <div
               class="bar-fill"
@@ -353,56 +386,142 @@ watch(range, loadStats);
   flex-wrap: wrap;
 }
 .range-tabs button {
-  background: var(--paper-2);
-  border: 1px solid var(--rule);
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
   padding: 4px 14px;
-  border-radius: 4px;
+  border-radius: 8px;
   cursor: pointer;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   font-size: 12px;
   font-family: var(--font-sans);
   transition: background 0.15s, color 0.15s;
 }
 .range-tabs button:hover {
-  background: var(--paper-edge);
+  background: var(--surface-elevated);
 }
 .range-tabs button.active {
   background: var(--accent);
-  color: var(--paper);
+  color: var(--app-bg);
   border-color: var(--accent);
 }
 .retry-link {
   cursor: pointer;
   text-decoration: underline;
 }
+
+/* ── Listening clock hero ── */
+.stats-hero {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  margin: 4px 0 22px;
+  padding: 4px 2px 0;
+  min-width: 0;
+}
+
+.stats-hero-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+}
+
+.stats-hero-kicker {
+  font-family: 'Inter', 'Microsoft YaHei UI', 'PingFang SC', system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.stats-hero-value {
+  font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
+  font-size: clamp(40px, 4.6vw, 64px);
+  font-weight: 700;
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.stats-hero-vinyl {
+  font-size: 14px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Static trophy disc — decor only, no unsourced rotation */
+.stats-hero-disc {
+  position: relative;
+  width: clamp(84px, 9vw, 128px);
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #0a0a09;
+  box-shadow:
+    0 16px 36px rgba(0, 0, 0, 0.4),
+    0 0 0 1px color-mix(in srgb, #fff 5%, transparent);
+  flex: none;
+}
+
+.stats-hero-disc-grooves {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 210deg,
+      transparent 0deg,
+      color-mix(in srgb, var(--accent) 14%, transparent) 18deg,
+      transparent 55deg),
+    repeating-radial-gradient(circle at 50% 50%,
+      rgba(255, 255, 255, 0.05) 0 1px,
+      transparent 1px 4px);
+}
+
+.stats-hero-disc-label {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%,
+    var(--app-bg) 0 11%,
+    color-mix(in srgb, var(--accent) 82%, #000 18%) 12% 100%);
+}
+
+/* ── Dashboard cards ── */
 .stats-overview {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 14px;
+  gap: 12px;
   margin-bottom: 28px;
   min-width: 0;
 }
 .stat-card {
-  background: var(--paper-2);
-  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--surface-1) 72%, transparent);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  padding: 18px;
-  text-align: center;
+  padding: 16px 18px;
 }
 .stat-value {
   display: block;
-  font-size: 28px;
+  font-size: 26px;
   font-weight: 700;
-  color: var(--ink);
-  font-family: var(--font-serif);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
 }
 .stat-label {
   display: block;
   font-size: 12px;
-  color: var(--ink-mute);
+  color: var(--text-muted);
   margin-top: 4px;
   letter-spacing: 0.06em;
 }
+
+/* ── Top sections ── */
 .stats-tops {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -419,27 +538,28 @@ watch(range, loadStats);
   }
 }
 .top-section h3 {
-  font-family: var(--font-serif);
-  color: var(--ink);
+  font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
+  color: var(--text-primary);
   font-size: 15px;
   font-weight: 600;
   margin: 0 0 10px;
   padding-bottom: 6px;
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 1px solid var(--border-subtle);
 }
 .top-item {
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 7px 0;
-  border-bottom: 1px solid var(--rule-soft);
+  padding: 7px 4px;
+  border-bottom: 1px solid var(--border-subtle);
+  border-radius: 6px;
 }
 .top-item.playable {
   cursor: pointer;
 }
 .top-item.playable:hover,
 .top-item.active {
-  background: var(--paper-edge);
+  background: color-mix(in srgb, var(--text-primary) 5%, transparent);
 }
 .top-cover {
   width: 36px;
@@ -452,11 +572,87 @@ watch(range, loadStats);
   border-radius: 50%;
 }
 .top-cover.placeholder {
-  background: var(--paper-edge);
+  background: var(--surface-2);
+  display: block;
 }
 .top-cover.placeholder.artist {
   border-radius: 50%;
 }
+
+/* Vinyl thumb for top songs: disc + spindle, quarter-turn on hover */
+.vinyl-thumb {
+  position: relative;
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #0a0a09;
+  overflow: hidden;
+  flex-shrink: 0;
+  box-shadow: 0 0 0 1px color-mix(in srgb, #fff 5%, transparent);
+  transition: transform 0.25s ease;
+}
+.vinyl-thumb::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background: repeating-radial-gradient(circle at 50% 50%,
+    rgba(255, 255, 255, 0.06) 0 1px,
+    transparent 1px 3px);
+  pointer-events: none;
+}
+.vinyl-thumb .top-cover {
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+}
+.vinyl-thumb-spindle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 30%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%,
+    var(--app-bg) 0 16%,
+    color-mix(in srgb, var(--accent) 82%, #000 18%) 17% 100%);
+  pointer-events: none;
+}
+.top-item.playable:hover .vinyl-thumb {
+  transform: rotate(20deg);
+}
+
+/* Playing-row equalizer (same language as the home rail) */
+.aurora-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 10px;
+  flex: none;
+}
+.aurora-eq i {
+  width: 2px;
+  height: 30%;
+  background: var(--accent);
+  border-radius: 1px;
+}
+.aurora-eq.is-live i {
+  animation: aurora-eq-bounce 0.9s ease-in-out infinite;
+}
+.aurora-eq.is-live i:nth-child(2) { animation-delay: 0.25s; }
+.aurora-eq.is-live i:nth-child(3) { animation-delay: 0.5s; }
+@keyframes aurora-eq-bounce {
+  0%, 100% { height: 25%; }
+  50% { height: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .aurora-eq.is-live i {
+    animation: none;
+    height: 60%;
+  }
+}
+
 .top-info {
   flex: 1;
   min-width: 0;
@@ -464,7 +660,7 @@ watch(range, loadStats);
 .top-name {
   display: block;
   font-size: 13px;
-  color: var(--ink);
+  color: var(--text-primary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -472,29 +668,29 @@ watch(range, loadStats);
 .top-sub {
   display: block;
   font-size: 11px;
-  color: var(--ink-mute);
+  color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 .top-count {
   font-size: 12px;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   white-space: nowrap;
-  font-family: var(--font-sans);
+  font-variant-numeric: tabular-nums;
 }
 .empty-placeholder {
   padding: 0;
   margin: 0;
 }
 
-/* Timeline chart */
+/* ── Timeline grooves ── */
 .stats-timeline {
   margin: 24px 0;
 }
 .stats-timeline h3 {
-  font-family: var(--font-serif);
-  color: var(--ink);
+  font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
+  color: var(--text-primary);
   font-size: 14px;
   margin: 0 0 8px;
 }
@@ -514,6 +710,7 @@ watch(range, loadStats);
   height: 100%;
   justify-content: flex-end;
   position: relative;
+  cursor: default;
 }
 .bar-fill {
   width: 20px;
@@ -521,25 +718,30 @@ watch(range, loadStats);
   border-radius: 2px 2px 0 0;
   min-height: 2px;
 }
+.timeline-bar:hover .bar-fill {
+  filter: brightness(1.15);
+}
 .bar-label {
   font-size: 10px;
-  color: var(--ink-mute);
+  color: var(--text-muted);
   margin-top: 4px;
+  font-variant-numeric: tabular-nums;
 }
 .bar-count {
   font-size: 9px;
-  color: var(--ink-soft);
+  color: var(--text-secondary);
   position: absolute;
   top: -14px;
+  font-variant-numeric: tabular-nums;
 }
 
-/* AI Analysis */
+/* ── AI Analysis ── */
 .stats-ai {
   margin: 24px 0;
 }
 .stats-ai h3 {
-  font-family: var(--font-serif);
-  color: var(--ink);
+  font-family: Georgia, 'Noto Serif SC', 'Songti SC', serif;
+  color: var(--text-primary);
   font-size: 14px;
   margin: 0 0 8px;
 }
@@ -551,10 +753,10 @@ watch(range, loadStats);
 .ai-key-input {
   flex: 1;
   padding: 6px 10px;
-  border: 1px solid var(--rule);
-  border-radius: 4px;
-  background: var(--paper);
-  color: var(--ink);
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-1);
+  color: var(--text-primary);
   font-size: 13px;
   font-family: var(--font-sans);
 }
@@ -563,21 +765,25 @@ watch(range, loadStats);
   font-size: 12px;
 }
 .ai-result {
-  background: var(--paper-2);
-  border: 1px solid var(--rule);
+  background: var(--surface-1);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 16px;
   font-size: 13px;
   line-height: 1.6;
-  color: var(--ink);
+  color: var(--text-primary);
   white-space: pre-wrap;
 }
 .ai-hint {
   font-size: 12px;
-  color: var(--ink-mute);
+  color: var(--text-muted);
 }
 
 @media (max-width: 768px) {
+  .stats-hero {
+    flex-direction: column-reverse;
+    align-items: flex-start;
+  }
   .stats-overview {
     grid-template-columns: repeat(2, 1fr);
   }
