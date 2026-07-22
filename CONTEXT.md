@@ -151,23 +151,20 @@ cd C:\BottleMusic\ui && pnpm exec vue-tsc --noEmit
 # C++ tests
 cmd /c '"C:\Program Files\Microsoft Visual Studio\18\Community\VC\Auxiliary\Build\vcvars64.bat" && set PATH=C:\BottleMusic\native\vcpkg_installed\x64-windows\bin;%PATH% && ctest --test-dir C:\BottleMusic\native\out\bottlemusic-check --output-on-failure'
 
-# Rust tests
-cargo test --manifest-path C:\BottleMusic\ui\src-tauri\Cargo.toml --lib
+# Rust tests (--no-default-features: tray-icon/global-shortcut crash the lib test harness)
+cargo test --manifest-path C:\BottleMusic\ui\src-tauri\Cargo.toml --lib --no-default-features -- --test-threads=1
 
 # Frontend tests
 cd C:\BottleMusic\ui && pnpm test -- --run
 ```
 
-## Test Counts (as of 2026-07-03)
+## Test Counts
 
-- C++ ctest: 11 tests
-- Rust cargo test: 22 tests (audio_proxy.rs added 11)
-- Frontend vitest: 98 tests
-- **Total: 131 tests**
+测试数量随代码变化，不作为长期架构事实记录。当前基线见 [docs/wiki/evidence-report.md](./docs/wiki/evidence-report.md) 的「测试统计」一节。
 
 ## Known Issues
 
-1. **MFS native playback broken** — topology resolution fails, deadlock on exit. Disabled, using HTML5 fallback. (Will not be fixed — MFS path abandoned in favor of Web Audio API.)
+1. **MFS native playback removed** — Media Foundation playback stack was removed on 2026-07-17 (architecture audit stage 2). `native/playback/` directory no longer exists; production playback is HTML5 Audio + Web Audio API EQ only. See [docs/wiki/playback-runtime.md](./docs/wiki/playback-runtime.md).
 2. **EQ for KuGou CDN (RESOLVED)** — the local audio proxy (`audio_proxy.rs`) re-serves cross-origin CDN media with CORS headers + range/resume, so the EQ graph attaches. Degradation banner shows only when the proxy is unavailable.
 3. **`Music Player.html` was rewritten in `0bedf68`** — spec called for a one-line syntax fix at line 673, but the rewrite also normalized formatting and removed dead code. The file is tracked in the repo; not a v2 source file but ships with the app.
 4. **Minor findings deferred** (from PR review `0bedf68..ce5233c`):
@@ -234,4 +231,4 @@ _Avoid_: fetch, HTTP call
 - **CMake**: `C:\Program Files\Microsoft Visual Studio\18\Community\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe`
 - **vcpkg**: `C:\vcpkg\vcpkg.exe` (triplet: x64-windows)
 - **Node**: v24.17.0, pnpm v11.8.0
-- **docs/ is gitignored** — use `git add -f` to track docs
+- **docs/ tracking** — `docs/wiki/` and `docs/adr/` are trackable; `docs/superpowers/`, `docs/captures/`, `docs/tmp/` remain gitignored. See [.gitignore](./.gitignore).
