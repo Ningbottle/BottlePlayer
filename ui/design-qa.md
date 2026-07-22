@@ -1,17 +1,23 @@
-# Aurora Immersive Redesign — Design QA Ledger
+# Aurora Turntable Night — Design QA Ledger
 
-**Target image:** `C:\Users\w1521\AppData\Local\Temp\codex-clipboard-b5a6407f-638b-4e98-bf62-b20e7a8b3f3e.png`  
-**Rendered screenshot:** `ui/design-qa-captures/aurora-home-1586x1024-dark.png`  
-**Viewport:** 1586 × 1024 (primary); matrix also captures 1440×900, 1280×720, 900×720, light mode, reduced-motion (see `ui/design-qa-captures/manifest.json`)
+**Spec:** `docs/superpowers/specs/2026-07-21-aurora-turntable-night-design.md`
+**Plan:** `docs/superpowers/plans/2026-07-21-aurora-turntable-night.md`
+**Rendered screenshots:** `ui/design-qa-captures/aurora-home-*.png`(本次重跑)
+**Extra viewport:** `ui/design-qa-captures/icon-rail-1000x800.png`(1000×800,图标栏)
+**Viewport:** 1586 × 1024 (primary);矩阵另有 1440×900、1280×720、900×720、light、reduced-motion(见 `manifest.json`)
 
-| Check | Target evidence | Render evidence | Result |
+| Check | Target | Render evidence | Result |
 | --- | --- | --- | --- |
-| three-column desktop composition | Target: left nav + center stage (cover/meta) + right queue rail | 1586 × 1024 dark: `data-layout=immersive`, stage + queue-rail present (`railDisplay:block`); empty backend so rail shows “暂无队列” shell, not 12 filled rows | passed |
-| top divider removal | Target: continuous chrome, no hard horizontal rule under titlebar | 1586 × 1024 dark: titlebar/topbar computed `borderBottom=0px`; no decorative strip between chrome and stage | passed |
-| liquid player silhouette | Target: full-width rounded liquid console with raised center transport | 1586 × 1024 dark: `aurora-player-console` + progress hooks present; floating dark bar with emerald play control visible at bottom | passed |
-| dark/light distinction | Target dark graphite + emerald; light cold white/ash + emerald | 1586 × 1024 dark: `--app-bg #070b0c`, `--accent #62d6a2`; 1586 × 1024 light: `--app-bg #eef3f0`, `--accent #18875b` — no paper beige | passed |
-| progress contrast | Target green fill on darker track | 1586 × 1024 dark: `--progress-fill #62d6a2` on `--progress-track #394541`; light: `#18875b` on `#a9b6af` | passed |
-| motion reduction | Target ambient/jelly when allowed; reduced-motion must still show UI | 1586 × 1024 dark reduced-motion: stage, queue rail, player console all present with same layout hooks; capture completed under `prefers-reduced-motion: reduce` | passed |
+| 黑胶空盘空态 | 无曲时舞台为静态黑胶(沟槽+翡翠 label),单行文案,无巨标无描边盒 | 1586×1024 dark:`.aurora-vinyl` 圆盘 + 沟槽 + spindle 可见;"选择一首歌,开始聆听" 26px 级标题;无边框/无大盒 | passed |
+| 暖黑令牌 | dark `#0c0b09` 深炭暖黑,accent 不变 | manifest:`appBg:#0c0b09`、`accent:#62d6a2`、`progressTrack:#45403a`;light 仍 `#eef3f0/#18875b/#a9b6af` | passed |
+| 光锥 + 尘埃 | 静态右上光锥,锥内细尘,≤60 粒 | 1586 dark:舞台右上至唱盘区域可见细微尘点;`data-particle-cap` 30/60(测试锁定) | passed |
+| 常驻传输区 | 无曲时传输键常驻静音态,删除虚线占位 pill | 1586 dark / 1000×800:Dock 中央 loop/prev/play/next 全键可见(muted),无 "选择曲目后显示播放控制" pill;00:00/00:00 进度常驻 | passed |
+| 唱针播放头 | 进度播放头为唱针三角(aurora-only :deep 覆写) | live-preview dock:00:34/03:37 填充 + 唱针头;`PlayerProgress.vue` markup 零改动(测试锁定) | passed |
+| 器物控件 | 播放键 44px 内凹器物钮 + 静态指示光;音量旋钮同族 | dock 截图:播放键翡翠实心圆带 inset 深度;音量白色旋钮带 accent 环 | passed |
+| 图标栏断点 | 900–1099px sidebar 收为 64px 纯图标栏 | icon-rail-1000x800.png:仅 update 圆点/头像/四个导航图标;无 masthead 线、无文字;舞台不再被挤压 | passed |
+| 圆角纪律 | 圆只给器物;卡片/rail 8px;Dock 16px | 推荐卡、rail、chips 均 8px;Dock 16px;唱片/播放键/旋钮为圆 | passed |
+| 动效语义 | 旋转=播放、唱针=进度、尘埃=氛围、回弹=按压;reduced-motion 全静止可用 | reduced-motion 矩阵:舞台/rail/Dock 结构完整;`startVinylSpin` reduced-motion 惰性(测试锁定) | passed |
+| 对比度 | 暖黑上正文/次级 ≥4.5:1 | 令牌校验:text 17.6/7.3/5.2:1,muted 在 surface-2 上 4.8:1,fill/track 5.7:1 | passed |
 
 **final result: passed**
 
@@ -19,19 +25,17 @@
 
 | File | Viewport | Mode | Notes |
 | --- | --- | --- | --- |
-| `design-qa-captures/aurora-home-1586x1024-dark.png` | 1586 × 1024 | dark | Primary compare |
-| `design-qa-captures/aurora-home-1586x1024-light.png` | 1586 × 1024 | light | Cold white / emerald |
-| `design-qa-captures/aurora-home-1440x900-dark.png` | 1440 × 900 | dark | Rail still visible |
-| `design-qa-captures/aurora-home-1280x720-dark.png` | 1280 × 720 | dark | Rail still visible |
-| `design-qa-captures/aurora-home-900-dark.png` | 900 × 720 | dark | `railDisplay:none` |
-| `design-qa-captures/aurora-home-1586x1024-dark-reduced-motion.png` | 1586 × 1024 | dark + reduced | No animation dependency |
-
-## P1 fix applied during QA
-
-Drawer micro-tweak was writing inline `--accent: #a8311b` over Aurora tokens. Fixed so Aurora leaves accent to `tokens.css` / `style.css` emerald. Also aligned legacy Aurora paper/ink aliases away from Apple red.
+| `design-qa-captures/aurora-home-1586x1024-dark.png` | 1586 × 1024 | dark | 主对比:空盘黑胶 + 静音传输区 |
+| `design-qa-captures/aurora-home-1586x1024-light.png` | 1586 × 1024 | light | 冷白不变,黑胶器物跨模式一致 |
+| `design-qa-captures/aurora-home-1440x900-dark.png` | 1440 × 900 | dark | rail 可见 |
+| `design-qa-captures/aurora-home-1280x720-dark.png` | 1280 × 720 | dark | rail 可见(<1280 隐藏边界) |
+| `design-qa-captures/aurora-home-900-dark.png` | 900 × 720 | dark | sidebar 隐藏,舞台单列 |
+| `design-qa-captures/icon-rail-1000x800.png` | 1000 × 800 | dark | 64px 图标栏 |
+| `design-qa-captures/aurora-home-1586x1024-dark-reduced-motion.png` | 1586 × 1024 | dark + reduced | 无动画依赖 |
 
 ## Notes
 
-- Vite-only captures lack Tauri IPC, so home feed/queue content is empty; structure, tokens, rail breakpoints, liquid player, and chrome still validate the redesign gates.
-- Homepage still does not fetch lyrics (`useLyricStage` unused); target lyric quote is represented by album/meta + 查看歌词.
-- Capture helper: `ui/scripts/capture-aurora-qa.mjs` (Playwright).
+- Vite-only 截图无 Tauri IPC,推荐/队列内容为空;结构、令牌、黑胶、Dock、断点均完成验证。真实填充态(封面黑胶旋转)需后端环境;组件级已由 `AuroraHome.test.ts`/`AuroraPlayerBar.test.ts` 覆盖。
+- `capture-stage-preview.mjs` 的 DOM 注入假设旧结构(往 `.aurora-cover` 塞方块),对黑胶空态不再适用;保留脚本仅用于 rail/dock 演示,后续可重写为驱动真实 view model。
+- 已知可选项(未做,不在 spec 范围):rail 空态的大号实心 `重试` CTA 视觉上略抢舞台,可在下一轮降为次级按钮。
+- 测试基线:全量 76 文件 / 917 用例通过(2026-07-22);`vue-tsc --noEmit` 干净。
