@@ -283,6 +283,10 @@ vi.mock('../../../api/motion', () => ({
   isReducedMotion: vi.fn(() => true),
 }));
 
+vi.mock('../../../api/coverFlight', () => ({
+  flyCoverToDock: vi.fn(),
+}));
+
 vi.mock('../../../api/homeFeedStore', () => ({
   useHomeFeedStore: () => homeFeedStoreMock,
 }));

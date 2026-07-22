@@ -9,6 +9,7 @@ import { animateStagger, isReducedMotion, startVinylSpin } from '../../api/motio
 import type { VinylSpinHandle } from '../../api/motion';
 import { playerStore, togglePlay as storeTogglePlay } from '../../api/playerStore';
 import { createAudioLevelMonitor, type AudioLevelMonitor } from '../../api/audioLevelMonitor';
+import { flyCoverToDock } from '../../api/coverFlight';
 import { PhPause, PhPlay } from '@phosphor-icons/vue';
 import AuroraAtmosphere from './AuroraAtmosphere.vue';
 
@@ -211,7 +212,20 @@ const dailyRailIndexOffset = computed(() =>
 
 function onHeroPlay() {
   const t = props.model.heroTrack;
-  if (t) onTrackPlay(t);
+  if (!t) return;
+  flyFromVinyl();
+  onTrackPlay(t);
+}
+
+/** GSAP Flip flight from the hero vinyl into the dock cover slot. */
+function flyFromVinyl(): void {
+  const root = vinylEl.value?.parentElement;
+  if (root && heroCover.value) flyCoverToDock(root, heroCover.value);
+}
+
+function coverElFromEvent(e: MouseEvent): HTMLElement | undefined {
+  const el = (e.currentTarget as HTMLElement | null)?.querySelector('.aurora-track-cover');
+  return el instanceof HTMLElement ? el : undefined;
 }
 
 /** Hero is the loaded track → the vinyl acts as the deck's play/pause. */
@@ -225,6 +239,7 @@ function onVinylToggle(): void {
   if (isHeroCurrent.value) {
     storeTogglePlay();
   } else {
+    flyFromVinyl();
     onTrackPlay(t);
   }
 }
@@ -240,7 +255,8 @@ watch(
   },
 );
 
-function onTrackPlay(track: Track): void {
+function onTrackPlay(track: Track, fromEl?: HTMLElement): void {
+  if (fromEl && track.Image) flyCoverToDock(fromEl, track.Image);
   emit('play-track', track);
 }
 
@@ -487,7 +503,7 @@ function formatDuration(sec: number | undefined | null): string {
           type="button"
           class="aurora-track-card"
           :data-test="`daily-track-${track.FileHash}`"
-          @click="onTrackPlay(track)"
+          @click="onTrackPlay(track, coverElFromEvent($event))"
         >
           <span class="aurora-track-cover">
             <img v-if="track.Image" :src="track.Image" :alt="`${track.SongName}封面`" />

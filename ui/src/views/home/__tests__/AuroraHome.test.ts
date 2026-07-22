@@ -7,6 +7,7 @@ import type { Track } from '../../../api/normalizer';
 import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
 import { animateStagger, startVinylSpin } from '../../../api/motion';
 import { playerStore, togglePlay } from '../../../api/playerStore';
+import { flyCoverToDock } from '../../../api/coverFlight';
 import type { Mock } from 'vitest';
 
 vi.mock('gsap', () => {
@@ -32,6 +33,10 @@ vi.mock('../../../api/playerStore', async () => {
     togglePlay: vi.fn(),
   };
 });
+
+vi.mock('../../../api/coverFlight', () => ({
+  flyCoverToDock: vi.fn(),
+}));
 
 function createTrack(overrides: Partial<Track> = {}): Track {
   return {
@@ -730,7 +735,7 @@ describe('AuroraHome', () => {
     });
 
     it('emits play-track when the hero is not the current track', async () => {
-      const track = createTrack({ FileHash: 'hero-2' });
+      const track = createTrack({ FileHash: 'hero-2', Image: 'http://img.example/hero.jpg' });
       const wrapper = mount(AuroraHome, {
         props: {
           model: createViewModel({ heroTrack: track, activeQueueHash: null }),
@@ -742,6 +747,20 @@ describe('AuroraHome', () => {
       await toggle.trigger('click');
       expect(togglePlay).not.toHaveBeenCalled();
       expect(wrapper.emitted('play-track')?.[0]).toEqual([track]);
+      expect(flyCoverToDock).toHaveBeenCalledWith(expect.any(HTMLElement), 'http://img.example/hero.jpg');
+    });
+
+    it('flies the cover to the dock when a daily card is clicked', async () => {
+      const track = createTrack({ FileHash: 'daily-x', Image: 'http://img.example/x.jpg' });
+      const wrapper = mount(AuroraHome, {
+        props: {
+          model: createViewModel({ dailyTracks: [track] }),
+        },
+      });
+
+      await wrapper.get(`[data-test="daily-track-daily-x"]`).trigger('click');
+
+      expect(flyCoverToDock).toHaveBeenCalledWith(expect.any(HTMLElement), 'http://img.example/x.jpg');
     });
 
     it('scratches the vinyl on seek jumps in currentTime', async () => {

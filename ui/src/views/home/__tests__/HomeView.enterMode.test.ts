@@ -38,6 +38,10 @@ vi.mock('../../../api/motion', () => ({
   isReducedMotion: vi.fn(() => true),
 }));
 
+vi.mock('../../../api/coverFlight', () => ({
+  flyCoverToDock: vi.fn(),
+}));
+
 function stubFeedOk() {
   mockApiGet.mockImplementation((path: string) => {
     if (path === '/everyday/recommend') {
