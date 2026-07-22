@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { RouterView, useRouter } from 'vue-router';
+import { gsap } from 'gsap';
 
 import Sidebar from './components/Sidebar.vue';
 import Topbar from './components/Topbar.vue';
@@ -16,7 +17,7 @@ import { bindOsMediaBridge, unbindOsMediaBridge } from './api/osMediaBridge';
 import { checkLoginStatus } from './api/userStore';
 import { ping } from './api/backend';
 import { lyricFullscreen, setLyricFullscreen } from './api/lyricFullscreen';
-import { transitionEnter, transitionLeave } from './api/motion';
+import { transitionEnter, transitionLeave, isReducedMotion } from './api/motion';
 import { registerPageTransition, unregisterPageTransition } from './navigation/navigationLifecycle';
 import { routeNames, type AppRouteName } from './navigation/routes';
 import { useThemeStore } from './api/themeStore';
@@ -44,6 +45,21 @@ const isAuroraOverlap = computed(() => themeStore.skinId.value === 'aurora');
 const isQueueOpen = ref(false);
 const networkDegraded = ref(false);
 let networkInterval: ReturnType<typeof setInterval> | null = null;
+
+/** First-paint launch intro: shell unfolds once per app start. */
+let launchPlayed = false;
+
+function playLaunchIntro(): void {
+  if (launchPlayed || isReducedMotion()) return;
+  const targets = ['.titlebar', '.shell-sidebar', '.shell-content', '.shell-playerbar'];
+  if (!targets.every((t) => document.querySelector(t))) return;
+  launchPlayed = true;
+  gsap.timeline({ defaults: { ease: 'expo.out' } })
+    .from('.titlebar', { opacity: 0, duration: 0.4 }, 0)
+    .from('.shell-sidebar', { x: -18, opacity: 0, duration: 0.5 }, 0.06)
+    .from('.shell-content', { y: 18, opacity: 0, duration: 0.55 }, 0.14)
+    .from('.shell-playerbar', { y: 22, opacity: 0, duration: 0.5 }, 0.2);
+}
 
 async function updateNetworkBanner() {
   try {
@@ -104,6 +120,8 @@ onMounted(() => {
 
   updateNetworkBanner();
   networkInterval = setInterval(updateNetworkBanner, 5_000);
+
+  void nextTick(() => playLaunchIntro());
 });
 
 onUnmounted(() => {

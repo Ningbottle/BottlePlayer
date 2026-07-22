@@ -64,9 +64,9 @@ export function crossfadeTheme(applyFn: () => void): Promise<void> {
   }
   return new Promise((resolve) => {
     const tl = gsap.timeline({ onComplete: resolve });
-    tl.to(app, { opacity: 0.3, duration: 0.15, ease: 'power2.out' });
+    tl.to(app, { opacity: 0.25, scale: 0.985, duration: 0.2, ease: 'power2.in' });
     tl.add(() => applyFn());
-    tl.to(app, { opacity: 1, duration: 0.15, ease: 'power2.out' });
+    tl.to(app, { opacity: 1, scale: 1, duration: 0.38, ease: 'expo.out' });
   });
 }
 
