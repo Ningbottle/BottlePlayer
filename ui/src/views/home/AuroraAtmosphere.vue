@@ -14,7 +14,15 @@ import {
 } from 'vue';
 import { isReducedMotion } from '../../api/motion';
 
-const props = defineProps<{ isPlaying: boolean }>();
+const props = withDefaults(defineProps<{ isPlaying: boolean; level?: { value: number } | null }>(), {
+  level: null,
+});
+
+/** Live loudness 0..1 from the audio monitor; 0 when unwired. */
+function energy(): number {
+  const v = props.level?.value;
+  return typeof v === 'number' && v > 0 ? Math.min(1, v) : 0;
+}
 
 /** Turntable night: dust motes inside a static light cone. Fewer, smaller, calmer. */
 const CAP_PAUSED = 30;
@@ -163,9 +171,9 @@ function paintWash(ctx: CanvasRenderingContext2D): void {
   const apexY = CONE.ay * cssH;
   const maxDim = Math.max(cssW, cssH);
 
-  // Apex glow
+  // Apex glow (breathes with the live loudness)
   const g = ctx.createRadialGradient(apexX, apexY, 0, apexX, apexY, maxDim * 0.5);
-  g.addColorStop(0, accentRGBA(props.isPlaying ? 0.1 : 0.05));
+  g.addColorStop(0, accentRGBA((props.isPlaying ? 0.1 : 0.05) + energy() * 0.06));
   g.addColorStop(1, accentRGBA(0));
   ctx.fillStyle = g;
   ctx.fillRect(0, 0, cssW, cssH);
@@ -190,9 +198,10 @@ function paintParticles(ctx: CanvasRenderingContext2D, dt: number): void {
     p.phase += dt * 0.001 * p.speed;
     p.x += p.vx * (dt * 0.06);
     p.y += p.vy * (dt * 0.06);
-    // Turntable hum: sub-pixel mechanical jitter while playing (<0.5px)
-    const jx = playing ? Math.sin(p.phase * 7.3) * 0.4 : 0;
-    const jy = playing ? Math.cos(p.phase * 6.1) * 0.3 : 0;
+    // Turntable hum: sub-pixel mechanical jitter while playing, flaring with loudness
+    const jAmp = 0.4 + energy() * 1.2;
+    const jx = playing ? Math.sin(p.phase * 7.3) * jAmp : 0;
+    const jy = playing ? Math.cos(p.phase * 6.1) * jAmp * 0.75 : 0;
 
     const pulse = 0.7 + 0.3 * Math.sin(p.phase);
     const alpha = Math.min(0.6, p.baseAlpha * pulse);

@@ -8,6 +8,7 @@ import type { HomeEnterMode } from '../../api/homeEnterSession';
 import { animateStagger, isReducedMotion, startVinylSpin } from '../../api/motion';
 import type { VinylSpinHandle } from '../../api/motion';
 import { playerStore, togglePlay as storeTogglePlay } from '../../api/playerStore';
+import { createAudioLevelMonitor, type AudioLevelMonitor } from '../../api/audioLevelMonitor';
 import { PhPause, PhPlay } from '@phosphor-icons/vue';
 import AuroraAtmosphere from './AuroraAtmosphere.vue';
 
@@ -36,6 +37,19 @@ const stageEl = ref<HTMLElement | null>(null);
 const vinylEl = ref<HTMLElement | null>(null);
 let vinylSpin: VinylSpinHandle | null = null;
 
+/** Live loudness tap for the cone dust (falls back to a static 0). */
+let levelMonitor: AudioLevelMonitor | null = null;
+const fallbackLevel = ref(0);
+const atmosphereLevel = computed(() => levelMonitor?.level ?? fallbackLevel);
+
+function bootLevelMonitor(): void {
+  if (levelMonitor || !playerStore.audio) return;
+  levelMonitor = createAudioLevelMonitor(playerStore.audio);
+  levelMonitor.start();
+}
+
+watch(() => playerStore.audio, () => bootLevelMonitor());
+
 function bootVinyl(): void {
   if (vinylSpin || !vinylEl.value) return;
   vinylSpin = startVinylSpin(vinylEl.value, () => !!props.model.isPlaying);
@@ -54,16 +68,20 @@ watch(() => props.model.isPlaying, () => vinylSpin?.setPlaying());
 
 onMounted(() => {
   bootVinyl();
+  bootLevelMonitor();
 });
 
 onActivated(() => {
   bootVinyl();
   vinylSpin?.setPlaying();
+  bootLevelMonitor();
 });
 
 onDeactivated(() => {
   vinylSpin?.kill();
   vinylSpin = null;
+  levelMonitor?.stop();
+  levelMonitor = null;
 });
 
 function setRecommendationRef(el: unknown): void {
@@ -139,6 +157,8 @@ watch(
 onUnmounted(() => {
   vinylSpin?.kill();
   vinylSpin = null;
+  levelMonitor?.stop();
+  levelMonitor = null;
   killEnterHandles();
 });
 
@@ -264,7 +284,7 @@ function formatDuration(sec: number | undefined | null): string {
       data-test="aurora-stage"
       :data-playing="model.isPlaying"
     >
-      <AuroraAtmosphere :is-playing="model.isPlaying" />
+      <AuroraAtmosphere :is-playing="model.isPlaying" :level="atmosphereLevel" />
       <div class="aurora-stage-hero">
         <div v-if="model.heroTrack" class="aurora-stage-main">
           <div class="aurora-cover aurora-vinyl" data-test="hero-vinyl">
