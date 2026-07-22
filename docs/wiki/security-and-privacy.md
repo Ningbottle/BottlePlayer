@@ -379,9 +379,9 @@ sequenceDiagram
 
 ## 10. SECURITY.md 漏洞报告
 
-[PRIVACY.md](../../PRIVACY.md) 多处引用 `[SECURITY.md](./SECURITY.md)` 作为私密漏洞报告入口,并要求「涉及令牌、账号、个人信息或安全漏洞时,请不要公开贴出原文,优先按照 SECURITY.md 的私密报告流程提交」。
+[PRIVACY.md](../../PRIVACY.md) 多处引用 ``[SECURITY.md](./SECURITY.md)`` 作为私密漏洞报告入口,并要求「涉及令牌、账号、个人信息或安全漏洞时,请不要公开贴出原文,优先按照 SECURITY.md 的私密报告流程提交」。
 
-> **已知缺口**(详见 [maintenance.md](./maintenance.md)):仓库根目录**目前不存在** `SECURITY.md` 文件(PRIVACY.md 的链接为悬空链接)。期望流程是优先私密报告而非公开 Issue 贴原文,但报告渠道(如 security advisory / 私邮)尚未以文件形式落地。在文件补齐前,敏感问题应避免在公开 Issue 中包含令牌、账号原文。
+> **核对结果**:[SECURITY.md](../../SECURITY.md) 存在于仓库根目录(2026-07-17 由 commit `80a423ea` 引入),PRIVACY.md 的链接指向有效文件。SECURITY.md 落地了 GitHub Security Advisory 作为私密报告渠道,并明确了响应预期、报告范围与处理注意事项。
 
 ---
 
@@ -391,8 +391,6 @@ sequenceDiagram
 
 - **无重大已知安全风险**:SSRF / DPAPI / SQL 注入 / CSP / capability 白名单均有对应防护与测试覆盖。
 - **DeepSeek URL 缺 `/v1` 前缀**:`ai_analysis.rs` 中 `DEEPSEEK_API_URL = "https://api.deepseek.com/chat/completions"`,与官方 `/v1/chat/completions` 路径不一致,可能导致部分 Key 鉴权失败。属功能/兼容性问题而非安全漏洞,详见 [maintenance.md](./maintenance.md)。
-- **SECURITY.md 缺失**:见上节,私密报告渠道未文件化。
-- **CONTEXT.md L98 过时**:称「User provides API key via localStorage `deepseek_api_key`」,实际已改为内存会话(evidence-report §5.2)。属文档漂移,不影响运行时安全。
 
 ---
 
@@ -401,8 +399,7 @@ sequenceDiagram
 > 详见 [maintenance.md](./maintenance.md)。本节仅列与安全/隐私相关项。
 
 - **一键清除本地数据按钮**:当前需手动三步清理,未来可在设置页提供「清除全部本地数据」入口,内部依次执行退出登录 + 删除 AppData 目录 + 重置前端状态,降低用户误留敏感数据的风险。
-- **补齐 SECURITY.md**:落地私密报告渠道(GitHub Security Advisory 或维护者私邮),修复 PRIVACY.md 悬空链接。
-- **同步 CONTEXT.md L98**:将 DeepSeek Key 描述从「localStorage」改为「内存会话」,与 PRIVACY.md 及代码对齐。
+- **同步 CONTEXT.md DeepSeek Key 描述**:本轮已将 CONTEXT.md L98 从「localStorage `deepseek_api_key`」同步为「内存会话」,与 PRIVACY.md 及代码对齐;未来如有新的 Key 存储变更需保持三处同步。
 
 ---
 

@@ -59,7 +59,7 @@
 - **事实**:[CHANGELOG.md](../../CHANGELOG.md) 15 个条目,日期范围 2026-02-03 至 2026-05-22
 - **git 实际**:首次提交 2026-02-02,最新提交 2026-07-22
 - **不一致**:CHANGELOG 停在 v1.0.0(06-04)之前,后续 2 个月未更新
-- **处理**:不手工补;输出 [release-tooling-rfc.md](../adr/release-tooling-rfc.md) 评估自动化方案
+- **处理**:不手工补;输出 [release-tooling-rfc.md](../release-tooling-rfc.md) 评估自动化方案
 
 ### 2. 测试计数时间差
 
@@ -101,11 +101,11 @@
 - **事实**:MF 已于 2026-07-17 移除
 - **处理**:本轮修正 README 这两行
 
-### 8. SECURITY.md 悬空链接
+### 8. SECURITY.md 链接核对
 
 - **PRIVACY.md** 引用 `[SECURITY.md](./SECURITY.md)`
-- **事实**:仓库根目录**无 SECURITY.md 文件**
-- **处理**:本轮不创建(超出约束),但在 Wiki 中标注为已知缺口
+- **事实**:[SECURITY.md](../../SECURITY.md) 存在于仓库根目录(2026-07-17 由 commit `80a423ea` 引入),PRIVACY.md 的链接**非悬空**,指向有效文件
+- **处理**:本轮核对确认链接有效;README.md 原本也指向 `./SECURITY.md`(有效),本轮保留该指向
 
 ### 9. EchoImage 挂载状态
 
@@ -132,13 +132,13 @@
 ### 2. CHANGELOG 自动化
 
 - **现状**:纯手工,滞后 2 个月
-- **清理步骤**:见 [release-tooling-rfc.md](../adr/release-tooling-rfc.md)
+- **清理步骤**:见 [release-tooling-rfc.md](../release-tooling-rfc.md)
 - **状态**:本轮输出 RFC,不直接安装工具
 
 ### 3. server/ 子模块策略
 
 - **现状**:git submodule 指向 `MakcRe/KuGouMusicApi`,不进生产链路
-- **清理步骤**:见 [server-strategy-rfc.md](../adr/server-strategy-rfc.md)
+- **清理步骤**:见 [server-strategy-rfc.md](../server-strategy-rfc.md)
 - **状态**:本轮输出 RFC,不改变 server/ 存储方式(约束四.6)
 
 ### 4. UI 文档残留(不在本轮范围)
@@ -204,4 +204,3 @@
 | **P3** | 路由表化集中 | 未来 RFC |
 | **P3** | 一键清除本地数据按钮 | 未来 RFC |
 | **P3** | Playwright E2E 烟测 | 未来 RFC |
-| **P3** | SECURITY.md 补充 | 未来 RFC |

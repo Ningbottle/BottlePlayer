@@ -4,7 +4,7 @@
 
 [English](./README.en.md) | 中文
 
-[隐私说明](./PRIVACY.md) | [安全政策](./docs/wiki/security-and-privacy.md)
+[隐私说明](./PRIVACY.md) | [安全政策](./SECURITY.md)
 
 <!-- logo -->
 
@@ -135,4 +135,4 @@ pnpm tauri dev
 
 本项目是非官方软件，与酷狗及其他第三方服务方没有隶属或代表关系，不声称已获得任何第三方服务或内容授权。项目仅用于个人学习和技术研究；音乐数据、曲目元数据、封面、歌词及音频内容的权利归相应平台和权利人所有。任何公开上架、分发或商业使用前，使用者必须自行取得必要的第三方服务和内容授权。本免责声明不能替代授权，也不构成对第三方服务条款的豁免。请遵守适用法律、平台规则和服务条款。
 
-隐私说明见 [PRIVACY.md](./PRIVACY.md)，安全与隐私详情见 [docs/wiki/security-and-privacy.md](./docs/wiki/security-and-privacy.md)。
+隐私说明见 [PRIVACY.md](./PRIVACY.md)，安全政策见 [SECURITY.md](./SECURITY.md)，安全与隐私架构详情见 [docs/wiki/security-and-privacy.md](./docs/wiki/security-and-privacy.md)。

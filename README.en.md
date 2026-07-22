@@ -4,7 +4,7 @@
 
 English | [中文](./README.md)
 
-[Privacy (Chinese)](./PRIVACY.md) | [Security (Chinese)](./docs/wiki/security-and-privacy.md)
+[Privacy (Chinese)](./PRIVACY.md) | [Security (Chinese)](./SECURITY.md)
 
 <!-- logo -->
 
@@ -135,4 +135,4 @@ For full development documentation, see [CONTEXT.md](./CONTEXT.md).
 
 This is unofficial software and is not affiliated with or endorsed by KuGou or any other third-party service provider. It does not claim to have obtained third-party service or content authorization. The project is for personal learning and technical research only. Rights in music data, metadata, artwork, lyrics, and audio belong to the relevant platforms and rightsholders. Any public listing, distribution, or commercial use requires the necessary authorization from those parties. This disclaimer does not replace authorization or waive third-party terms. Follow applicable law, platform rules, and service terms.
 
-See [PRIVACY.md](./PRIVACY.md) for privacy, and [docs/wiki/security-and-privacy.md](./docs/wiki/security-and-privacy.md) for security and privacy details.
+See [PRIVACY.md](./PRIVACY.md) for privacy, [SECURITY.md](./SECURITY.md) for security policy, and [docs/wiki/security-and-privacy.md](./docs/wiki/security-and-privacy.md) for security and privacy architecture details.
