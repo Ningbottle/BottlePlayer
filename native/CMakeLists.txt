@@ -21,7 +21,6 @@ endif()
 find_package(nlohmann_json CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG QUIET)
 find_package(SQLite3 QUIET)
-find_package(spdlog CONFIG QUIET)
 find_package(wil CONFIG QUIET)
 
 set(ECHO_NATIVE_SQLITE_AVAILABLE FALSE)
