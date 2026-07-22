@@ -107,7 +107,10 @@ temp_full_doc.txt
 .superpowers/
 
 # Project docs and agent configs (keep local only)
-docs/
+# 长期文档(docs/wiki/, docs/adr/)可追踪;临时 plans/reports/captures 保持忽略
+docs/superpowers/
+docs/captures/
+docs/tmp/
 AGENTS.md
 .windsurf/skills/
 # 内部评估/计划文档（含逆向细节，保留本地、勿入公开仓库）
