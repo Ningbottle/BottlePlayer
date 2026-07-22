@@ -48,6 +48,15 @@ const sessions: Record<HomeSection, SectionRequestSession> = {
   albums: { generation: 0, promise: null },
 };
 
+/** Local calendar day (Y-M-D) of the last successful daily fetch — daily recs
+ *  must rotate when the app stays open across midnight. */
+let dailyLoadedDay = '';
+
+function todayKey(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
+}
+
 function getSectionState(section: HomeSection): HomeSectionState<Track> | HomeSectionState<PlaylistInfo> {
   if (section === 'daily') return daily;
   return section === 'playlists' ? playlists : albums;
@@ -171,6 +180,7 @@ function startSection(
       const currentState = getSectionState(section);
       currentState.error = null;
       currentState.loaded = true;
+      if (section === 'daily') dailyLoadedDay = todayKey();
     } catch {
       if (!isCurrent(section, generation)) return;
       getSectionState(section).error = '加载失败';
@@ -244,7 +254,10 @@ function ensureLoaded(): Promise<void> {
     return Promise.resolve();
   }
 
-  const unloaded = HOME_SECTIONS.filter((section) => !getSectionState(section).loaded);
+  const unloaded = HOME_SECTIONS.filter((section) => {
+    if (!getSectionState(section).loaded) return true;
+    return section === 'daily' && dailyLoadedDay !== todayKey();
+  });
   return unloaded.length > 0
     ? Promise.all(unloaded.map((section) => startSection(section, false))).then(() => undefined)
     : Promise.resolve();
@@ -285,4 +298,5 @@ export function __resetHomeFeedForTest() {
     state.error = null;
     state.loaded = false;
   }
+  dailyLoadedDay = '';
 }

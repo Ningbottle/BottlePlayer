@@ -7,6 +7,11 @@
  * AudioWorklet graph (webAudioEq.ts) uses its own stream/context and is
  * unaffected.
  *
+ * The WebAudio graph is a MODULE-LEVEL SINGLETON: creating or closing an
+ * AudioContext can audibly blip the output device, so the graph is built once
+ * per audio element and NEVER closed. start/stop only toggles the rAF
+ * sampling loop — navigating between pages must not touch the device.
+ *
  * Fallbacks: no captureStream / no WebAudio (jsdom, old WebView2) → inert
  * monitor whose level stays 0. Reduced motion → level pinned to 0.
  */
@@ -20,7 +25,7 @@ export interface AudioLevelMonitor {
   getAnalyser: () => AnalyserNode | null;
   /** Idempotent. Starts the rAF sampling loop when possible. */
   start: () => void;
-  /** Stops sampling and releases the audio context. */
+  /** Stops sampling. The shared graph stays alive (no device churn). */
   stop: () => void;
 }
 
@@ -40,25 +45,63 @@ export function computeRms(samples: Uint8Array): number {
   return Math.min(1, Math.sqrt(sum / samples.length) * 2.2);
 }
 
+// ── Shared graph (built once per audio element, never closed) ──
+let sharedCtx: AudioContext | null = null;
+let sharedAnalyser: AnalyserNode | null = null;
+let sharedSource: MediaStreamAudioSourceNode | null = null;
+let sharedAudio: CapturableAudio | null = null;
+let sharedSamples: Uint8Array | null = null;
+
+function ensureGraph(audio: CapturableAudio): boolean {
+  if (sharedAnalyser && sharedAudio === audio) return true;
+
+  const capture = audio.captureStream ?? audio.mozCaptureStream;
+  if (typeof capture !== 'function' || typeof AudioContext === 'undefined') {
+    return false;
+  }
+
+  try {
+    if (!sharedCtx) {
+      sharedCtx = new AudioContext();
+    }
+    if (sharedSource) {
+      sharedSource.disconnect();
+      sharedSource = null;
+    }
+    sharedSource = sharedCtx.createMediaStreamSource(capture.call(audio));
+    if (!sharedAnalyser) {
+      sharedAnalyser = sharedCtx.createAnalyser();
+      sharedAnalyser.fftSize = 256;
+      sharedAnalyser.smoothingTimeConstant = 0.6;
+    }
+    sharedSource.connect(sharedAnalyser); // analysis only — never to destination
+    sharedSamples = new Uint8Array(sharedAnalyser.fftSize);
+    sharedAudio = audio;
+    return true;
+  } catch {
+    sharedSource = null;
+    sharedAnalyser = null;
+    sharedSamples = null;
+    sharedAudio = null;
+    return false;
+  }
+}
+
 export function createAudioLevelMonitor(audio: CapturableAudio): AudioLevelMonitor {
   const level = ref(0);
-
-  let ctx: AudioContext | null = null;
-  let analyser: AnalyserNode | null = null;
-  let samples: Uint8Array | null = null;
   let frameId: number | null = null;
   let started = false;
   let smoothed = 0;
 
   function tick(): void {
     frameId = null;
-    if (!analyser || !samples) return;
+    if (!sharedAnalyser || !sharedSamples) return;
 
     if (isReducedMotion() || audio.paused || document.hidden) {
       smoothed = 0;
     } else {
-      analyser.getByteTimeDomainData(samples);
-      const rms = computeRms(samples);
+      sharedAnalyser.getByteTimeDomainData(sharedSamples);
+      const rms = computeRms(sharedSamples);
       // Fast attack, slow decay — dust should flare on beats, settle gently.
       smoothed += (rms - smoothed) * (rms > smoothed ? 0.3 : 0.08);
     }
@@ -70,27 +113,10 @@ export function createAudioLevelMonitor(audio: CapturableAudio): AudioLevelMonit
   function start(): void {
     if (started) return;
     started = true;
-
-    const capture = audio.captureStream ?? audio.mozCaptureStream;
-    if (typeof capture !== 'function' || typeof AudioContext === 'undefined') {
-      return; // inert fallback — level stays 0
+    if (!ensureGraph(audio)) return;
+    if (sharedCtx && sharedCtx.state === 'suspended') {
+      void sharedCtx.resume().catch(() => {});
     }
-
-    try {
-      ctx = new AudioContext();
-      const source = ctx.createMediaStreamSource(capture.call(audio));
-      analyser = ctx.createAnalyser();
-      analyser.fftSize = 256;
-      analyser.smoothingTimeConstant = 0.6;
-      source.connect(analyser); // analysis only — never to destination
-      samples = new Uint8Array(analyser.fftSize);
-    } catch {
-      ctx = null;
-      analyser = null;
-      samples = null;
-      return;
-    }
-
     if (frameId === null) {
       frameId = requestAnimationFrame(tick);
     }
@@ -102,19 +128,15 @@ export function createAudioLevelMonitor(audio: CapturableAudio): AudioLevelMonit
       cancelAnimationFrame(frameId);
       frameId = null;
     }
-    level.value = 0;
     smoothed = 0;
-    analyser = null;
-    samples = null;
-    if (ctx) {
-      void ctx.close().catch(() => {});
-      ctx = null;
-    }
+    level.value = 0;
+    // NB: the shared context/analyser stay alive by design — closing them
+    // would blip the output device on every page navigation.
   }
 
   return {
     level,
-    getAnalyser: () => analyser,
+    getAnalyser: () => (sharedAudio === audio ? sharedAnalyser : null),
     start,
     stop,
   };

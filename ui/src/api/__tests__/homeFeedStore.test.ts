@@ -46,6 +46,26 @@ describe('home feed store', () => {
     expect(mockApiGet).toHaveBeenCalledTimes(3);
   });
 
+  it('refreshes only the daily section after a calendar rollover', async () => {
+    vi.useFakeTimers();
+    try {
+      vi.setSystemTime(new Date('2026-07-22T10:00:00'));
+      const store = useHomeFeedStore();
+      await store.ensureLoaded();
+      expect(mockApiGet).toHaveBeenCalledTimes(3);
+
+      vi.setSystemTime(new Date('2026-07-23T09:00:00'));
+      await store.ensureLoaded();
+
+      const everydayCalls = mockApiGet.mock.calls.filter(([path]) => path === '/everyday/recommend');
+      expect(everydayCalls).toHaveLength(2);
+      const playlistCalls = mockApiGet.mock.calls.filter(([path]) => path === '/top/playlist');
+      expect(playlistCalls).toHaveLength(2);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('supersedes concurrent refresh calls and keeps old data visible', async () => {
     const store = useHomeFeedStore();
     await store.ensureLoaded();
