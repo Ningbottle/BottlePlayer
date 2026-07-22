@@ -34,7 +34,7 @@ vi.mock('../../../api/motion', () => ({
   animateElement: vi.fn(() => ({ kill: () => {} })),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
   startAmbientMotion: vi.fn(() => ({ kill: () => {} })),
-  startVinylSpin: vi.fn(() => ({ kill: () => {}, setPlaying: () => {} })),
+  startVinylSpin: vi.fn(() => ({ kill: () => {}, setPlaying: () => {}, burst: () => {} })),
   isReducedMotion: vi.fn(() => true),
 }));
 

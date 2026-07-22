@@ -557,6 +557,34 @@ describe('motion.ts', () => {
     handle.kill();
   });
 
+  it('startVinylSpin burst scratches up to 3x and eases back while playing', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('div');
+
+    const handle = startVinylSpin(el, () => true);
+    (gsap.to as ReturnType<typeof vi.fn>).mockClear();
+
+    handle.burst();
+    // Mock fires onComplete immediately, so both ramp legs are observable.
+    expect(gsap.to).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ timeScale: 3, duration: 0.18 }));
+    expect(gsap.to).toHaveBeenLastCalledWith(expect.anything(), expect.objectContaining({ timeScale: 1, duration: 0.55 }));
+
+    handle.kill();
+  });
+
+  it('startVinylSpin burst is a no-op while paused', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('div');
+
+    const handle = startVinylSpin(el, () => false);
+    (gsap.to as ReturnType<typeof vi.fn>).mockClear();
+
+    handle.burst();
+    expect(gsap.to).not.toHaveBeenCalled();
+
+    handle.kill();
+  });
+
   it('startVinylSpin kill prevents future ramps', async () => {
     const { gsap } = await import('gsap');
     const el = document.createElement('div');

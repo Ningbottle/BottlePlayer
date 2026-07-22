@@ -5,7 +5,9 @@ import AuroraHome from '../AuroraHome.vue';
 import type { HomeSectionError, HomeSectionViewState, HomeViewModel } from '../homeViewModel';
 import type { Track } from '../../../api/normalizer';
 import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
-import { animateStagger } from '../../../api/motion';
+import { animateStagger, startVinylSpin } from '../../../api/motion';
+import { playerStore, togglePlay } from '../../../api/playerStore';
+import type { Mock } from 'vitest';
 
 vi.mock('gsap', () => {
   const fromTo = vi.fn(() => ({ kill: vi.fn() }));
@@ -19,9 +21,17 @@ vi.mock('../../../api/motion', () => ({
   animateElement: vi.fn(() => ({ kill: () => {} })),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
   startAmbientMotion: vi.fn(() => ({ kill: () => {} })),
-  startVinylSpin: vi.fn(() => ({ kill: () => {}, setPlaying: () => {} })),
+  startVinylSpin: vi.fn(() => ({ kill: vi.fn(), setPlaying: vi.fn(), burst: vi.fn() })),
   isReducedMotion: vi.fn(() => false),
 }));
+
+vi.mock('../../../api/playerStore', async () => {
+  const { reactive } = await import('vue');
+  return {
+    playerStore: reactive({ currentTime: 0 }),
+    togglePlay: vi.fn(),
+  };
+});
 
 function createTrack(overrides: Partial<Track> = {}): Track {
   return {
@@ -90,6 +100,7 @@ describe('AuroraHome', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     getContextSpy.mockReturnValue(null);
+    playerStore.currentTime = 0;
   });
 
   afterEach(() => {
@@ -399,7 +410,8 @@ describe('AuroraHome', () => {
     expect(wrapper.find('[data-test="queue-track-daily-1"]').exists()).toBe(false);
     const row = wrapper.get('[data-test="queue-track-daily-2"]');
     expect(row.attributes('aria-current')).toBe('true');
-    expect(row.text()).toContain('01');
+    // Active row shows the equalizer instead of the index number
+    expect(row.find('.aurora-eq').exists()).toBe(true);
   });
 
   it('emits play-track from both the daily rail and daily cards', async () => {
@@ -698,6 +710,53 @@ describe('AuroraHome', () => {
       await flushPromises();
 
       expect(animateStagger).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('touchable vinyl', () => {
+    it('pauses via togglePlay when the hero is the current track', async () => {
+      const track = createTrack({ FileHash: 'hero-1' });
+      const wrapper = mount(AuroraHome, {
+        props: {
+          model: createViewModel({ heroTrack: track, activeQueueHash: 'hero-1', isPlaying: true }),
+        },
+      });
+
+      const toggle = wrapper.get('[data-test="vinyl-toggle"]');
+      expect(toggle.attributes('aria-label')).toBe('暂停');
+      await toggle.trigger('click');
+      expect(togglePlay).toHaveBeenCalledTimes(1);
+      expect(wrapper.emitted('play-track')).toBeUndefined();
+    });
+
+    it('emits play-track when the hero is not the current track', async () => {
+      const track = createTrack({ FileHash: 'hero-2' });
+      const wrapper = mount(AuroraHome, {
+        props: {
+          model: createViewModel({ heroTrack: track, activeQueueHash: null }),
+        },
+      });
+
+      const toggle = wrapper.get('[data-test="vinyl-toggle"]');
+      expect(toggle.attributes('aria-label')).toBe('播放');
+      await toggle.trigger('click');
+      expect(togglePlay).not.toHaveBeenCalled();
+      expect(wrapper.emitted('play-track')?.[0]).toEqual([track]);
+    });
+
+    it('scratches the vinyl on seek jumps in currentTime', async () => {
+      mount(AuroraHome, {
+        props: { model: createViewModel({ isPlaying: true }) },
+      });
+      const spin = (startVinylSpin as Mock).mock.results[0]?.value as { burst: Mock };
+
+      playerStore.currentTime = 0.2;
+      await nextTick();
+      expect(spin.burst).not.toHaveBeenCalled();
+
+      playerStore.currentTime = 42;
+      await nextTick();
+      expect(spin.burst).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -296,6 +296,8 @@ export interface VinylSpinHandle {
   kill: () => void;
   /** Re-read isPlayingRef and ramp the deck toward the matching state. */
   setPlaying: () => void;
+  /** Scratch burst: brief spin-up to 3× and ease back to 1× (seek feedback). */
+  burst: () => void;
 }
 
 /**
@@ -309,7 +311,7 @@ export function startVinylSpin(
   isPlayingRef: Ref<boolean> | (() => boolean),
 ): VinylSpinHandle {
   const profile = currentProfile();
-  const inert: VinylSpinHandle = { kill: () => {}, setPlaying: () => {} };
+  const inert: VinylSpinHandle = { kill: () => {}, setPlaying: () => {}, burst: () => {} };
   if (!profile.vinyl.enabled || isReducedMotion()) return inert;
 
   const isPlaying = typeof isPlayingRef === 'function' ? isPlayingRef : () => isPlayingRef.value;
@@ -339,6 +341,22 @@ export function startVinylSpin(
     rampTo(isPlaying() && !document.hidden ? 1 : 0);
   }
 
+  function burst(): void {
+    if (killed || !isPlaying() || document.hidden) return;
+    if (ramp) { ramp.kill(); ramp = null; }
+    spin.play();
+    ramp = gsap.to(spin, {
+      timeScale: 3,
+      duration: 0.18,
+      ease: 'power2.in',
+      onComplete: () => {
+        if (killed) return;
+        if (ramp) { ramp.kill(); ramp = null; }
+        ramp = gsap.to(spin, { timeScale: 1, duration: 0.55, ease: 'power2.out' });
+      },
+    });
+  }
+
   function onVisibilityChange(): void { sync(); }
   function onBlur(): void { if (!killed) rampTo(0); }
   function onFocus(): void { sync(); }
@@ -358,6 +376,7 @@ export function startVinylSpin(
       window.removeEventListener('focus', onFocus);
     },
     setPlaying(): void { sync(); },
+    burst,
   };
 }
 

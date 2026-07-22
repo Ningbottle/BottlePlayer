@@ -7,6 +7,8 @@ import { gsap } from 'gsap';
 import type { HomeEnterMode } from '../../api/homeEnterSession';
 import { animateStagger, isReducedMotion, startVinylSpin } from '../../api/motion';
 import type { VinylSpinHandle } from '../../api/motion';
+import { playerStore, togglePlay as storeTogglePlay } from '../../api/playerStore';
+import { PhPause, PhPlay } from '@phosphor-icons/vue';
 import AuroraAtmosphere from './AuroraAtmosphere.vue';
 
 const props = withDefaults(
@@ -192,6 +194,32 @@ function onHeroPlay() {
   if (t) onTrackPlay(t);
 }
 
+/** Hero is the loaded track → the vinyl acts as the deck's play/pause. */
+const isHeroCurrent = computed(
+  () => !!props.model.heroTrack && props.model.heroTrack.FileHash === props.model.activeQueueHash,
+);
+
+function onVinylToggle(): void {
+  const t = props.model.heroTrack;
+  if (!t) return;
+  if (isHeroCurrent.value) {
+    storeTogglePlay();
+  } else {
+    onTrackPlay(t);
+  }
+}
+
+/** Seek = jump in currentTime → scratch burst on the deck. Track change counts too. */
+let lastTime: number | null = null;
+watch(
+  () => playerStore.currentTime,
+  (t) => {
+    const jumped = lastTime !== null && Math.abs(t - lastTime) > 1.5;
+    lastTime = t;
+    if (jumped) vinylSpin?.burst();
+  },
+);
+
 function onTrackPlay(track: Track): void {
   emit('play-track', track);
 }
@@ -251,6 +279,17 @@ function formatDuration(sec: number | undefined | null): string {
               <div class="aurora-vinyl-grooves" aria-hidden="true" />
             </div>
             <div class="aurora-vinyl-spindle" aria-hidden="true" />
+            <button
+              type="button"
+              class="aurora-vinyl-toggle"
+              data-test="vinyl-toggle"
+              :aria-label="model.isPlaying && isHeroCurrent ? '暂停' : '播放'"
+              :title="model.isPlaying && isHeroCurrent ? '暂停' : '播放'"
+              @click.stop="onVinylToggle"
+            >
+              <PhPause v-if="model.isPlaying && isHeroCurrent" :size="20" weight="fill" aria-hidden="true" />
+              <PhPlay v-else :size="20" weight="fill" aria-hidden="true" />
+            </button>
           </div>
 
           <div class="aurora-info">
@@ -360,7 +399,18 @@ function formatDuration(sec: number | undefined | null): string {
                 :aria-current="isActiveDailyTrack(track) ? 'true' : undefined"
                 @click="onTrackPlay(track)"
               >
-                <span class="aurora-queue-index">{{ String(dailyRailIndexOffset + index + 1).padStart(2, '0') }}</span>
+                <span class="aurora-queue-lead">
+                  <span class="aurora-queue-play" aria-hidden="true"><PhPlay :size="11" weight="fill" /></span>
+                  <span class="aurora-queue-index">
+                    <span
+                      v-if="isActiveDailyTrack(track)"
+                      class="aurora-eq"
+                      :class="{ 'is-live': model.isPlaying }"
+                      aria-hidden="true"
+                    ><i /><i /><i /></span>
+                    <template v-else>{{ String(dailyRailIndexOffset + index + 1).padStart(2, '0') }}</template>
+                  </span>
+                </span>
                 <span class="aurora-queue-copy"><b>{{ track.SongName }}</b><small>{{ track.SingerName }}</small></span>
                 <span class="aurora-queue-duration">{{ formatDuration(track.Duration) }}</span>
               </button>
@@ -422,6 +472,7 @@ function formatDuration(sec: number | undefined | null): string {
           <span class="aurora-track-cover">
             <img v-if="track.Image" :src="track.Image" :alt="`${track.SongName}封面`" />
             <span v-else>推荐</span>
+            <span class="aurora-track-hover" aria-hidden="true"><PhPlay :size="18" weight="fill" /></span>
           </span>
           <strong>{{ track.SongName }}</strong>
           <small>{{ track.SingerName }}</small>
@@ -743,6 +794,39 @@ export default { name: 'AuroraHome' };
   background: #0a0a09;
 }
 
+/* Touchable deck: hover/focus reveals a play/pause disc over the label */
+.aurora-vinyl-toggle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 56px;
+  height: 56px;
+  transform: translate(-50%, -50%);
+  border: 0;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 92%, #000 8%);
+  color: #0a1410;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.18s ease, filter 0.15s ease;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
+  z-index: 2;
+}
+
+.aurora-vinyl:hover .aurora-vinyl-toggle,
+.aurora-vinyl-toggle:focus-visible {
+  opacity: 1;
+}
+
+.aurora-vinyl-toggle:hover { filter: brightness(1.06); }
+
+.aurora-vinyl-toggle:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 3px;
+}
+
 .aurora-info {
   display: flex;
   flex-direction: column;
@@ -1002,6 +1086,68 @@ export default { name: 'AuroraHome' };
   text-align: right;
 }
 
+/* Lead cell: index/eq swap for a play glyph on row hover */
+.aurora-queue-lead {
+  position: relative;
+  display: grid;
+  place-items: center;
+  min-width: 24px;
+}
+
+.aurora-queue-play {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  opacity: 0;
+  transition: opacity 0.12s ease;
+}
+
+.aurora-queue-row button:hover .aurora-queue-play,
+.aurora-queue-row button:focus-visible .aurora-queue-play {
+  opacity: 1;
+}
+
+.aurora-queue-row button:hover .aurora-queue-index,
+.aurora-queue-row button:focus-visible .aurora-queue-index {
+  visibility: hidden;
+}
+
+/* Playing-row equalizer: three bars, live only while playing */
+.aurora-eq {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1.5px;
+  height: 10px;
+}
+
+.aurora-eq i {
+  width: 2px;
+  height: 30%;
+  background: var(--accent);
+  border-radius: 1px;
+}
+
+.aurora-eq.is-live i {
+  animation: aurora-eq-bounce 0.9s ease-in-out infinite;
+}
+
+.aurora-eq.is-live i:nth-child(2) { animation-delay: 0.25s; }
+.aurora-eq.is-live i:nth-child(3) { animation-delay: 0.5s; }
+
+@keyframes aurora-eq-bounce {
+  0%, 100% { height: 25%; }
+  50% { height: 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-eq.is-live i {
+    animation: none;
+    height: 60%;
+  }
+}
+
 .aurora-queue-copy {
   display: grid;
   min-width: 0;
@@ -1195,6 +1341,7 @@ export default { name: 'AuroraHome' };
 .aurora-track-card small { color: var(--text-muted); font-size: 12px; }
 
 .aurora-track-cover {
+  position: relative;
   display: grid;
   aspect-ratio: 1;
   width: 100%;
@@ -1203,6 +1350,30 @@ export default { name: 'AuroraHome' };
   background: var(--surface-2);
   box-shadow: none;
   border: 1px solid var(--border-subtle);
+}
+
+/* Hover reveals a play disc — the whole card already plays on click */
+.aurora-track-hover {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 40px;
+  height: 40px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--accent) 92%, #000 8%);
+  color: #0a1410;
+  display: grid;
+  place-items: center;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  pointer-events: none;
+}
+
+.aurora-track-card:hover .aurora-track-hover,
+.aurora-track-card:focus-visible .aurora-track-hover {
+  opacity: 1;
 }
 
 .aurora-track-cover img { width: 100%; height: 100%; object-fit: cover; display: block; }
