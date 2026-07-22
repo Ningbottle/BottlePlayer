@@ -427,6 +427,100 @@ node scripts/capture-aurora-qa.mjs                  # 需先启动 dev server
 
 ---
 
+## 测试与关键路径矩阵
+
+> 测试数量随代码变化,不作长期架构事实。以下矩阵以「关键路径 × 测试层」组织,帮助判断改动覆盖度,而非跨语言比较数量。基线日期:2026-07-23。
+
+### 关键路径 × 测试层
+
+| 关键路径 | 前端 (Vitest) | Rust (cargo test) | C++ (CTest) | CI 自动 |
+|---|---|---|---|---|
+| FFI 边界 (C ABI 符号加载/卸载) | — | `backend_api.rs` 单元测试 | `EchoNativeSmokeTests` | ✅ |
+| 请求分发 (CompatApi 路由) | — | — | `EchoRouteContractTest` + 5 个 contract test | ✅ |
+| HttpClient 韧性 (retry/watchdog) | — | — | `EchoHttpClientResilienceTest` | ✅ |
+| RequestScheduler (线程池/deadline) | — | — | `EchoRequestSchedulerResilienceTest` | ✅ |
+| Storage Actor (SQLite 生命周期) | — | — | `EchoDatabaseActorLifecycleTest` | ✅ |
+| SQLite WAL 并发 | — | — | `EchoDatabaseWalConcurrencyTest` (需 SQLite) | ✅ |
+| 播放统计 (RecordPlay + Query) | `StatsView.test.ts` | — | `EchoPlayStatsTest` | ✅ |
+| 播放状态机 (PlaySessionTracker) | `playSessionTracker.test.ts` | — | — | ✅ |
+| EQ 图构建 (Web Audio) | `eqWorkletProcessor.test.ts` + `webAudioEq.test.ts` | — | — | ✅ |
+| audio_proxy (CORS/SSRF) | `audioProxy.test.ts` | `audio_proxy.rs` 单元测试 | — | ✅ |
+| 前端韧性 (CircuitBreaker) | `circuitBreaker.test.ts` | — | — | ✅ |
+| 皮肤切换 (themeStore) | `themeStore.test.ts` | — | — | ✅ |
+| 歌词跟随 (useLyricFollow) | `useLyricFollow.test.ts` | — | — | ✅ |
+| Tauri 命令绑定 (17 个) | — | `lib.rs` 单元测试 (需 DLL) | — | ✅ |
+| Production build (vite) | — | — | — | ✅ (release.yml) |
+
+### 覆盖盲区
+
+| 路径 | 现状 | 风险 |
+|---|---|---|
+| E2E (启动 → IPC → 播放 → 关闭) | 无自动化 E2E | 回归无保护;Playwright 仅用于设计 QA 截图,非 E2E |
+| Tauri updater (签名验证) | 无测试 | 更新失败可能静默 |
+| NSIS 安装/卸载 | 无测试 | 安装脚本变更无保护 |
+| DeepSeek AI 分析端到端 | 仅前端组件测试 | API 格式变更无保护 |
+| 跨层 deadline (Rust → C++ → HttpClient) | 各层独立测试 | 三层联动无集成测试 |
+
+---
+
+## 覆盖率工具调研
+
+> 本轮仅调研,不设置阻断 CI 的覆盖率阈值。
+
+### 前端 (Vitest)
+
+- **工具**:Vitest 内置 coverage(基于 v8 或 istanbul);
+- **启用方式**:`vitest run --coverage`(需安装 `@vitest/coverage-v8`);
+- **基线**:未建立(本轮未运行 coverage);
+- **建议**:下一轮在 CI 中加 `vitest run --coverage` 并上传到 Codecov,先观测基线,不设阈值。
+
+### Rust (cargo)
+
+- **工具**:[tarpaulin](https://github.com/xd009642/tarpaulin)(Rust 原生)或 [llvm-cov](https://github.com/taiki-e/cargo-llvm-cov);
+- **约束**:`cargo test --lib --no-default-features` 需要 DLL 在 PATH 中,coverage 工具需在同一环境运行;
+- **基线**:未建立;
+- **建议**:用 `cargo-llvm-cov`(基于 LLVM,Windows 兼容性优于 tarpaulin),先观测基线。
+
+### C++ (CTest)
+
+- **工具**:[OpenCppCoverage](https://github.com/OpenCppCoverage/OpenCppCoverage)(Windows 原生)或 CMake 的 `--coverage` / `llvm-cov`;
+- **约束**:NMake Makefiles generator,需配合 MSVC 的 `/PROFILE` 选项;
+- **基线**:未建立;
+- **建议**:用 OpenCppCoverage(Windows 原生支持),在 CTest 外层包裹运行。
+
+### 阈值策略
+
+- **本轮**:不设阈值,避免阻断现有 CI;
+- **下一轮**:观测 3 层基线后,在 CONTRIBUTING.md 中建议「新增代码覆盖率不低于基线 -5%」的软约束;
+- **长期**:若基线稳定,可在 CI 中加 `--fail-under` 硬约束。
+
+---
+
+## Playwright 审查
+
+### 现状(代码核验)
+
+- [ui/package.json](../../ui/package.json) 声明 `playwright: ^1.61.1` 作为 devDependency;
+- 唯一使用方:[ui/scripts/capture-aurora-qa.mjs](../../ui/scripts/capture-aurora-qa.mjs),用于设计 QA 截图(需先启动 dev server);
+- **CI 不执行** Playwright:[ci.yml](../../.github/workflows/ci.yml) 和 [release.yml](../../.github/workflows/release.yml) 均无 Playwright 步骤;
+- **无 E2E 测试文件**:仓库中无 `*.spec.ts` / `*.e2e.ts` 等 Playwright 测试文件。
+
+### 阻塞条件
+
+| 阻塞 | 说明 |
+|---|---|
+| Tauri 应用需打包后才能 E2E | Playwright 无法直接驱动 Tauri WebView;需 `tauri-driver` + WebDriver IO,或 `tauri dev` + Playwright 连接 dev server |
+| Windows-only | Playwright 跨平台,但 Tauri 应用仅 Windows,CI 需 `windows-latest`(已满足) |
+| WebView2 差异 | Tauri 2.0 用 WebView2,Playwright 默认用 Chromium,行为可能不一致 |
+
+### 建议
+
+1. **本轮**:保留 Playwright 依赖,记录阻塞条件(上表);
+2. **下一轮(P1)**:评估 `tauri-driver` + Playwright 集成,添加最小烟测(启动 → 窗口可见 → IPC 响应);
+3. **长期(P2)**:若烟测稳定,扩展为关键路径 E2E(搜索 → 播放 → 统计)。
+
+---
+
 ## 附录:相关文件索引
 
 | 文件 | 作用 |
