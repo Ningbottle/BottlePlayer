@@ -288,8 +288,10 @@ describe('AuroraPlayerBar', () => {
     const transport = wrapper.get('[data-test="aurora-player-transport"]');
     expect(transport.classes()).toContain('is-muted');
     const buttons = transport.findAll('button');
-    expect(buttons.length).toBeGreaterThanOrEqual(4);
+    expect(buttons.length).toBe(3);
     expect(buttons.every((b) => b.attributes('disabled') !== undefined)).toBe(true);
+    // Loop mode lives in the right zone, equally inert without a track
+    expect(wrapper.get('[data-test="aurora-loop-mode"]').attributes('disabled')).toBeDefined();
 
     expect(wrapper.find('[data-test="aurora-player-quality"]').exists()).toBe(false);
     expect(wrapper.find('[data-test="aurora-player-empty-console"]').exists()).toBe(false);

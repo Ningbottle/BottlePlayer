@@ -200,7 +200,7 @@ async function onFavoriteClick(): Promise<void> {
       </button>
     </div>
 
-    <!-- Center: transport is persistent — muted (disabled) without a track -->
+    <!-- Center: symmetric transport (prev / play / next) — loop mode lives in the right zone -->
     <div class="aurora-pb-center" data-test="aurora-player-console">
       <!-- Single integrated strip (same glass family as dock — no dark island) -->
       <div
@@ -210,24 +210,6 @@ async function onFavoriteClick(): Promise<void> {
         aria-label="播放控制"
         data-test="aurora-player-transport"
       >
-        <button
-          type="button"
-          class="aurora-pb-btn"
-          :class="{ 'is-active': c.loopMode !== 'list' }"
-          :disabled="!c.currentTrack"
-          :aria-label="c.loopMode === 'random' ? '随机播放' : c.loopMode === 'single' ? '单曲循环' : '列表顺序播放'"
-          :aria-pressed="c.loopMode !== 'list'"
-          :title="c.loopMode === 'random' ? '随机播放' : c.loopMode === 'single' ? '单曲循环' : '列表顺序播放'"
-          @click="c.cycleLoopMode"
-          @mousedown="onPress"
-          @mouseup="onRelease"
-          @mouseleave="onRelease"
-        >
-          <PhShuffle v-if="c.loopMode === 'random'" :size="16" weight="bold" aria-hidden="true" />
-          <PhRepeatOnce v-else-if="c.loopMode === 'single'" :size="16" weight="bold" aria-hidden="true" />
-          <PhRepeat v-else :size="16" weight="bold" aria-hidden="true" />
-        </button>
-
         <button
           type="button"
           class="aurora-pb-btn"
@@ -287,8 +269,27 @@ async function onFavoriteClick(): Promise<void> {
       </div>
     </div>
 
-    <!-- Right: quality · lyric · volume -->
+    <!-- Right: loop · quality · lyric · volume -->
     <div class="aurora-pb-right">
+      <button
+        type="button"
+        class="aurora-pb-icon aurora-pb-loop"
+        :class="{ 'is-active': c.loopMode !== 'list' }"
+        :disabled="!c.currentTrack"
+        :aria-label="c.loopMode === 'random' ? '随机播放' : c.loopMode === 'single' ? '单曲循环' : '列表顺序播放'"
+        :aria-pressed="c.loopMode !== 'list'"
+        :title="c.loopMode === 'random' ? '随机播放' : c.loopMode === 'single' ? '单曲循环' : '列表顺序播放'"
+        data-test="aurora-loop-mode"
+        @click="c.cycleLoopMode"
+        @mousedown="onPress"
+        @mouseup="onRelease"
+        @mouseleave="onRelease"
+      >
+        <PhShuffle v-if="c.loopMode === 'random'" :size="16" weight="bold" aria-hidden="true" />
+        <PhRepeatOnce v-else-if="c.loopMode === 'single'" :size="16" weight="bold" aria-hidden="true" />
+        <PhRepeat v-else :size="16" weight="bold" aria-hidden="true" />
+      </button>
+
       <div v-if="c.currentTrack" class="aurora-pb-quality" data-test="aurora-player-quality" @click.stop>
         <button
           type="button"
@@ -398,7 +399,11 @@ async function onFavoriteClick(): Promise<void> {
   overflow: visible;
 }
 
-.aurora-pb > *:not(.aurora-pb-particles) {
+/* Only the three zones stack above the dock particles — toasts must stay
+   absolutely positioned (in-flow toasts deform the grid on every show). */
+.aurora-pb > .aurora-pb-left,
+.aurora-pb > .aurora-pb-center,
+.aurora-pb > .aurora-pb-right {
   position: relative;
   z-index: 1;
 }
@@ -882,6 +887,17 @@ async function onFavoriteClick(): Promise<void> {
   color: var(--text-primary);
   border-color: color-mix(in srgb, var(--text-primary) 22%, transparent);
   background: color-mix(in srgb, var(--text-primary) 6%, transparent);
+}
+
+/* Loop mode lives in the right zone — accent when not list-order */
+.aurora-pb-loop.is-active {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, transparent);
+}
+
+.aurora-pb-loop:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 /* Design de-emphasizes queue when desktop rail is present */
