@@ -52,6 +52,37 @@ describe('PlayerProgress', () => {
     expect(wrapper.emitted('seek')![0]).toEqual([50]);
   });
 
+  // ── Hover preview ──
+  it('shows a time preview bubble following the cursor', async () => {
+    const wrapper = mount(PlayerProgress, {
+      props: { currentTime: 10, duration: 100 },
+    });
+    const track = wrapper.find('.progress-track');
+    mockRect(track.element, 200, 0);
+
+    expect(wrapper.find('.progress-hover-tip').exists()).toBe(false);
+
+    await track.trigger('mousemove', { clientX: 100 });
+    const tip = wrapper.find('.progress-hover-tip');
+    expect(tip.exists()).toBe(true);
+    expect(tip.text()).toBe('00:50');
+    expect(tip.attributes('style')).toContain('left: 50%');
+
+    await track.trigger('mouseleave');
+    expect(wrapper.find('.progress-hover-tip').exists()).toBe(false);
+  });
+
+  it('shows no hover preview when duration is invalid', async () => {
+    const wrapper = mount(PlayerProgress, {
+      props: { currentTime: 0, duration: 0 },
+    });
+    const track = wrapper.find('.progress-track');
+    mockRect(track.element, 200, 0);
+
+    await track.trigger('mousemove', { clientX: 100 });
+    expect(wrapper.find('.progress-hover-tip').exists()).toBe(false);
+  });
+
   it('clamps click position to [0, duration]', async () => {
     const wrapper = mount(PlayerProgress, {
       props: { currentTime: 50, duration: 100 },

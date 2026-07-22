@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, type Mock } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { reactive } from 'vue';
 import { PhHeart } from '@phosphor-icons/vue';
@@ -422,5 +422,82 @@ describe('AuroraPlayerBar', () => {
     for (const label of ['列表顺序播放', '上一首', '播放', '下一首', '队列', '歌词']) {
       expect(wrapper.find(`[aria-label="${label}"]`).exists()).toBe(true);
     }
+  });
+
+  it('fires a one-shot ripple on the play button when playback toggles', async () => {
+    const ctrl = createStubController({ currentTrack: mkTrack(), isPlaying: false });
+    // Stub is reactive-mutable; PlayerController marks state readonly for consumers.
+    const mutableCtrl = ctrl as { isPlaying: boolean };
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: ctrl },
+    });
+
+    expect(wrapper.find('.aurora-pb-play-ripple').exists()).toBe(false);
+
+    mutableCtrl.isPlaying = true;
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('.aurora-pb-play-ripple').exists()).toBe(true);
+
+    mutableCtrl.isPlaying = false;
+    await wrapper.vm.$nextTick();
+    // New toggle → fresh ripple element (key bumped)
+    expect(wrapper.find('.aurora-pb-play-ripple').exists()).toBe(true);
+  });
+
+  it('pops the heart only on a user-initiated favorite', async () => {
+    const ctrl = createStubController({
+      currentTrack: mkTrack(),
+      isFavorite: false,
+    });
+    // Stub is reactive-mutable; PlayerController marks state readonly for consumers.
+    const mutableCtrl = ctrl as { isFavorite: boolean };
+    (ctrl.handleFavorite as Mock).mockImplementation(async () => {
+      mutableCtrl.isFavorite = true;
+    });
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: ctrl },
+      attachTo: document.body,
+    });
+
+    const fav = wrapper.get('.aurora-pb-fav');
+    expect(fav.classes()).not.toContain('just-faved');
+
+    await fav.trigger('click');
+    await vi.waitFor(() => {
+      expect(wrapper.get('.aurora-pb-fav').classes()).toContain('just-faved');
+    });
+
+    wrapper.unmount();
+  });
+
+  it('sets volume on pointerdown and follows a drag', async () => {
+    const ctrl = createStubController({ currentTrack: mkTrack() });
+    const wrapper = mount(AuroraPlayerBar, {
+      props: { controller: ctrl },
+    });
+
+    const bar = wrapper.get('.aurora-pb-vol-bar');
+    bar.element.getBoundingClientRect = vi.fn(() => ({
+      left: 0,
+      width: 100,
+      top: 0,
+      right: 100,
+      bottom: 16,
+      height: 16,
+      x: 0,
+      y: 0,
+      toJSON: () => ({}),
+    })) as unknown as () => DOMRect;
+
+    // jsdom lacks PointerEvent; dispatch MouseEvent with the pointer type instead.
+    bar.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 25 }));
+    expect(ctrl.setVolume).toHaveBeenLastCalledWith(0.25);
+
+    bar.element.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 75 }));
+    expect(ctrl.setVolume).toHaveBeenLastCalledWith(0.75);
+
+    bar.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
+    bar.element.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 10 }));
+    expect(ctrl.setVolume).toHaveBeenLastCalledWith(0.75); // drag ended
   });
 });

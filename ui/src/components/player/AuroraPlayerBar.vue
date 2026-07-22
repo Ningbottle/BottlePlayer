@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed } from 'vue';
+import { computed, ref, watch } from 'vue';
 import {
   PhArrowsOutSimple,
   PhDisc,
@@ -40,12 +40,31 @@ const qualityChip = computed(() => {
   return label;
 });
 
-function handleVolumeClick(e: MouseEvent) {
+/** Volume knob: click or drag — pointer capture keeps drags inside the bar. */
+let volumeDragging = false;
+
+function updateVolumeFromPointer(e: PointerEvent): void {
   const barEl = e.currentTarget as HTMLElement;
   const rect = barEl.getBoundingClientRect();
-  const clickX = e.clientX - rect.left;
-  const pct = Math.max(0, Math.min(1, clickX / rect.width));
+  if (rect.width <= 0) return;
+  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
   c.value.setVolume(pct);
+}
+
+function onVolumePointerDown(e: PointerEvent) {
+  volumeDragging = true;
+  (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
+  updateVolumeFromPointer(e);
+}
+
+function onVolumePointerMove(e: PointerEvent) {
+  if (volumeDragging) updateVolumeFromPointer(e);
+}
+
+function onVolumePointerUp(e: PointerEvent) {
+  if (!volumeDragging) return;
+  volumeDragging = false;
+  (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
 }
 
 /** Q-bounce: squash → elastic spring (elastic.out). */
@@ -57,6 +76,34 @@ function onPress(e: MouseEvent) {
 function onRelease(e: MouseEvent) {
   const el = e.currentTarget;
   if (el instanceof Element) pressBounceUp(el);
+}
+
+/** One-shot ripple on the deck button whenever playback actually toggles. */
+const rippleNonce = ref(0);
+watch(
+  () => c.value.isPlaying,
+  () => {
+    if (c.value.currentTrack) rippleNonce.value += 1;
+  },
+);
+
+/** Heart pop only on a user-initiated favorite (not on store hydration). */
+const favPop = ref(false);
+let favPopTimer: number | undefined;
+
+async function onFavoriteClick(): Promise<void> {
+  const wasFavorite = c.value.isFavorite;
+  await c.value.handleFavorite();
+  if (!wasFavorite && c.value.isFavorite) {
+    favPop.value = false;
+    requestAnimationFrame(() => {
+      favPop.value = true;
+      window.clearTimeout(favPopTimer);
+      favPopTimer = window.setTimeout(() => {
+        favPop.value = false;
+      }, 420);
+    });
+  }
 }
 </script>
 
@@ -143,11 +190,11 @@ function onRelease(e: MouseEvent) {
       <button
         type="button"
         class="aurora-pb-fav"
-        :class="{ 'is-disabled': !c.currentTrack, 'is-active': c.isFavorite }"
+        :class="{ 'is-disabled': !c.currentTrack, 'is-active': c.isFavorite, 'just-faved': favPop }"
         :aria-label="c.isFavorite ? '已收藏' : '收藏'"
         :title="c.isFavorite ? '已收藏' : '收藏'"
         :disabled="!c.currentTrack"
-        @click.stop="c.handleFavorite"
+        @click.stop="onFavoriteClick"
       >
         <PhHeart :size="18" :weight="c.isFavorite ? 'fill' : 'regular'" aria-hidden="true" />
       </button>
@@ -206,6 +253,12 @@ function onRelease(e: MouseEvent) {
           @mouseup="onRelease"
           @mouseleave="onRelease"
         >
+          <span
+            v-if="rippleNonce > 0"
+            :key="rippleNonce"
+            class="aurora-pb-play-ripple"
+            aria-hidden="true"
+          />
           <PhPause v-if="c.showPauseIcon" :size="17" weight="fill" aria-hidden="true" />
           <PhPlay v-else :size="17" weight="fill" aria-hidden="true" />
         </button>
@@ -298,7 +351,13 @@ function onRelease(e: MouseEvent) {
 
       <div class="aurora-pb-volume" title="音量">
         <PhSpeakerHigh class="aurora-pb-vol-icon" :size="16" weight="regular" aria-hidden="true" />
-        <div class="aurora-pb-vol-bar" @click="handleVolumeClick">
+        <div
+          class="aurora-pb-vol-bar"
+          @pointerdown="onVolumePointerDown"
+          @pointermove="onVolumePointerMove"
+          @pointerup="onVolumePointerUp"
+          @pointercancel="onVolumePointerUp"
+        >
           <div class="aurora-pb-vol-fill" :style="{ width: c.volumePercent + '%' }">
             <i class="aurora-pb-vol-thumb" />
           </div>
@@ -616,6 +675,7 @@ function onRelease(e: MouseEvent) {
 
 /* Play: the only filled object — deck button with inset depth + static indicator glow */
 .aurora-pb-play {
+  position: relative;
   width: 44px;
   height: 44px;
   margin: 0 2px;
@@ -626,6 +686,40 @@ function onRelease(e: MouseEvent) {
     0 1px 0 color-mix(in srgb, #fff 18%, transparent) inset,
     0 -2px 5px rgba(0, 0, 0, 0.22) inset,
     0 0 14px color-mix(in srgb, var(--accent) 22%, transparent);
+}
+
+/* One-shot confirmation ripple on play/pause toggle */
+.aurora-pb-play-ripple {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--accent);
+  pointer-events: none;
+  animation: aurora-pb-ripple 0.55s ease-out forwards;
+}
+
+@keyframes aurora-pb-ripple {
+  from { transform: scale(1); opacity: 0.7; }
+  to { transform: scale(1.9); opacity: 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-pb-play-ripple { display: none; }
+}
+
+/* Heart pop on user-initiated favorite */
+.aurora-pb-fav.just-faved svg {
+  animation: aurora-fav-pop 0.36s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes aurora-fav-pop {
+  0% { transform: scale(0.6); }
+  60% { transform: scale(1.28); }
+  100% { transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .aurora-pb-fav.just-faved svg { animation: none; }
 }
 
 .aurora-pb-play:hover {
@@ -836,6 +930,7 @@ function onRelease(e: MouseEvent) {
   display: flex;
   align-items: center;
   cursor: pointer;
+  touch-action: none;
 }
 
 .aurora-pb-vol-bar::before {
