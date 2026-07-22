@@ -4,7 +4,7 @@
 
 [English](./README.en.md) | 中文
 
-[隐私说明](./PRIVACY.md) | [安全政策](./SECURITY.md)
+[隐私说明](./PRIVACY.md) | [安全政策](./docs/wiki/security-and-privacy.md)
 
 <!-- logo -->
 
@@ -95,7 +95,7 @@ Rust FFI 层 (ui/src-tauri/src/)
 C++ 核心 (native/) -> EchoCAPI.dll
 ```
 
-BottleMusic 采用三层架构：Vue 3 前端负责 UI 与播放控制，Rust FFI 层桥接 Tauri 命令，C++ 核心处理 KuGou API 请求调度、SQLite 统计存储与 Media Foundation 接口。播放使用 HTML5 Audio + Web Audio API 均衡器。
+BottleMusic 采用三层架构：Vue 3 前端负责 UI 与播放控制，Rust FFI 层桥接 Tauri 命令，C++ 核心处理 KuGou API 请求调度与 SQLite 统计存储。播放使用 HTML5 Audio + Web Audio API 均衡器（Media Foundation 播放栈已于 2026-07-17 移除）。
 
 完整架构文档请参考 [CONTEXT.md](./CONTEXT.md)。
 
@@ -123,7 +123,7 @@ pnpm tauri dev
 |---|---|
 | 前端 | Vue 3, Vite 6, Vanilla CSS, GSAP, Web Audio API |
 | Rust FFI | Tauri 2.0, reqwest, tokio |
-| C++ 核心 | MSVC C++20, WinHTTP, Media Foundation, SQLite |
+| C++ 核心 | MSVC C++20, WinHTTP, SQLite |
 | CI/CD | GitHub Actions, CMake, vcpkg, CTest, Vitest, Cargo |
 
 ## 致谢
@@ -135,4 +135,4 @@ pnpm tauri dev
 
 本项目是非官方软件，与酷狗及其他第三方服务方没有隶属或代表关系，不声称已获得任何第三方服务或内容授权。项目仅用于个人学习和技术研究；音乐数据、曲目元数据、封面、歌词及音频内容的权利归相应平台和权利人所有。任何公开上架、分发或商业使用前，使用者必须自行取得必要的第三方服务和内容授权。本免责声明不能替代授权，也不构成对第三方服务条款的豁免。请遵守适用法律、平台规则和服务条款。
 
-隐私与安全说明见 [PRIVACY.md](./PRIVACY.md) 和 [SECURITY.md](./SECURITY.md)。
+隐私说明见 [PRIVACY.md](./PRIVACY.md)，安全与隐私详情见 [docs/wiki/security-and-privacy.md](./docs/wiki/security-and-privacy.md)。

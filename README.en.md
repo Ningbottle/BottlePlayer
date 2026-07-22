@@ -4,7 +4,7 @@
 
 English | [中文](./README.md)
 
-[Privacy (Chinese)](./PRIVACY.md) | [Security (Chinese)](./SECURITY.md)
+[Privacy (Chinese)](./PRIVACY.md) | [Security (Chinese)](./docs/wiki/security-and-privacy.md)
 
 <!-- logo -->
 
@@ -95,7 +95,7 @@ Rust FFI Layer (ui/src-tauri/src/)
 C++ Core (native/) -> EchoCAPI.dll
 ```
 
-BottleMusic uses a three-layer architecture: Vue 3 frontend handles UI and playback control, Rust FFI layer bridges Tauri commands, C++ core handles KuGou API request scheduling, SQLite statistics storage, and Media Foundation interface. Playback uses HTML5 Audio + Web Audio API equalizer.
+BottleMusic uses a three-layer architecture: Vue 3 frontend handles UI and playback control, Rust FFI layer bridges Tauri commands, C++ core handles KuGou API request scheduling and SQLite statistics storage. Playback uses HTML5 Audio + Web Audio API equalizer (the Media Foundation playback stack was removed on 2026-07-17).
 
 For full architecture documentation, see [CONTEXT.md](./CONTEXT.md).
 
@@ -135,4 +135,4 @@ For full development documentation, see [CONTEXT.md](./CONTEXT.md).
 
 This is unofficial software and is not affiliated with or endorsed by KuGou or any other third-party service provider. It does not claim to have obtained third-party service or content authorization. The project is for personal learning and technical research only. Rights in music data, metadata, artwork, lyrics, and audio belong to the relevant platforms and rightsholders. Any public listing, distribution, or commercial use requires the necessary authorization from those parties. This disclaimer does not replace authorization or waive third-party terms. Follow applicable law, platform rules, and service terms.
 
-See [PRIVACY.md](./PRIVACY.md) and [SECURITY.md](./SECURITY.md) for privacy and security information.
+See [PRIVACY.md](./PRIVACY.md) for privacy, and [docs/wiki/security-and-privacy.md](./docs/wiki/security-and-privacy.md) for security and privacy details.
