@@ -230,7 +230,20 @@ export function initPlayer() {
   }
 
   playerStore.audio = audio;
-  playerStore.isPlaying = !audio.paused && !audio.ended;
+  // R2: phase is the single source of truth. Derive isPlaying/isLoading from
+  // playbackPhase (via applyStorePhase) instead of writing isPlaying directly.
+  // On HMR reuse, the audio element's paused/ended state reflects the live
+  // playback state — project it into phase so flags stay consistent.
+  const audioIsMidPlay = !audio.paused && !audio.ended;
+  if (audioIsMidPlay) {
+    applyStorePhase('playing');
+  } else if (playerStore.currentTrack) {
+    // Paused with a restored track → paused. No track → leave idle (no source).
+    applyStorePhase('paused');
+  } else {
+    playerStore.isPlaying = false;
+    playerStore.isLoading = false;
+  }
   audio.volume = playerStore.volume;
   if (Number.isFinite(audio.currentTime)) {
     playerStore.currentTime = audio.currentTime;
@@ -341,12 +354,28 @@ function applyStorePhase(to: PlaybackPhase) {
   Object.assign(playerStore, flagsFromPhase(to));
 }
 
-/** Patch store; when playbackPhase is set, flags are always derived from it. */
+/**
+ * Patch store; when playbackPhase is present, isPlaying/isLoading are ALWAYS
+ * derived from it — stale flag values in the patch object are ignored so phase
+ * remains the single source of truth (R1). When the patch has no phase, flags
+ * are left untouched (they should already be consistent from a prior phase write).
+ */
 function patchPlayerState(patch: Partial<typeof playerStore>) {
-  Object.assign(playerStore, patch);
   if (patch.playbackPhase != null) {
-    Object.assign(playerStore, flagsFromPhase(patch.playbackPhase));
+    // Phase is authoritative: strip any caller-supplied flags so they cannot
+    // override the derived values. Callers that need to flip flags MUST pass a
+    // phase; raw flag writes are no longer accepted.
+    const { isPlaying: _dropPlay, isLoading: _dropLoad, ...rest } = patch;
+    void _dropPlay; void _dropLoad;
+    Object.assign(playerStore, rest, flagsFromPhase(patch.playbackPhase));
+  } else {
+    Object.assign(playerStore, patch);
   }
+}
+
+/** Test-only: expose patchPlayerState for phase-projection invariant tests. */
+export function __patchPlayerStateForTests(patch: Partial<typeof playerStore>) {
+  patchPlayerState(patch);
 }
 
 function handlePlaybackEvent(e: PlaybackEvent) {
