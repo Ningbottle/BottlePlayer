@@ -33,6 +33,7 @@ import {
 import { resolveTrack } from './songUrlResolver';
 import { uploadPlayHistory } from './playHistory';
 import { createPlayerEq } from './usePlayerEq';
+import { disposeAudioLevelMonitor } from './audioLevelMonitor';
 
 export type { Track };
 export { loadNumber } from './safeStorage';
@@ -143,6 +144,10 @@ function cleanupCurrentModuleForHmr() {
   activeBackend = null;
   if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
   closeWebAudioEq();
+  // R3: dispose the analyser AudioContext so HMR cycles don't leak module-level
+  // singletons. Dev-only — production pagehide does NOT call this (preserves
+  // the no-blip behavior; the analyser is analysis-only, never to destination).
+  disposeAudioLevelMonitor();
 }
 
 function publishPlayerCleanup() {

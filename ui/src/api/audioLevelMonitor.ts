@@ -141,3 +141,32 @@ export function createAudioLevelMonitor(audio: CapturableAudio): AudioLevelMonit
     stop,
   };
 }
+
+/**
+ * Dispose the shared analyser graph. Closes `sharedCtx` and nulls all
+ * module-level refs so a subsequent `createAudioLevelMonitor` builds a fresh
+ * graph.
+ *
+ * Called ONLY from `cleanupCurrentModuleForHmr()` (dev HMR). Production
+ * `disposePlayerRuntime()` (pagehide) does NOT call this — closing the analyser
+ * context can blip the output device, and the analyser is analysis-only (never
+ * connected to destination), so leaving it open across pagehide is safe.
+ *
+ * Idempotent: a second call is a no-op (sharedCtx is already null).
+ */
+export function disposeAudioLevelMonitor(): void {
+  if (sharedSource) {
+    try { sharedSource.disconnect(); } catch { /* ignore */ }
+    sharedSource = null;
+  }
+  if (sharedAnalyser) {
+    try { sharedAnalyser.disconnect(); } catch { /* ignore */ }
+    sharedAnalyser = null;
+  }
+  if (sharedCtx) {
+    try { void sharedCtx.close(); } catch { /* ignore */ }
+    sharedCtx = null;
+  }
+  sharedAudio = null;
+  sharedSamples = null;
+}
