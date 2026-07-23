@@ -239,6 +239,19 @@ export function initPlayer() {
   // playbackPhase (via applyStorePhase) instead of writing isPlaying directly.
   // On HMR reuse, the audio element's paused/ended state reflects the live
   // playback state — project it into phase so flags stay consistent.
+  //
+  // ORDER MATTERS: restore currentTrack from the persisted queue BEFORE
+  // projecting phase. If phase projection happens first, currentTrack is still
+  // null (it's derived from queue[currentIndex] below), so a paused audio with
+  // a valid persisted queue would fall to the "no track" branch and leave
+  // phase=idle — creating a "currentTrack non-null but phase=idle" inconsistency.
+  // Restoring currentTrack first lets the paused-with-track branch fire.
+  if (playerStore.currentIndex >= 0 && playerStore.currentIndex < playerStore.queue.length) {
+    playerStore.currentTrack = playerStore.queue[playerStore.currentIndex];
+    if (!playerStore.duration && playerStore.currentTrack.Duration) {
+      playerStore.duration = playerStore.currentTrack.Duration;
+    }
+  }
   const audioIsMidPlay = !audio.paused && !audio.ended;
   if (audioIsMidPlay) {
     applyStorePhase('playing');
@@ -313,13 +326,9 @@ export function initPlayer() {
   g2.__bottlemusic_pagehide__ = onPageHide;
   window.addEventListener('pagehide', onPageHide);
 
-  // Restore previous track on init without playing
-  if (playerStore.currentIndex >= 0 && playerStore.currentIndex < playerStore.queue.length) {
-    playerStore.currentTrack = playerStore.queue[playerStore.currentIndex];
-    if (!playerStore.duration && playerStore.currentTrack.Duration) {
-      playerStore.duration = playerStore.currentTrack.Duration;
-    }
-  }
+  // NOTE: currentTrack restoration was moved ABOVE the phase projection block
+  // (near the top of this function) so that phase=paused fires correctly when
+  // a paused audio has a persisted queue. See R2 "ORDER MATTERS" comment above.
 }
 
 export async function initPlayerBackend() {
@@ -360,21 +369,24 @@ function applyStorePhase(to: PlaybackPhase) {
 }
 
 /**
- * Patch store; when playbackPhase is present, isPlaying/isLoading are ALWAYS
- * derived from it — stale flag values in the patch object are ignored so phase
- * remains the single source of truth (R1). When the patch has no phase, flags
- * are left untouched (they should already be consistent from a prior phase write).
+ * Patch store. isPlaying/isLoading are NEVER accepted from a patch — they are
+ * ALWAYS derived from playbackPhase (R1: phase is the single source of truth).
+ *
+ * - Patch WITH playbackPhase: strip any caller-supplied flags, derive from phase.
+ * - Patch WITHOUT playbackPhase: strip any caller-supplied flags, leave existing
+ *   flag values untouched (they should already be consistent from a prior phase
+ *   write). Non-flag fields (currentTime, duration, errorMsg, etc.) pass through.
+ *
+ * This closes the "bare flag write" hole: a caller passing `{ isPlaying: true }`
+ * without a phase cannot flip the flag — the patch funnel drops it.
  */
 function patchPlayerState(patch: Partial<typeof playerStore>) {
-  if (patch.playbackPhase != null) {
-    // Phase is authoritative: strip any caller-supplied flags so they cannot
-    // override the derived values. Callers that need to flip flags MUST pass a
-    // phase; raw flag writes are no longer accepted.
-    const { isPlaying: _dropPlay, isLoading: _dropLoad, ...rest } = patch;
-    void _dropPlay; void _dropLoad;
-    Object.assign(playerStore, rest, flagsFromPhase(patch.playbackPhase));
+  const { isPlaying: _dropPlay, isLoading: _dropLoad, ...rest } = patch;
+  void _dropPlay; void _dropLoad;
+  if (rest.playbackPhase != null) {
+    Object.assign(playerStore, rest, flagsFromPhase(rest.playbackPhase));
   } else {
-    Object.assign(playerStore, patch);
+    Object.assign(playerStore, rest);
   }
 }
 

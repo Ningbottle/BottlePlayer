@@ -457,14 +457,16 @@ export class PlaybackOrchestrator {
   /**
    * Phase is authoritative: also project isPlaying/isLoading.
    * Soft-ignore illegal edges (stale races) instead of throwing.
+   *
+   * R1 strict: always pass `playbackPhase` in the patch so flags are derived
+   * via the patch funnel. The same-phase path used to pass bare flags without
+   * phase — that relied on the funnel accepting bare flag writes, which is
+   * now forbidden. Including `playbackPhase: to` makes both paths go through
+   * phase derivation.
    */
   private applyPhase(to: PlaybackPhase): void {
     const from = this.deps.getState().playbackPhase ?? 'idle';
-    if (from === to) {
-      this.deps.patchState(flagsFromPhase(to));
-      return;
-    }
-    if (!canTransition(from, to)) return;
+    if (from !== to && !canTransition(from, to)) return;
     this.deps.patchState({
       playbackPhase: to,
       ...flagsFromPhase(to),

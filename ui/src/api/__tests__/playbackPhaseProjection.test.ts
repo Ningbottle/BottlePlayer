@@ -104,6 +104,33 @@ describe('R1: patchPlayerState derives flags from phase (not patch)', () => {
     expect(playerStore.currentTime).toBe(42);
     expect(playerStore.duration).toBe(200);
   });
+
+  it('REJECTS bare isPlaying/isLoading in a no-phase patch (phase is sole source)', () => {
+    // R1 strict: a caller passing isPlaying=true WITHOUT playbackPhase must
+    // NOT be able to flip the flag. The patch funnel strips it.
+    playerStore.playbackPhase = 'paused';
+    playerStore.isPlaying = false;
+    playerStore.isLoading = false;
+
+    __patchPlayerStateForTests({ isPlaying: true, isLoading: true, currentTime: 5 });
+
+    expect(playerStore.isPlaying).toBe(false); // rejected — phase says paused
+    expect(playerStore.isLoading).toBe(false); // rejected — phase says paused
+    expect(playerStore.currentTime).toBe(5);   // non-flag fields still pass
+  });
+
+  it('REJECTS bare isPlaying=true even when phase is playing (no bare flag writes)', () => {
+    // Even when the flag happens to match, the bare write must be rejected —
+    // the funnel never accepts flags without phase. This locks the invariant
+    // against future callers that try to short-circuit phase derivation.
+    playerStore.playbackPhase = 'playing';
+    playerStore.isPlaying = true;
+
+    __patchPlayerStateForTests({ isPlaying: false, currentTime: 10 });
+
+    expect(playerStore.isPlaying).toBe(true); // bare false rejected, stays derived
+    expect(playerStore.currentTime).toBe(10);
+  });
 });
 
 describe('R2: initPlayer HMR reuse derives phase from audio state', () => {
@@ -172,6 +199,39 @@ describe('R2: initPlayer HMR reuse derives phase from audio state', () => {
 
     // No track → no phase transition; stays idle.
     expect(playerStore.playbackPhase).toBe('idle');
+    expect(playerStore.isPlaying).toBe(false);
+  });
+
+  it('restores currentTrack from persisted queue THEN projects phase=paused (real init order)', () => {
+    // R2 strict: this test does NOT pre-set currentTrack. It only seeds the
+    // persisted queue + index (as localStorage would on a real cold start /
+    // HMR re-evaluation). initPlayer() must FIRST restore currentTrack from
+    // the queue, THEN project phase=paused. If phase projection happens before
+    // restoration, phase stays idle while currentTrack is non-null — the
+    // inconsistency the reviewer flagged.
+    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    oldAudio.src = 'http://127.0.0.1:17631/audio/hmr-paused-realorder';
+    Object.defineProperty(oldAudio, 'paused', { value: true, configurable: true });
+    Object.defineProperty(oldAudio, 'ended', { value: false, configurable: true });
+
+    const track = { FileHash: 'h-real', SongName: 'Real', Duration: 200 } as any;
+    // Simulate persisted state: queue + index restored from localStorage at
+    // reactive() init time, but currentTrack is NOT yet derived from them.
+    playerStore.queue = [track];
+    playerStore.currentIndex = 0;
+    playerStore.currentTrack = null; // ← NOT pre-set; initPlayer must restore it
+
+    (window as any).__bottlemusic_audio__ = oldAudio;
+    (playerStore as any).audio = null;
+    playerStore.playbackPhase = 'idle';
+
+    initPlayer();
+
+    // currentTrack restored from queue[0] by initPlayer's own logic.
+    // (Use FileHash check — Vue reactive proxy is not === to the raw object.)
+    expect((playerStore.currentTrack as any)?.FileHash).toBe('h-real');
+    // Phase projected AFTER restoration: paused (audio paused + has track).
+    expect(playerStore.playbackPhase).toBe('paused');
     expect(playerStore.isPlaying).toBe(false);
   });
 });

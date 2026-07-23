@@ -164,7 +164,12 @@ export function disposeAudioLevelMonitor(): void {
     sharedAnalyser = null;
   }
   if (sharedCtx) {
-    try { void sharedCtx.close(); } catch { /* ignore */ }
+    // close() returns a Promise; a synchronous try/catch cannot catch its
+    // async rejection. Capture the reference, null the module-level slot, then
+    // attach .catch() to swallow the rejection (HMR must not leak unhandled
+    // rejections).
+    const ctx = sharedCtx;
+    void ctx.close().catch(() => { /* ignore async rejection */ });
     sharedCtx = null;
   }
   sharedAudio = null;
