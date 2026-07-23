@@ -8,7 +8,7 @@
 
 Rust FFI 外壳是 BottleMusic 三层架构的中间层,承担五个职责:
 
-1. **Tauri 2.0 命令**:向前端暴露 17 个 `#[tauri::command]`,桥接 Vue 与 C++ 核心。
+1. **Tauri 2.0 命令**:向前端暴露 19 个 `#[tauri::command]`,桥接 Vue 与 C++ 核心。
 2. **DLL 加载**:通过 `libloading` 动态加载 `EchoCAPI.dll`,解析 C ABI 符号并持有函数指针。
 3. **audio_proxy**:本地 loopback HTTP 代理,绕过浏览器 CORS/媒体限制,流式转发酷狗 CDN 音频。
 4. **OS Media 集成**:托盘菜单 + 全局媒体快捷键,将物理按键转换为前端事件。
@@ -56,7 +56,7 @@ mod stats;
 
 ## Tauri 命令注册
 
-`run()` 中的 `invoke_handler!` 注册 **17 个命令**,按模块分组:
+`run()` 中的 `invoke_handler!` 注册 **19 个命令**,按模块分组:
 
 | 分组 | 命令 | 定义位置 |
 |---|---|---|
@@ -66,7 +66,7 @@ mod stats;
 | stats(6) | `stats_record_play`, `stats_get_summary`, `stats_get_top`, `stats_get_timeline`, `stats_get_recent`, `stats_get_recommendations` | [`stats.rs`](../../ui/src-tauri/src/stats.rs) |
 | os_media(7) | `os_media_bind`, `os_media_unbind`, `os_media_set_now_playing`, `os_media_set_playback_status`, `os_media_set_enabled_controls`, `os_media_inject_button`, `os_media_debug_snapshot` | [`os_media_session.rs`](../../ui/src-tauri/src/os_media_session.rs) |
 
-> **重要纠正**:旧 `Code-Wiki.md` 称主请求命令为 `echo_request` — **错误**,实际命令名是 **`native_request`**(见 [evidence-report.md § 1.2](./evidence-report.md#12-tauri-ipc-命令已确认17-个)))。前端通过 `invoke('native_request', ...)` 调用。
+> **重要纠正**:旧 `Code-Wiki.md` 称主请求命令为 `echo_request` — **错误**,实际命令名是 **`native_request`**(见 [evidence-report.md § 1.2](./evidence-report.md#12-tauri-ipc-命令已确认19-个)))。前端通过 `invoke('native_request', ...)` 调用。
 
 ### 通用命令说明
 

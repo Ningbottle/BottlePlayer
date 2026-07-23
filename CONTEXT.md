@@ -35,7 +35,7 @@ Rust FFI (ui/src-tauri/src/)
        │ extern "C" FFI
        ▼
 C++ Core (native/) → EchoCAPI.dll
-  ├─ core/C_API.cpp — request/stats exports, g_api (shared_ptr), g_scheduler, g_stats (no native playback)
+  ├─ core/C_API.cpp — request/stats exports, Ctx().api (shared_ptr), Ctx().scheduler, Ctx().stats, Ctx().db (no native playback)
   ├─ core/HttpClient.cpp — WinHTTP: unique GET retry owner, Post no-retry, watchdog, connection pool
   ├─ core/CompatApi.cpp — KuGou API routes (sole request dispatch)
   ├─ async/RequestScheduler.cpp — 4-worker thread pool, bounded shutdown/restart, per-kind deadlines
@@ -73,7 +73,7 @@ C++ Core (native/) → EchoCAPI.dll
 - **Default backend**: HTML5 Audio (Html5AudioBackend) — sole source of play/pause/timeupdate/ended/error events
 - **Stop cleanup**: `Html5AudioBackend.stop()` unloads the current `src`, so a failed next-track resolve cannot resume stale media.
 - **EQ implementation**: Web Audio API AudioWorklet graph (10 bands: 31/62/125/250/500/1K/2K/4K/8K/16K Hz), `webAudioEq.ts` controller + `eqWorkletProcessor.ts` DSP (RBJ peaking from Audio EQ Cookbook), routed via captureStream → MediaStreamAudioSourceNode → AudioWorkletNode → GainNode → destination
-- **EQ UI**: `EqualizerPanel.vue` in `Drawer.vue` (right sidebar), uses skin CSS variables
+- **EQ UI**: `EqualizerPanel.vue` (component) hosted by `EqualizerView.vue` (view), uses skin CSS variables
 - **EQ + audio proxy (#1)**: KuGou CDN sends no CORS headers, so a local Tauri HTTP proxy (`audio_proxy.rs`, loopback 127.0.0.1) re-serves CDN media with CORS headers + range/resume, letting the EQ graph attach to cross-origin media. `eqState.available` exposed to UI; degradation banner shown only when the proxy is unavailable.
 - **EQ graph build order (#4)**: full filter→gain→destination chain built BEFORE `captureStream` + `createMediaStreamSource` attach; throws are safe (element never gets stranded in a disconnected graph). The implementation **never** uses `createMediaElementSource`.
 - **AudioContext lifecycle (#9)**: `webAudioEq.close()` releases context on teardown (HMR-safe). HMR preserves the `<audio>` element via `window.__bottlemusic_audio__` but closes the old AudioContext; the new module rebuilds the EQ graph via `initWebAudioEQ()`.
@@ -94,8 +94,8 @@ C++ Core (native/) → EchoCAPI.dll
   - `stats_get_timeline` — daily play counts (`{date: "YYYY-MM-DD", count: N}`)
   - `stats_get_recent` — most recent N plays with full metadata (limit/offset)
   - `stats_get_recommendations` — "for you" based on top artists (local-only, no KuGou API fusion)
-- **Thread safety**: `g_stats` guarded by `shared_lock(g_api_rwlock)`; `Database::Execute`/`ExecuteQuery` are public APIs that marshal work onto a single Actor thread via `Submit` (the Actor queue is protected by `Database::queue_mutex_`, not `mutex_`); all 5 query C API functions wrapped in try-catch with safe empty JSON fallback. `EchoShutdown` resets global API/database/stat pointers under the exclusive lifecycle lock.
-- **AI analysis**: `ai_analyze` async Tauri command → reqwest → DeepSeek API. User provides API key via localStorage `deepseek_api_key` (password input, never logged). 30s timeout. Chinese prompt, 200-word limit, covers listening habits + music taste + one interesting finding.
+- **Thread safety**: `Ctx().stats` guarded by `shared_lock(Ctx().api_rwlock)`; `Database::Execute`/`ExecuteQuery` are public APIs that marshal work onto a single Actor thread via `Submit` (the Actor queue is protected by `Database::queue_mutex_`, not `mutex_`); all 5 query C API functions wrapped in try-catch with safe empty JSON fallback. `EchoShutdown` resets `Ctx().api`/`Ctx().stats`/`Ctx().db` pointers under the exclusive lifecycle lock.
+- **AI analysis**: `ai_analyze` async Tauri command → reqwest → DeepSeek API. API key is held in memory only (`StatsView.vue` `aiApiKey = ref('')`, L54); legacy `localStorage.deepseek_api_key` is removed on module load (L53). Never logged, never persisted to disk or localStorage. 30s timeout. Chinese prompt, 200-word limit, covers listening habits + music taste + one interesting finding.
 - **StatsView.vue**: 4 sections — overview cards (total plays / listened time / completion / unique counts), top lists with album art (song/artist/album), timeline CSS bar chart, recent plays list (with cover + completion badge), AI analysis panel
 
 ## Key Files
@@ -113,14 +113,14 @@ C++ Core (native/) → EchoCAPI.dll
 | `ui/src/api/useLyricFollow.ts` | Lyric auto-follow state machine composable |
 | `ui/src/api/playbackDiagnostics.ts` | Playback boundary event ring buffer (diagnostics) |
 | `ui/src/components/EqualizerPanel.vue` | EQ UI (10 sliders, 6 presets, degradation banner) |
-| `ui/src/components/Drawer.vue` | Right sidebar (EQ, theme, tweaks) |
+| `ui/src/views/EqualizerView.vue` | Equalizer view (EQ panel host) |
 | `ui/src/views/StatsView.vue` | Statistics dashboard (overview + top + timeline + recent + AI) |
 | `ui/src-tauri/src/backend_api.rs` | CApiHandle, DLL loading, event bridge |
 | `ui/src-tauri/src/stats.rs` | 6 Tauri stats commands |
 | `ui/src-tauri/src/ai_analysis.rs` | DeepSeek AI analysis async command |
 | `ui/src-tauri/src/audio_proxy.rs` | Local HTTP proxy for cross-origin CDN media (CORS, range/resume, SSRF allowlist) |
 | `ui/src/api/audioProxy.ts` | Frontend wrapper for audio_proxy_url Tauri command |
-| `native/core/C_API.cpp` | C API exports, g_api, g_scheduler, g_stats (no g_playback — MFS removed) |
+| `native/core/C_API.cpp` | C API exports, Ctx().api, Ctx().scheduler, Ctx().stats, Ctx().db (EchoContext Meyers singleton; no g_playback — MFS removed) |
 | `native/core/HttpClient.cpp` | WinHTTP + watchdog + retry budget |
 | `native/async/RequestScheduler.cpp` | Thread pool + bounded shutdown/restart |
 | `native/stats/PlayStatsService.cpp` | Record + query play history (SQL injection-safe) |

@@ -34,7 +34,7 @@ BottleMusic 的存储与数据层按**职责**分为四条独立通路,各自有
 数据库路径由 [C_API.cpp](../../native/core/C_API.cpp) 的 `EnsureInitializedLocked` 与 [AppPaths.cpp](../../native/storage/AppPaths.cpp) 共同决定:
 
 - **生产路径**:`<app_data_dir>/bottlemusic.db` —— 当 `EchoInitializeWithPathsV2(app_data_dir)` 传入非空 `app_data_dir` 时使用(Tauri 生产环境始终传入,见 `C_API.cpp` L83-89)。
-- **回退路径**:`<app_data_dir>/echomusic-native.db` —— 当 `app_data_dir` 为空时由 `GetDefaultDatabasePath()` 返回(见 `AppPaths.cpp`)。
+- **回退路径**:由 `GetDefaultDatabasePath()` 返回(见 `AppPaths.cpp` L37)。当 `app_data_dir` 为空时使用,路径解析顺序:① 环境变量 `ECHO_NATIVE_DATA_DIR`;② `%LOCALAPPDATA%\EchoMusicNative\echomusic-native.db`;③ 若 `LOCALAPPDATA` 不可用或目录创建失败,回退到系统 temp 目录下的 `EchoMusicNative\echomusic-native.db`。
 - `GetAppDataDirectory()` 优先读 `ECHO_NATIVE_DATA_DIR` 环境变量(测试覆盖用);否则使用 `%LOCALAPPDATA%\EchoMusicNative`。
 - 若 `LOCALAPPDATA` 不可用,回退到系统 temp 目录,确保只读环境也能初始化。
 

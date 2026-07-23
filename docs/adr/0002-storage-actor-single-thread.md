@@ -48,16 +48,16 @@ std::vector<std::vector<std::string>> ExecuteQueryBound(...) {
 | 层 | 机制 | 保护对象 |
 |---|---|---|
 | Actor 线程 | 单线程串行执行 `Submit` 的 lambda | SQLite 句柄 |
-| `g_stats` | `shared_lock(g_api_rwlock)` 读 / 独占写 | `PlayStatsService` 指针 |
+| `Ctx().stats` | `shared_lock(Ctx().api_rwlock)` 读 / 独占写 | `PlayStatsService` 指针 |
 | `Database::queue_mutex_` | `std::mutex` | Actor 队列与状态(`queue_` / `state_`) |
 | SQLite | WAL 模式 + `busy_timeout` | 文件级并发 |
 
-证据：`g_stats` 在 `EchoShutdown` 时于独占生命周期锁下重置；`Database::Submit` 在 `queue_mutex_` 下入队（见 `native/include/echo/storage/Database.h` L67）。注：`Database::Execute`/`ExecuteQuery` 是 public API,内部通过 `Submit` 封送到 Actor 线程,不直接持锁。
+证据：`Ctx().stats` 在 `EchoShutdown` 时于独占生命周期锁下重置；`Database::Submit` 在 `queue_mutex_` 下入队（见 `native/include/echo/storage/Database.h` L67）。注：`Database::Execute`/`ExecuteQuery` 是 public API,内部通过 `Submit` 封送到 Actor 线程,不直接持锁。
 
 ### 数据库文件
 
 - **生产路径**：`<app_data_dir>/bottlemusic.db`（当 `EchoInitializeWithPathsV2(app_data_dir)` 传入非空路径时,见 `native/core/C_API.cpp` L84/L88）；
-- **回退路径**：`<app_data_dir>/echomusic-native.db`（当 `app_data_dir` 为空时由 `GetDefaultDatabasePath()` 返回,见 `native/storage/AppPaths.cpp` L37）；
+- **回退路径**：由 `GetDefaultDatabasePath()` 返回（见 `native/storage/AppPaths.cpp` L37）。当 `EchoInitializeWithPathsV2` 传入空 `app_data_dir` 时使用，路径解析顺序：① 环境变量 `ECHO_NATIVE_DATA_DIR`；② `%LOCALAPPDATA%\EchoMusicNative\echomusic-native.db`；③ 若 `LOCALAPPDATA` 不可用或目录创建失败，回退到系统 temp 目录下的 `EchoMusicNative\echomusic-native.db`。
 - 模式：WAL（Write-Ahead Logging）+ `busy_timeout`；
 - 主要表：`play_history_v2`、`kv_store`、`api_cache`。
 
@@ -67,7 +67,7 @@ std::vector<std::vector<std::string>> ExecuteQueryBound(...) {
 
 - **无并发写入问题**：所有 SQLite 操作串行化，`SQLITE_BUSY` 只可能来自外部进程；
 - **单一写入点**：`Database` 是唯一持有 SQLite 句柄的组件，数据流清晰；
-- **崩溃隔离**：Actor 线程崩溃不会直接影响 `RequestScheduler` worker；
+- **崩溃隔离**：Actor 线程中 lambda 抛出的异常被 `Submit` 的 `future` 捕获，调用方通过 `future::get` 重抛；但未捕获的线程级异常仍可能触发 `std::terminate`，因此 Actor lambda 内部仍需 try-catch 兜底；
 - **前端/Rust 解耦**：前端与 Rust 完全不感知 SQLite 路径与 schema。
 
 ### 负面
@@ -80,7 +80,7 @@ std::vector<std::vector<std::string>> ExecuteQueryBound(...) {
 
 | 方案 | 否决理由 |
 |---|---|
-| WAL + 多线程并发读写 | 需要在每个调用方管理连接与锁，容易出错；且 `PlayStatsService` 已有 `g_api_rwlock`，再加 SQLite 锁层次复杂 |
+| WAL + 多线程并发读写 | 需要在每个调用方管理连接与锁，容易出错；且 `PlayStatsService` 已有 `Ctx().api_rwlock`，再加 SQLite 锁层次复杂 |
 | Rust 端 `rusqlite` 直连 | 打破三层架构，Rust 需感知 schema 与迁移，且 C++ 统计逻辑需重复实现 |
 | 内存数据库 + 定期持久化 | 崩溃丢数据风险，统计场景要求数据可靠 |
 

@@ -23,12 +23,12 @@ Rust 与 C++ 的 ABI、内存模型、字符串表示、错误处理方式均不
 
 | 符号 | 签名 | 职责 |
 |---|---|---|
-| `EchoInitializeWithPathsV2` | `int (const char* app_data_dir)` | 初始化 C++ 全局状态（`g_api` / `g_scheduler` / `g_stats`），传入数据目录 |
+| `EchoInitializeWithPathsV2` | `int (const char* app_data_dir)` | 初始化 `EchoContext` Meyers singleton 的成员（`Ctx().api` / `Ctx().scheduler` / `Ctx().stats` / `Ctx().db`），传入数据目录 |
 | `EchoHandleRequest` | `void (const char* method, const char* path, const char* query_json, const char* headers_json, const char* body, char** out_response)` | 主请求入口，`out_response` 由 C++ 分配 |
 | `EchoStatsRecordPlay` | 统计写入 | 记录一次播放 |
 | `EchoStatsGetSummary` / `GetTop` / `GetTimeline` / `GetRecent` / `GetRecommendations` | 统计查询（5 个） | 返回 JSON 字符串 |
 | `EchoFreeString` | `void (char*)` | 释放 C++ 分配的字符串 |
-| `EchoShutdown` | `void ()` | 重置全局指针，关闭调度器与数据库 |
+| `EchoShutdown` | `int ()` | 有界关闭：返回 0 = 可安全卸载 DLL；非零 = 仍有 detached worker 或锁持有者，`Ctx().api`/`Ctx().stats`/`Ctx().db` 未重置 |
 
 证据：[native/core/C_API.cpp](../../native/core/C_API.cpp) 定义导出；[ui/src-tauri/src/backend_api.rs](../../ui/src-tauri/src/backend_api.rs) 通过 `libloading::Library::get` 动态加载。
 

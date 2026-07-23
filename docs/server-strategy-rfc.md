@@ -12,7 +12,7 @@ BottleMusic 仓库包含一个 `server/` git submodule，指向 [MakcRe/KuGouMus
 ### 1.1 事实核验（证据见 evidence-report.md）
 
 - **`server/` 不进入生产链路**：
-  - `ui/src-tauri/src/lib.rs` 注册的 17 个 Tauri 命令均通过 `EchoCAPI.dll` 的 C ABI 调用 C++ 核心，**无任何**命令引用 `server/`；
+  - `ui/src-tauri/src/lib.rs` 注册的 19 个 Tauri 命令均通过 `EchoCAPI.dll` 的 C ABI 调用 C++ 核心，**无任何**命令引用 `server/`；
   - `native/CMakeLists.txt` 的所有 target（`EchoCore` / `EchoCAPI` / `EchoStorage` 等）**无任何**源文件或 include 路径引用 `server/`；
   - CI（[ci.yml](../.github/workflows/ci.yml)）和 Release（[release.yml](../.github/workflows/release.yml)）的 `actions/checkout` 虽带 `submodules: recursive`，但后续步骤**不构建、不运行、不测试** `server/`。
 - **`server/` 的用途**：纯只读参考实现，开发者在实现 C++ `CompatApi` 路由时对照 Node.js 版本的请求参数与响应格式。

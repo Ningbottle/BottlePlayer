@@ -448,7 +448,7 @@ node scripts/capture-aurora-qa.mjs                  # 需先启动 dev server
 | 前端韧性 (CircuitBreaker) | `circuitBreaker.test.ts` | — | — | ✅ |
 | 皮肤切换 (themeStore) | `themeStore.test.ts` | — | — | ✅ |
 | 歌词跟随 (useLyricFollow) | `useLyricFollow.test.ts` | — | — | ✅ |
-| Tauri 命令绑定 (17 个) | — | `lib.rs` 单元测试 (需 DLL) | — | ✅ |
+| Tauri 命令绑定 (19 个) | — | `lib.rs` 单元测试 (需 DLL) | — | ✅ |
 | Production build (vite) | — | — | — | ✅ (release.yml) |
 
 ### 覆盖盲区

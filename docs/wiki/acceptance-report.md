@@ -14,7 +14,7 @@
 
 ### 关于 CTest 的说明
 
-CTest 11/11 全通过。此前报告中出现的 "9/11" 及 "C API 全局状态未重置"/"固定目录残留" 等根因分析**未经证实**,已删除。两个测试(`EchoNativeSmokeTests`、`EchoPlayStatsTest`)本身在 `main()` 入口处先执行 `remove_all` 清理临时目录,不存在跨运行状态泄漏。
+CTest 11/11 全通过。此前报告中出现的 "9/11" 及 "C API 全局状态未重置"/"固定目录残留" 等根因分析**未经证实**,已删除。本轮 review 期间该故障无法复现,当前 11/11 稳定通过;不排除测试间存在尚未定位的状态依赖,但不在本轮文档修正范围内下结论。
 
 ### 关于前端测试计数的说明
 
@@ -61,7 +61,7 @@ CTest 11/11 全通过。此前报告中出现的 "9/11" 及 "C API 全局状态�
 
 - 锁名:`Database::queue_mutex_`(非 `mutex_`);`Execute`/`ExecuteQuery` 通过 `Submit` 封送到 Actor 线程,不直接持锁
 - **生产路径**:`<app_data_dir>/bottlemusic.db`(`C_API.cpp` L84/L88,`EchoInitializeWithPathsV2` 传入非空 `app_data_dir`)
-- **回退路径**:`<app_data_dir>/echomusic-native.db`(`AppPaths.cpp` L37,`GetDefaultDatabasePath()`,仅 `app_data_dir` 为空时使用)
+- **回退路径**:由 `GetDefaultDatabasePath()` 返回(`AppPaths.cpp` L37)。路径解析顺序:① `ECHO_NATIVE_DATA_DIR`;② `%LOCALAPPDATA%\EchoMusicNative\echomusic-native.db`;③ 系统 temp 目录回退。仅 `app_data_dir` 为空时使用。
 
 ### 2.5 CONTEXT.md 残留错误(6 处)
 
@@ -89,6 +89,33 @@ CTest 11/11 全通过。此前报告中出现的 "9/11" 及 "C API 全局状态�
 - 新增文件:`acceptance-report.md`(本文件)
 - 未修改:`.rs`、`.cpp`、`.h`、`.ts`、`.vue` 等生产代码
 
+## 4.1 第二轮 review 修正(本次提交)
+
+针对第二轮 review 发现的 5 个 P1 + 4 个 P2 问题,本次纯文档提交修正:
+
+### P1 修正
+
+| # | 问题 | 修正范围 |
+|---|---|---|
+| 1 | DeepSeek Key 仍写成 localStorage | `CONTEXT.md` L98 改为内存 `ref('')` + 模块加载清理旧 Key;与 `security-and-privacy.md`、`PRIVACY.md` 对齐 |
+| 2 | C++ 全局状态使用不存在的 `g_*` | `CONTEXT.md`、`ADR-0001`、`ADR-0002` 全仓改为 `Ctx().api`/`Ctx().scheduler`/`Ctx().stats`/`Ctx().db`/`Ctx().api_rwlock`(EchoContext Meyers singleton) |
+| 3 | ADR-0003 AudioContext 硬约束与生产冲突 | 新增"分析链路"章节记录 `audioLevelMonitor.ts` 独立 AudioContext;约束改为允许两条已记录链路(EQ + 分析),新增第三条需 ADR |
+| 4 | Tauri IPC 数量 17 → 19 | `architecture.md`、`evidence-report.md`、`tauri-rust.md`、`security-and-privacy.md`、`server-strategy-rfc.md`、`testing-and-release.md` 全仓统一 |
+| 5 | Shutdown 图缺失提前返回分支 | `architecture.md` 关闭流程图重写:三个 `alt` 分支(写锁超时/abandoned>0/Phase 2 锁超时);删除不存在的 `Ok` 返回值,标注 `void` |
+
+### P2 修正
+
+| # | 问题 | 修正 |
+|---|---|---|
+| 1 | 回退路径占位符 `<app_data_dir>/echomusic-native.db` 不准确 | `ADR-0002`、`storage-and-data.md`、本报告改为三阶路径解析:`ECHO_NATIVE_DATA_DIR` → `%LOCALAPPDATA%\EchoMusicNative` → 系统 temp |
+| 2 | CTest 清理结论过度 | 本报告改为"故障无法复现,当前 11/11 稳定通过;不排除尚未定位的状态依赖" |
+| 3 | `Drawer.vue` 已删除 | `CONTEXT.md` 改为 `EqualizerView.vue` |
+| 4 | ADR-0002 Actor 崩溃表述过度 | 改为"lambda 异常被 future 捕获;未捕获线程级异常仍可能触发 `std::terminate`" |
+
+### ADR-0001 附带修正
+
+- `EchoShutdown` 签名从 `void ()` 改为 `int ()`(返回 0 = 安全卸载,非零 = 不安全)
+
 ## 5. 验收结论
 
-**通过**。所有 6 项 P1 事实错误已修正,测试基线数据已更正为真实值(937/937、34、11/11),未经验证的失败根因已删除。可进入下一轮 review。
+**通过**(第二轮)。所有 5 个 P1 + 4 个 P2 问题已修正,测试基线数据不变(937/937、34、11/11)。可进入最终 review。

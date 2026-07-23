@@ -111,7 +111,7 @@ sequenceDiagram
         BA-->>Lib: Ok(()) or Err
     end
 
-    Lib->>Lib: 注册 invoke_handler (17 个命令)
+    Lib->>Lib: 注册 invoke_handler (19 个命令)
     Lib->>App: generate_context!().run()
     App->>App: 窗口创建,前端加载
 
@@ -185,27 +185,36 @@ sequenceDiagram
     participant BA as backend_api.rs
     participant DLL as EchoCAPI.dll
     participant Sched as RequestScheduler
-    participant DB as SQLite
 
     User->>App: 关闭窗口
     App->>Lib: WindowEvent::CloseRequested
-    Lib->>BA: shutdown_c_api()
-    BA->>BA: get_handle().try_write() — 5s deadline 轮询获取写锁
-    Note over BA: 5s 内未获取 → 跳过 EchoShutdown,保留 handle
-    BA->>DLL: EchoShutdown()
-    DLL->>Sched: scheduler.Shutdown(3000ms) — Phase 1
-    Note over Sched: 取消 active tokens,等 ≤3s<br/>abandoned > 0 → 返回非零,跳过 Phase 2
-    Sched-->>DLL: abandoned count
-    DLL->>DLL: Phase 2: try_lock(api_rwlock) — 3s deadline
-    Note over DLL: 3s 内获取 → api/stats/db.reset()<br/>+ CloseHttpConnectionPool()<br/>3s 内未获取 → 返回 1
-    DLL-->>BA: shutdown_status (0 = 安全卸载,非零 = 不安全)
-    alt status == 0
-        BA->>BA: drop CApiHandle — unload DLL
-    else status != 0
-        BA->>BA: mem::forget(handle) — 保留 DLL mapping,OS 回收
+    Lib->>BA: shutdown_c_api()  (返回 void)
+    BA->>BA: get_handle().try_write() — 5s deadline 轮询
+
+    alt 5s 内获取写锁
+        BA->>DLL: EchoShutdown()
+        DLL->>Sched: scheduler.Shutdown(3000ms) — Phase 1
+
+        alt abandoned == 0 (所有 worker 已完成)
+            DLL->>DLL: Phase 2: try_lock(api_rwlock) — 3s deadline
+
+            alt 3s 内获取独占锁
+                DLL->>DLL: Ctx().api/stats/db.reset()<br/>+ CloseHttpConnectionPool()
+                DLL-->>BA: shutdown_status = 0 (安全卸载)
+                BA->>BA: drop CApiHandle — FreeLibrary
+            else 3s 内未获取独占锁
+                DLL-->>BA: shutdown_status = 1 (不安全)
+                BA->>BA: mem::forget(handle) — 保留 DLL mapping
+            end
+        else abandoned > 0 (有 detached worker)
+            DLL-->>BA: shutdown_status = abandoned (非零,跳过 Phase 2)
+            BA->>BA: mem::forget(handle) — 保留 DLL mapping
+        end
+    else 5s 内未获取写锁
+        BA->>BA: return — 跳过 EchoShutdown,保留 handle + DLL mapping
     end
-    BA-->>Lib: Ok
-    Lib->>App: 进程退出
+
+    Lib->>App: 进程退出 (OS 回收所有资源)
 ```
 
 ### 关闭不变量

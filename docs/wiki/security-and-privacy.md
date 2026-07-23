@@ -57,7 +57,7 @@ flowchart LR
 | 边界 | 信任方 | 防护机制 | 对应章节 |
 |---|---|---|---|
 | Webview ↔ 公网 | 不信任任意远程源 | 严格 CSP + capability 白名单 | §3 |
-| 前端 ↔ Rust | IPC 受 Tauri 桥接收口 | 仅 17 个 `invoke_handler` 命令,参数显式 | §3.4 |
+| 前端 ↔ Rust | IPC 受 Tauri 桥接收口 | 仅 19 个 `invoke_handler` 命令,参数显式 | §3.4 |
 | Rust ↔ 上游 CDN | 不信任 URL 输入 | SSRF allowlist + loopback only + 重定向校验 | §5 |
 | C++ ↔ SQLite | 不信任动态 SQL 拼接 | `?N` 参数绑定 + 标识符 switch 白名单 | §4.4 |
 | 本机 ↔ 磁盘会话 | 不信任本机明文存储 | DPAPI 当前用户加密 + 内存清零 | §4.1 |

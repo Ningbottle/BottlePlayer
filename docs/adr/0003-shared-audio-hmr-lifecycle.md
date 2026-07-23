@@ -107,6 +107,22 @@ this.sourceNode.connect(this.workletNode);
 
 > 旧文档称回调为 `onSuspendedFail` —— 不正确，**实际符号是 `onDegraded`**。`onDegraded` 覆盖范围比"suspended fail"更广（包括 worklet 加载失败、context 创建失败等所有降级场景）。
 
+### 分析链路（`audioLevelMonitor.ts`,第二条音频 Context）
+
+除 EQ 链路外,生产代码中存在**第二条独立的 Web Audio 链路**用于音频电平分析,服务于 Aurora 首页粒子动画与可视化页面。
+
+**代码核验**（[ui/src/api/audioLevelMonitor.ts](../../ui/src/api/audioLevelMonitor.ts)）:
+
+- **独立 AudioContext**:`ensureGraph()` 中 `sharedCtx = new AudioContext()`（L65）,与 EQ 的 `WebAudioEq.ctx` 完全独立;
+- **拓扑**:`captureStream() → MediaStreamAudioSourceNode → AnalyserNode`,**不连接到 `destination`**（L77 注释:"analysis only — never to destination"）,因此不干预播放路径;
+- **永不关闭**:`stop()` 仅停止 rAF 采样循环,`sharedCtx` / `sharedAnalyser` / `sharedSource` 作为模块级单例保留（L133-134 注释:"closing them would blip the output device on every page navigation"）;
+- **消费者**:`AuroraHome.vue`（L48 `createAudioLevelMonitor`）、`VisualizerView.vue`（L149 同）;
+- **降级**:无 `captureStream` / 无 WebAudio（jsdom、旧 WebView2）→ inert monitor,`level` 恒为 0。
+
+**与 EQ 链路的关系**:两条链路各自 `captureStream` 同一个 `<audio>` 元素,互不干扰。EQ 链路可 HMR 重建（`close()` + 新建）,分析链路设计为永不关闭。这是**有意的设计分歧**,不是疏漏。
+
+> 旧版本 ADR-0003 约束"不得在 `webAudioEq` 之外创建 `AudioContext`"与生产代码冲突 —— 已修正为允许两条已记录的链路（见 §遵守方式）。
+
 ## 后果
 
 ### 正面
@@ -119,7 +135,7 @@ this.sourceNode.connect(this.workletNode);
 ### 负面
 
 - **HMR 重建成本**：每次 HMR 重建 AudioContext + Worklet 有几十毫秒开销；
-- **单 AudioContext**：全局只允许一个 `webAudioEq` 实例,多实例会冲突（当前架构未有多实例需求）；
+- **两条 AudioContext**：生产环境存在 EQ（`webAudioEq`）和分析（`audioLevelMonitor`）两条独立 AudioContext,各有一次创建开销；新增第三条需 ADR 评审；
 - **代理依赖**：跨域媒体 EQ 依赖 `audio_proxy`,代理故障时 EQ 降级；
 - **`<audio>` 全局引用**：`window.__bottlemusic_audio__` 是隐性全局状态,测试需显式清理。
 
@@ -136,10 +152,10 @@ this.sourceNode.connect(this.workletNode);
 
 ## 遵守方式
 
-- **不得**在 `webAudioEq` 之外创建 `AudioContext`；
+- **允许的两条 AudioContext 链路**：① EQ 链路（`webAudioEq.ts`,可 HMR 重建）；② 分析链路（`audioLevelMonitor.ts`,模块级单例,永不关闭）。**新增第三条 AudioContext 需先写 ADR**；
 - **不得**使用 `createMediaElementSource` 接入 `<audio>` —— 只能用 `captureStream` + `createMediaStreamSource`；
 - **不得**在 `buildGraph` 完成前调用 `attachSource`；
-- **不得**静默吞掉降级 —— 必须通过 `onDegraded` 上抛；
+- **不得**静默吞掉降级 —— EQ 链路必须通过 `onDegraded` 上抛；分析链路降级为 inert（`level = 0`）,无需用户提示;
 - HMR 时**必须**复用 `window.__bottlemusic_audio__`,**不得** dispose `<audio>` 或清空 `src`；
 - 修改 EQ 拓扑时必须同步更新 [../wiki/playback-runtime.md](../wiki/playback-runtime.md) 中的拓扑图；
 - PR 触碰 audio 生命周期时需在描述中声明,并附 HMR 手动验证记录。
