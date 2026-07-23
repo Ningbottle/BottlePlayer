@@ -45,8 +45,8 @@ export function saveQueue(): void {
   }, SAVE_QUEUE_DEBOUNCE_MS);
 }
 
-if (typeof window !== 'undefined') {
-  window.addEventListener('beforeunload', () => {
-    flushSaveQueue();
-  });
-}
+// R4: the module-top-level `beforeunload` listener was removed.
+// `pagehide` → `disposePlayerRuntime()` → `flushSaveQueue()` is the single
+// flush owner (bound in initPlayer, so only the live module owns it). The old
+// listener was redundant with pagehide and registered at module top level,
+// meaning orphan HMR modules also registered it.

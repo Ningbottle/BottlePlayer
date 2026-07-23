@@ -151,9 +151,9 @@ describe('audioLevelMonitor: never-close invariant (R3/R5)', () => {
   });
 });
 
-// ── playerPersistence: beforeunload listener characterization (R4) ──
+// ── playerPersistence: beforeunload listener removed (R4) ──
 
-describe('playerPersistence: beforeunload listener (R4)', () => {
+describe('playerPersistence: beforeunload listener removed (R4)', () => {
   beforeEach(() => {
     localStorage.clear();
   });
@@ -162,7 +162,7 @@ describe('playerPersistence: beforeunload listener (R4)', () => {
     vi.restoreAllMocks();
   });
 
-  it('beforeunload event flushes the queue to localStorage', async () => {
+  it('beforeunload does NOT flush — pagehide is the single flush owner', async () => {
     const { bindQueuePersistence } = await import('../playerPersistence');
 
     const testQueue = [
@@ -174,10 +174,12 @@ describe('playerPersistence: beforeunload listener (R4)', () => {
       currentIndex: 1,
     }));
 
-    // Dispatch beforeunload — the module-top-level listener should call flushSaveQueue.
+    // R4: the module-top-level beforeunload listener was removed.
+    // pagehide → disposePlayerRuntime() → flushSaveQueue() is the single owner.
     window.dispatchEvent(new Event('beforeunload'));
 
-    expect(JSON.parse(localStorage.getItem('player_queue') || '[]')).toHaveLength(2);
-    expect(localStorage.getItem('player_index')).toBe('1');
+    // No flush happened — beforeunload is no longer wired.
+    expect(localStorage.getItem('player_queue')).toBeNull();
+    expect(localStorage.getItem('player_index')).toBeNull();
   });
 });
