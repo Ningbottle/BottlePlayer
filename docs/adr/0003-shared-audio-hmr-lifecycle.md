@@ -127,7 +127,7 @@ this.sourceNode.connect(this.workletNode);
 
 ### 正面
 
-- **HMR 安全**：旧 AudioContext 被 `close()` 释放,无累积泄漏；`<audio>` 复用避免播放中断；
+- **EQ 链路 HMR 安全**：EQ 链路的旧 AudioContext 被 `close()` 释放,无累积泄漏；`<audio>` 复用避免播放中断；
 - **异常安全**：EQ 图构建失败不会破坏 `<audio>` 元素的可播放性（元素从未进入图）；
 - **降级明确**：跨域/worklet 失败场景由 `onDegraded` 上抛,不会静默失败；
 - **生产稳定**：生产环境无 HMR,`close()` 在 `pagehide` 时释放资源。
@@ -135,6 +135,7 @@ this.sourceNode.connect(this.workletNode);
 ### 负面
 
 - **HMR 重建成本**：每次 HMR 重建 AudioContext + Worklet 有几十毫秒开销；
+- **分析链路 HMR 风险（开发态残余）**：`audioLevelMonitor` 的 AudioContext 永不关闭（L133-134），编辑该模块触发 HMR 时缺少显式 dispose，旧模块的模块级单例 `sharedCtx` 在新模块加载后成为孤儿引用。仅影响开发态，生产无 HMR；列为已知风险，未来若需要可补 `dispose()` 钩子；
 - **两条 AudioContext**：生产环境存在 EQ（`webAudioEq`）和分析（`audioLevelMonitor`）两条独立 AudioContext,各有一次创建开销；新增第三条需 ADR 评审；
 - **代理依赖**：跨域媒体 EQ 依赖 `audio_proxy`,代理故障时 EQ 降级；
 - **`<audio>` 全局引用**：`window.__bottlemusic_audio__` 是隐性全局状态,测试需显式清理。

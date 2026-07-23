@@ -72,7 +72,7 @@ CTest 11/11 全通过。此前报告中出现的 "9/11" 及 "C API 全局状态�
 | S4 Suspended resume | `onSuspendedFail` | `onDegraded`(覆盖 worklet 加载失败等所有降级场景) |
 | S5 Record path | `SqlEscape` | `?N` 占位符 + 标识符白名单(无 `SqlEscape` 类) |
 | S5 Thread safety | `Database::Execute/ExecuteQuery hold mutex_` | `Submit` 封送到 Actor 线程,队列由 `queue_mutex_` 保护 |
-| Key Files 表 | `playback.rs`(不存在)、`g_playback`、`native/playback/*` | 删除不存在的文件行;`g_playback` → `g_api, g_scheduler, g_stats` |
+| Key Files 表 | `playback.rs`(不存在)、`g_playback`、`native/playback/*` | 删除不存在的文件行;`g_playback` → `Ctx().api/scheduler/stats/db`(第一轮表格此前误写为 `g_api, g_scheduler, g_stats`,已在 `3b417553` 中再次修正) |
 
 ## 3. 已确认良好(无改动)
 
@@ -83,13 +83,17 @@ CTest 11/11 全通过。此前报告中出现的 "9/11" 及 "C API 全局状态�
 
 ## 4. 提交结构
 
-本次文档修正是**单一纯文档 commit**,不触碰任何生产代码:
+本次文档修正确认**全部为纯文档提交,不触碰任何生产代码**。实际经过三轮 review,共两个纯文档修正 commit:
 
-- 修改文件:`architecture.md`、`evidence-report.md`、`storage-and-data.md`、`CONTEXT.md`、`CONTRIBUTING.md`、`ADR-0002`、`ADR-0003`
-- 新增文件:`acceptance-report.md`(本文件)
+| Commit | 范围 | 修正内容 |
+|---|---|---|
+| `80a69e90` | 第一轮 review 6 个 P1 | FFI 符号、shutdown 时序、ADR-0003 EQ/HMR、Storage 锁名/DB 路径、CONTEXT.md 残留、测试数据 |
+| `3b417553` | 第二轮 review 5 个 P1 + 4 个 P2 | `g_*` → `Ctx().*`、IPC 17→19、AudioContext 分析链路、shutdown 图分支、DeepSeek Key、回退路径、CTest 结论、Drawer.vue、Actor 崩溃表述 |
+
 - 未修改:`.rs`、`.cpp`、`.h`、`.ts`、`.vue` 等生产代码
+- 测试基线:vitest 78 文件 / 937 tests、Rust 34、CTest 11/11
 
-## 4.1 第二轮 review 修正(本次提交)
+## 4.1 第二轮 review 修正(commit `3b417553`)
 
 针对第二轮 review 发现的 5 个 P1 + 4 个 P2 问题,本次纯文档提交修正:
 
@@ -116,6 +120,16 @@ CTest 11/11 全通过。此前报告中出现的 "9/11" 及 "C API 全局状态�
 
 - `EchoShutdown` 签名从 `void ()` 改为 `int ()`(返回 0 = 安全卸载,非零 = 不安全)
 
+## 4.2 第三轮 review 修正(本次提交)
+
+针对第三轮 review 发现的 3 个 P2 问题,本次纯文档提交修正:
+
+| # | 问题 | 修正 |
+|---|---|---|
+| 1 | `CONTEXT.md` L91 称 "6 个 `EchoStatsGet*`" | 实际是 5 个 `EchoStatsGet*` + 1 个 `EchoStatsRecordPlay`,共 6 个 Rust stats 命令;已更正措辞 |
+| 2 | 验收报告第一轮表格"修正后"仍写 `g_api/g_scheduler/g_stats`;§4 称"单一 commit" | 表格更正为 `Ctx().api/scheduler/stats/db` 并标注 `3b417553` 二次修正;§4 重写为两个 commit(`80a69e90` + `3b417553`)的提交结构 |
+| 3 | ADR-0003 "HMR 安全"未限定 EQ 链路 | 正面后果限定为"EQ 链路 HMR 安全";分析链路 HMR 风险(`sharedCtx` 孤儿引用)列入负面后果作为已知开发态残余 |
+
 ## 5. 验收结论
 
-**通过**(第二轮)。所有 5 个 P1 + 4 个 P2 问题已修正,测试基线数据不变(937/937、34、11/11)。可进入最终 review。
+**通过**(第三轮)。三轮 review 共修正 6 个 P1(第一轮)+ 5 个 P1 + 4 个 P2(第二轮)+ 3 个 P2(第三轮)= 18 个文档事实错误,测试基线数据不变(937/937、34、11/11)。生产代码与测试无任何改动。可合并。

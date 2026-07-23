@@ -88,7 +88,7 @@ C++ Core (native/) → EchoCAPI.dll
 
 - **Schema**: `play_history_v2` table — song_hash, song_name, singer_name, album_id, album_name, cover_url, duration_seconds, completed, listened_seconds, quality, played_at. Indexed by `played_at` and `song_hash`.
 - **Record path**: every play → 1 row. Tracked via `PlaySessionTracker` (skip-immune accumulator) + `stats_record_play` Rust command → `EchoStatsRecordPlay` C API → `PlayStatsService::RecordPlay` (SQL injection safety via `?N` parameter placeholders + identifier whitelist; no `SqlEscape` class exists)
-- **Query endpoints** (6 `EchoStatsGet*` C API → 6 Rust Tauri commands):
+- **Query endpoints** (5 `EchoStatsGet*` C API → 5 Rust query commands; combined with `EchoStatsRecordPlay` → `stats_record_play`, the stats module exposes 6 Rust Tauri commands total):
   - `stats_get_summary` — total plays, listened seconds, unique songs/artists, completion rate, per range (7d/30d/all)
   - `stats_get_top` — top N by song/artist/**album_id** (albums grouped by `album_id` not `name` to avoid same-name merges)
   - `stats_get_timeline` — daily play counts (`{date: "YYYY-MM-DD", count: N}`)
