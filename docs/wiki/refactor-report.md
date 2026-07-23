@@ -134,7 +134,7 @@ export function disposeAudioLevelMonitor(): void {
 
 **调用点:** 仅 `cleanupCurrentModuleForHmr()`(开发态 HMR)。生产 `disposePlayerRuntime()`(pagehide)**不**调用——分析链路只读、不连 destination,关闭反而会 blip 输出设备。
 
-**修复效果:** HMR 孤儿 AudioContext 风险消除。旧模块的 `sharedCtx` 不再泄漏,新模块 `ensureGraph()` 重建 fresh context。HMR 6+ 次后 AudioContext 配额耗尽的问题不再存在。Idempotent:二次调用为 no-op。
+**修复效果:** HMR 孤儿 AudioContext 累积风险在代码层面消除——旧模块的 `sharedCtx` 经 `disposeAudioLevelMonitor()` 关闭,新模块 `ensureGraph()` 重建 fresh context。Idempotent:二次调用为 no-op。**注:** "HMR 6+ 次后配额耗尽"的场景尚需 Tauri dev 手测验证(见 §8.2),本轮未执行 HMR 手测。
 
 ### 3.4 R4:移除 `beforeunload` 监听
 
@@ -165,6 +165,36 @@ if (typeof window !== 'undefined') {
 
 **决策:** 不需要时间冷却。用户主动操作(切歌、手动刷新推荐)即触发重置;在用户无操作期间保持 exhausted 是合理的反压机制,避免对 KuGou 接口持续打流量。
 
+### 3.6 Review P1-1:phase 真正成为唯一真相源(无 phase patch 也拒绝 bare flags)
+
+**文件:** [ui/src/api/playerStore.ts](../../ui/src/api/playerStore.ts) `patchPlayerState()` + [ui/src/api/playbackOrchestrator.ts](../../ui/src/api/playbackOrchestrator.ts) `applyPhase()`
+
+**问题:** 初版 R1 修复只在 patch **含** `playbackPhase` 时剥离 flags。无 phase 的 patch(如 `{ isPlaying: true, currentTime: 5 }`)仍经 `Object.assign` 直接写入 `isPlaying`,调用方可绕过 phase 派生。orchestrator 的 `applyPhase` 同 phase 路径(`from === to`)正依赖此裸写入:`this.deps.patchState(flagsFromPhase(to))` 只传 flags 不传 phase。
+
+**修复:**
+1. `patchPlayerState`:从**所有** patch 中剥离 `isPlaying`/`isLoading`(无论是否含 phase)。含 phase → 经 `flagsFromPhase` 派生;无 phase → 丢弃 flags,保留现有值。非 flag 字段(currentTime / duration / errorMsg 等)正常通过。
+2. `applyPhase` 同 phase 路径:改为 `this.deps.patchState({ playbackPhase: to, ...flagsFromPhase(to) })`,始终带 phase。两分支合并为单一 `patchState` 调用。
+
+**测试:** 2 个 RED→GREEN 测试 —— 无 phase patch 传 `isPlaying: true` 被拒绝;即使 phase=playing 时传 `isPlaying: false` 也被拒绝(锁死"funnel 从不接受 bare flags")。
+
+### 3.7 Review P1-2:initPlayer currentTrack 恢复顺序
+
+**文件:** [ui/src/api/playerStore.ts](../../ui/src/api/playerStore.ts) `initPlayer()`
+
+**问题:** `initPlayer()` 在 L242 投影 phase(依据 `currentTrack`),但 `currentTrack` 从持久化队列恢复在 L316。冷启动/HMR 中,audio 暂停 + 有效队列时,phase 投影时 `currentTrack` 仍为 null → 落入"无 track"分支 → phase=idle。随后 L318 恢复 currentTrack,但 phase 不再更新 → "currentTrack 非空但 phase=idle"的不一致状态。测试提前手工设置 `currentTrack` 掩盖了此问题。
+
+**修复:** 将 `currentTrack` 恢复块从函数末尾移至 phase 投影之前。恢复后 `playerStore.currentTrack` 非空,paused-with-track 分支正确触发 `applyStorePhase('paused')`。删除函数末尾的重复恢复块。
+
+**测试:** 1 个 RED→GREEN 测试 —— 不预设 `currentTrack`,只 seed `queue` + `currentIndex`(模拟 localStorage 冷启动),验证 initPlayer 先恢复 currentTrack 再投影 phase=paused。
+
+### 3.8 Review P2-3:AudioContext.close() 异步 rejection
+
+**文件:** [ui/src/api/audioLevelMonitor.ts](../../ui/src/api/audioLevelMonitor.ts) `disposeAudioLevelMonitor()`
+
+**问题:** `try { void sharedCtx.close(); } catch { /* ignore */ }` 的同步 try/catch 捕获不到 `close()` 返回的 Promise rejection。HMR 时若 close() 异步失败,会产生 unhandled rejection。
+
+**修复:** 保存 ctx 引用 → null 模块级 slot → `void ctx.close().catch(() => {})` 显式捕获异步 rejection。
+
 ## 4. 测试覆盖
 
 ### 4.1 新增测试文件
@@ -172,10 +202,10 @@ if (typeof window !== 'undefined') {
 | 文件 | 测试数 | 覆盖范围 |
 |------|:---:|---------|
 | `ui/src/api/__tests__/playbackRuntimeCharacterization.test.ts` | 4 | audioLevelMonitor 永不关闭、`start() after stop()` 复用同一 ctx、两 monitor 共享 ctx、`beforeunload` 不再 flush |
-| `ui/src/api/__tests__/playbackPhaseProjection.test.ts` | 7 | R1: phase 存在时剥离 stale flags(4 个);R2: HMR 复用经 phase(3 个) |
+| `ui/src/api/__tests__/playbackPhaseProjection.test.ts` | 10 | R1: phase 存在时剥离 stale flags(4 个)+ 无 phase patch 拒绝 bare flags(2 个 review-fix);R2: HMR 复用经 phase(3 个)+ 真实初始化顺序(1 个 review-fix) |
 | `ui/src/api/__tests__/audioLifecycleOwnership.test.ts` | 3 | R3: dispose 关闭 ctx、dispose 后新建 fresh ctx、dispose idempotent |
 
-**新增测试合计:14 个**(937 → 951)。
+**新增测试合计:17 个**(937 → 954)。其中 3 个为 review P1/P2 修复新增的 RED→GREEN 测试。
 
 ### 4.2 TDD 流程
 
@@ -197,13 +227,13 @@ if (typeof window !== 'undefined') {
 
 | Gate | 命令 | 基线(1f2069d3) | 终态(HEAD) | 备注 |
 |------|------|:---:|:---:|------|
-| Vitest | `cd ui && npx vitest run --maxWorkers=2` | 937/937 | **951/951** | +14 新测试,81 文件全过 |
+| Vitest | `cd ui && npx vitest run --maxWorkers=2` | 937/937 | **954/954** | +17 新测试(14 初始 + 3 review-fix),81 文件全过 |
 | vue-tsc | `cd ui && npx vue-tsc --noEmit` | pass | **pass** | 无类型错误 |
-| vite build | `cd ui && npx vite build` | pass | **pass**(20.21s) | 无 warning(仅既存 chunk size 提示) |
+| vite build | `cd ui && npx vite build` | pass | **pass**(25.34s) | 无 warning(仅既存 chunk size 提示) |
 | Rust cargo test | `cd ui/src-tauri && cargo test --no-fail-fast` | 34/34 | **34/34** + 2 integration | lib + bin + integration 全过 |
 | CTest | `ctest --test-dir native/out/bottlemusic-check --output-on-failure` | 10/11 | **11/11** | EchoNativeSmokeTests 从环境性 fail 恢复为 pass |
 
-**无回归。** 所有基线测试继续通过,新增 14 个测试全部 GREEN。
+**无回归。** 所有基线测试继续通过,新增 17 个测试全部 GREEN。
 
 ## 6. 提交链
 
@@ -214,8 +244,10 @@ if (typeof window !== 'undefined') {
 | 3 | `f520637d` | refactor | Phase 4: R3 fix —— `disposeAudioLevelMonitor()` 新增,`cleanupCurrentModuleForHmr` 调用 |
 | 4 | `ee6b0570` | refactor | Phase 5: R4 fix —— 删除 `playerPersistence.ts` 顶层 `beforeunload` 监听 |
 | 5 | `c264560a` | docs | ADR-0003 + playback-runtime.md 更新(analyser HMR dispose、R1/R2/R4 文档化) |
+| 6 | `35df4625` | docs | refactor-report.md 初版 |
+| 7 | `0f840db9` | fix | Review P1+P2 修复 —— phase-as-sole-source 强制(剥离所有 patch 的 flags)、initPlayer currentTrack 恢复顺序、AudioContext.close() 异步 catch |
 
-**纪律:** 每个 commit 独立可 revert;production code 改动仅 3 个 commit(714a7a79 / f520637d / ee6b0570),其余为纯测试或纯文档;frozen scope 全程未触碰。
+**纪律:** 每个 commit 独立可 revert;production code 改动仅 4 个 commit(714a7a79 / f520637d / ee6b0570 / 0f840db9),其余为纯测试或纯文档;frozen scope 全程未触碰。
 
 ## 7. 文档同步
 
@@ -266,12 +298,15 @@ if (typeof window !== 'undefined') {
 - 队列 / currentIndex / currentTrack 始终一致
 - 统计 PlayRecord 数量与实际播放次数一致
 
-**如 soak test 发现问题:** 在 audit 文档中追加新风险项,按 RED → GREEN 流程修复,新增 commit 接在 `c264560a` 之后。
+**如 soak test 发现问题:** 在 audit 文档中追加新风险项,按 RED → GREEN 流程修复,新增 commit 接在 review-fix commit 之后。
 
 ## 10. 自检清单
 
 - [x] 全部 P1 风险(R1/R2/R3)已修复并有测试覆盖
-- [x] 全部门禁通过(Vitest 951 / vue-tsc / vite build / Rust 36 / CTest 11)
+- [x] Review P1-1 修复:phase 真正成为唯一真相源(无 phase patch 也拒绝 bare flags)
+- [x] Review P1-2 修复:initPlayer currentTrack 恢复在 phase 投影之前
+- [x] Review P2-3 修复:AudioContext.close() 异步 rejection 经 .catch() 捕获
+- [x] 全部门禁通过(Vitest 954 / vue-tsc / vite build / Rust 36 / CTest 11)
 - [x] 无 frozen scope 触碰(Vue 模板、CSS、Rust/C++/FFI/DB、Pinia、deps、路由)
 - [x] 每个 commit 独立可 revert
 - [x] 文档同步(ADR-0003 + playback-runtime.md)
@@ -292,5 +327,5 @@ if (typeof window !== 'undefined') {
 ---
 
 **重构完成日期:** 2026-07-23
-**最终 commit:** `c264560a`
+**最终 commit:** `0f840db9`(含 review P1/P2 修复)
 **等待:** 用户手测 + soak test 反馈,或合并指令
