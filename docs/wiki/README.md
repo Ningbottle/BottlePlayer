@@ -18,6 +18,7 @@
 | [security-and-privacy.md](./security-and-privacy.md) | 安全设计、CSP、SSRF、隐私数据处理 |
 | [maintenance.md](./maintenance.md) | 维护:已知问题、模糊点、清理候选、未来提案 |
 | [evidence-report.md](./evidence-report.md) | 事实核验报告(本 Wiki 的事实来源) |
+| [acceptance-report.md](./acceptance-report.md) | 验收报告:测试基线 + 文档修正记录 |
 
 ## 阅读路径
 

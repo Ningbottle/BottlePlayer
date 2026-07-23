@@ -49,14 +49,15 @@ std::vector<std::vector<std::string>> ExecuteQueryBound(...) {
 |---|---|---|
 | Actor 线程 | 单线程串行执行 `Submit` 的 lambda | SQLite 句柄 |
 | `g_stats` | `shared_lock(g_api_rwlock)` 读 / 独占写 | `PlayStatsService` 指针 |
-| `Database::mutex_` | `std::mutex` | Actor 队列与状态 |
+| `Database::queue_mutex_` | `std::mutex` | Actor 队列与状态(`queue_` / `state_`) |
 | SQLite | WAL 模式 + `busy_timeout` | 文件级并发 |
 
-证据：`g_stats` 在 `EchoShutdown` 时于独占生命周期锁下重置；`Database::Execute`/`ExecuteQuery` 持有 `mutex_`（见 [CONTEXT.md](../../CONTEXT.md) S5 Details）。
+证据：`g_stats` 在 `EchoShutdown` 时于独占生命周期锁下重置；`Database::Submit` 在 `queue_mutex_` 下入队（见 `native/include/echo/storage/Database.h` L67）。注：`Database::Execute`/`ExecuteQuery` 是 public API,内部通过 `Submit` 封送到 Actor 线程,不直接持锁。
 
 ### 数据库文件
 
-- 文件名：`echomusic-native.db`（位于 `app_data_dir`）；
+- **生产路径**：`<app_data_dir>/bottlemusic.db`（当 `EchoInitializeWithPathsV2(app_data_dir)` 传入非空路径时,见 `native/core/C_API.cpp` L84/L88）；
+- **回退路径**：`<app_data_dir>/echomusic-native.db`（当 `app_data_dir` 为空时由 `GetDefaultDatabasePath()` 返回,见 `native/storage/AppPaths.cpp` L37）；
 - 模式：WAL（Write-Ahead Logging）+ `busy_timeout`；
 - 主要表：`play_history_v2`、`kv_store`、`api_cache`。
 

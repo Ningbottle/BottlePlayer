@@ -75,9 +75,9 @@ C++ Core (native/) → EchoCAPI.dll
 - **EQ implementation**: Web Audio API AudioWorklet graph (10 bands: 31/62/125/250/500/1K/2K/4K/8K/16K Hz), `webAudioEq.ts` controller + `eqWorkletProcessor.ts` DSP (RBJ peaking from Audio EQ Cookbook), routed via captureStream → MediaStreamAudioSourceNode → AudioWorkletNode → GainNode → destination
 - **EQ UI**: `EqualizerPanel.vue` in `Drawer.vue` (right sidebar), uses skin CSS variables
 - **EQ + audio proxy (#1)**: KuGou CDN sends no CORS headers, so a local Tauri HTTP proxy (`audio_proxy.rs`, loopback 127.0.0.1) re-serves CDN media with CORS headers + range/resume, letting the EQ graph attach to cross-origin media. `eqState.available` exposed to UI; degradation banner shown only when the proxy is unavailable.
-- **EQ graph build order (#4)**: full filter→gain→destination chain built BEFORE `createMediaElementSource`; throws are safe (element never gets stranded in a disconnected graph)
-- **AudioContext lifecycle (#9)**: `webAudioEq.close()` releases context on teardown (HMR-safe)
-- **Suspended resume (#10)**: failed `resume()` surfaces via `onSuspendedFail` instead of being swallowed
+- **EQ graph build order (#4)**: full filter→gain→destination chain built BEFORE `captureStream` + `createMediaStreamSource` attach; throws are safe (element never gets stranded in a disconnected graph). The implementation **never** uses `createMediaElementSource`.
+- **AudioContext lifecycle (#9)**: `webAudioEq.close()` releases context on teardown (HMR-safe). HMR preserves the `<audio>` element via `window.__bottlemusic_audio__` but closes the old AudioContext; the new module rebuilds the EQ graph via `initWebAudioEQ()`.
+- **Degraded callback (#10)**: `AudioContext` creation failure, worklet load failure, or `enterDegradation()` fade-out surfaces via `onDegraded` (not `onSuspendedFail`); recovery via `onRecovered`.
 - **PlaySessionTracker (state machine)**: sessions only open on real `play` event (no ghost sessions on rejected play()); `listened_seconds` is seek-immune (forward deltas 0<Δ<2s count, jumps/backward ignored); `completed` uses accumulator not duration; `setQuality` skip+intend keeps quality accurate
 - **Event ownership (#2)**: `Html5AudioBackend.onEvent` is sole event source; `initPlayer` only handles `durationchange`/`loadedmetadata`. Double-`ended` handler that double-fetched `/song/url` is gone.
 - **Single-loop replay**: handled in `ended` handler (not `next()`); `intend()` runs before `play()` (Bug A invariant)
@@ -87,14 +87,14 @@ C++ Core (native/) → EchoCAPI.dll
 ## S5 Details
 
 - **Schema**: `play_history_v2` table — song_hash, song_name, singer_name, album_id, album_name, cover_url, duration_seconds, completed, listened_seconds, quality, played_at. Indexed by `played_at` and `song_hash`.
-- **Record path**: every play → 1 row. Tracked via `PlaySessionTracker` (skip-immune accumulator) + `stats_record_play` Rust command → `EchoStatsRecordPlay` C API → `PlayStatsService::RecordPlay` (with `SqlEscape` for SQL injection safety)
+- **Record path**: every play → 1 row. Tracked via `PlaySessionTracker` (skip-immune accumulator) + `stats_record_play` Rust command → `EchoStatsRecordPlay` C API → `PlayStatsService::RecordPlay` (SQL injection safety via `?N` parameter placeholders + identifier whitelist; no `SqlEscape` class exists)
 - **Query endpoints** (6 `EchoStatsGet*` C API → 6 Rust Tauri commands):
   - `stats_get_summary` — total plays, listened seconds, unique songs/artists, completion rate, per range (7d/30d/all)
   - `stats_get_top` — top N by song/artist/**album_id** (albums grouped by `album_id` not `name` to avoid same-name merges)
   - `stats_get_timeline` — daily play counts (`{date: "YYYY-MM-DD", count: N}`)
   - `stats_get_recent` — most recent N plays with full metadata (limit/offset)
   - `stats_get_recommendations` — "for you" based on top artists (local-only, no KuGou API fusion)
-- **Thread safety**: `g_stats` guarded by `shared_lock(g_api_rwlock)`; `Database::Execute`/`ExecuteQuery` hold `mutex_`; all 5 query C API functions wrapped in try-catch with safe empty JSON fallback. `EchoShutdown` resets global API/database/stat pointers under the exclusive lifecycle lock.
+- **Thread safety**: `g_stats` guarded by `shared_lock(g_api_rwlock)`; `Database::Execute`/`ExecuteQuery` are public APIs that marshal work onto a single Actor thread via `Submit` (the Actor queue is protected by `Database::queue_mutex_`, not `mutex_`); all 5 query C API functions wrapped in try-catch with safe empty JSON fallback. `EchoShutdown` resets global API/database/stat pointers under the exclusive lifecycle lock.
 - **AI analysis**: `ai_analyze` async Tauri command → reqwest → DeepSeek API. User provides API key via localStorage `deepseek_api_key` (password input, never logged). 30s timeout. Chinese prompt, 200-word limit, covers listening habits + music taste + one interesting finding.
 - **StatsView.vue**: 4 sections — overview cards (total plays / listened time / completion / unique counts), top lists with album art (song/artist/album), timeline CSS bar chart, recent plays list (with cover + completion badge), AI analysis panel
 
@@ -116,16 +116,13 @@ C++ Core (native/) → EchoCAPI.dll
 | `ui/src/components/Drawer.vue` | Right sidebar (EQ, theme, tweaks) |
 | `ui/src/views/StatsView.vue` | Statistics dashboard (overview + top + timeline + recent + AI) |
 | `ui/src-tauri/src/backend_api.rs` | CApiHandle, DLL loading, event bridge |
-| `ui/src-tauri/src/playback.rs` | 13 Tauri playback commands (unused — HTML5 default) |
 | `ui/src-tauri/src/stats.rs` | 6 Tauri stats commands |
 | `ui/src-tauri/src/ai_analysis.rs` | DeepSeek AI analysis async command |
 | `ui/src-tauri/src/audio_proxy.rs` | Local HTTP proxy for cross-origin CDN media (CORS, range/resume, SSRF allowlist) |
 | `ui/src/api/audioProxy.ts` | Frontend wrapper for audio_proxy_url Tauri command |
-| `native/core/C_API.cpp` | C API exports, g_api, g_playback, g_scheduler, g_stats |
+| `native/core/C_API.cpp` | C API exports, g_api, g_scheduler, g_stats (no g_playback — MFS removed) |
 | `native/core/HttpClient.cpp` | WinHTTP + watchdog + retry budget |
 | `native/async/RequestScheduler.cpp` | Thread pool + bounded shutdown/restart |
-| `native/playback/PlaybackControllerMFP.cpp` | MFPlay (legacy, works, deprecated) |
-| `native/playback/BiquadFilter.cpp` | RBJ biquad math (tested) |
 | `native/stats/PlayStatsService.cpp` | Record + query play history (SQL injection-safe) |
 | `native/storage/Database.cpp` | SQLite (play_history_v2 schema) |
 

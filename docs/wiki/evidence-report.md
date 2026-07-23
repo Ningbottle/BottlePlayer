@@ -36,7 +36,7 @@
 - `release.yml` 构建步骤不构建/不打包 server/
 - Rust `lib.rs` 启动流程无 server/ 进程派生
 
-**结论**:server/ 是**纯只读参考实现**,用于翻译 KuGou API 路由到 C++ CompatApi 时对照,不进入运行时。生产链路完全通过 `EchoCAPI.dll` 的 `Echo_request` 系列 C ABI。
+**结论**:server/ 是**纯只读参考实现**,用于翻译 KuGou API 路由到 C++ CompatApi 时对照,不进入运行时。生产链路完全通过 `EchoCAPI.dll` 的 `EchoHandleRequest` 系列 C ABI。
 
 ### 1.4 EchoImage 库的真实状态(已确认:**预留功能,非死代码**)
 

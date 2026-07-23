@@ -115,7 +115,7 @@ cargo clippy --no-default-features -- -D warnings
 
 以下边界为**硬约束**，改动前请在 PR 中明确说明是否触碰，并附 RFC 或测试证据：
 
-1. **FFI 边界**：Rust 与 C++ 之间仅通过 `EchoCAPI.dll` 导出的 C ABI 符号通信（`EchoInitializeWithPathsV2` / `EchoHandleRequest` / `EchoStats*` / `EchoShutdown` / `Echo_free_string`）。不得在 Rust 端直接链接 C++ 类，也不得在 C++ 端暴露 STL 类型。参见 [docs/wiki/architecture.md](./docs/wiki/architecture.md) 与 ADR（待补：FFI 边界）。
+1. **FFI 边界**：Rust 与 C++ 之间仅通过 `EchoCAPI.dll` 导出的 C ABI 符号通信（`EchoInitializeWithPathsV2` / `EchoHandleRequest` / `EchoStats*` / `EchoShutdown` / `EchoFreeString`）。不得在 Rust 端直接链接 C++ 类，也不得在 C++ 端暴露 STL 类型。参见 [docs/wiki/architecture.md](./docs/wiki/architecture.md) 与 [docs/adr/0001-ffi-boundary-c-abi.md](./docs/adr/0001-ffi-boundary-c-abi.md)。
 2. **播放运行时**：播放栈为 HTML5 Audio + Web Audio API 均衡器（`captureStream → MediaStreamSource → AudioWorkletNode → GainNode → destination`）。不得重新引入 Media Foundation 或其它原生播放栈。参见 [docs/wiki/playback-runtime.md](./docs/wiki/playback-runtime.md)。
 3. **Storage Actor**：SQLite 仅通过 C++ 端 Storage Actor 单线程访问，前端与 Rust 不得直连数据库文件。参见 [docs/wiki/storage-and-data.md](./docs/wiki/storage-and-data.md)。
 4. **DeepSeek API Key**：仅内存会话生命周期（`ref('')` + 页面卸载清理），**不得**写入磁盘或 localStorage。参见 [docs/wiki/security-and-privacy.md](./docs/wiki/security-and-privacy.md) 与 [PRIVACY.md](./PRIVACY.md)。

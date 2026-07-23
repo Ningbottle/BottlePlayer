@@ -17,7 +17,7 @@ BottleMusic 的存储与数据层按**职责**分为四条独立通路,各自有
 
 **关键设计决策**:
 
-- **SQLite 单库多表**:统计、KV(会话/设备/设置)、API 缓存共用同一个 `echomusic-native.db`,通过 `Database` Actor 串行化所有访问,**不使用 TLS**(`thread_local`)快照隔离,而是线性一致性(linearizable)。
+- **SQLite 单库多表**:统计、KV(会话/设备/设置)、API 缓存共用同一个 SQLite 数据库文件,通过 `Database` Actor 串行化所有访问,**不使用 TLS**(`thread_local`)快照隔离,而是线性一致性(linearizable)。生产环境文件名为 `bottlemusic.db`(见 §2.1),回退路径为 `echomusic-native.db`。
 - **DPAPI 会话保护**:登录 token 等凭证经 `CryptProtectData` 加密后存入 `kv_store`,绑定当前 Windows 用户;明文读取路径在 2026-07-17 一次性迁移后已关闭。
 - **前端偏好零信任**:播放队列、音量、音质、EQ、外观等纯偏好数据落在 `localStorage`,可随时清空而不影响功能;**DeepSeek Key 显式不入 localStorage**,旧版本残留 Key 在 `StatsView.vue` 模块加载时被清理。
 
@@ -31,13 +31,14 @@ BottleMusic 的存储与数据层按**职责**分为四条独立通路,各自有
 
 ### 2.1 数据库文件位置
 
-数据库路径由 [AppPaths.cpp](../../native/storage/AppPaths.cpp) 决定:
+数据库路径由 [C_API.cpp](../../native/core/C_API.cpp) 的 `EnsureInitializedLocked` 与 [AppPaths.cpp](../../native/storage/AppPaths.cpp) 共同决定:
 
+- **生产路径**:`<app_data_dir>/bottlemusic.db` —— 当 `EchoInitializeWithPathsV2(app_data_dir)` 传入非空 `app_data_dir` 时使用(Tauri 生产环境始终传入,见 `C_API.cpp` L83-89)。
+- **回退路径**:`<app_data_dir>/echomusic-native.db` —— 当 `app_data_dir` 为空时由 `GetDefaultDatabasePath()` 返回(见 `AppPaths.cpp`)。
 - `GetAppDataDirectory()` 优先读 `ECHO_NATIVE_DATA_DIR` 环境变量(测试覆盖用);否则使用 `%LOCALAPPDATA%\EchoMusicNative`。
-- `GetDefaultDatabasePath()` 返回 `<app_data_dir>/echomusic-native.db`。
 - 若 `LOCALAPPDATA` 不可用,回退到系统 temp 目录,确保只读环境也能初始化。
 
-> 注:目录名为 `EchoMusicNative`,数据库文件名为 `echomusic-native.db`(历史命名,代码事实)。
+> 注:目录名为 `EchoMusicNative`(历史命名)。生产数据库文件名为 `bottlemusic.db`;`echomusic-native.db` 仅在无显式 `app_data_dir` 时作为回退路径。
 
 ### 2.2 连接初始化与 PRAGMA
 

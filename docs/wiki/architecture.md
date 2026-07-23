@@ -18,7 +18,7 @@ graph TD
     G[DeepSeek API]
 
     A -- "Tauri invoke<br/>(native_request, stats_*, ai_analyze, audio_proxy_url, os_media_*)" --> B
-    B -- "extern C FFI<br/>(EchoInitializeWithPathsV2,<br/>Echo_request, EchoStats*)" --> C
+    B -- "extern C FFI<br/>(EchoInitializeWithPathsV2,<br/>EchoHandleRequest, EchoStats*)" --> C
     C -- "WinHTTP" --> D
     C -- "WAL" --> E
     B -- "loopback 127.0.0.1" --> A
@@ -51,11 +51,11 @@ graph TD
 | 符号 | 用途 | 调用方 |
 |---|---|---|
 | `EchoInitializeWithPathsV2` | 初始化 C++ 后端,传入 app_data_dir | `backend_api::init_with_paths` |
-| `Echo_request`(或同名) | 主请求入口 | `backend_api::handle_request` |
+| `EchoHandleRequest` | 主请求入口 | `backend_api::handle_request` |
 | `EchoStatsRecordPlay` | 记录播放 | `stats::stats_record_play` |
 | `EchoStatsGetSummary` / `Top` / `Timeline` / `Recent` / `Recommendations` | 查询统计 | `stats::stats_get_*` |
-| `EchoShutdown` | 有界关闭(最多等 2s) | `backend_api::shutdown_c_api` |
-| `Echo_free_string` | 释放 C++ 分配的字符串 | `backend_api::CApiHandle::free_str` |
+| `EchoShutdown` | 有界关闭(Rust 写锁 5s + C++ scheduler 3s + 生命周期锁 3s) | `backend_api::shutdown_c_api` |
+| `EchoFreeString` | 释放 C++ 分配的字符串 | `backend_api::CApiHandle::free_str` |
 
 ### 全局状态(`C_API.cpp`)
 
@@ -118,8 +118,9 @@ sequenceDiagram
     Note over App,DLL: 窗口关闭时
     App->>Lib: WindowEvent::CloseRequested
     Lib->>BA: shutdown_c_api()
-    BA->>DLL: EchoShutdown() — 有界等待 ≤2s
-    BA->>BA: drop CApiHandle — unload DLL
+    BA->>BA: get_handle().try_write() — 5s 内获取写锁
+    BA->>DLL: EchoShutdown() — scheduler 3s + 生命周期锁 3s
+    BA->>BA: 非零返回码 → forget(handle) 保留 DLL mapping
 ```
 
 ### 关键启动不变量
@@ -145,7 +146,7 @@ sequenceDiagram
     Rust->>BA: handle_request(method, path, ...)
     BA->>BA: api_handle().read() — 读锁
 
-    BA->>Sched: Echo_request(json_in)
+    BA->>Sched: EchoHandleRequest(method, path, ...)
     Sched->>Sched: RequestKind + per-kind deadline
     Sched->>HTTP: dispatch (worker thread)
     HTTP->>HTTP: watchdog 启动
@@ -189,27 +190,33 @@ sequenceDiagram
     User->>App: 关闭窗口
     App->>Lib: WindowEvent::CloseRequested
     Lib->>BA: shutdown_c_api()
-    BA->>BA: get_handle().write() — 写锁,等所有读者完成
-    BA->>DLL: EchoShutdown() — 返回 c_int (≤2s)
-    DLL->>Sched: RequestScheduler::Shutdown()
-    Sched->>Sched: 等所有 worker 完成 or 超时
-    Sched->>DB: 关闭连接
-    DLL-->>BA: 返回码
-    BA->>BA: drop CApiHandle
-    BA->>BA: drop Library — unload DLL
+    BA->>BA: get_handle().try_write() — 5s deadline 轮询获取写锁
+    Note over BA: 5s 内未获取 → 跳过 EchoShutdown,保留 handle
+    BA->>DLL: EchoShutdown()
+    DLL->>Sched: scheduler.Shutdown(3000ms) — Phase 1
+    Note over Sched: 取消 active tokens,等 ≤3s<br/>abandoned > 0 → 返回非零,跳过 Phase 2
+    Sched-->>DLL: abandoned count
+    DLL->>DLL: Phase 2: try_lock(api_rwlock) — 3s deadline
+    Note over DLL: 3s 内获取 → api/stats/db.reset()<br/>+ CloseHttpConnectionPool()<br/>3s 内未获取 → 返回 1
+    DLL-->>BA: shutdown_status (0 = 安全卸载,非零 = 不安全)
+    alt status == 0
+        BA->>BA: drop CApiHandle — unload DLL
+    else status != 0
+        BA->>BA: mem::forget(handle) — 保留 DLL mapping,OS 回收
+    end
     BA-->>Lib: Ok
     Lib->>App: 进程退出
 ```
 
 ### 关闭不变量
 
-- **有界**:最多等 2s,超时强退(避免僵尸进程)
-- **独占**:写锁保证 shutdown 期间无新调用
-- **drain**:等所有 in-flight 调用完成才 unload DLL(避免 use-after-free)
+- **有界**:Rust 写锁 5s + C++ scheduler 3s + C++ 生命周期锁 3s,总上限 11s;超时不阻塞,保留 handle 由 OS 回收
+- **独占**:Rust 端 `RwLock` 写锁保证 shutdown 期间无新 `handle_request` 调用;C++ 端 `shared_mutex` 独占锁保证 teardown 期间无 in-flight worker
+- **安全卸载**:仅当 `EchoShutdown` 返回 0(所有 worker 已完成且独占锁获取成功)时才 `FreeLibrary`;非零返回保留 DLL mapping(避免 use-after-unload)
 
 ## 架构原则
 
-1. **单一请求入口**:所有 KuGou API 调用经 `native_request` Tauri 命令 → `Echo_request` C ABI,无旁路
+1. **单一请求入口**:所有 KuGou API 调用经 `native_request` Tauri 命令 → `EchoHandleRequest` C ABI,无旁路
 2. **签名不入 JS**:KuGou 签名盐和密钥在 C++ 编译期常量,JS 堆中无签名
 3. **audio_proxy 服务端注入**:CDN Authorization header 由 Rust 端注入,JS 看不到
 4. **HTML5-only 播放**:Media Foundation 播放栈已移除(2026-07-17),生产仅 `Html5AudioBackend`
