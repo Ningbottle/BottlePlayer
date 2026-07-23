@@ -115,11 +115,12 @@ this.sourceNode.connect(this.workletNode);
 
 - **独立 AudioContext**:`ensureGraph()` 中 `sharedCtx = new AudioContext()`（L65）,与 EQ 的 `WebAudioEq.ctx` 完全独立;
 - **拓扑**:`captureStream() → MediaStreamAudioSourceNode → AnalyserNode`,**不连接到 `destination`**（L77 注释:"analysis only — never to destination"）,因此不干预播放路径;
-- **永不关闭**:`stop()` 仅停止 rAF 采样循环,`sharedCtx` / `sharedAnalyser` / `sharedSource` 作为模块级单例保留（L133-134 注释:"closing them would blip the output device on every page navigation"）;
+- **永不关闭（生产）**:`stop()` 仅停止 rAF 采样循环,`sharedCtx` / `sharedAnalyser` / `sharedSource` 作为模块级单例保留（L133-134 注释:"closing them would blip the output device on every page navigation"）。`pagehide`（`disposePlayerRuntime`）**不**关闭分析 context——分析链路只读、不连 destination,关闭反而会 blip 输出设备;
+- **HMR 显式 dispose（开发态）**:`disposeAudioLevelMonitor()`（L157-172）关闭 `sharedCtx` 并清空所有模块级引用,由 `cleanupCurrentModuleForHmr()` 调用。这修复了 HMR 孤儿 context 风险：旧模块的 `sharedCtx` 不再泄漏,新模块 `ensureGraph()` 重建 fresh context。**仅 HMR 调用,生产 pagehide 不调用**;
 - **消费者**:`AuroraHome.vue`（L48 `createAudioLevelMonitor`）、`VisualizerView.vue`（L149 同）;
 - **降级**:无 `captureStream` / 无 WebAudio（jsdom、旧 WebView2）→ inert monitor,`level` 恒为 0。
 
-**与 EQ 链路的关系**:两条链路各自 `captureStream` 同一个 `<audio>` 元素,互不干扰。EQ 链路可 HMR 重建（`close()` + 新建）,分析链路设计为永不关闭。这是**有意的设计分歧**,不是疏漏。
+**与 EQ 链路的关系**:两条链路各自 `captureStream` 同一个 `<audio>` 元素,互不干扰。EQ 链路可 HMR 重建（`close()` + 新建）,分析链路在生产永不关闭、在开发 HMR 时经 `disposeAudioLevelMonitor()` 显式释放。这是**有意的设计分歧**,不是疏漏。
 
 > 旧版本 ADR-0003 约束"不得在 `webAudioEq` 之外创建 `AudioContext`"与生产代码冲突 —— 已修正为允许两条已记录的链路（见 §遵守方式）。
 
@@ -135,7 +136,7 @@ this.sourceNode.connect(this.workletNode);
 ### 负面
 
 - **HMR 重建成本**：每次 HMR 重建 AudioContext + Worklet 有几十毫秒开销；
-- **分析链路 HMR 风险（开发态残余）**：`audioLevelMonitor` 的 AudioContext 永不关闭（L133-134），编辑该模块触发 HMR 时缺少显式 dispose，旧模块的模块级单例 `sharedCtx` 在新模块加载后成为孤儿引用。仅影响开发态，生产无 HMR；列为已知风险，未来若需要可补 `dispose()` 钩子；
+- **~~分析链路 HMR 风险（开发态残余）~~（已修复）**：`audioLevelMonitor` 现已提供 `disposeAudioLevelMonitor()`,由 `cleanupCurrentModuleForHmr()` 调用,关闭旧模块的 `sharedCtx` 并清空引用。HMR 孤儿 context 风险已消除。生产 `pagehide` 仍不调用 dispose（保持 no-blip 行为）;
 - **两条 AudioContext**：生产环境存在 EQ（`webAudioEq`）和分析（`audioLevelMonitor`）两条独立 AudioContext,各有一次创建开销；新增第三条需 ADR 评审；
 - **代理依赖**：跨域媒体 EQ 依赖 `audio_proxy`,代理故障时 EQ 降级；
 - **`<audio>` 全局引用**：`window.__bottlemusic_audio__` 是隐性全局状态,测试需显式清理。
@@ -153,7 +154,7 @@ this.sourceNode.connect(this.workletNode);
 
 ## 遵守方式
 
-- **允许的两条 AudioContext 链路**：① EQ 链路（`webAudioEq.ts`,可 HMR 重建）；② 分析链路（`audioLevelMonitor.ts`,模块级单例,永不关闭）。**新增第三条 AudioContext 需先写 ADR**；
+- **允许的两条 AudioContext 链路**：① EQ 链路（`webAudioEq.ts`,可 HMR 重建）；② 分析链路（`audioLevelMonitor.ts`,模块级单例,生产永不关闭,开发 HMR 时经 `disposeAudioLevelMonitor()` 释放）。**新增第三条 AudioContext 需先写 ADR**；
 - **不得**使用 `createMediaElementSource` 接入 `<audio>` —— 只能用 `captureStream` + `createMediaStreamSource`；
 - **不得**在 `buildGraph` 完成前调用 `attachSource`；
 - **不得**静默吞掉降级 —— EQ 链路必须通过 `onDegraded` 上抛；分析链路降级为 inert（`level = 0`）,无需用户提示;

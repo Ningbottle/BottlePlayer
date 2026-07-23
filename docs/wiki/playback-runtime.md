@@ -126,6 +126,10 @@ stateDiagram-v2
 
 `playbackPhase` 是**显式可观测状态**(`playerStore.playbackPhase` 字段),`isPlaying` / `isLoading` 不再被业务逻辑直接写入,而是由 `applyPhase` / `applyStorePhase` 经 `flagsFromPhase` 单向派生。这是 Phase 1 稳定性改造的核心不变量:phase 是唯一真相源,布尔标志是投影。
 
+**R1 强制（runtime-stability-refactor）**:`patchPlayerState` 现在在 `playbackPhase` 存在时**剥离** patch 对象中的 `isPlaying` / `isLoading`,强制经 `flagsFromPhase` 派生。调用方无法再通过传入 stale flag 覆盖 phase 派生值。无 phase 的 patch（如 `currentTime` / `duration` / `errorMsg`）不触碰 flags。测试入口 `__patchPlayerStateForTests` 锁定此不变量。
+
+**R2 强制（runtime-stability-refactor）**:`initPlayer` HMR 复用 `<audio>` 时不再直接写 `isPlaying = !audio.paused && !audio.ended`。改为：audio 中播 → `applyStorePhase('playing')`;audio 暂停且有 currentTrack → `applyStorePhase('paused')`;无 track → 留 `idle`。phase 与 flags 在 HMR 后立即一致。
+
 ### 3.1 transitionSeq supersede 旧 session
 
 `PlaybackOrchestrator.switchTrack` 第一步:
@@ -486,10 +490,14 @@ type BottleMusicAudioGlobal = Window & {
 ```
 
 - `__bottlemusic_audio__`:Vite HMR 重建 `playerStore` 模块时,**不重建 `<audio>` 元素**——新模块实例从全局引用取回旧元素。这避免 HMR 期间播放中断,也避免多个 `<audio>` 元素并存导致 `onEvent` 监听泄漏。
-- `__bottlemusic_player_cleanup__`:旧模块在 HMR 替换前的 cleanup 钩子(unsubscribe `onEvent`、断开 EQ 等)。
+- `__bottlemusic_player_cleanup__`:旧模块在 HMR 替换前的 cleanup 钩子(unsubscribe `onEvent`、断开 EQ、**释放分析 AudioContext**）。
 - `__bottlemusic_pagehide__`:`pagehide` 事件单 owner;HMR / re-import 时替换前一个 handler,保证不会注册多个重复 handler。
 
+`cleanupCurrentModuleForHmr()`（[playerStore.ts](../../ui/src/api/playerStore.ts) L132-151）在 HMR 时执行：`detachCoordinatorForHmr()`（supersede mailbox,不 stop/pause/clear）→ `disposeFmSession()` → drop backend ref → `closeWebAudioEq()`（关 EQ context）→ **`disposeAudioLevelMonitor()`**（关分析 context,R3 修复）。两个 AudioContext 在 HMR 时都显式释放,新模块重建 fresh graph。
+
 `shutdownCoordinatorInstance` 在应用退出时停掉 coordinator 但**不**清空队列(队列已由 `flushSaveQueue` 落盘),注释明确禁止用 `dispose()`(会 barrier-empty 队列并覆盖 localStorage 为空会话)。
+
+**R4（runtime-stability-refactor）**:`playerPersistence.ts` 不再在模块顶层注册 `beforeunload` 监听。`pagehide` → `disposePlayerRuntime()` → `flushSaveQueue()` 是唯一的退出时 flush owner（在 `initPlayer` 中绑定,只有 live 模块持有）。旧的 `beforeunload` 监听冗余且在 orphan HMR 模块中也会注册,已移除。
 
 ## 12. 已知风险
 
