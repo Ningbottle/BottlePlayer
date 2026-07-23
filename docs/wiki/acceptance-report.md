@@ -83,12 +83,13 @@ CTest 11/11 全通过。此前报告中出现的 "9/11" 及 "C API 全局状态�
 
 ## 4. 提交结构
 
-本次文档修正确认**全部为纯文档提交,不触碰任何生产代码**。实际经过三轮 review,共两个纯文档修正 commit:
+本次文档修正确认**全部为纯文档提交,不触碰任何生产代码**。实际经过三轮 review,共三个纯文档修正 commit:
 
 | Commit | 范围 | 修正内容 |
 |---|---|---|
 | `80a69e90` | 第一轮 review 6 个 P1 | FFI 符号、shutdown 时序、ADR-0003 EQ/HMR、Storage 锁名/DB 路径、CONTEXT.md 残留、测试数据 |
 | `3b417553` | 第二轮 review 5 个 P1 + 4 个 P2 | `g_*` → `Ctx().*`、IPC 17→19、AudioContext 分析链路、shutdown 图分支、DeepSeek Key、回退路径、CTest 结论、Drawer.vue、Actor 崩溃表述 |
+| `d76aed9c` | 第三轮 review 3 个 P2 | stats 命令构成(5 查询 + 1 记录)、验收报告提交记账、ADR-0003 HMR 安全限定为 EQ 链路 |
 
 - 未修改:`.rs`、`.cpp`、`.h`、`.ts`、`.vue` 等生产代码
 - 测试基线:vitest 78 文件 / 937 tests、Rust 34、CTest 11/11
