@@ -104,4 +104,33 @@ describe('R3: disposeAudioLevelMonitor for HMR', () => {
     // Only the first dispose closes the context.
     expect(mocks.closeSpy).toHaveBeenCalledTimes(1);
   });
+
+  it('swallows async rejection from close() (no unhandled rejection on HMR)', async () => {
+    const mocks = setupAnalyserMocks();
+    // Override close to reject — simulates a real AudioContext that fails to close.
+    mocks.closeSpy.mockRejectedValue(new Error('close failed'));
+
+    // Track unhandled rejections — if .catch() is removed, this will capture one.
+    const unhandled: unknown[] = [];
+    const handler = (reason: unknown) => unhandled.push(reason);
+    process.on('unhandledRejection', handler);
+
+    try {
+      const { createAudioLevelMonitor, disposeAudioLevelMonitor } = await import('../audioLevelMonitor');
+      const monitor = createAudioLevelMonitor(mocks.capturableAudio);
+      monitor.start();
+
+      // Must not throw synchronously.
+      expect(() => disposeAudioLevelMonitor()).not.toThrow();
+
+      // Let microtasks settle so the rejected promise would surface if uncaught.
+      await new Promise((r) => setTimeout(r, 0));
+
+      expect(mocks.closeSpy).toHaveBeenCalledTimes(1);
+      // .catch() swallowed the rejection — no unhandled rejection leaked.
+      expect(unhandled).toHaveLength(0);
+    } finally {
+      process.off('unhandledRejection', handler);
+    }
+  });
 });

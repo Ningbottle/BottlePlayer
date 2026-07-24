@@ -131,6 +131,12 @@ function detachCoordinatorForHmr(): void {
 }
 
 function cleanupCurrentModuleForHmr() {
+  // HMR: synchronously flush any pending debounced queue save so the new
+  // module reads the latest queue from localStorage. Without this, a 500ms
+  // saveQueue debounce window during a track switch would leave localStorage
+  // stale — the new module would restore the OLD queue while the reused
+  // <audio> keeps playing the NEW track (UI/audio desync).
+  flushSaveQueue();
   initListenerCleanup?.();
   initListenerCleanup = null;
   eventUnsub?.();
@@ -217,10 +223,23 @@ export function initPlayer() {
 
   let audio: HTMLAudioElement;
   if (reusableAudio) {
+    const hadOldCleanup = typeof g.__bottlemusic_player_cleanup__ === 'function';
     try {
       g.__bottlemusic_player_cleanup__?.();
     } catch { /* ignore */ }
     audio = reusableAudio;
+    // HMR queue resync: the old module's cleanup just flushed its in-memory
+    // queue to localStorage (flushSaveQueue in cleanupCurrentModuleForHmr).
+    // But THIS module's playerStore was created at module-eval time from
+    // STALE localStorage (the 500ms saveQueue debounce hadn't fired yet).
+    // Re-read now so queue/currentIndex match the actual playing track,
+    // not the pre-switch snapshot that was on disk when this module loaded.
+    // Guard: only re-read when a real old-module cleanup ran. In fresh init
+    // (no old module), the module-eval localStorage read is already correct.
+    if (hadOldCleanup) {
+      playerStore.queue = loadJSON<Track[]>('player_queue', []);
+      playerStore.currentIndex = parseInt(localStorage.getItem('player_index') || '-1', 10);
+    }
   } else {
     if (activeBackend) {
       try {
