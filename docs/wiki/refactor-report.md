@@ -195,6 +195,34 @@ if (typeof window !== 'undefined') {
 
 **修复:** 保存 ctx 引用 → null 模块级 slot → `void ctx.close().catch(() => {})` 显式捕获异步 rejection。
 
+### 3.9 Review P1-3:HMR 队列持久化竞态(500ms debounce 窗口)
+
+**文件:** [ui/src/api/playerStore.ts](../../ui/src/api/playerStore.ts) `cleanupCurrentModuleForHmr()` + `initPlayer()`
+
+**问题:** `playerPersistence.ts` 的 `saveQueue()` 有 500ms debounce。HMR 时新模块在 `initPlayer()` 调用旧 cleanup **之前**就已从 localStorage 初始化 `playerStore`(`reactive()` 在模块求值时执行)。若切歌后 500ms 内发生 HMR,localStorage 仍为旧队列,新模块读到旧队列却复用正在播放新曲的 `<audio>` → UI 显示旧曲,声音是新曲。
+
+**复现链路:**
+1. 播放 A → 切到 B(B 在内存中,500ms 保存未触发)
+2. HMR → 新模块从旧 localStorage 读到队列 A
+3. 新模块 `initPlayer` 复用播放 B 的 audio
+4. UI/currentTrack 显示 A,实际声音 B
+
+**修复(两步):**
+1. `cleanupCurrentModuleForHmr` 顶部加 `flushSaveQueue()`:旧模块 HMR dispose 时同步 flush 内存中的最新队列到 localStorage。
+2. `initPlayer` 在调用 `g.__bottlemusic_player_cleanup__?.()` 后,若旧 cleanup 确实运行过(`hadOldCleanup` guard),从 localStorage 重新读取 queue + currentIndex。这样新模块的 `playerStore.queue` 拿到的是旧模块刚 flush 的最新数据,而非模块求值时的旧快照。
+
+**Guard:** `hadOldCleanup` 检查 `__bottlemusic_player_cleanup__` 是否为 function。首次初始化(无旧模块)时为 false,跳过 re-read,不影响正常冷启动。
+
+**测试:** 1 个 RED→GREEN 测试(`hmrQueueFlush.test.ts`)—— 用 `vi.resetModules()` + 动态 import 真正模拟新模块求值,验证 HMR 后队列与新模块一致。
+
+### 3.10 Review P2-4:close() rejection 回归测试
+
+**文件:** [ui/src/api/__tests__/audioLifecycleOwnership.test.ts](../../ui/src/api/__tests__/audioLifecycleOwnership.test.ts)
+
+**问题:** P2-3 修复(`ctx.close().catch()`)只有 `mockResolvedValue` 测试,没有 `mockRejectedValue` 路径。报告声称 mutation check 但无测试证据。
+
+**修复:** 新增 1 个测试 —— `closeSpy.mockRejectedValue(new Error('close failed'))`,通过 `process.on('unhandledRejection')` 监听器验证 `.catch()` 确实吞掉了 rejection。若移除 `.catch()`,`unhandled` 数组会捕获到 1 个 rejection,测试失败。
+
 ## 4. 测试覆盖
 
 ### 4.1 新增测试文件
@@ -203,9 +231,10 @@ if (typeof window !== 'undefined') {
 |------|:---:|---------|
 | `ui/src/api/__tests__/playbackRuntimeCharacterization.test.ts` | 4 | audioLevelMonitor 永不关闭、`start() after stop()` 复用同一 ctx、两 monitor 共享 ctx、`beforeunload` 不再 flush |
 | `ui/src/api/__tests__/playbackPhaseProjection.test.ts` | 10 | R1: phase 存在时剥离 stale flags(4 个)+ 无 phase patch 拒绝 bare flags(2 个 review-fix);R2: HMR 复用经 phase(3 个)+ 真实初始化顺序(1 个 review-fix) |
-| `ui/src/api/__tests__/audioLifecycleOwnership.test.ts` | 3 | R3: dispose 关闭 ctx、dispose 后新建 fresh ctx、dispose idempotent |
+| `ui/src/api/__tests__/audioLifecycleOwnership.test.ts` | 4 | R3: dispose 关闭 ctx、dispose 后新建 fresh ctx、dispose idempotent、close() rejection 经 .catch() 吞掉(review-fix) |
+| `ui/src/api/__tests__/hmrQueueFlush.test.ts` | 1 | HMR 队列竞态:500ms debounce 窗口内 HMR,旧模块 flush + 新模块 re-read 一致性(review-fix) |
 
-**新增测试合计:17 个**(937 → 954)。其中 3 个为 review P1/P2 修复新增的 RED→GREEN 测试。
+**新增测试合计:19 个**(937 → 956)。其中 5 个为 review P1/P2 修复新增的 RED→GREEN 测试。
 
 ### 4.2 TDD 流程
 
@@ -227,13 +256,13 @@ if (typeof window !== 'undefined') {
 
 | Gate | 命令 | 基线(1f2069d3) | 终态(HEAD) | 备注 |
 |------|------|:---:|:---:|------|
-| Vitest | `cd ui && npx vitest run --maxWorkers=2` | 937/937 | **954/954** | +17 新测试(14 初始 + 3 review-fix),81 文件全过 |
+| Vitest | `cd ui && npx vitest run --maxWorkers=2` | 937/937 | **956/956** | +19 新测试(14 初始 + 5 review-fix),82 文件全过 |
 | vue-tsc | `cd ui && npx vue-tsc --noEmit` | pass | **pass** | 无类型错误 |
 | vite build | `cd ui && npx vite build` | pass | **pass**(25.34s) | 无 warning(仅既存 chunk size 提示) |
 | Rust cargo test | `cd ui/src-tauri && cargo test --no-fail-fast` | 34/34 | **34/34** + 2 integration | lib + bin + integration 全过 |
 | CTest | `ctest --test-dir native/out/bottlemusic-check --output-on-failure` | 10/11 | **11/11** | EchoNativeSmokeTests 从环境性 fail 恢复为 pass |
 
-**无回归。** 所有基线测试继续通过,新增 17 个测试全部 GREEN。
+**无回归。** 所有基线测试继续通过,新增 19 个测试全部 GREEN。
 
 ## 6. 提交链
 
@@ -245,9 +274,11 @@ if (typeof window !== 'undefined') {
 | 4 | `ee6b0570` | refactor | Phase 5: R4 fix —— 删除 `playerPersistence.ts` 顶层 `beforeunload` 监听 |
 | 5 | `c264560a` | docs | ADR-0003 + playback-runtime.md 更新(analyser HMR dispose、R1/R2/R4 文档化) |
 | 6 | `35df4625` | docs | refactor-report.md 初版 |
-| 7 | `0f840db9` | fix | Review P1+P2 修复 —— phase-as-sole-source 强制(剥离所有 patch 的 flags)、initPlayer currentTrack 恢复顺序、AudioContext.close() 异步 catch |
+| 7 | `0f840db9` | fix | Review R1 P1-1/P1-2/P2-3:phase-as-sole-source 强制、initPlayer currentTrack 恢复顺序、AudioContext.close() 异步 catch |
+| 8 | `bb277bb6` | docs | refactor-report 更新(review R1 修复) |
+| 9 | `354852c7` | fix | Review R2 P1-3/P2-4:HMR 队列 flush + initPlayer re-read、close() rejection 回归测试 |
 
-**纪律:** 每个 commit 独立可 revert;production code 改动仅 4 个 commit(714a7a79 / f520637d / ee6b0570 / 0f840db9),其余为纯测试或纯文档;frozen scope 全程未触碰。
+**纪律:** 每个 commit 独立可 revert;production code 改动仅 5 个 commit(714a7a79 / f520637d / ee6b0570 / 0f840db9 / 354852c7),其余为纯测试或纯文档;frozen scope 全程未触碰。
 
 ## 7. 文档同步
 
@@ -303,10 +334,12 @@ if (typeof window !== 'undefined') {
 ## 10. 自检清单
 
 - [x] 全部 P1 风险(R1/R2/R3)已修复并有测试覆盖
-- [x] Review P1-1 修复:phase 真正成为唯一真相源(无 phase patch 也拒绝 bare flags)
-- [x] Review P1-2 修复:initPlayer currentTrack 恢复在 phase 投影之前
-- [x] Review P2-3 修复:AudioContext.close() 异步 rejection 经 .catch() 捕获
-- [x] 全部门禁通过(Vitest 954 / vue-tsc / vite build / Rust 36 / CTest 11)
+- [x] Review R1 P1-1 修复:phase 真正成为唯一真相源(无 phase patch 也拒绝 bare flags)
+- [x] Review R1 P1-2 修复:initPlayer currentTrack 恢复在 phase 投影之前
+- [x] Review R1 P2-3 修复:AudioContext.close() 异步 rejection 经 .catch() 捕获
+- [x] Review R2 P1-3 修复:HMR 队列 flush + initPlayer re-read(500ms debounce 竞态)
+- [x] Review R2 P2-4 修复:close() rejection 回归测试(mockRejectedValue + unhandledRejection 监听)
+- [x] 全部门禁通过(Vitest 956 / vue-tsc / vite build / Rust 36 / CTest 11)
 - [x] 无 frozen scope 触碰(Vue 模板、CSS、Rust/C++/FFI/DB、Pinia、deps、路由)
 - [x] 每个 commit 独立可 revert
 - [x] 文档同步(ADR-0003 + playback-runtime.md)
@@ -326,6 +359,6 @@ if (typeof window !== 'undefined') {
 
 ---
 
-**重构完成日期:** 2026-07-23
-**最终 commit:** `0f840db9`(含 review P1/P2 修复)
+**重构完成日期:** 2026-07-24
+**最终 commit:** `354852c7`(含 review R1 + R2 全部 P1/P2 修复)
 **等待:** 用户手测 + soak test 反馈,或合并指令
