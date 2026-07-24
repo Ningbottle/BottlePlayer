@@ -1253,16 +1253,18 @@ describe('playerStore integration', () => {
     playerStore.queue = [first, second];
     playerStore.currentIndex = 1;
     playerStore.currentTrack = second;
-    localStorage.removeItem('player_queue');
-    localStorage.removeItem('player_index');
+    localStorage.removeItem('player_queue_snapshot');
 
     window.dispatchEvent(new Event('pagehide'));
 
-    expect(JSON.parse(localStorage.getItem('player_queue') || '[]')).toEqual([
+    // Persistence uses a single atomic snapshot key (queue + currentIndex
+    // together) so a quota error cannot leave a half-written snapshot.
+    const snap = JSON.parse(localStorage.getItem('player_queue_snapshot') || 'null');
+    expect(snap.queue).toEqual([
       expect.objectContaining({ FileHash: 'exit-a' }),
       expect.objectContaining({ FileHash: 'exit-b' }),
     ]);
-    expect(localStorage.getItem('player_index')).toBe('1');
+    expect(snap.currentIndex).toBe(1);
     expect(playerStore.queue.map((track) => track.FileHash)).toEqual(['exit-a', 'exit-b']);
     await Promise.resolve();
   });

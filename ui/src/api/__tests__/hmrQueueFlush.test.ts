@@ -59,8 +59,9 @@ describe('HMR queue flush: no stale snapshot across module reload', () => {
     const { saveQueue } = await import('../playerPersistence');
     saveQueue(); // schedules 500ms debounce timer
 
-    // Confirm localStorage is still stale (debounce hasn't fired).
-    expect(JSON.parse(localStorage.getItem('player_queue') || '[]')).toEqual([]);
+    // Confirm localStorage is still stale (debounce hasn't fired). Persistence
+    // uses a single atomic snapshot key (player_queue_snapshot).
+    expect(localStorage.getItem('player_queue_snapshot')).toBeNull();
 
     // ── Phase 2: HMR — reset modules, new module evaluates ──
     // The new module's playerStore is created at module-eval time, reading

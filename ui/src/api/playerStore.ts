@@ -23,6 +23,7 @@ import {
   bindQueuePersistence,
   saveQueue,
   flushSaveQueue,
+  loadQueueSnapshot,
 } from './playerPersistence';
 import { appendPersonalFmRecommendations as appendFm, disposeFmSession } from './fmSession';
 import { __resetQueueCommandChainForTests } from './playbackQueue';
@@ -137,13 +138,10 @@ function cleanupCurrentModuleForHmr() {
   // stale — the new module would restore the OLD queue while the reused
   // <audio> keeps playing the NEW track (UI/audio desync).
   //
-  // Isolated in try/catch: persistence is best-effort. If localStorage.setItem
-  // throws (quota / permission / WebView storage error), teardown MUST still
-  // run — listener unbinding, coordinator detach, FM/EQ/analyser cleanup.
-  // Otherwise old and new modules' listeners coexist after HMR.
-  try {
-    flushSaveQueue();
-  } catch { /* best-effort: don't block teardown on persistence failure */ }
+  // flushSaveQueue is guaranteed non-throwing (best-effort persistence with
+  // internal try/catch), so teardown below always runs even if localStorage
+  // is over quota / unavailable.
+  flushSaveQueue();
   initListenerCleanup?.();
   initListenerCleanup = null;
   eventUnsub?.();
@@ -177,14 +175,19 @@ export function __getPlaySession(): PlaySessionTracker {
   return playSession;
 }
 
+// Read the persisted queue snapshot once at module eval. Atomic single-key
+// read (queue + currentIndex together) — see loadQueueSnapshot in
+// playerPersistence.ts. Legacy split keys are migrated transparently.
+const initialQueueSnapshot = loadQueueSnapshot();
+
 export const playerStore = reactive<PlayerState>({
   currentTrack: null,
   isPlaying: false,
   currentTime: 0,
   duration: 0,
   volume: loadNumber('player_volume', 0.7, 0, 1),
-  queue: loadJSON<Track[]>('player_queue', []),
-  currentIndex: parseInt(localStorage.getItem('player_index') || '-1', 10),
+  queue: initialQueueSnapshot.queue,
+  currentIndex: initialQueueSnapshot.currentIndex,
   loopMode: (localStorage.getItem('player_loop_mode') || 'list') as LoopMode,
   queueMode: (localStorage.getItem('player_queue_mode') || 'normal') as QueueMode,
   audio: null,
@@ -244,8 +247,9 @@ export function initPlayer() {
     // Guard: only re-read when a real old-module cleanup ran. In fresh init
     // (no old module), the module-eval localStorage read is already correct.
     if (hadOldCleanup) {
-      playerStore.queue = loadJSON<Track[]>('player_queue', []);
-      playerStore.currentIndex = parseInt(localStorage.getItem('player_index') || '-1', 10);
+      const snapshot = loadQueueSnapshot();
+      playerStore.queue = snapshot.queue;
+      playerStore.currentIndex = snapshot.currentIndex;
     }
   } else {
     if (activeBackend) {
@@ -621,11 +625,8 @@ export function clearQueue() {
  */
 export async function disposePlayerRuntime(): Promise<void> {
   // Critical: flush current queue before any stop so we never persist [].
-  try {
-    flushSaveQueue();
-  } catch {
-    /* ignore */
-  }
+  // flushSaveQueue is non-throwing (best-effort).
+  flushSaveQueue();
   // Cancel FM retry timer / in-flight fetch so it cannot append after unload.
   disposeFmSession();
   // Keep activeBackend until after stop so backend.stop is available.

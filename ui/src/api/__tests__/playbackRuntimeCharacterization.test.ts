@@ -178,8 +178,92 @@ describe('playerPersistence: beforeunload listener removed (R4)', () => {
     // pagehide → disposePlayerRuntime() → flushSaveQueue() is the single owner.
     window.dispatchEvent(new Event('beforeunload'));
 
-    // No flush happened — beforeunload is no longer wired.
-    expect(localStorage.getItem('player_queue')).toBeNull();
-    expect(localStorage.getItem('player_index')).toBeNull();
+    // No flush happened — beforeunload is no longer wired. Persistence uses a
+    // single atomic snapshot key (player_queue_snapshot).
+    expect(localStorage.getItem('player_queue_snapshot')).toBeNull();
+  });
+});
+
+// ── playerPersistence: atomic write + non-throwing flush (review R4 P2) ──
+
+describe('playerPersistence: atomic single-key write + non-throwing flush', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.restoreAllMocks();
+  });
+
+  it('flushSaveQueue writes queue + currentIndex as ONE atomic key (no split writes)', async () => {
+    const { bindQueuePersistence, flushSaveQueue } = await import('../playerPersistence');
+
+    const testQueue = [
+      { FileHash: 'a', SongName: 'A' },
+      { FileHash: 'b', SongName: 'B' },
+    ];
+    bindQueuePersistence(() => ({ queue: testQueue as any, currentIndex: 1 }));
+
+    // Track every setItem call. Atomic write = exactly ONE call for the
+    // snapshot key. If the implementation splits queue/index into two calls,
+    // a quota error between them leaves an inconsistent snapshot.
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    const ok = flushSaveQueue();
+
+    expect(ok).toBe(true);
+    expect(setItemSpy).toHaveBeenCalledTimes(1);
+    expect(setItemSpy).toHaveBeenCalledWith(
+      'player_queue_snapshot',
+      JSON.stringify({ queue: testQueue, currentIndex: 1 }),
+    );
+  });
+
+  it('flushSaveQueue returns false and does NOT throw when localStorage.setItem fails', async () => {
+    const { bindQueuePersistence, flushSaveQueue } = await import('../playerPersistence');
+
+    bindQueuePersistence(() => ({ queue: [{ FileHash: 'x' }] as any, currentIndex: 0 }));
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+
+    // Must not throw — callers (HMR cleanup, pagehide) rely on non-throwing.
+    expect(() => flushSaveQueue()).not.toThrow();
+    expect(flushSaveQueue()).toBe(false);
+    // Nothing landed on disk.
+    expect(localStorage.getItem('player_queue_snapshot')).toBeNull();
+  });
+
+  it('saveQueue debounce callback does NOT throw when setItem fails', async () => {
+    vi.useFakeTimers();
+    const { bindQueuePersistence, saveQueue } = await import('../playerPersistence');
+
+    bindQueuePersistence(() => ({ queue: [{ FileHash: 'y' }] as any, currentIndex: 0 }));
+
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+
+    saveQueue(); // schedules 500ms debounce
+
+    // The debounce timer callback calls flushSaveQueue internally. If that
+    // threw, the exception would escape the timer callback (uncaught). Since
+    // flushSaveQueue is non-throwing, advancing timers must not throw.
+    expect(() => vi.advanceTimersByTime(500)).not.toThrow();
+  });
+
+  it('loadQueueSnapshot migrates legacy split keys on first read', async () => {
+    // Simulate a pre-upgrade session: data in the old player_queue +
+    // player_index keys, nothing in the new snapshot key.
+    localStorage.setItem('player_queue', JSON.stringify([{ FileHash: 'legacy' }]));
+    localStorage.setItem('player_index', '0');
+
+    const { loadQueueSnapshot } = await import('../playerPersistence');
+    const snap = loadQueueSnapshot();
+
+    expect(snap.queue).toHaveLength(1);
+    expect((snap.queue[0] as any)?.FileHash).toBe('legacy');
+    expect(snap.currentIndex).toBe(0);
   });
 });
