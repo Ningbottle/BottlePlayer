@@ -2,7 +2,8 @@
 
 > Branch:`codex/runtime-stability-refactor`
 > Baseline commit:`1f2069d3`
-> Final HEAD:见 §6 提交链
+> Code HEAD(最后生产代码改动):`354852c7`
+> Report HEAD(本报告当前定稿):`7ecedd6a`
 > 重构日期:2026-07-23
 > 关联文档:[runtime-stability-audit.md](../../.superpowers/sdd/runtime-stability-audit.md)、[ADR-0003](../adr/0003-shared-audio-hmr-lifecycle.md)、[playback-runtime.md](./playback-runtime.md)
 
@@ -277,8 +278,11 @@ if (typeof window !== 'undefined') {
 | 7 | `0f840db9` | fix | Review R1 P1-1/P1-2/P2-3:phase-as-sole-source 强制、initPlayer currentTrack 恢复顺序、AudioContext.close() 异步 catch |
 | 8 | `bb277bb6` | docs | refactor-report 更新(review R1 修复) |
 | 9 | `354852c7` | fix | Review R2 P1-3/P2-4:HMR 队列 flush + initPlayer re-read、close() rejection 回归测试 |
+| 10 | `7ecedd6a` | docs | refactor-report 更新(review R2 修复) |
 
 **纪律:** 每个 commit 独立可 revert;production code 改动仅 5 个 commit(714a7a79 / f520637d / ee6b0570 / 0f840db9 / 354852c7),其余为纯测试或纯文档;frozen scope 全程未触碰。
+
+**自引用说明:** 本表已更新至 `7ecedd6a`(Report HEAD)。若后续对本报告再有纯文档定稿提交,不再单独列入本表,以避免自引用递归;Code HEAD 以 `354852c7` 为准。
 
 ## 7. 文档同步
 
