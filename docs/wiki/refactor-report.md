@@ -2,8 +2,8 @@
 
 > Branch:`codex/runtime-stability-refactor`
 > Baseline commit:`1f2069d3`
-> Code HEAD(最后生产代码改动):`354852c7`
-> Report HEAD(本报告当前定稿):`7ecedd6a`
+> Code HEAD(最后生产代码改动):`5dd9b8fc`
+> Report HEAD(本报告当前定稿):见 §6 提交链
 > 重构日期:2026-07-23
 > 关联文档:[runtime-stability-audit.md](../../.superpowers/sdd/runtime-stability-audit.md)、[ADR-0003](../adr/0003-shared-audio-hmr-lifecycle.md)、[playback-runtime.md](./playback-runtime.md)
 
@@ -224,6 +224,24 @@ if (typeof window !== 'undefined') {
 
 **修复:** 新增 1 个测试 —— `closeSpy.mockRejectedValue(new Error('close failed'))`,通过 `process.on('unhandledRejection')` 监听器验证 `.catch()` 确实吞掉了 rejection。若移除 `.catch()`,`unhandled` 数组会捕获到 1 个 rejection,测试失败。
 
+### 3.11 Review R3 P2:flushSaveQueue 异常隔离 + HMR 完整不变量锁定
+
+**文件:** [ui/src/api/playerStore.ts](../../ui/src/api/playerStore.ts) `cleanupCurrentModuleForHmr()` + [ui/src/api/__tests__/hmrQueueFlush.test.ts](../../ui/src/api/__tests__/hmrQueueFlush.test.ts)
+
+**问题(两项):**
+
+1. **flush 异常中断 teardown:** `flushSaveQueue()` 位于 cleanup 首行且无保护。若 `localStorage.setItem` 因配额/权限/WebView 异常抛错,后续监听器解绑、协调器 detach、FM/EQ/analyser 清理全部不执行,旧/新模块监听器并存。外层 `initPlayer` 的 `try/catch` 吞掉异常,但 teardown 侧效应丢失。
+
+2. **HMR 测试只验证 queue/index:** 现有 `hmrQueueFlush.test.ts` 只断言队列长度和 `FileHash`,没有锁定 `currentTrack` / `audio.src` / `playbackPhase` 的完整组合,无法捕获"UI A、音频 B、状态 idle"类不一致。
+
+**修复:**
+
+1. `cleanupCurrentModuleForHmr` 中 `flushSaveQueue()` 包裹 `try/catch`,持久化作为 best-effort 隔离。即使 `setItem` 抛错,后续 teardown 步骤(`initListenerCleanup` / `detachCoordinatorForHmr` / `disposeFmSession` / `closeWebAudioEq` / `disposeAudioLevelMonitor`)仍完整执行。
+
+2. 新增 2 个 RED→GREEN 测试:
+   - **teardown 隔离测试:** `localStorage.setItem` 抛错时,`cleanup()` 不抛错,且 `durationchange` 监听器已被移除(证明 `initListenerCleanup` 在 flush 之后执行)。
+   - **完整不变量测试:** 设置共享 audio 的 B 源 + `paused=false`,HMR 后断言 `currentTrack.FileHash === 'B'`、`audio.src` 含 'B'、`playbackPhase === 'playing'`、`isPlaying === true` —— 锁死"UI B、音频 B、状态 B"三位一体。
+
 ## 4. 测试覆盖
 
 ### 4.1 新增测试文件
@@ -233,9 +251,9 @@ if (typeof window !== 'undefined') {
 | `ui/src/api/__tests__/playbackRuntimeCharacterization.test.ts` | 4 | audioLevelMonitor 永不关闭、`start() after stop()` 复用同一 ctx、两 monitor 共享 ctx、`beforeunload` 不再 flush |
 | `ui/src/api/__tests__/playbackPhaseProjection.test.ts` | 10 | R1: phase 存在时剥离 stale flags(4 个)+ 无 phase patch 拒绝 bare flags(2 个 review-fix);R2: HMR 复用经 phase(3 个)+ 真实初始化顺序(1 个 review-fix) |
 | `ui/src/api/__tests__/audioLifecycleOwnership.test.ts` | 4 | R3: dispose 关闭 ctx、dispose 后新建 fresh ctx、dispose idempotent、close() rejection 经 .catch() 吞掉(review-fix) |
-| `ui/src/api/__tests__/hmrQueueFlush.test.ts` | 1 | HMR 队列竞态:500ms debounce 窗口内 HMR,旧模块 flush + 新模块 re-read 一致性(review-fix) |
+| `ui/src/api/__tests__/hmrQueueFlush.test.ts` | 3 | HMR 队列竞态:500ms debounce 窗口内 HMR,旧模块 flush + 新模块 re-read 一致性(review-fix);flush 异常隔离 teardown(review-fix);完整 UI/audio/phase 不变量锁定(review-fix) |
 
-**新增测试合计:19 个**(937 → 956)。其中 5 个为 review P1/P2 修复新增的 RED→GREEN 测试。
+**新增测试合计:21 个**(937 → 958)。其中 7 个为 review P1/P2 修复新增的 RED→GREEN 测试。
 
 ### 4.2 TDD 流程
 
@@ -257,13 +275,13 @@ if (typeof window !== 'undefined') {
 
 | Gate | 命令 | 基线(1f2069d3) | 终态(HEAD) | 备注 |
 |------|------|:---:|:---:|------|
-| Vitest | `cd ui && npx vitest run --maxWorkers=2` | 937/937 | **956/956** | +19 新测试(14 初始 + 5 review-fix),82 文件全过 |
+| Vitest | `cd ui && npx vitest run --maxWorkers=2` | 937/937 | **958/958** | +21 新测试(14 初始 + 7 review-fix),82 文件全过 |
 | vue-tsc | `cd ui && npx vue-tsc --noEmit` | pass | **pass** | 无类型错误 |
-| vite build | `cd ui && npx vite build` | pass | **pass**(25.34s) | 无 warning(仅既存 chunk size 提示) |
+| vite build | `cd ui && npx vite build` | pass | **pass**(29.38s) | 无 warning(仅既存 chunk size 提示) |
 | Rust cargo test | `cd ui/src-tauri && cargo test --no-fail-fast` | 34/34 | **34/34** + 2 integration | lib + bin + integration 全过 |
 | CTest | `ctest --test-dir native/out/bottlemusic-check --output-on-failure` | 10/11 | **11/11** | EchoNativeSmokeTests 从环境性 fail 恢复为 pass |
 
-**无回归。** 所有基线测试继续通过,新增 19 个测试全部 GREEN。
+**无回归。** 所有基线测试继续通过,新增 21 个测试全部 GREEN。
 
 ## 6. 提交链
 
@@ -279,10 +297,12 @@ if (typeof window !== 'undefined') {
 | 8 | `bb277bb6` | docs | refactor-report 更新(review R1 修复) |
 | 9 | `354852c7` | fix | Review R2 P1-3/P2-4:HMR 队列 flush + initPlayer re-read、close() rejection 回归测试 |
 | 10 | `7ecedd6a` | docs | refactor-report 更新(review R2 修复) |
+| 11 | `0d10f59b` | docs | refactor-report 提交链元数据定稿(Code HEAD vs Report HEAD 区分) |
+| 12 | `5dd9b8fc` | fix | Review R3 P2:flushSaveQueue try/catch 异常隔离 + HMR 完整不变量测试(currentTrack/audio.src/phase) |
 
-**纪律:** 每个 commit 独立可 revert;production code 改动仅 5 个 commit(714a7a79 / f520637d / ee6b0570 / 0f840db9 / 354852c7),其余为纯测试或纯文档;frozen scope 全程未触碰。
+**纪律:** 每个 commit 独立可 revert;production code 改动仅 6 个 commit(714a7a79 / f520637d / ee6b0570 / 0f840db9 / 354852c7 / 5dd9b8fc),其余为纯测试或纯文档;frozen scope 全程未触碰。
 
-**自引用说明:** 本表已更新至 `7ecedd6a`(Report HEAD)。若后续对本报告再有纯文档定稿提交,不再单独列入本表,以避免自引用递归;Code HEAD 以 `354852c7` 为准。
+**自引用说明:** Code HEAD 为 `5dd9b8fc`。本表之后的纯文档定稿提交不再单独列入,以避免自引用递归。
 
 ## 7. 文档同步
 
