@@ -266,4 +266,44 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
     expect((snap.queue[0] as any)?.FileHash).toBe('legacy');
     expect(snap.currentIndex).toBe(0);
   });
+
+  it('loadQueueSnapshot does NOT throw when localStorage.getItem fails (WebView storage unavailable)', async () => {
+    // Reviewer concern: if localStorage access itself throws (permission /
+    // WebView storage disabled / SecurityError on file://), loadQueueSnapshot
+    // must still return safe defaults — not blank-screen the app at module-eval.
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError: Access denied');
+    });
+
+    const { loadQueueSnapshot } = await import('../playerPersistence');
+
+    // Must not throw — returns safe empty defaults.
+    expect(() => loadQueueSnapshot()).not.toThrow();
+    const snap = loadQueueSnapshot();
+    expect(snap.queue).toEqual([]);
+    expect(snap.currentIndex).toBe(-1);
+  });
+
+  it('playerStore module-eval does NOT throw when localStorage.getItem fails for all keys', async () => {
+    // Reviewer concern extended: loopMode / queueMode / quality / eqEnabled /
+    // activePreset all read localStorage at module-eval. If getItem throws,
+    // the whole module import fails → blank page. All reads must be safeGetItem.
+    vi.resetModules();
+    vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new Error('SecurityError: Access denied');
+    });
+
+    // Module import triggers playerStore reactive() init with all the reads.
+    // If any direct localStorage.getItem remains, the dynamic import rejects.
+    const mod = await import('../playerStore');
+
+    // State fell back to safe defaults (no crash, no blank page).
+    expect(mod.playerStore.queue).toEqual([]);
+    expect(mod.playerStore.currentIndex).toBe(-1);
+    expect(mod.playerStore.loopMode).toBe('list');
+    expect(mod.playerStore.queueMode).toBe('normal');
+    expect(mod.playerStore.quality).toBe('128');
+    expect(mod.playerStore.eqEnabled).toBe(false);
+    expect(mod.playerStore.activePreset).toBe('Flat');
+  });
 });

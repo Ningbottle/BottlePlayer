@@ -17,7 +17,7 @@ import {
   transitionPhase,
   type PlaybackPhase,
 } from './playbackPhase';
-import { loadNumber } from './safeStorage';
+import { loadNumber, safeGetItem } from './safeStorage';
 import {
   loadJSON,
   bindQueuePersistence,
@@ -188,20 +188,20 @@ export const playerStore = reactive<PlayerState>({
   volume: loadNumber('player_volume', 0.7, 0, 1),
   queue: initialQueueSnapshot.queue,
   currentIndex: initialQueueSnapshot.currentIndex,
-  loopMode: (localStorage.getItem('player_loop_mode') || 'list') as LoopMode,
-  queueMode: (localStorage.getItem('player_queue_mode') || 'normal') as QueueMode,
+  loopMode: (safeGetItem('player_loop_mode') || 'list') as LoopMode,
+  queueMode: (safeGetItem('player_queue_mode') || 'normal') as QueueMode,
   audio: null,
   isLoading: false,
   errorMsg: '',
   isPreview: false,
   vipRequired: false,
   playbackPhase: 'idle',
-  quality: localStorage.getItem('player_quality') || '128',
+  quality: safeGetItem('player_quality') || '128',
   availableQualities: [],
   backend: null,
-  eqEnabled: localStorage.getItem('player_eq_enabled') === 'true',
+  eqEnabled: safeGetItem('player_eq_enabled') === 'true',
   eqBands: normalizeEqBands(loadJSON<unknown>('player_eq_bands', [])),
-  activePreset: localStorage.getItem('player_eq_preset') || 'Flat',
+  activePreset: safeGetItem('player_eq_preset') || 'Flat',
 });
 
 // ── EQ leaf (usePlayerEq) — barrel re-exports keep public API stable ──

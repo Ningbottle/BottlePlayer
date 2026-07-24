@@ -1,8 +1,9 @@
 import type { Track } from './normalizer';
+import { safeGetItem } from './safeStorage';
 
 export function loadJSON<T>(key: string, fallback: T): T {
   try {
-    const raw = localStorage.getItem(key);
+    const raw = safeGetItem(key);
     if (raw == null) return fallback;
     return JSON.parse(raw) as T;
   } catch {
@@ -39,7 +40,7 @@ export function bindQueuePersistence(getter: QueueGetter): void {
  */
 export function loadQueueSnapshot(): QueueSnapshot {
   try {
-    const raw = localStorage.getItem(SNAPSHOT_KEY);
+    const raw = safeGetItem(SNAPSHOT_KEY);
     if (raw != null) {
       const parsed = JSON.parse(raw) as Partial<QueueSnapshot>;
       if (Array.isArray(parsed.queue) && typeof parsed.currentIndex === 'number') {
@@ -51,10 +52,11 @@ export function loadQueueSnapshot(): QueueSnapshot {
   }
   // Legacy migration: read the pre-refactor split keys. On the next successful
   // flush the combined snapshot key is populated and the legacy keys are
-  // ignored thereafter.
+  // ignored thereafter. Both reads are safeGetItem — never throw even if
+  // localStorage access is unavailable (WebView storage disabled / permission).
   return {
     queue: loadJSON<Track[]>('player_queue', []),
-    currentIndex: parseInt(localStorage.getItem('player_index') || '-1', 10),
+    currentIndex: parseInt(safeGetItem('player_index') ?? '-1', 10),
   };
 }
 
