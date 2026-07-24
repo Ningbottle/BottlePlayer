@@ -2,7 +2,7 @@
 
 > Branch:`codex/runtime-stability-refactor`
 > Baseline commit:`1f2069d3`
-> Code HEAD(最后生产代码改动):`0dd219c0`
+> Code HEAD(最后生产代码改动):`a1c76dd5`
 > Report HEAD(本报告当前定稿):见 §6 提交链
 > 重构日期:2026-07-23
 > 关联文档:[runtime-stability-audit.md](../../.superpowers/sdd/runtime-stability-audit.md)、[ADR-0003](../adr/0003-shared-audio-hmr-lifecycle.md)、[playback-runtime.md](./playback-runtime.md)
@@ -268,18 +268,41 @@ if (typeof window !== 'undefined') {
    - **防抖回调不抛测试:** `saveQueue()` 定时回调在 `setItem` 抛错时 `vi.advanceTimersByTime(500)` 不抛异常。
    - **legacy 迁移测试:** 旧 `player_queue` + `player_index` 键存在、新键不存在时,`loadQueueSnapshot()` 正确回退读取。
 
+### 3.13 Review R5 P2:读取侧 localStorage.getItem 失败保护(防 WebView 空白页)
+
+**文件:** [ui/src/api/safeStorage.ts](../../ui/src/api/safeStorage.ts) + [ui/src/api/playerPersistence.ts](../../ui/src/api/playerPersistence.ts) + [ui/src/api/playerStore.ts](../../ui/src/api/playerStore.ts)
+
+**问题:** R4 修复让 `flushSaveQueue()`(写入侧)不抛异常,但读取侧仍有未保护路径:
+1. `loadQueueSnapshot()` 捕获新快照读取异常后,在 try/catch **外**读取 legacy `player_index`(`localStorage.getItem('player_index')`)。若 `getItem` 因权限或 WebView 存储不可用抛错,playerStore 模块求值失败 → 整页空白。
+2. `playerStore` 初始化中的 `loopMode` / `queueMode` / `quality` / `eqEnabled` / `activePreset` 五个字段直接调 `localStorage.getItem`,任一抛错同样空白页。
+3. `loadNumber` 也在内部直接调 `localStorage.getItem`。
+
+**修复:**
+
+1. **新增 `safeGetItem(key)` 在 `safeStorage.ts`:** `try/catch` 包裹 `localStorage.getItem`,失败返回 `null`。永不抛异常,可在模块求值时安全调用。
+
+2. **`loadNumber` 改用 `safeGetItem`:** 内部读取由 `localStorage.getItem` 切换到 `safeGetItem`,与函数本身的"safe"语义一致。
+
+3. **`loadJSON` + `loadQueueSnapshot` 改用 `safeGetItem`:** 新快照键、legacy `player_queue`、legacy `player_index` 三处读取均经 `safeGetItem`。`loadQueueSnapshot` 的 try/catch 外不再有裸 `getItem`。
+
+4. **`playerStore` 初始化 5 字段改用 `safeGetItem`:** `loopMode` / `queueMode` / `quality` / `eqEnabled` / `activePreset` 全部从 `localStorage.getItem` 切换到 `safeGetItem`,模块求值不再因 WebView 存储异常而空白页。
+
+**新增 2 个 RED→GREEN 测试:**
+   - **loadQueueSnapshot 读取失败测试:** `Storage.prototype.getItem` 抛 `SecurityError` 时,`loadQueueSnapshot()` 不抛异常,返回安全默认值 `{queue: [], currentIndex: -1}`。
+   - **playerStore 模块求值失败测试:** `getItem` 全部抛错时,`import('../playerStore')` 不 reject,playerStore 全部字段回退到安全默认值(queue=[], currentIndex=-1, loopMode='list', queueMode='normal', quality='128', eqEnabled=false, activePreset='Flat')。
+
 ## 4. 测试覆盖
 
 ### 4.1 新增测试文件
 
 | 文件 | 测试数 | 覆盖范围 |
 |------|:---:|---------|
-| `ui/src/api/__tests__/playbackRuntimeCharacterization.test.ts` | 8 | audioLevelMonitor 永不关闭、`start() after stop()` 复用同一 ctx、两 monitor 共享 ctx、`beforeunload` 不再 flush;原子单键写入、flush 失败不抛、防抖回调不抛、legacy 迁移(review-fix) |
+| `ui/src/api/__tests__/playbackRuntimeCharacterization.test.ts` | 10 | audioLevelMonitor 永不关闭、`start() after stop()` 复用同一 ctx、两 monitor 共享 ctx、`beforeunload` 不再 flush;原子单键写入、flush 失败不抛、防抖回调不抛、legacy 迁移(review-fix);loadQueueSnapshot 读取失败、playerStore 模块求值失败(review-fix) |
 | `ui/src/api/__tests__/playbackPhaseProjection.test.ts` | 10 | R1: phase 存在时剥离 stale flags(4 个)+ 无 phase patch 拒绝 bare flags(2 个 review-fix);R2: HMR 复用经 phase(3 个)+ 真实初始化顺序(1 个 review-fix) |
 | `ui/src/api/__tests__/audioLifecycleOwnership.test.ts` | 4 | R3: dispose 关闭 ctx、dispose 后新建 fresh ctx、dispose idempotent、close() rejection 经 .catch() 吞掉(review-fix) |
 | `ui/src/api/__tests__/hmrQueueFlush.test.ts` | 3 | HMR 队列竞态:500ms debounce 窗口内 HMR,旧模块 flush + 新模块 re-read 一致性(review-fix);flush 异常隔离 teardown(review-fix);完整 UI/audio/phase 不变量锁定(review-fix) |
 
-**新增测试合计:25 个**(937 → 962)。其中 11 个为 review P1/P2 修复新增的 RED→GREEN 测试。
+**新增测试合计:27 个**(937 → 964)。其中 13 个为 review P1/P2 修复新增的 RED→GREEN 测试。
 
 ### 4.2 TDD 流程
 
@@ -301,13 +324,13 @@ if (typeof window !== 'undefined') {
 
 | Gate | 命令 | 基线(1f2069d3) | 终态(HEAD) | 备注 |
 |------|------|:---:|:---:|------|
-| Vitest | `cd ui && npx vitest run --maxWorkers=2` | 937/937 | **962/962** | +25 新测试(14 初始 + 11 review-fix),82 文件全过 |
+| Vitest | `cd ui && npx vitest run --maxWorkers=2` | 937/937 | **964/964** | +27 新测试(14 初始 + 13 review-fix),82 文件全过 |
 | vue-tsc | `cd ui && npx vue-tsc --noEmit` | pass | **pass** | 无类型错误 |
-| vite build | `cd ui && npx vite build` | pass | **pass**(25.85s) | 无 warning(仅既存 chunk size 提示) |
+| vite build | `cd ui && npx vite build` | pass | **pass**(23.01s) | 无 warning(仅既存 chunk size 提示) |
 | Rust cargo test | `cd ui/src-tauri && cargo test --no-fail-fast` | 34/34 | **34/34** + 2 integration | lib + bin + integration 全过 |
 | CTest | `ctest --test-dir native/out/bottlemusic-check --output-on-failure` | 10/11 | **11/11** | EchoNativeSmokeTests 从环境性 fail 恢复为 pass |
 
-**无回归。** 所有基线测试继续通过,新增 25 个测试全部 GREEN。
+**无回归。** 所有基线测试继续通过,新增 27 个测试全部 GREEN。
 
 ## 6. 提交链
 
@@ -327,10 +350,12 @@ if (typeof window !== 'undefined') {
 | 12 | `5dd9b8fc` | fix | Review R3 P2:flushSaveQueue try/catch 异常隔离 + HMR 完整不变量测试(currentTrack/audio.src/phase) |
 | 13 | `99bac164` | docs | refactor-report 更新(review R3 修复) |
 | 14 | `0dd219c0` | fix | Review R4 P2:flushSaveQueue 原子单键写入 + 非抛异常 + 防抖路径不抛 + legacy 迁移 |
+| 15 | `c6fd57d9` | docs | refactor-report 更新(review R4 修复) |
+| 16 | `a1c76dd5` | fix | Review R5 P2:safeGetItem 保护所有 playerStore 初始化读取(localStorage.getItem 抛错防空白页) |
 
-**纪律:** 每个 commit 独立可 revert;production code 改动仅 7 个 commit(714a7a79 / f520637d / ee6b0570 / 0f840db9 / 354852c7 / 5dd9b8fc / 0dd219c0),其余为纯测试或纯文档;frozen scope 全程未触碰。
+**纪律:** 每个 commit 独立可 revert;production code 改动仅 8 个 commit(714a7a79 / f520637d / ee6b0570 / 0f840db9 / 354852c7 / 5dd9b8fc / 0dd219c0 / a1c76dd5),其余为纯测试或纯文档;frozen scope 全程未触碰。
 
-**自引用说明:** Code HEAD 为 `0dd219c0`。本表之后的纯文档定稿提交不再单独列入,以避免自引用递归。
+**自引用说明:** Code HEAD 为 `a1c76dd5`。本表之后的纯文档定稿提交不再单独列入,以避免自引用递归。
 
 ## 7. 文档同步
 
