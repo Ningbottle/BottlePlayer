@@ -82,4 +82,84 @@ describe('HMR queue flush: no stale snapshot across module reload', () => {
     expect((newStore.playerStore.queue[0] as any)?.FileHash).toBe('B');
     expect(newStore.playerStore.currentIndex).toBe(0);
   });
+
+  it('teardown completes even when localStorage.setItem throws (flush isolated)', async () => {
+    // Reviewer concern: if flushSaveQueue throws (quota/permission/WebView),
+    // the rest of cleanupCurrentModuleForHmr must still run — otherwise old
+    // and new modules' listeners coexist. flushSaveQueue is now isolated in
+    // try/catch; this test proves teardown runs past it.
+    const oldStore = await import('../playerStore');
+    oldStore.initPlayer();
+
+    // Verify the duration listener is wired (set up by initPlayer).
+    const audio = oldStore.playerStore.audio!;
+    expect(audio).toBeTruthy();
+    Object.defineProperty(audio, 'duration', { value: 200, configurable: true, writable: true });
+    audio.dispatchEvent(new Event('durationchange'));
+    expect(oldStore.playerStore.duration).toBe(200);
+
+    // Reset duration to detect whether the listener fires again later.
+    oldStore.playerStore.duration = 0;
+
+    // Make localStorage.setItem throw (quota / permission / WebView error).
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+
+    // Call cleanup directly — flushSaveQueue is isolated, must not throw.
+    const cleanup = (window as any).__bottlemusic_player_cleanup__;
+    expect(typeof cleanup).toBe('function');
+    expect(() => cleanup()).not.toThrow();
+
+    // Proof teardown completed PAST flushSaveQueue: the duration listener was
+    // removed (initListenerCleanup ran, which is after flushSaveQueue in the
+    // cleanup body). Dispatching durationchange again must NOT update duration.
+    Object.defineProperty(audio, 'duration', { value: 300, configurable: true, writable: true });
+    audio.dispatchEvent(new Event('durationchange'));
+    expect(oldStore.playerStore.duration).toBe(0); // listener removed, no update
+
+    setItemSpy.mockRestore();
+  });
+
+  it('locks full UI/audio/phase invariant after HMR (track B everywhere)', async () => {
+    vi.useFakeTimers();
+
+    // ── Phase 1: old module playing track B ──
+    const oldStore = await import('../playerStore');
+    oldStore.initPlayer();
+
+    const trackB = { FileHash: 'B', SongName: 'B', Duration: 100 } as any;
+    oldStore.playerStore.queue = [trackB];
+    oldStore.playerStore.currentIndex = 0;
+
+    // Simulate audio is playing track B (src set, not paused).
+    const audio = oldStore.playerStore.audio!;
+    audio.src = 'http://test/B';
+    Object.defineProperty(audio, 'paused', { value: false, configurable: true, writable: true });
+    Object.defineProperty(audio, 'ended', { value: false, configurable: true, writable: true });
+
+    const { saveQueue } = await import('../playerPersistence');
+    saveQueue(); // schedules 500ms debounce
+
+    // ── Phase 2: HMR — reset modules, new module evaluates ──
+    vi.resetModules();
+    const newStore = await import('../playerStore');
+
+    // New module's queue is stale (empty) before initPlayer.
+    expect(newStore.playerStore.queue).toHaveLength(0);
+
+    // ── Phase 3: initPlayer calls old cleanup (flush) + re-reads ──
+    newStore.initPlayer();
+
+    // Full invariant: UI B, audio B, phase B — all consistent.
+    expect(newStore.playerStore.queue).toHaveLength(1);
+    expect((newStore.playerStore.queue[0] as any)?.FileHash).toBe('B');
+    expect(newStore.playerStore.currentIndex).toBe(0);
+    expect((newStore.playerStore.currentTrack as any)?.FileHash).toBe('B');
+    // audio src must NOT be cleared by HMR cleanup.
+    expect(newStore.playerStore.audio?.src).toContain('B');
+    // phase must reflect the audio's live playing state.
+    expect(newStore.playerStore.playbackPhase).toBe('playing');
+    expect(newStore.playerStore.isPlaying).toBe(true);
+  });
 });

@@ -136,7 +136,14 @@ function cleanupCurrentModuleForHmr() {
   // saveQueue debounce window during a track switch would leave localStorage
   // stale — the new module would restore the OLD queue while the reused
   // <audio> keeps playing the NEW track (UI/audio desync).
-  flushSaveQueue();
+  //
+  // Isolated in try/catch: persistence is best-effort. If localStorage.setItem
+  // throws (quota / permission / WebView storage error), teardown MUST still
+  // run — listener unbinding, coordinator detach, FM/EQ/analyser cleanup.
+  // Otherwise old and new modules' listeners coexist after HMR.
+  try {
+    flushSaveQueue();
+  } catch { /* best-effort: don't block teardown on persistence failure */ }
   initListenerCleanup?.();
   initListenerCleanup = null;
   eventUnsub?.();
