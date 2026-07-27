@@ -8,7 +8,7 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, nextTick } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { LogicalSize, LogicalPosition } from '@tauri-apps/api/dpi';
+import { LogicalSize, PhysicalPosition } from '@tauri-apps/api/dpi';
 import { PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
 import { onPlayerState, sendPlayerCommand, applySyncedTheme, type PlayerSyncState } from '../../api/playerSync';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay } from '../../api/overlayWindows';
@@ -45,12 +45,13 @@ async function applyWindowSize(size: { width: number; height: number }): Promise
   if (!isTauriRuntime()) return;
   const win = getCurrentWindow();
   const [pos, old] = await Promise.all([win.outerPosition(), win.outerSize()]);
+  // Expand downward from the pill: top edge unchanged, card centered on the pill.
+  // Physical pixels end-to-end — logical conversion caused the right-jump bug.
   const cx = pos.x + old.width / 2;
-  const cy = pos.y + old.height / 2;
   await win.setSize(new LogicalSize(size.width, size.height));
-  await win.setPosition(new LogicalPosition(
+  await win.setPosition(new PhysicalPosition(
     Math.round(cx - size.width / 2),
-    Math.round(cy - size.height / 2),
+    pos.y,
   ));
 }
 

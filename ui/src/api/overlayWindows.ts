@@ -7,7 +7,7 @@
  */
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
-import { LogicalPosition } from '@tauri-apps/api/dpi';
+import { PhysicalPosition } from '@tauri-apps/api/dpi';
 
 export type OverlayKind = 'island' | 'lyric';
 
@@ -176,8 +176,9 @@ export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
     void win.once('tauri://created', () => {
       console.log(`[overlay] created ${spec.label} → ${spec.url}`);
     });
-    // Belt-and-braces for OS-level white background on WebView2.
-    void win.setBackgroundColor({ red: 0, green: 0, blue: 0, alpha: 0 }).catch(() => {});
+    // Belt-and-braces: OS transparency is unreliable on some WebView2 setups,
+    // so the window itself carries the island's dark backing (no white corners).
+    void win.setBackgroundColor({ red: 11, green: 10, blue: 9, alpha: 255 }).catch(() => {});
     return true;
   } catch (err) {
     console.error(`[overlay] toggleOverlay(${kind}) failed:`, err);
@@ -203,8 +204,10 @@ export async function settleCurrentOverlay(kind: OverlayKind): Promise<void> {
     { w: size.width, h: size.height },
     { w: monitor.size.width, h: monitor.size.height },
   );
+  // The island docks to the top edge — horizontal placement only.
+  if (kind === 'island') snapped.y = 16;
   if (snapped.x !== pos.x || snapped.y !== pos.y) {
-    await win.setPosition(new LogicalPosition(snapped.x, snapped.y));
+    await win.setPosition(new PhysicalPosition(snapped.x, snapped.y));
   }
   saveOverlayPos(kind, snapped);
 }
@@ -220,6 +223,6 @@ export async function moveCurrentOverlayTo(anchor: string, kind: OverlayKind): P
     { w: size.width, h: size.height },
     { w: monitor.size.width, h: monitor.size.height },
   );
-  await win.setPosition(new LogicalPosition(pos.x, pos.y));
+  await win.setPosition(new PhysicalPosition(pos.x, pos.y));
   saveOverlayPos(kind, pos);
 }

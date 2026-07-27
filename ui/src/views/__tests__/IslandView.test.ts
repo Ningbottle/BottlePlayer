@@ -49,6 +49,9 @@ vi.mock('@tauri-apps/api/dpi', () => ({
   LogicalPosition: class {
     constructor(public x: number, public y: number) {}
   },
+  PhysicalPosition: class {
+    constructor(public x: number, public y: number) {}
+  },
 }));
 
 import IslandView from '../overlay/IslandView.vue';
@@ -164,10 +167,10 @@ describe('IslandView', () => {
     wrapper.unmount();
   });
 
-  it('resizes the window keeping its center when toggling (tauri)', async () => {
+  it('resizes the window growing downward from the pill (tauri)', async () => {
     (isTauriRuntime as Mock).mockReturnValue(true);
     windowMock.outerPosition.mockResolvedValue({ x: 100, y: 100 });
-    windowMock.outerSize.mockResolvedValue({ width: 340, height: 88 });
+    windowMock.outerSize.mockResolvedValue({ width: 300, height: 64 });
 
     const wrapper = mount(IslandView);
     const capsule = wrapper.get('.island-capsule');
@@ -179,11 +182,10 @@ describe('IslandView', () => {
     });
     const size = windowMock.setSize.mock.calls[0][0] as { width: number; height: number };
     expect(size).toMatchObject({ width: 480, height: 200 });
-    expect(windowMock.setPosition).toHaveBeenCalledTimes(1);
     const pos = windowMock.setPosition.mock.calls[0][0] as { x: number; y: number };
     expect(pos).toMatchObject({
-      x: Math.round(100 + 170 - 240),
-      y: Math.round(100 + 44 - 100),
+      x: Math.round(100 + 150 - 240),
+      y: 100, // top edge unchanged — the card grows downward
     });
     wrapper.unmount();
   });
