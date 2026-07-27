@@ -14,8 +14,9 @@ import {
 } from 'vue';
 import { isReducedMotion } from '../../api/motion';
 
-const props = withDefaults(defineProps<{ isPlaying: boolean; level?: { value: number } | null }>(), {
+const props = withDefaults(defineProps<{ isPlaying: boolean; level?: { value: number } | null; tint?: [number, number, number] | null }>(), {
   level: null,
+  tint: null,
 });
 
 /** Live loudness 0..1 from the audio monitor; 0 when unwired. */
@@ -81,12 +82,12 @@ function readAccentRGB(): [number, number, number] {
 }
 
 function accentRGBA(a: number): string {
-  const [r, g, b] = readAccentRGB();
+  const [r, g, b] = props.tint ?? readAccentRGB();
   return `rgba(${r}, ${g}, ${b}, ${a})`;
 }
 
 function accentLightRGBA(a: number): string {
-  const [r, g, b] = readAccentRGB();
+  const [r, g, b] = props.tint ?? readAccentRGB();
   const lr = Math.min(255, r + 80);
   const lg = Math.min(255, g + 80);
   const lb = Math.min(255, b + 80);

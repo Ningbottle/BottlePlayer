@@ -10,6 +10,7 @@ import type { VinylSpinHandle } from '../../api/motion';
 import { playerStore, togglePlay as storeTogglePlay } from '../../api/playerStore';
 import { createAudioLevelMonitor, type AudioLevelMonitor } from '../../api/audioLevelMonitor';
 import { flyCoverToDock } from '../../api/coverFlight';
+import { extractDominantColor, type RGB } from '../../api/coverColor';
 import { PhPause, PhPlay } from '@phosphor-icons/vue';
 import AuroraAtmosphere from './AuroraAtmosphere.vue';
 
@@ -35,6 +36,29 @@ const emit = defineEmits<{
 
 const coverError = ref(false);
 const stageEl = ref<HTMLElement | null>(null);
+
+/** Scroll-reveal for the below-fold sections (编辑推荐 / 最新歌单). */
+let revealObserver: IntersectionObserver | null = null;
+const revealedSections = new WeakSet<Element>();
+
+function observeSections(): void {
+  if (isReducedMotion() || typeof IntersectionObserver === 'undefined') return;
+  if (!revealObserver) {
+    revealObserver = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting || revealedSections.has(entry.target)) continue;
+        revealedSections.add(entry.target);
+        const cards = Array.from(entry.target.querySelectorAll('.aurora-card'));
+        animateStagger(cards, 'cardEnter', { duration: 0.4, stagger: 0.04, maxItems: 10, fromY: 20 });
+        revealObserver?.unobserve(entry.target);
+      }
+    }, { threshold: 0.15 });
+  }
+  const root = stageEl.value?.closest('.aurora-home') ?? stageEl.value?.parentElement;
+  root?.querySelectorAll('.aurora-section').forEach((section) => {
+    if (!revealedSections.has(section)) revealObserver?.observe(section);
+  });
+}
 const vinylEl = ref<HTMLElement | null>(null);
 let vinylSpin: VinylSpinHandle | null = null;
 
@@ -42,6 +66,10 @@ let vinylSpin: VinylSpinHandle | null = null;
 let levelMonitor: AudioLevelMonitor | null = null;
 const fallbackLevel = ref(0);
 const atmosphereLevel = computed(() => levelMonitor?.level ?? fallbackLevel);
+
+/** Cover-derived tint for the cone wash/dust (never touches the user's accent). */
+const coverTint = ref<RGB | null>(null);
+let tintToken = 0;
 
 function bootLevelMonitor(): void {
   if (levelMonitor || !playerStore.audio) return;
@@ -70,7 +98,15 @@ watch(() => props.model.isPlaying, () => vinylSpin?.setPlaying());
 onMounted(() => {
   bootVinyl();
   bootLevelMonitor();
+  void nextTick(() => observeSections());
 });
+
+watch(
+  [() => props.model.playlists.length, () => props.model.albums.length],
+  () => {
+    void nextTick(() => observeSections());
+  },
+);
 
 onActivated(() => {
   bootVinyl();
@@ -160,6 +196,8 @@ onUnmounted(() => {
   vinylSpin = null;
   levelMonitor?.stop();
   levelMonitor = null;
+  revealObserver?.disconnect();
+  revealObserver = null;
   killEnterHandles();
 });
 
@@ -176,6 +214,15 @@ const heroAlbumLine = computed(() => {
   const song = (t.SongName || '').trim();
   if (!album || album === song) return '';
   return album;
+});
+
+watch(heroCover, (url) => {
+  const token = ++tintToken;
+  coverTint.value = null;
+  if (!url) return;
+  void extractDominantColor(url).then((tint) => {
+    if (token === tintToken) coverTint.value = tint;
+  });
 });
 
 /**
@@ -300,7 +347,7 @@ function formatDuration(sec: number | undefined | null): string {
       data-test="aurora-stage"
       :data-playing="model.isPlaying"
     >
-      <AuroraAtmosphere :is-playing="model.isPlaying" :level="atmosphereLevel" />
+      <AuroraAtmosphere :is-playing="model.isPlaying" :level="atmosphereLevel" :tint="coverTint" />
       <div class="aurora-stage-hero">
         <div v-if="model.heroTrack" class="aurora-stage-main">
           <div class="aurora-cover aurora-vinyl" data-test="hero-vinyl">
