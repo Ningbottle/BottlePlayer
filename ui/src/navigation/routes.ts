@@ -10,6 +10,8 @@ import SearchView from '../views/SearchView.vue';
 import SettingsView from '../views/SettingsView.vue';
 import StatsView from '../views/StatsView.vue';
 import VisualizerView from '../views/VisualizerView.vue';
+import IslandView from '../views/overlay/IslandView.vue';
+import DesktopLyricView from '../views/overlay/DesktopLyricView.vue';
 
 export const routeNames = {
   home: 'home',
@@ -22,6 +24,8 @@ export const routeNames = {
   lyric: 'lyric',
   login: 'login',
   visualizer: 'visualizer',
+  overlayIsland: 'overlayIsland',
+  overlayLyric: 'overlayLyric',
 } as const;
 
 export type AppRouteName = typeof routeNames[keyof typeof routeNames];
@@ -59,4 +63,6 @@ export const routeRecords: RouteRecordRaw[] = [
   { path: '/lyric', name: routeNames.lyric, component: LyricView },
   { path: '/login', name: routeNames.login, component: LoginView },
   { path: '/visualizer', name: routeNames.visualizer, component: VisualizerView },
+  { path: '/overlay/island', name: routeNames.overlayIsland, component: IslandView, meta: { overlay: true } },
+  { path: '/overlay/lyric', name: routeNames.overlayLyric, component: DesktopLyricView, meta: { overlay: true } },
 ];

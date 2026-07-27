@@ -18,6 +18,7 @@ import { checkLoginStatus } from './api/userStore';
 import { ping } from './api/backend';
 import { lyricFullscreen, setLyricFullscreen } from './api/lyricFullscreen';
 import { transitionEnter, transitionLeave, isReducedMotion } from './api/motion';
+import { startPlayerSyncHost } from './api/playerSync';
 import { registerPageTransition, unregisterPageTransition } from './navigation/navigationLifecycle';
 import { routeNames, type AppRouteName } from './navigation/routes';
 import { useThemeStore } from './api/themeStore';
@@ -42,9 +43,13 @@ const pageTransitionMode = computed<'out-in' | undefined>(() =>
 );
 const isAuroraOverlap = computed(() => themeStore.skinId.value === 'aurora');
 
+/** Overlay windows (island / desktop lyric) render the bare view — no shell, no player init. */
+const isOverlayRoute = computed(() => appRouter.currentRoute.value.meta.overlay === true);
+
 const isQueueOpen = ref(false);
 const networkDegraded = ref(false);
 let networkInterval: ReturnType<typeof setInterval> | null = null;
+let syncHostTeardown: (() => void) | null = null;
 
 /** First-paint launch intro: shell unfolds once per app start. */
 let launchPlayed = false;
@@ -103,6 +108,9 @@ function goForward() {
 }
 
 onMounted(() => {
+  // Overlay windows run the bare view — never boot a second player instance.
+  if (isOverlayRoute.value) return;
+
   // Don't boot into a broken fullscreen shell with zero chrome rows
   setLyricFullscreen(false);
 
@@ -115,6 +123,8 @@ onMounted(() => {
   if (w.__TAURI_INTERNALS__ || w.__TAURI__) {
     void bindOsMediaBridge();
   }
+  // Broadcast player state to overlay windows + accept their commands
+  syncHostTeardown = startPlayerSyncHost();
   // Fetch initial login status
   checkLoginStatus();
 
@@ -126,12 +136,15 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (networkInterval) clearInterval(networkInterval);
+  syncHostTeardown?.();
   void unbindOsMediaBridge();
 });
 </script>
 
 <template>
+  <RouterView v-if="isOverlayRoute" />
   <component
+    v-else
     :is="currentShell"
     :lyric-fullscreen="lyricFullscreen"
   >

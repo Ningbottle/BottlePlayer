@@ -1,9 +1,11 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import {
+  PhAppWindow,
   PhArrowsOutSimple,
   PhDisc,
   PhHeart,
+  PhNote,
   PhPause,
   PhPlay,
   PhQueue,
@@ -19,6 +21,7 @@ import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
 import AuroraDockParticles from './AuroraDockParticles.vue';
 import { pressBounceDown, pressBounceUp } from '../../api/motion';
+import { toggleOverlay } from '../../api/overlayWindows';
 
 const props = defineProps<{
   controller: PlayerController;
@@ -269,8 +272,30 @@ async function onFavoriteClick(): Promise<void> {
       </div>
     </div>
 
-    <!-- Right: loop · quality · lyric · volume -->
+    <!-- Right: loop · overlays · quality · lyric · volume -->
     <div class="aurora-pb-right">
+      <button
+        type="button"
+        class="aurora-pb-icon aurora-pb-overlay"
+        aria-label="灵动岛"
+        title="灵动岛（悬浮迷你播放器）"
+        data-test="aurora-overlay-island"
+        @click="toggleOverlay('island')"
+      >
+        <PhAppWindow :size="16" weight="regular" aria-hidden="true" />
+      </button>
+
+      <button
+        type="button"
+        class="aurora-pb-icon aurora-pb-overlay-lyric"
+        aria-label="桌面歌词"
+        title="桌面歌词（悬浮歌词条）"
+        data-test="aurora-overlay-lyric"
+        @click="toggleOverlay('lyric')"
+      >
+        <PhNote :size="16" weight="regular" aria-hidden="true" />
+      </button>
+
       <button
         type="button"
         class="aurora-pb-icon aurora-pb-loop"

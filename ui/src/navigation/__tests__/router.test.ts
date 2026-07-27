@@ -228,6 +228,8 @@ describe('navigation route contract', () => {
       '/lyric',
       '/login',
       '/visualizer',
+      '/overlay/island',
+      '/overlay/lyric',
     ]);
     expect(getRoute(routeNames.home).component).toBe(HomeView);
     expect(getRoute(routeNames.search).component).toBe(SearchView);

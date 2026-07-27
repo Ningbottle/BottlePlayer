@@ -1,0 +1,149 @@
+/**
+ * overlayWindows.ts — 浮层窗口框架（灵动岛 / 桌面歌词）
+ *
+ * 负责：窗口创建/显隐切换、位置持久化（localStorage）、边缘吸附。
+ * 浏览器与 vitest 环境（无 Tauri IPC）全部安全降级为 no-op；
+ * 位置/吸附数学为纯函数，可单测。
+ */
+import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
+import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
+import { LogicalPosition } from '@tauri-apps/api/dpi';
+
+export type OverlayKind = 'island' | 'lyric';
+
+export interface OverlayPos {
+  x: number;
+  y: number;
+}
+
+interface Size {
+  w: number;
+  h: number;
+}
+
+const OVERLAY_SPECS: Record<OverlayKind, { label: string; url: string; width: number; height: number }> = {
+  island: { label: 'overlay-island', url: '/overlay/island', width: 340, height: 88 },
+  lyric: { label: 'overlay-lyric', url: '/overlay/lyric', width: 720, height: 96 },
+};
+
+/** Pixels within a screen edge that trigger magnetic snapping. */
+export const SNAP_MARGIN = 24;
+
+export function isTauriRuntime(): boolean {
+  return typeof window !== 'undefined' && ('__TAURI_INTERNALS__' in window || '__TAURI__' in window);
+}
+
+/** Pure: snap a window position to screen edges within SNAP_MARGIN. */
+export function snapToEdges(pos: OverlayPos, win: Size, screen: Size): OverlayPos {
+  let { x, y } = pos;
+  if (Math.abs(x) <= SNAP_MARGIN) x = 0;
+  else if (Math.abs(screen.w - win.w - x) <= SNAP_MARGIN) x = screen.w - win.w;
+  if (Math.abs(y) <= SNAP_MARGIN) y = 0;
+  else if (Math.abs(screen.h - win.h - y) <= SNAP_MARGIN) y = screen.h - win.h;
+  return { x, y };
+}
+
+/** Pure: nine-grid anchor position (e.g. 'top-left', 'center', 'bottom-right'). */
+export function anchorPosition(anchor: string, win: Size, screen: Size, margin = 16): OverlayPos {
+  const xs: Record<string, number> = {
+    left: margin,
+    center: Math.round((screen.w - win.w) / 2),
+    right: screen.w - win.w - margin,
+  };
+  const ys: Record<string, number> = {
+    top: margin,
+    center: Math.round((screen.h - win.h) / 2),
+    bottom: screen.h - win.h - margin,
+  };
+  const [vy, hx] = anchor.split('-');
+  return {
+    x: xs[hx] ?? xs.center,
+    y: ys[vy] ?? ys.center,
+  };
+}
+
+export function loadOverlayPos(kind: OverlayKind): OverlayPos | null {
+  try {
+    const raw = localStorage.getItem(`overlay_${kind}_pos`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<OverlayPos>;
+    if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
+      return { x: parsed.x, y: parsed.y };
+    }
+  } catch {
+    // corrupted entry → fall through to null
+  }
+  return null;
+}
+
+export function saveOverlayPos(kind: OverlayKind, pos: OverlayPos): void {
+  try {
+    localStorage.setItem(`overlay_${kind}_pos`, JSON.stringify(pos));
+  } catch {
+    // storage full/blocked — position just won't persist
+  }
+}
+
+/** Create the overlay window if absent; close it if present. Tauri-only. */
+export async function toggleOverlay(kind: OverlayKind): Promise<void> {
+  if (!isTauriRuntime()) return;
+  const spec = OVERLAY_SPECS[kind];
+  const existing = await WebviewWindow.getByLabel(spec.label);
+  if (existing) {
+    await existing.close();
+    return;
+  }
+  const pos = loadOverlayPos(kind);
+  new WebviewWindow(spec.label, {
+    url: spec.url,
+    title: 'BottleMusic',
+    width: spec.width,
+    height: spec.height,
+    decorations: false,
+    transparent: true,
+    alwaysOnTop: true,
+    skipTaskbar: true,
+    resizable: false,
+    shadow: false,
+    ...(pos ? { x: pos.x, y: pos.y } : { center: true }),
+  });
+}
+
+/**
+ * Called from the overlay page on drag release: read the window's current
+ * position, magnetically snap it to nearby screen edges, persist.
+ */
+export async function settleCurrentOverlay(kind: OverlayKind): Promise<void> {
+  if (!isTauriRuntime()) return;
+  const win = getCurrentWindow();
+  const [pos, size, monitor] = await Promise.all([
+    win.outerPosition(),
+    win.outerSize(),
+    currentMonitor(),
+  ]);
+  if (!monitor) return;
+  const snapped = snapToEdges(
+    { x: pos.x, y: pos.y },
+    { w: size.width, h: size.height },
+    { w: monitor.size.width, h: monitor.size.height },
+  );
+  if (snapped.x !== pos.x || snapped.y !== pos.y) {
+    await win.setPosition(new LogicalPosition(snapped.x, snapped.y));
+  }
+  saveOverlayPos(kind, snapped);
+}
+
+/** Jump the current overlay window to a nine-grid anchor. */
+export async function moveCurrentOverlayTo(anchor: string, kind: OverlayKind): Promise<void> {
+  if (!isTauriRuntime()) return;
+  const win = getCurrentWindow();
+  const [size, monitor] = await Promise.all([win.outerSize(), currentMonitor()]);
+  if (!monitor) return;
+  const pos = anchorPosition(
+    anchor,
+    { w: size.width, h: size.height },
+    { w: monitor.size.width, h: monitor.size.height },
+  );
+  await win.setPosition(new LogicalPosition(pos.x, pos.y));
+  saveOverlayPos(kind, pos);
+}

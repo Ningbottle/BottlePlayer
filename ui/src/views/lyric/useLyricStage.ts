@@ -94,7 +94,7 @@ export function parseLrc(raw: string): LyricLine[] {
   return result.sort((a, b) => a.time - b.time);
 }
 
-async function fetchLyrics(track: Track): Promise<LyricLine[]> {
+export async function fetchLyrics(track: Track): Promise<LyricLine[]> {
   const searchRes = await apiGet<{ status: number; candidates?: { id: string; accesskey: string }[] }>('/search/lyric', {
     hash: track.FileHash,
   });
