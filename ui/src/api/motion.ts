@@ -219,6 +219,7 @@ export function animateStagger(
   const stagger = overrides?.stagger ?? spec.stagger;
   const fromY = overrides?.fromY ?? 20;
   const capped = elements.slice(0, maxItems);
+  if (capped.length === 0) return { kill: () => {} };
 
   capped.forEach((el) => gsap.killTweensOf(el));
 

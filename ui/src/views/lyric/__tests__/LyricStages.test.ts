@@ -59,8 +59,6 @@ vi.mock('../../../api/backend', () => ({
 
 import AuroraLyricStage from '../AuroraLyricStage.vue';
 import AuroraPlaylistShelf from '../AuroraPlaylistShelf.vue';
-import AuroraDockParticles from '../../../components/player/AuroraDockParticles.vue';
-import CoverWebGLParticles from '../CoverWebGLParticles.vue';
 import NewsprintLyricStage from '../NewsprintLyricStage.vue';
 import type { LyricStageCommands, LyricStageModel } from '../useLyricStage';
 import { useLyricStage } from '../useLyricStage';
@@ -91,49 +89,6 @@ function createModel(overrides: Partial<LyricStageModel> = {}): LyricStageModel 
     duration: 100,
     error: null,
     ...overrides,
-  };
-}
-
-function createWebGLMock() {
-  return {
-    VERTEX_SHADER: 1,
-    FRAGMENT_SHADER: 2,
-    COMPILE_STATUS: 3,
-    LINK_STATUS: 4,
-    ARRAY_BUFFER: 5,
-    STATIC_DRAW: 6,
-    BLEND: 7,
-    SRC_ALPHA: 8,
-    ONE: 9,
-    COLOR_BUFFER_BIT: 10,
-    FLOAT: 11,
-    POINTS: 12,
-    createShader: vi.fn(() => ({})),
-    shaderSource: vi.fn(),
-    compileShader: vi.fn(),
-    getShaderParameter: vi.fn(() => true),
-    deleteShader: vi.fn(),
-    createProgram: vi.fn(() => ({})),
-    attachShader: vi.fn(),
-    linkProgram: vi.fn(),
-    getProgramParameter: vi.fn(() => true),
-    getAttribLocation: vi.fn(() => 0),
-    getUniformLocation: vi.fn((_program: unknown, name: string) => name),
-    createBuffer: vi.fn(() => ({})),
-    bindBuffer: vi.fn(),
-    bufferData: vi.fn(),
-    deleteBuffer: vi.fn(),
-    deleteProgram: vi.fn(),
-    enable: vi.fn(),
-    blendFunc: vi.fn(),
-    clearColor: vi.fn(),
-    viewport: vi.fn(),
-    clear: vi.fn(),
-    useProgram: vi.fn(),
-    enableVertexAttribArray: vi.fn(),
-    vertexAttribPointer: vi.fn(),
-    uniform1f: vi.fn(),
-    drawArrays: vi.fn(),
   };
 }
 
@@ -864,7 +819,6 @@ describe('Aurora lyric focus modes', () => {
     });
 
     expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeNull();
-    expect(wrapper.find('[data-test="cover-webgl-particles"]').exists()).toBe(true);
     expect(wrapper.find('[data-test="lyric-shelf-open"]').exists()).toBe(false);
 
     await wrapper.get('[data-test="lyric-cover"]').trigger('click');
@@ -1212,98 +1166,6 @@ describe('Aurora playlist shelf selection', () => {
     expect(wrapper.emitted('select')).toEqual([[queueTracks[1]]]);
 
     wrapper.unmount();
-  });
-});
-
-describe('Aurora particle reduced-motion contracts', () => {
-  it('keeps Dock particles statically visible without starting rAF', async () => {
-    isReducedMotionMock.mockReturnValue(true);
-    const requestAnimationFrameMock = vi.fn();
-    const gradient = { addColorStop: vi.fn() };
-    const context = {
-      setTransform: vi.fn(),
-      clearRect: vi.fn(),
-      createRadialGradient: vi.fn(() => gradient),
-      createLinearGradient: vi.fn(() => gradient),
-      fillRect: vi.fn(),
-      beginPath: vi.fn(),
-      arc: vi.fn(),
-      fill: vi.fn(),
-      fillStyle: '',
-    };
-    vi.stubGlobal('requestAnimationFrame', requestAnimationFrameMock);
-    const getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockReturnValue(context as unknown as CanvasRenderingContext2D);
-
-    const wrapper = mount(AuroraDockParticles, {
-      props: { isPlaying: true, progress: 0.4 },
-    });
-
-    try {
-      await nextTick();
-      expect(requestAnimationFrameMock).not.toHaveBeenCalled();
-      expect(context.arc).toHaveBeenCalled();
-    } finally {
-      wrapper.unmount();
-      getContextSpy.mockRestore();
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('renders Cover particles once without rAF or displacement under reduced motion', async () => {
-    isReducedMotionMock.mockReturnValue(true);
-    const requestAnimationFrameMock = vi.fn();
-    const gl = createWebGLMock();
-    vi.stubGlobal('requestAnimationFrame', requestAnimationFrameMock);
-    const getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockReturnValue(gl as unknown as WebGLRenderingContext);
-
-    const wrapper = mount(CoverWebGLParticles, {
-      props: { active: true, isPlaying: true },
-    });
-
-    try {
-      await nextTick();
-      expect(requestAnimationFrameMock).not.toHaveBeenCalled();
-      expect(getContextSpy).toHaveBeenCalledWith('webgl', expect.any(Object));
-      expect(gl.drawArrays).toHaveBeenCalledWith(gl.POINTS, 0, 96);
-      expect(gl.uniform1f).toHaveBeenCalledWith(expect.anything(), 0);
-      expect(gl.getUniformLocation).toHaveBeenCalledWith(expect.anything(), 'u_motion_enabled');
-      expect(gl.uniform1f).toHaveBeenCalledWith('u_time_scale', 0);
-      expect(gl.uniform1f).toHaveBeenCalledWith('u_motion_enabled', 0);
-    } finally {
-      wrapper.unmount();
-      getContextSpy.mockRestore();
-      vi.unstubAllGlobals();
-    }
-  });
-
-  it('passes Cover timeScale and motion-enabled as separate WebGL uniforms', async () => {
-    isReducedMotionMock.mockReturnValue(false);
-    let frameCount = 0;
-    const requestAnimationFrameMock = vi.fn((callback: FrameRequestCallback) => {
-      frameCount += 1;
-      if (frameCount === 1) callback(1000);
-      return frameCount;
-    });
-    const gl = createWebGLMock();
-    vi.stubGlobal('requestAnimationFrame', requestAnimationFrameMock);
-    const getContextSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getContext')
-      .mockReturnValue(gl as unknown as WebGLRenderingContext);
-
-    const wrapper = mount(CoverWebGLParticles, {
-      props: { active: true, isPlaying: true },
-    });
-
-    try {
-      await nextTick();
-      expect(gl.uniform1f).toHaveBeenCalledWith('u_time_scale', 0.52);
-      expect(gl.uniform1f).toHaveBeenCalledWith('u_motion_enabled', 1);
-    } finally {
-      wrapper.unmount();
-      getContextSpy.mockRestore();
-      vi.unstubAllGlobals();
-    }
   });
 });
 

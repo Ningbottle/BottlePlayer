@@ -154,15 +154,7 @@ describe('AuroraAtmosphere', () => {
     expect(canvas.element.tagName).toBe('CANVAS');
     expect(canvas.attributes('aria-hidden')).toBe('true');
     expect(canvas.classes()).toContain('aurora-atmosphere');
-    expect(Number(canvas.attributes('data-particle-cap'))).toBe(30);
-  });
-
-  it('uses a calmer particle cap while playing', async () => {
-    const wrapper = track(mount(AuroraAtmosphere, { props: { isPlaying: false } }));
-    expect(wrapper.get('[data-test="aurora-atmosphere"]').attributes('data-particle-cap')).toBe('30');
-
-    await wrapper.setProps({ isPlaying: true });
-    expect(wrapper.get('[data-test="aurora-atmosphere"]').attributes('data-particle-cap')).toBe('60');
+    expect(canvas.attributes('data-playing')).toBe('false');
   });
 
   it('schedules a single rAF loop when motion is allowed', () => {

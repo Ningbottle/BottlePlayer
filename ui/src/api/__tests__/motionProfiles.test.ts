@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { getMotionProfile, type MotionProfile } from '../motionProfiles';
+import { getMotionProfile } from '../motionProfiles';
 
 describe('motionProfiles', () => {
   it('aurora controlRelease uses elastic.out', () => {
@@ -63,14 +63,6 @@ describe('motionProfiles', () => {
   it('keeps page-enter travel in the skin profile', () => {
     expect(getMotionProfile('aurora').pageEnter).toMatchObject({ fromY: 28 });
     expect(getMotionProfile('newsprint').pageEnter).toMatchObject({ fromY: 8 });
-  });
-
-  it('owns calmer Dock and Cover particle speeds in the Aurora profile', () => {
-    const profile: MotionProfile = getMotionProfile('aurora');
-
-    expect(profile.particles.dock.speed.playing).toBeLessThan(0.85);
-    expect(profile.particles.dock.speed.paused).toBeLessThan(0.65);
-    expect(profile.particles.cover.timeScale.playing).toBeLessThan(0.9);
   });
 
   it('owns the turntable vinyl spin profile', () => {

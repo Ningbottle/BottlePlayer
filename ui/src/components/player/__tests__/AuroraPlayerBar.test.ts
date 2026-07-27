@@ -375,23 +375,6 @@ describe('AuroraPlayerBar', () => {
     expect(wrapper.find('.np-pb').exists()).toBe(false);
   });
 
-  it('renders dock particles canvas behind the bar with progress', () => {
-    const ctrl = createStubController({
-      currentTrack: mkTrack(),
-      isPlaying: true,
-      progressPercent: 42,
-    });
-    const wrapper = mount(AuroraPlayerBar, {
-      props: { controller: ctrl },
-      global: { stubs: { PlayerProgress: true, AddToPlaylistModal: true } },
-    });
-    const canvas = wrapper.find('[data-test="aurora-dock-particles"]');
-    expect(canvas.exists()).toBe(true);
-    expect(canvas.attributes('data-playing')).toBe('true');
-    expect(canvas.attributes('data-progress')).toBe('0.420');
-    expect(canvas.attributes('data-particle-cap')).toBe('44');
-  });
-
   it('has Aurora-specific transport section', () => {
     const ctrl = createStubController({ currentTrack: mkTrack() });
     const wrapper = mount(AuroraPlayerBar, {

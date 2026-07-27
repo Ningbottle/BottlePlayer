@@ -8,7 +8,6 @@ import { useLyricFocusStore } from '../../api/lyricFocusStore';
 import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api/playerStore';
 import type { Track } from '../../api/normalizer';
 import type { LyricStageModel } from './useLyricStage';
-import CoverWebGLParticles from './CoverWebGLParticles.vue';
 import SpectrumRing from './SpectrumRing.vue';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
 import PlayerProgress from '../../components/player/PlayerProgress.vue';
@@ -397,10 +396,6 @@ onBeforeUnmount(() => {
           <div class="lyric-vinyl-grooves" aria-hidden="true" />
         </div>
         <div class="lyric-vinyl-spindle" aria-hidden="true" />
-        <CoverWebGLParticles
-          :active="model.fullscreen"
-          :is-playing="model.isPlaying"
-        />
       </div>
       <button
         v-if="!model.fullscreen"
@@ -886,13 +881,13 @@ export default { name: 'AuroraLyricStage' };
   opacity: 1;
 }
 
-/* Karaoke sweep: accent text revealed left → right across the active line */
+/* Karaoke sweep: bright text revealed left → right across the active line.
+   Neutral (not accent) so custom accents never fight the lyric. */
 .lyric-line-fill {
   position: absolute;
   inset: 0;
   padding-left: 1.5em;
-  color: var(--accent);
-  text-shadow: 0 0 28px color-mix(in srgb, var(--accent) 35%, transparent);
+  color: var(--text-primary, #fff);
   pointer-events: none;
   transition: clip-path 0.3s linear;
 }

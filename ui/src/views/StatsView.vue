@@ -3,8 +3,7 @@ import { ref, computed, onMounted, watch, nextTick, type ComponentPublicInstance
 import { invoke } from '@tauri-apps/api/core';
 import { normalizeTrack, type Track } from '../api/normalizer';
 import { playAll, playerStore } from '../api/playerStore';
-import { animateBarHeight, animateCountUp, isReducedMotion, startVinylSpin } from '../api/motion';
-import type { VinylSpinHandle } from '../api/motion';
+import { animateBarHeight, animateCountUp, isReducedMotion } from '../api/motion';
 import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 import SkinButton from '../components/primitives/SkinButton.vue';
 import SkinEmptyState from '../components/primitives/SkinEmptyState.vue';
@@ -42,10 +41,8 @@ const topSongs = ref<TopItem[]>([]);
 const topArtists = ref<TopItem[]>([]);
 const topAlbums = ref<TopItem[]>([]);
 
-/** Hero trophy disc: the most-played song's cover, spinning while music plays. */
+/** Hero trophy: the most-played song's cover, square and quiet. */
 const topCoverUrl = computed(() => topSongs.value[0]?.cover_url ?? '');
-const heroDiscEl = ref<HTMLElement | null>(null);
-let heroSpin: VinylSpinHandle | null = null;
 
 interface TimelineItem {
   date: string;
@@ -207,14 +204,8 @@ async function runAIAnalysis() {
   }
 }
 
-onMounted(() => {
-  loadStats();
-  if (heroDiscEl.value) {
-    heroSpin = startVinylSpin(heroDiscEl.value, () => !!playerStore.isPlaying);
-  }
-});
+onMounted(loadStats);
 watch(range, loadStats);
-watch(() => playerStore.isPlaying, () => heroSpin?.setPlaying());
 </script>
 
 <template>
@@ -252,12 +243,8 @@ watch(() => playerStore.isPlaying, () => heroSpin?.setPlaying());
           <span class="stats-hero-value">{{ formatDuration(displayListenedSeconds) }}</span>
           <span class="stats-hero-vinyl">≈ {{ vinylCount }} 张黑胶</span>
         </div>
-        <div class="stats-hero-disc" aria-hidden="true">
-          <div ref="heroDiscEl" class="stats-hero-disc-spin">
-            <img v-if="topCoverUrl" :src="topCoverUrl" alt="" />
-            <div class="stats-hero-disc-grooves"></div>
-          </div>
-          <div class="stats-hero-disc-label"></div>
+        <div class="stats-hero-square" aria-hidden="true">
+          <img v-if="topCoverUrl" :src="topCoverUrl" alt="" />
         </div>
       </section>
 
@@ -474,60 +461,23 @@ watch(() => playerStore.isPlaying, () => heroSpin?.setPlaying());
   font-variant-numeric: tabular-nums;
 }
 
-/* Static trophy disc — most-played cover, spins while playing */
-.stats-hero-disc {
-  position: relative;
+/* Hero trophy cover — most-played, square */
+.stats-hero-square {
   width: clamp(84px, 9vw, 128px);
   aspect-ratio: 1;
-  border-radius: 50%;
-  background: #0a0a09;
-  box-shadow:
-    0 16px 36px rgba(0, 0, 0, 0.4),
-    0 0 0 1px color-mix(in srgb, #fff 5%, transparent);
+  border-radius: 8px;
+  overflow: hidden;
+  background: var(--surface-2);
+  border: 1px solid var(--border-subtle);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.4);
   flex: none;
 }
 
-.stats-hero-disc-spin {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  overflow: hidden;
-  will-change: transform;
-}
-
-.stats-hero-disc-spin img {
+.stats-hero-square img {
   width: 100%;
   height: 100%;
   object-fit: cover;
-  border-radius: 50%;
-}
-
-.stats-hero-disc-grooves {
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  background:
-    conic-gradient(from 210deg,
-      transparent 0deg,
-      color-mix(in srgb, var(--accent) 14%, transparent) 18deg,
-      transparent 55deg),
-    repeating-radial-gradient(circle at 50% 50%,
-      rgba(255, 255, 255, 0.05) 0 1px,
-      transparent 1px 4px);
-  pointer-events: none;
-}
-
-.stats-hero-disc-label {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 30%;
-  aspect-ratio: 1;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%,
-    var(--app-bg) 0 11%,
-    color-mix(in srgb, var(--accent) 82%, #000 18%) 12% 100%);
+  display: block;
 }
 
 /* ── Dashboard cards ── */

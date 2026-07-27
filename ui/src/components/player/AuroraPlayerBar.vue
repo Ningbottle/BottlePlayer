@@ -19,7 +19,6 @@ import {
 } from '@phosphor-icons/vue';
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
-import AuroraDockParticles from './AuroraDockParticles.vue';
 import { pressBounceDown, pressBounceUp, attachMagnet } from '../../api/motion';
 import { toggleOverlay } from '../../api/overlayWindows';
 
@@ -146,12 +145,6 @@ async function onFavoriteClick(): Promise<void> {
 
 <template>
   <footer class="aurora-pb" @click="c.closeQualityMenu">
-    <AuroraDockParticles
-      class="aurora-pb-particles"
-      :is-playing="!!c.currentTrack && c.isPlaying"
-      :progress="c.currentTrack ? c.progressPercent / 100 : 0"
-    />
-
     <transition name="toast-fade">
       <div v-if="c.toastMsg" class="mode-toast aurora-pb-toast">
         {{ c.toastMsg }}
@@ -459,20 +452,13 @@ async function onFavoriteClick(): Promise<void> {
   overflow: visible;
 }
 
-/* Only the three zones stack above the dock particles — toasts must stay
+/* Only the three zones stack above the dock backdrop — toasts must stay
    absolutely positioned (in-flow toasts deform the grid on every show). */
 .aurora-pb > .aurora-pb-left,
 .aurora-pb > .aurora-pb-center,
 .aurora-pb > .aurora-pb-right {
   position: relative;
   z-index: 1;
-}
-
-.aurora-pb-particles {
-  z-index: 0;
-  overflow: hidden;
-  border-radius: inherit;
-  pointer-events: none;
 }
 
 :global(:root[data-mode='light']) .aurora-pb {
