@@ -6,13 +6,18 @@
  * 状态经 playerSync 与主窗口同步；拖拽自由摆放，松手磁吸边缘，
  * 右键九宫格快速锚点，位置记忆。
  */
-import { computed, onBeforeUnmount, onMounted, ref } from 'vue';
+import { computed, onBeforeUnmount, onMounted, ref, nextTick } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { LogicalSize, LogicalPosition } from '@tauri-apps/api/dpi';
 import { PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
 import { onPlayerState, sendPlayerCommand, type PlayerSyncState } from '../../api/playerSync';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay } from '../../api/overlayWindows';
 import { startVinylSpin } from '../../api/motion';
 import type { VinylSpinHandle } from '../../api/motion';
+import PlayerProgress from '../../components/player/PlayerProgress.vue';
+
+const COLLAPSED_SIZE = { width: 340, height: 88 };
+const EXPANDED_SIZE = { width: 480, height: 200 };
 
 const state = ref<PlayerSyncState | null>(null);
 const hasTrack = computed(() => !!state.value?.hash);
@@ -30,6 +35,58 @@ const ringOffset = computed(() => RING_LEN * (1 - progress.value));
 const discEl = ref<HTMLElement | null>(null);
 let vinylSpin: VinylSpinHandle | null = null;
 let unlisten: (() => void) | null = null;
+
+/** Expanded wide-card state (not persisted — always opens collapsed). */
+const expanded = ref(false);
+const cardDiscEl = ref<HTMLElement | null>(null);
+let cardSpin: VinylSpinHandle | null = null;
+
+async function applyWindowSize(size: { width: number; height: number }): Promise<void> {
+  if (!isTauriRuntime()) return;
+  const win = getCurrentWindow();
+  const [pos, old] = await Promise.all([win.outerPosition(), win.outerSize()]);
+  const cx = pos.x + old.width / 2;
+  const cy = pos.y + old.height / 2;
+  await win.setSize(new LogicalSize(size.width, size.height));
+  await win.setPosition(new LogicalPosition(
+    Math.round(cx - size.width / 2),
+    Math.round(cy - size.height / 2),
+  ));
+}
+
+async function toggleExpanded(): Promise<void> {
+  expanded.value = !expanded.value;
+  await applyWindowSize(expanded.value ? EXPANDED_SIZE : COLLAPSED_SIZE);
+  if (expanded.value) {
+    void nextTick(() => {
+      if (cardDiscEl.value && !cardSpin) {
+        cardSpin = startVinylSpin(cardDiscEl.value, () => !!state.value?.isPlaying);
+      }
+    });
+  }
+}
+
+/** Click-to-toggle must not fire after a drag — require <5px pointer travel. */
+let downX = 0;
+let downY = 0;
+
+function onAreaPointerDown(e: PointerEvent): void {
+  downX = e.clientX;
+  downY = e.clientY;
+}
+
+function onAreaPointerUp(e: PointerEvent): void {
+  if ((e.target as HTMLElement).closest('button')) return;
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) < 5) {
+    void toggleExpanded();
+  }
+}
+
+function onKeydown(e: KeyboardEvent): void {
+  if (e.key === 'Escape' && expanded.value) {
+    void toggleExpanded();
+  }
+}
 
 const anchors = ['top-left', 'top-center', 'top-right', 'center-left', 'center', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 const showAnchors = ref(false);
@@ -58,24 +115,35 @@ onMounted(async () => {
   unlisten = await onPlayerState((s) => {
     state.value = s;
     vinylSpin?.setPlaying();
+    cardSpin?.setPlaying();
   });
   if (discEl.value) {
     vinylSpin = startVinylSpin(discEl.value, () => !!state.value?.isPlaying);
   }
   document.addEventListener('mouseup', onDragRelease);
+  document.addEventListener('keydown', onKeydown);
 });
 
 onBeforeUnmount(() => {
   unlisten?.();
   vinylSpin?.kill();
   vinylSpin = null;
+  cardSpin?.kill();
+  cardSpin = null;
   document.removeEventListener('mouseup', onDragRelease);
+  document.removeEventListener('keydown', onKeydown);
 });
 </script>
 
 <template>
   <div class="island-root" @contextmenu="toggleAnchors">
-    <div class="island-capsule" :class="{ 'is-idle': !hasTrack }" data-tauri-drag-region>
+    <div
+      class="island-capsule"
+      :class="{ 'is-idle': !hasTrack }"
+      data-tauri-drag-region
+      @pointerdown="onAreaPointerDown"
+      @pointerup="onAreaPointerUp"
+    >
       <!-- Cover disc with progress ring -->
       <div class="island-disc-wrap">
         <svg class="island-ring" viewBox="0 0 72 72" aria-hidden="true">
@@ -125,6 +193,55 @@ onBeforeUnmount(() => {
       <button type="button" class="island-close" aria-label="关闭灵动岛" title="关闭" @click="closeIsland">
         <PhX :size="12" weight="bold" aria-hidden="true" />
       </button>
+    </div>
+
+    <!-- Expanded wide card: vinyl cover + meta + seekable progress + transport -->
+    <div
+      v-if="expanded"
+      class="island-card"
+      data-test="island-card"
+      data-tauri-drag-region
+      @pointerdown="onAreaPointerDown"
+      @pointerup="onAreaPointerUp"
+    >
+      <div class="island-card-cover">
+        <div ref="cardDiscEl" class="island-disc">
+          <img v-if="state?.cover" :src="state.cover" alt="封面" />
+          <div v-else class="island-disc-empty" aria-hidden="true" />
+          <div class="island-disc-grooves" aria-hidden="true" />
+        </div>
+        <div class="island-disc-spindle" aria-hidden="true" />
+      </div>
+      <div class="island-card-main">
+        <div class="island-card-meta">
+          <span class="island-name">{{ hasTrack ? state?.name : '未播放' }}</span>
+          <span class="island-artist">{{ hasTrack ? state?.artist : '—' }}</span>
+        </div>
+        <PlayerProgress
+          :current-time="state?.currentTime ?? 0"
+          :duration="state?.duration ?? 0"
+          @seek="(s: number) => sendPlayerCommand({ action: 'seek', value: s })"
+        />
+        <div class="island-card-controls">
+          <button type="button" aria-label="上一首" title="上一首" :disabled="!hasTrack" @click="sendPlayerCommand({ action: 'prev' })">
+            <PhSkipBack :size="15" weight="fill" aria-hidden="true" />
+          </button>
+          <button
+            type="button"
+            class="island-play"
+            :aria-label="state?.isPlaying ? '暂停' : '播放'"
+            :title="state?.isPlaying ? '暂停' : '播放'"
+            :disabled="!hasTrack"
+            @click="sendPlayerCommand({ action: 'toggle' })"
+          >
+            <PhPause v-if="state?.isPlaying" :size="15" weight="fill" aria-hidden="true" />
+            <PhPlay v-else :size="15" weight="fill" aria-hidden="true" />
+          </button>
+          <button type="button" aria-label="下一首" title="下一首" :disabled="!hasTrack" @click="sendPlayerCommand({ action: 'next' })">
+            <PhSkipForward :size="15" weight="fill" aria-hidden="true" />
+          </button>
+        </div>
+      </div>
     </div>
 
     <!-- Nine-grid anchor picker (right-click to open) -->
@@ -368,5 +485,104 @@ onBeforeUnmount(() => {
 .island-anchor-dot:hover {
   background: var(--accent, #62d6a2);
   border-color: var(--accent, #62d6a2);
+}
+
+/* ── Expanded wide card ── */
+.island-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: calc(100% - 12px);
+  height: calc(100% - 12px);
+  padding: 14px;
+  box-sizing: border-box;
+  border-radius: 18px;
+  border: 1px solid color-mix(in srgb, #fff 10%, transparent);
+  background: color-mix(in srgb, var(--surface-elevated, #1a2222) 88%, #000 12%);
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  animation: island-card-in 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+@keyframes island-card-in {
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .island-card { animation: none; }
+}
+
+.island-card-cover {
+  position: relative;
+  width: 140px;
+  aspect-ratio: 1;
+  flex: none;
+}
+
+.island-card-cover .island-disc {
+  inset: 0;
+}
+
+.island-card-cover .island-disc-spindle {
+  width: 36px;
+  height: 36px;
+}
+
+.island-card-main {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 10px;
+}
+
+.island-card-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.island-card-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.island-card-controls button {
+  width: 32px;
+  height: 32px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: color-mix(in srgb, var(--text-primary, #f2f5f2) 75%, transparent);
+  cursor: pointer;
+  transition: color 0.15s ease, background 0.15s ease;
+}
+
+.island-card-controls button:hover:not(:disabled) {
+  color: var(--text-primary, #f2f5f2);
+  background: color-mix(in srgb, var(--text-primary, #f2f5f2) 8%, transparent);
+}
+
+.island-card-controls button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.island-card-controls .island-play {
+  width: 36px;
+  height: 36px;
+  background: var(--accent, #62d6a2);
+  color: #0a1410;
+}
+
+.island-card-controls .island-play:hover:not(:disabled) {
+  background: var(--accent, #62d6a2);
+  color: #0a1410;
+  filter: brightness(1.06);
 }
 </style>

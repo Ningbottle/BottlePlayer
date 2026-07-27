@@ -15,7 +15,7 @@ vi.mock('../../api/playerSync', () => ({
 }));
 
 vi.mock('../../api/overlayWindows', () => ({
-  isTauriRuntime: () => false,
+  isTauriRuntime: vi.fn(() => false),
   settleCurrentOverlay: vi.fn(async () => {}),
   moveCurrentOverlayTo: vi.fn(async () => {}),
 }));
@@ -25,12 +25,31 @@ vi.mock('../../api/motion', () => ({
   startVinylSpin: vi.fn(() => ({ kill: vi.fn(), setPlaying: vi.fn(), burst: vi.fn() })),
 }));
 
+const windowMock = vi.hoisted(() => ({
+  close: vi.fn(async () => {}),
+  outerPosition: vi.fn(async () => ({ x: 0, y: 0 })),
+  outerSize: vi.fn(async () => ({ width: 340, height: 88 })),
+  setSize: vi.fn(async () => {}),
+  setPosition: vi.fn(async () => {}),
+}));
+
 vi.mock('@tauri-apps/api/window', () => ({
-  getCurrentWindow: vi.fn(() => ({ close: vi.fn(async () => {}) })),
+  getCurrentWindow: vi.fn(() => windowMock),
+}));
+
+vi.mock('@tauri-apps/api/dpi', () => ({
+  LogicalSize: class {
+    constructor(public width: number, public height: number) {}
+  },
+  LogicalPosition: class {
+    constructor(public x: number, public y: number) {}
+  },
 }));
 
 import IslandView from '../overlay/IslandView.vue';
 import { sendPlayerCommand } from '../../api/playerSync';
+import { isTauriRuntime } from '../../api/overlayWindows';
+import type { Mock } from 'vitest';
 
 function emitState(partial: Record<string, unknown> = {}) {
   syncState.cb?.({
@@ -96,6 +115,59 @@ describe('IslandView', () => {
     const wrapper = mount(IslandView);
     const buttons = wrapper.findAll('.island-transport button');
     expect(buttons.every((b) => b.attributes('disabled') !== undefined)).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('expands to the wide card on a blank click and collapses on Escape', async () => {
+    const wrapper = mount(IslandView);
+    emitState();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-test="island-card"]').exists()).toBe(false);
+
+    const capsule = wrapper.get('.island-capsule');
+    capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
+    capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 101, clientY: 51 }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="island-card"]').exists()).toBe(true);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="island-card"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('does not expand after a drag (pointer travel >= 5px)', async () => {
+    const wrapper = mount(IslandView);
+    const capsule = wrapper.get('.island-capsule');
+    capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
+    capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 130, clientY: 80 }));
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="island-card"]').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it('resizes the window keeping its center when toggling (tauri)', async () => {
+    (isTauriRuntime as Mock).mockReturnValue(true);
+    windowMock.outerPosition.mockResolvedValue({ x: 100, y: 100 });
+    windowMock.outerSize.mockResolvedValue({ width: 340, height: 88 });
+
+    const wrapper = mount(IslandView);
+    const capsule = wrapper.get('.island-capsule');
+    capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
+    capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 50 }));
+
+    await vi.waitFor(() => {
+      expect(windowMock.setSize).toHaveBeenCalledTimes(1);
+    });
+    const size = windowMock.setSize.mock.calls[0][0] as { width: number; height: number };
+    expect(size).toMatchObject({ width: 480, height: 200 });
+    expect(windowMock.setPosition).toHaveBeenCalledTimes(1);
+    const pos = windowMock.setPosition.mock.calls[0][0] as { x: number; y: number };
+    expect(pos).toMatchObject({
+      x: Math.round(100 + 170 - 240),
+      y: Math.round(100 + 44 - 100),
+    });
     wrapper.unmount();
   });
 });
