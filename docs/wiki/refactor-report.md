@@ -2,7 +2,7 @@
 
 > Branch:`codex/runtime-stability-refactor`
 > Baseline commit:`1f2069d3`
-> Code HEAD(最后生产代码改动):`a1c76dd5`
+> Code HEAD(最后生产代码改动):`c6a1cd2e`
 > Report HEAD(本报告当前定稿):见 §6 提交链
 > 重构日期:2026-07-23
 > 关联文档:[runtime-stability-audit.md](../../.superpowers/sdd/runtime-stability-audit.md)、[ADR-0003](../adr/0003-shared-audio-hmr-lifecycle.md)、[playback-runtime.md](./playback-runtime.md)
@@ -291,18 +291,34 @@ if (typeof window !== 'undefined') {
    - **loadQueueSnapshot 读取失败测试:** `Storage.prototype.getItem` 抛 `SecurityError` 时,`loadQueueSnapshot()` 不抛异常,返回安全默认值 `{queue: [], currentIndex: -1}`。
    - **playerStore 模块求值失败测试:** `getItem` 全部抛错时,`import('../playerStore')` 不 reject,playerStore 全部字段回退到安全默认值(queue=[], currentIndex=-1, loopMode='list', queueMode='normal', quality='128', eqEnabled=false, activePreset='Flat')。
 
+### 3.14 Final review:持久化状态边界校验与运行期写入隔离
+
+**文件:** [ui/src/api/safeStorage.ts](../../ui/src/api/safeStorage.ts) + [ui/src/api/playerPersistence.ts](../../ui/src/api/playerPersistence.ts) + [ui/src/api/playerStore.ts](../../ui/src/api/playerStore.ts)
+
+**问题:**
+1. 原子快照只检查 `currentIndex` 是 number,允许 `NaN`、`Infinity` 和小数进入运行时;legacy 路径使用 `parseInt`,会把 `1.5` / `1abc` 静默截断为 `1`。
+2. `loopMode` / `queueMode` 通过类型断言接收任意持久化字符串,损坏值可越过 TypeScript 联合类型。
+3. volume / loopMode / queueMode / quality 的运行期写入仍直接调用 `localStorage.setItem`;配额、权限或 WebView 存储异常会中断音量同步或让成功的音质切换 Promise 失败。
+
+**修复:**
+1. 统一 `currentIndex` 解析为“有限整数或 `-1`”;legacy 字符串先完整转为 `Number`,拒绝部分数字前缀。
+2. 新增显式 `parseLoopMode` / `parseQueueMode` 白名单,非法值回退 `list` / `normal`,合法的 `random` / `personalFm` 保持不变。
+3. 新增 `safeSetItem`,所有 playerStore 运行期持久化写入均改为 best-effort;存储失败不再阻断音量后端同步或音质切换结果。
+
+**新增 8 个 RED→GREEN 用例:** 覆盖原子小数索引、三种非法 legacy 索引、非法/合法播放模式、音质写入失败、音量写入失败。
+
 ## 4. 测试覆盖
 
 ### 4.1 新增测试文件
 
 | 文件 | 测试数 | 覆盖范围 |
 |------|:---:|---------|
-| `ui/src/api/__tests__/playbackRuntimeCharacterization.test.ts` | 10 | audioLevelMonitor 永不关闭、`start() after stop()` 复用同一 ctx、两 monitor 共享 ctx、`beforeunload` 不再 flush;原子单键写入、flush 失败不抛、防抖回调不抛、legacy 迁移(review-fix);loadQueueSnapshot 读取失败、playerStore 模块求值失败(review-fix) |
+| `ui/src/api/__tests__/playbackRuntimeCharacterization.test.ts` | 18 | audioLevelMonitor 生命周期、HMR 队列持久化、原子快照与 legacy 迁移、读取失败回退、严格索引/枚举恢复、运行期存储写入失败隔离 |
 | `ui/src/api/__tests__/playbackPhaseProjection.test.ts` | 10 | R1: phase 存在时剥离 stale flags(4 个)+ 无 phase patch 拒绝 bare flags(2 个 review-fix);R2: HMR 复用经 phase(3 个)+ 真实初始化顺序(1 个 review-fix) |
 | `ui/src/api/__tests__/audioLifecycleOwnership.test.ts` | 4 | R3: dispose 关闭 ctx、dispose 后新建 fresh ctx、dispose idempotent、close() rejection 经 .catch() 吞掉(review-fix) |
 | `ui/src/api/__tests__/hmrQueueFlush.test.ts` | 3 | HMR 队列竞态:500ms debounce 窗口内 HMR,旧模块 flush + 新模块 re-read 一致性(review-fix);flush 异常隔离 teardown(review-fix);完整 UI/audio/phase 不变量锁定(review-fix) |
 
-**新增测试合计:27 个**(937 → 964)。其中 13 个为 review P1/P2 修复新增的 RED→GREEN 测试。
+**新增测试合计:35 个**(937 → 972)。其中 21 个为 review P1/P2 修复新增的 RED→GREEN 测试。
 
 ### 4.2 TDD 流程
 
@@ -324,13 +340,16 @@ if (typeof window !== 'undefined') {
 
 | Gate | 命令 | 基线(1f2069d3) | 终态(HEAD) | 备注 |
 |------|------|:---:|:---:|------|
-| Vitest | `cd ui && npx vitest run --maxWorkers=2` | 937/937 | **964/964** | +27 新测试(14 初始 + 13 review-fix),82 文件全过 |
-| vue-tsc | `cd ui && npx vue-tsc --noEmit` | pass | **pass** | 无类型错误 |
-| vite build | `cd ui && npx vite build` | pass | **pass**(23.01s) | 无 warning(仅既存 chunk size 提示) |
-| Rust cargo test | `cd ui/src-tauri && cargo test --no-fail-fast` | 34/34 | **34/34** + 2 integration | lib + bin + integration 全过 |
-| CTest | `ctest --test-dir native/out/bottlemusic-check --output-on-failure` | 10/11 | **11/11** | EchoNativeSmokeTests 从环境性 fail 恢复为 pass |
+| Vitest | `cd ui && pnpm test` | 937/937 | **972/972** | +35 新测试(14 初始 + 21 review-fix),82 文件全过 |
+| vue-tsc | `cd ui && pnpm exec vue-tsc --noEmit` | pass | **pass** | 无类型错误 |
+| vite build | `cd ui && pnpm build` | pass | **pass**(10.46s) | 仅既存 chunk size 提示 |
+| C++ build | 独立临时目录 `cmake --build` | pass | **pass** | 未复用工作树 `native/out` CMake 缓存 |
+| CTest | 独立临时目录 `ctest --output-on-failure` | 10/11 | **11/11** | 包含 Storage Actor、WAL 并发、调度器韧性 |
+| Rust cargo test | `cargo test --lib --no-default-features -- --test-threads=1` | 34/34 | **34/34** | 全部 lib tests 通过 |
+| Rust cargo check | `cargo check --lib` | pass | **pass** | 默认桌面特性可编译 |
+| Rust clippy | `cargo clippy --no-default-features -- -D warnings` | pass | **pass** | 无 lint warning |
 
-**无回归。** 所有基线测试继续通过,新增 27 个测试全部 GREEN。
+**无回归。** 所有基线测试继续通过,新增 35 个测试全部 GREEN。
 
 ## 6. 提交链
 
@@ -352,10 +371,11 @@ if (typeof window !== 'undefined') {
 | 14 | `0dd219c0` | fix | Review R4 P2:flushSaveQueue 原子单键写入 + 非抛异常 + 防抖路径不抛 + legacy 迁移 |
 | 15 | `c6fd57d9` | docs | refactor-report 更新(review R4 修复) |
 | 16 | `a1c76dd5` | fix | Review R5 P2:safeGetItem 保护所有 playerStore 初始化读取(localStorage.getItem 抛错防空白页) |
+| 17 | `c6a1cd2e` | fix | Final review:严格恢复索引/播放模式边界 + safeSetItem 隔离运行期持久化失败 |
 
-**纪律:** 每个 commit 独立可 revert;production code 改动仅 8 个 commit(714a7a79 / f520637d / ee6b0570 / 0f840db9 / 354852c7 / 5dd9b8fc / 0dd219c0 / a1c76dd5),其余为纯测试或纯文档;frozen scope 全程未触碰。
+**纪律:** 每个 commit 独立可 revert;production code 改动仅 9 个 commit(714a7a79 / f520637d / ee6b0570 / 0f840db9 / 354852c7 / 5dd9b8fc / 0dd219c0 / a1c76dd5 / c6a1cd2e),其余为纯测试或纯文档;frozen scope 全程未触碰。
 
-**自引用说明:** Code HEAD 为 `a1c76dd5`。本表之后的纯文档定稿提交不再单独列入,以避免自引用递归。
+**自引用说明:** Code HEAD 为 `c6a1cd2e`。本表之后的纯文档定稿提交不再单独列入,以避免自引用递归。
 
 ## 7. 文档同步
 
