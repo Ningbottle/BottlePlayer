@@ -22,6 +22,17 @@ import PlayerProgress from './PlayerProgress.vue';
 import AuroraDockParticles from './AuroraDockParticles.vue';
 import { pressBounceDown, pressBounceUp, attachMagnet } from '../../api/motion';
 import { toggleOverlay } from '../../api/overlayWindows';
+
+/** Overlay toggles surface failures on-screen (the windows themselves can't toast). */
+async function onToggleOverlay(kind: 'island' | 'lyric'): Promise<void> {
+  const ok = await toggleOverlay(kind);
+  if (!ok) {
+    c.value.toastMsg = kind === 'island' ? '灵动岛打开失败（见控制台）' : '桌面歌词打开失败（见控制台）';
+    window.setTimeout(() => {
+      if (c.value.toastMsg.includes('打开失败')) c.value.toastMsg = '';
+    }, 2600);
+  }
+}
 import { flyCoverToElement } from '../../api/coverFlight';
 
 const props = defineProps<{
@@ -304,7 +315,7 @@ async function onFavoriteClick(): Promise<void> {
         aria-label="灵动岛"
         title="灵动岛（悬浮迷你播放器）"
         data-test="aurora-overlay-island"
-        @click="toggleOverlay('island')"
+        @click="onToggleOverlay('island')"
       >
         <PhAppWindow :size="16" weight="regular" aria-hidden="true" />
       </button>
@@ -315,7 +326,7 @@ async function onFavoriteClick(): Promise<void> {
         aria-label="桌面歌词"
         title="桌面歌词（悬浮歌词条）"
         data-test="aurora-overlay-lyric"
-        @click="toggleOverlay('lyric')"
+        @click="onToggleOverlay('lyric')"
       >
         <PhNote :size="16" weight="regular" aria-hidden="true" />
       </button>
