@@ -1,4 +1,4 @@
-﻿import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 import { Fragment, nextTick } from 'vue';
 
@@ -18,11 +18,13 @@ vi.mock('../../api/playerStore', async () => {
 });
 
 const gsapSetMock = vi.hoisted(() => vi.fn());
-const gsapToMock = vi.hoisted(() => vi.fn((_: any, opts: any) => {
-  if (opts?.onComplete) opts.onComplete();
+const gsapToMock = vi.hoisted(() => vi.fn((_el: unknown, opts: { onComplete?: () => void }) => {
+  opts?.onComplete?.();
+  return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
 }));
-const gsapFromToMock = vi.hoisted(() => vi.fn((_el: any, _from: any, to: any) => {
-  if (to?.onComplete) to.onComplete();
+const gsapFromToMock = vi.hoisted(() => vi.fn((_el: unknown, _from: unknown, to: { onComplete?: () => void }) => {
+  to?.onComplete?.();
+  return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
 }));
 const gsapKillTweensOfMock = vi.hoisted(() => vi.fn());
 

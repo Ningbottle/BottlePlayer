@@ -2,7 +2,8 @@
 import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
 import { PhArrowsOutSimple, PhDisc, PhPause, PhPlay } from '@phosphor-icons/vue';
-import { isReducedMotion } from '../../api/motion';
+import { isReducedMotion, startVinylSpin } from '../../api/motion';
+import type { VinylSpinHandle } from '../../api/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
 import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api/playerStore';
 import type { Track } from '../../api/normalizer';
@@ -31,6 +32,8 @@ const autoHideControls = useAutoHideControls({
 const controlsVisible = autoHideControls.visible;
 
 const coverRef = ref<HTMLElement | null>(null);
+const discEl = ref<HTMLElement | null>(null);
+let vinylSpin: VinylSpinHandle | null = null;
 const rootRef = ref<HTMLElement | null>(null);
 const washRef = ref<HTMLElement | null>(null);
 const focus = useLyricFocusStore();
@@ -136,6 +139,17 @@ function lineClass(idx: number): string {
   if (diff === 2) return 'mid';
   return 'far';
 }
+
+/** Karaoke sweep across the active line, by line duration. */
+const activeFillPct = computed(() => {
+  const idx = props.model.activeIndex;
+  const lines = props.model.parsedLyrics;
+  const line = lines[idx];
+  if (!line) return 0;
+  const end = lines[idx + 1]?.time ?? line.time + 4;
+  const span = Math.max(0.4, end - line.time);
+  return Math.max(0, Math.min(100, ((props.model.currentTime - line.time) / span) * 100));
+});
 
 function queryLineEls(): Element[] {
   if (!rootRef.value) return [];
@@ -247,7 +261,12 @@ onMounted(() => {
   if (washRef.value) {
     gsap.set(washRef.value, { opacity: showCoverWash.value && !isReducedMotion() ? 0.9 : 0 });
   }
+  if (discEl.value) {
+    vinylSpin = startVinylSpin(discEl.value, () => !!props.model.isPlaying);
+  }
 });
+
+watch(() => props.model.isPlaying, () => vinylSpin?.setPlaying());
 
 watch(
   () => props.model.currentTrack?.FileHash,
@@ -306,6 +325,8 @@ watch(() => props.model.coverUrl, () => {
 }, { flush: 'post' });
 
 onBeforeUnmount(() => {
+  vinylSpin?.kill();
+  vinylSpin = null;
   clearFullscreenTransientStyles();
   autoHideControls.dispose();
 });
@@ -360,16 +381,20 @@ onBeforeUnmount(() => {
         @keydown.enter.prevent="onCoverClick"
         @keydown.space.prevent="onCoverClick"
       >
-        <img v-if="model.coverUrl" :src="model.coverUrl" alt="" />
-        <PhDisc
-          v-else
-          class="aurora-cover-placeholder"
-          data-test="lyric-cover-placeholder"
-          data-icon-family="phosphor"
-          :size="88"
-          weight="duotone"
-          aria-hidden="true"
-        />
+        <div ref="discEl" class="lyric-vinyl-disc" aria-hidden="true">
+          <img v-if="model.coverUrl" :src="model.coverUrl" alt="" />
+          <PhDisc
+            v-else
+            class="aurora-cover-placeholder"
+            data-test="lyric-cover-placeholder"
+            data-icon-family="phosphor"
+            :size="88"
+            weight="duotone"
+            aria-hidden="true"
+          />
+          <div class="lyric-vinyl-grooves" aria-hidden="true" />
+        </div>
+        <div class="lyric-vinyl-spindle" aria-hidden="true" />
         <CoverWebGLParticles
           :active="model.fullscreen"
           :is-playing="model.isPlaying"
@@ -467,7 +492,13 @@ onBeforeUnmount(() => {
           :class="lineClass(idx)"
           @click="onLineClick(line)"
         >
-          {{ line.text }}
+          <span class="lyric-line-text">{{ line.text }}</span>
+          <span
+            v-if="idx === model.activeIndex"
+            class="lyric-line-fill"
+            :style="{ clipPath: `inset(0 ${100 - activeFillPct}% 0 0)` }"
+            aria-hidden="true"
+          >{{ line.text }}</span>
         </button>
       </div>
       <slot name="footer" />
@@ -666,14 +697,61 @@ export default { name: 'AuroraLyricStage' };
   width: min(34vw, 46vh, 380px);
   height: auto;
   aspect-ratio: 1;
-  border-radius: 18px;
-  overflow: hidden;
+  border-radius: 50%;
   box-shadow:
     0 28px 70px rgba(0, 0, 0, 0.42),
-    0 0 0 1px color-mix(in srgb, var(--accent) 22%, transparent);
+    0 0 0 1px color-mix(in srgb, #fff 5%, transparent);
   margin: 0;
-  background: var(--surface-1, var(--paper-2));
+  background: #0a0a09;
   flex: none;
+}
+
+/* Rotating disc: cover art + grooves (spindle stays static above) */
+.lyric-vinyl-disc {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  overflow: hidden;
+  will-change: transform;
+}
+
+.lyric-vinyl-disc img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+  border-radius: 50%;
+}
+
+.lyric-vinyl-grooves {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  background:
+    conic-gradient(from 210deg,
+      transparent 0deg,
+      color-mix(in srgb, var(--accent) 14%, transparent) 18deg,
+      transparent 55deg),
+    repeating-radial-gradient(circle at 50% 50%,
+      rgba(255, 255, 255, 0.05) 0 1px,
+      transparent 1px 4px);
+  pointer-events: none;
+}
+
+.lyric-vinyl-spindle {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 26%;
+  aspect-ratio: 1;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background: radial-gradient(circle at 50% 50%,
+    var(--app-bg) 0 11%,
+    color-mix(in srgb, var(--accent) 82%, #000 18%) 12% 100%);
+  box-shadow: 0 0 0 1px color-mix(in srgb, #fff 8%, transparent);
+  pointer-events: none;
+  z-index: 1;
 }
 
 .aurora-cover.is-shelf-hot {
@@ -772,6 +850,7 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .lyric-line {
+  position: relative;
   width: 100%;
   max-width: min(44ch, 94%);
   font-size: 20px;
@@ -795,12 +874,21 @@ export default { name: 'AuroraLyricStage' };
 }
 
 .lyric-line.active {
-  color: var(--accent);
+  color: color-mix(in srgb, var(--text-primary, #fff) 38%, transparent);
   font-size: 28px;
   font-weight: 700;
   transform: scale(1.05);
-  text-shadow: 0 0 28px color-mix(in srgb, var(--accent) 35%, transparent);
   opacity: 1;
+}
+
+/* Karaoke sweep: accent text revealed left → right across the active line */
+.lyric-line-fill {
+  position: absolute;
+  inset: 0;
+  color: var(--accent);
+  text-shadow: 0 0 28px color-mix(in srgb, var(--accent) 35%, transparent);
+  pointer-events: none;
+  transition: clip-path 0.3s linear;
 }
 
 .aurora-lyric-fullscreen .lyric-line.active {

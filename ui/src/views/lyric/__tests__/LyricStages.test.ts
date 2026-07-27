@@ -28,6 +28,7 @@ vi.mock('../../../api/motion', () => ({
   isReducedMotion: isReducedMotionMock,
   animateElement: vi.fn(),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
+  startVinylSpin: vi.fn(() => ({ kill: vi.fn(), setPlaying: vi.fn(), burst: vi.fn() })),
 }));
 
 const playTrackMock = vi.hoisted(() => vi.fn());
