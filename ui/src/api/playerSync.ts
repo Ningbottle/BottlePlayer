@@ -35,6 +35,7 @@ export type PlayerCommand =
 
 const STATE_EVENT = 'bottle://player-state';
 const CMD_EVENT = 'bottle://player-cmd';
+const HELLO_EVENT = 'bottle://sync-hello';
 
 function snapshot(): PlayerSyncState {
   const t = playerStore.currentTrack;
@@ -108,18 +109,28 @@ export function startPlayerSyncHost(): () => void {
     else if (cmd.action === 'volume') setVolume(cmd.value);
   });
 
+  // Overlays that subscribe after the seed broadcast would otherwise wait
+  // forever while idle — they say hello, we answer with an immediate state.
+  const helloPromise = listen(HELLO_EVENT, broadcast);
+
   broadcast(); // seed late-opening overlays immediately
 
   let unlisten: UnlistenFn | null = null;
+  let unhello: UnlistenFn | null = null;
   void unlistenPromise.then((fn) => {
     unlisten = fn;
+  });
+  void helloPromise.then((fn) => {
+    unhello = fn;
   });
 
   return () => {
     stopWatch();
     clearInterval(tick);
     unlisten?.();
+    unhello?.();
     void unlistenPromise.then((fn) => fn());
+    void helloPromise.then((fn) => fn());
   };
 }
 
@@ -137,5 +148,7 @@ export async function onPlayerState(
   const unlisten = await listen<PlayerSyncState>(STATE_EVENT, (event) => {
     cb(event.payload);
   });
+  // Handshake: ask the host to rebroadcast so late joiners get theme + state now.
+  await emit(HELLO_EVENT, null).catch(() => {});
   return unlisten;
 }
