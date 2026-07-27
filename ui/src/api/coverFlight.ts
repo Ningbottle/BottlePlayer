@@ -59,6 +59,7 @@ export function flyCoverToElement(
       ease: 'expo.inOut',
       absolute: true,
       opacity: 0.9,
+      borderRadius: '50%',
       onComplete: () => ghost.remove(),
     });
   };
