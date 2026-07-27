@@ -84,6 +84,14 @@ export function saveOverlayPos(kind: OverlayKind, pos: OverlayPos): void {
   }
 }
 
+/** First-run position: top-center of the screen (iOS island style). */
+export function resolveCreatePos(
+  spec: { width: number; height: number },
+  screen: { w: number; h: number },
+): OverlayPos {
+  return anchorPosition('top-center', { w: spec.width, h: spec.height }, screen);
+}
+
 /** Create the overlay window if absent; close it if present. Tauri-only. */
 export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
   if (!isTauriRuntime()) return false;
@@ -95,6 +103,10 @@ export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
       return false;
     }
     const pos = loadOverlayPos(kind);
+    const createPos = pos ?? resolveCreatePos(
+      { width: spec.width, height: spec.height },
+      { w: window.screen.width, h: window.screen.height },
+    );
     const win = new WebviewWindow(spec.label, {
       url: spec.url,
       title: 'BottleMusic',
@@ -104,9 +116,12 @@ export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
       transparent: true,
       alwaysOnTop: true,
       skipTaskbar: true,
-      resizable: false,
+      resizable: kind === 'lyric',
+      minWidth: kind === 'lyric' ? 480 : undefined,
+      maxWidth: kind === 'lyric' ? 1200 : undefined,
       shadow: false,
-      ...(pos ? { x: pos.x, y: pos.y } : { center: true }),
+      x: createPos.x,
+      y: createPos.y,
     });
     // Creation is async — surface failures instead of vanishing silently.
     void win.once('tauri://error', (event) => {

@@ -74,8 +74,8 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <div class="island-root" data-tauri-drag-region @contextmenu="toggleAnchors">
-    <div class="island-capsule" :class="{ 'is-idle': !hasTrack }">
+  <div class="island-root" @contextmenu="toggleAnchors">
+    <div class="island-capsule" :class="{ 'is-idle': !hasTrack }" data-tauri-drag-region>
       <!-- Cover disc with progress ring -->
       <div class="island-disc-wrap">
         <svg class="island-ring" viewBox="0 0 72 72" aria-hidden="true">

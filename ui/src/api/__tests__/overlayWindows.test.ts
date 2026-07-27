@@ -13,7 +13,7 @@ vi.mock('@tauri-apps/api/dpi', () => ({
   },
 }));
 
-import { snapToEdges, anchorPosition, loadOverlayPos, saveOverlayPos, SNAP_MARGIN } from '../overlayWindows';
+import { snapToEdges, anchorPosition, loadOverlayPos, saveOverlayPos, resolveCreatePos, SNAP_MARGIN } from '../overlayWindows';
 
 describe('snapToEdges', () => {
   const win = { w: 340, h: 88 };
@@ -68,6 +68,18 @@ describe('anchorPosition', () => {
       x: 16,
       y: Math.round((1080 - 88) / 2),
     });
+  });
+});
+
+describe('resolveCreatePos', () => {
+  it('places a first-run island at the top-center of the screen', () => {
+    const pos = resolveCreatePos({ width: 340, height: 88 }, { w: 1920, h: 1080 });
+    expect(pos).toEqual({ x: Math.round((1920 - 340) / 2), y: 16 });
+  });
+
+  it('places a first-run lyric bar top-center too', () => {
+    const pos = resolveCreatePos({ width: 720, height: 96 }, { w: 1920, h: 1080 });
+    expect(pos).toEqual({ x: Math.round((1920 - 720) / 2), y: 16 });
   });
 });
 
