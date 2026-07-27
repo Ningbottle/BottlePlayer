@@ -29,8 +29,8 @@ const windowMock = vi.hoisted(() => ({
   close: vi.fn(async () => {}),
   outerPosition: vi.fn(async () => ({ x: 0, y: 0 })),
   outerSize: vi.fn(async () => ({ width: 340, height: 88 })),
-  setSize: vi.fn(async () => {}),
-  setPosition: vi.fn(async () => {}),
+  setSize: vi.fn(async (_size: { width: number; height: number }) => {}),
+  setPosition: vi.fn(async (_pos: { x: number; y: number }) => {}),
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({

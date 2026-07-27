@@ -18,6 +18,11 @@ vi.mock('../../api/overlayWindows', () => ({
   isTauriRuntime: () => false,
   settleCurrentOverlay: vi.fn(async () => {}),
   moveCurrentOverlayTo: vi.fn(async () => {}),
+  loadLyricPrefs: vi.fn(() => ({ fontSize: 18, density: 'standard', opacity: 100 })),
+  saveLyricPrefs: vi.fn((p: unknown) => {
+    localStorage.setItem('overlay_lyric_prefs', JSON.stringify(p));
+  }),
+  saveLyricSize: vi.fn(),
 }));
 
 vi.mock('../lyric/useLyricStage', () => ({
@@ -29,7 +34,11 @@ vi.mock('../lyric/useLyricStage', () => ({
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
-  getCurrentWindow: vi.fn(() => ({ close: vi.fn(async () => {}) })),
+  getCurrentWindow: vi.fn(() => ({
+    close: vi.fn(async () => {}),
+    onResized: vi.fn(async () => () => {}),
+    scaleFactor: vi.fn(async () => 1),
+  })),
 }));
 
 import DesktopLyricView from '../overlay/DesktopLyricView.vue';
@@ -88,6 +97,23 @@ describe('DesktopLyricView', () => {
     await wrapper.vm.$nextTick();
 
     expect(wrapper.find('.lyric-next').text()).toBe('第三行');
+    wrapper.unmount();
+  });
+
+  it('applies prefs as css vars and toggles the settings panel', async () => {
+    localStorage.removeItem('overlay_lyric_prefs');
+    const wrapper = mount(DesktopLyricView);
+    const bar = wrapper.get('.lyric-bar');
+    expect(bar.attributes('style')).toContain('--lyric-font-size: 18px');
+
+    expect(wrapper.find('[data-test="lyric-prefs"]').exists()).toBe(false);
+    await wrapper.get('[aria-label="歌词设置"]').trigger('click');
+    const panel = wrapper.get('[data-test="lyric-prefs"]');
+
+    const sizeButtons = panel.findAll('.lyric-prefs-row')[0].findAll('button');
+    await sizeButtons[3].trigger('click'); // 20
+    expect(wrapper.get('.lyric-bar').attributes('style')).toContain('--lyric-font-size: 20px');
+    expect(JSON.parse(localStorage.getItem('overlay_lyric_prefs')!)).toMatchObject({ fontSize: 20 });
     wrapper.unmount();
   });
 });

@@ -8,9 +8,10 @@
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
+import { PhGear, PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
 import { onPlayerState, sendPlayerCommand, type PlayerSyncState } from '../../api/playerSync';
-import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay } from '../../api/overlayWindows';
+import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay, loadLyricPrefs, saveLyricPrefs, saveLyricSize } from '../../api/overlayWindows';
+import type { LyricPrefs } from '../../api/overlayWindows';
 import { fetchLyrics, type LyricLine } from '../lyric/useLyricStage';
 
 const state = ref<PlayerSyncState | null>(null);
@@ -78,6 +79,17 @@ watch(
 const anchors = ['top-left', 'top-center', 'top-right', 'center-left', 'center', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right'];
 const showAnchors = ref(false);
 
+/** User preferences: font size / density / background opacity (persisted). */
+const prefs = ref<LyricPrefs>(loadLyricPrefs());
+const showPrefs = ref(false);
+const FONT_STEPS = [14, 16, 18, 20, 24] as const;
+
+watch(prefs, (p) => saveLyricPrefs(p), { deep: true });
+
+/** Width persistence: physical px → logical via scaleFactor, 300ms debounce. */
+let resizeUnlisten: (() => void) | null = null;
+let sizeTimer: number | undefined;
+
 function toggleAnchors(event: MouseEvent): void {
   event.preventDefault();
   showAnchors.value = !showAnchors.value;
@@ -103,17 +115,35 @@ onMounted(async () => {
     state.value = s;
   });
   document.addEventListener('mouseup', onDragRelease);
+
+  if (isTauriRuntime()) {
+    const win = getCurrentWindow();
+    resizeUnlisten = await win.onResized(({ payload }) => {
+      window.clearTimeout(sizeTimer);
+      sizeTimer = window.setTimeout(() => {
+        void win.scaleFactor().then((factor) => {
+          saveLyricSize(payload.width / (factor || 1));
+        });
+      }, 300);
+    });
+  }
 });
 
 onBeforeUnmount(() => {
   unlisten?.();
   document.removeEventListener('mouseup', onDragRelease);
+  resizeUnlisten?.();
+  window.clearTimeout(sizeTimer);
 });
 </script>
 
 <template>
   <div class="lyric-root" data-tauri-drag-region @contextmenu="toggleAnchors">
-    <div class="lyric-bar" :class="{ 'is-idle': !hasTrack }">
+    <div
+      class="lyric-bar"
+      :class="[{ 'is-idle': !hasTrack }, `density-${prefs.density}`]"
+      :style="{ '--lyric-font-size': prefs.fontSize + 'px', '--lyric-opacity': prefs.opacity / 100 }"
+    >
       <div class="lyric-lines">
         <span class="lyric-current" data-test="overlay-lyric-current">
           <span class="lyric-base">{{ displayText }}</span>
@@ -150,6 +180,39 @@ onBeforeUnmount(() => {
       <button type="button" class="lyric-close" aria-label="关闭桌面歌词" title="关闭" @click="closeBar">
         <PhX :size="12" weight="bold" aria-hidden="true" />
       </button>
+
+      <button
+        type="button"
+        class="lyric-gear"
+        aria-label="歌词设置"
+        title="歌词设置"
+        @click.stop="showPrefs = !showPrefs"
+      >
+        <PhGear :size="13" weight="bold" aria-hidden="true" />
+      </button>
+
+      <div v-if="showPrefs" class="lyric-prefs" data-test="lyric-prefs" @click.stop>
+        <div class="lyric-prefs-row">
+          <span>字号</span>
+          <button
+            v-for="s in FONT_STEPS"
+            :key="s"
+            type="button"
+            :class="{ active: prefs.fontSize === s }"
+            @click="prefs.fontSize = s"
+          >{{ s }}</button>
+        </div>
+        <div class="lyric-prefs-row">
+          <span>密度</span>
+          <button type="button" :class="{ active: prefs.density === 'compact' }" @click="prefs.density = 'compact'">紧凑</button>
+          <button type="button" :class="{ active: prefs.density === 'standard' }" @click="prefs.density = 'standard'">标准</button>
+        </div>
+        <div class="lyric-prefs-row">
+          <span>不透明度</span>
+          <input v-model.number="prefs.opacity" type="range" min="50" max="100" step="5" aria-label="不透明度" />
+          <b>{{ prefs.opacity }}%</b>
+        </div>
+      </div>
     </div>
 
     <div v-if="showAnchors" class="lyric-anchors" role="menu" aria-label="窗口位置">
@@ -191,8 +254,19 @@ onBeforeUnmount(() => {
   box-sizing: border-box;
   border-radius: 14px;
   border: 1px solid color-mix(in srgb, #fff 10%, transparent);
-  background: color-mix(in srgb, var(--surface-elevated, #1a2222) 82%, #000 18%);
+  background: transparent;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+}
+
+/* Solid dark backing — opacity lives here so text stays fully opaque */
+.lyric-bar::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--surface-elevated, #1a2222) 96%, #000 4%);
+  opacity: var(--lyric-opacity, 1);
+  z-index: -1;
 }
 
 .lyric-bar.is-idle {
@@ -212,11 +286,103 @@ onBeforeUnmount(() => {
 .lyric-current {
   position: relative;
   display: block;
-  font-size: 20px;
+  font-size: var(--lyric-font-size, 20px);
   font-weight: 700;
   line-height: 1.25;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.lyric-bar.density-compact .lyric-lines {
+  gap: 0;
+}
+
+.lyric-bar.density-compact {
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+
+.lyric-gear {
+  position: absolute;
+  top: -4px;
+  right: 16px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 0;
+  border-radius: 50%;
+  background: var(--surface-2, #141a1b);
+  color: var(--text-muted, #626d69);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+  z-index: 2;
+}
+
+.lyric-bar:hover .lyric-gear {
+  opacity: 1;
+}
+
+.lyric-gear:hover {
+  color: var(--text-primary, #f2f5f2);
+}
+
+.lyric-prefs {
+  position: absolute;
+  right: 10px;
+  bottom: calc(100% + 6px);
+  width: 248px;
+  padding: 10px 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, var(--surface-elevated, #1a2222) 96%, #000 4%);
+  border: 1px solid color-mix(in srgb, #fff 10%, transparent);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 3;
+}
+
+.lyric-prefs-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-secondary, #929c98);
+}
+
+.lyric-prefs-row > span {
+  width: 52px;
+  flex: none;
+}
+
+.lyric-prefs-row button {
+  padding: 2px 8px;
+  border: 1px solid color-mix(in srgb, var(--text-primary, #f2f5f2) 16%, transparent);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary, #929c98);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.lyric-prefs-row button.active {
+  color: var(--accent, #62d6a2);
+  border-color: color-mix(in srgb, var(--accent, #62d6a2) 55%, transparent);
+}
+
+.lyric-prefs-row input[type='range'] {
+  flex: 1;
+  accent-color: var(--accent, #62d6a2);
+}
+
+.lyric-prefs-row b {
+  font-size: 11px;
+  color: var(--text-secondary, #929c98);
+  font-variant-numeric: tabular-nums;
+  width: 34px;
+  text-align: right;
 }
 
 .lyric-base {

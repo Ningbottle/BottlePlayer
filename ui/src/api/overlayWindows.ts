@@ -92,6 +92,51 @@ export function resolveCreatePos(
   return anchorPosition('top-center', { w: spec.width, h: spec.height }, screen);
 }
 
+export interface LyricPrefs {
+  fontSize: 14 | 16 | 18 | 20 | 24;
+  density: 'compact' | 'standard';
+  opacity: number; // 50–100
+}
+
+const DEFAULT_LYRIC_PREFS: LyricPrefs = { fontSize: 18, density: 'standard', opacity: 100 };
+
+export function loadLyricPrefs(): LyricPrefs {
+  try {
+    const raw = localStorage.getItem('overlay_lyric_prefs');
+    if (!raw) return { ...DEFAULT_LYRIC_PREFS };
+    const p = JSON.parse(raw) as Partial<LyricPrefs>;
+    return {
+      fontSize: ([14, 16, 18, 20, 24] as const).includes(p.fontSize as 14) ? (p.fontSize as LyricPrefs['fontSize']) : 18,
+      density: p.density === 'compact' ? 'compact' : 'standard',
+      opacity: typeof p.opacity === 'number' ? Math.max(50, Math.min(100, Math.round(p.opacity))) : 100,
+    };
+  } catch {
+    return { ...DEFAULT_LYRIC_PREFS };
+  }
+}
+
+export function saveLyricPrefs(prefs: LyricPrefs): void {
+  try {
+    localStorage.setItem('overlay_lyric_prefs', JSON.stringify(prefs));
+  } catch {
+    // best-effort
+  }
+}
+
+export function loadLyricSize(): number | null {
+  const raw = localStorage.getItem('overlay_lyric_size');
+  const n = raw ? Number(raw) : NaN;
+  return Number.isFinite(n) && n >= 480 && n <= 1200 ? Math.round(n) : null;
+}
+
+export function saveLyricSize(width: number): void {
+  try {
+    localStorage.setItem('overlay_lyric_size', String(Math.round(width)));
+  } catch {
+    // best-effort
+  }
+}
+
 /** Create the overlay window if absent; close it if present. Tauri-only. */
 export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
   if (!isTauriRuntime()) return false;
@@ -103,14 +148,15 @@ export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
       return false;
     }
     const pos = loadOverlayPos(kind);
+    const savedWidth = kind === 'lyric' ? loadLyricSize() : null;
     const createPos = pos ?? resolveCreatePos(
-      { width: spec.width, height: spec.height },
+      { width: savedWidth ?? spec.width, height: spec.height },
       { w: window.screen.width, h: window.screen.height },
     );
     const win = new WebviewWindow(spec.label, {
       url: spec.url,
       title: 'BottleMusic',
-      width: spec.width,
+      width: savedWidth ?? spec.width,
       height: spec.height,
       decorations: false,
       transparent: true,

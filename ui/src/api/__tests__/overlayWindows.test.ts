@@ -13,7 +13,7 @@ vi.mock('@tauri-apps/api/dpi', () => ({
   },
 }));
 
-import { snapToEdges, anchorPosition, loadOverlayPos, saveOverlayPos, resolveCreatePos, SNAP_MARGIN } from '../overlayWindows';
+import { snapToEdges, anchorPosition, loadOverlayPos, saveOverlayPos, resolveCreatePos, loadLyricPrefs, saveLyricPrefs, loadLyricSize, saveLyricSize, SNAP_MARGIN } from '../overlayWindows';
 
 describe('snapToEdges', () => {
   const win = { w: 340, h: 88 };
@@ -80,6 +80,26 @@ describe('resolveCreatePos', () => {
   it('places a first-run lyric bar top-center too', () => {
     const pos = resolveCreatePos({ width: 720, height: 96 }, { w: 1920, h: 1080 });
     expect(pos).toEqual({ x: Math.round((1920 - 720) / 2), y: 16 });
+  });
+});
+
+describe('lyric prefs persistence', () => {
+  beforeEach(() => localStorage.clear());
+
+  it('round-trips prefs and repairs out-of-range values', () => {
+    expect(loadLyricPrefs()).toEqual({ fontSize: 18, density: 'standard', opacity: 100 });
+    saveLyricPrefs({ fontSize: 24, density: 'compact', opacity: 65 });
+    expect(loadLyricPrefs()).toEqual({ fontSize: 24, density: 'compact', opacity: 65 });
+    localStorage.setItem('overlay_lyric_prefs', JSON.stringify({ fontSize: 99, density: 'x', opacity: 240 }));
+    expect(loadLyricPrefs()).toEqual({ fontSize: 18, density: 'standard', opacity: 100 });
+  });
+
+  it('persists lyric width with bounds', () => {
+    expect(loadLyricSize()).toBeNull();
+    saveLyricSize(860);
+    expect(loadLyricSize()).toBe(860);
+    localStorage.setItem('overlay_lyric_size', '100');
+    expect(loadLyricSize()).toBeNull();
   });
 });
 
