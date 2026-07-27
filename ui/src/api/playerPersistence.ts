@@ -32,6 +32,17 @@ export function bindQueuePersistence(getter: QueueGetter): void {
   getSnapshot = getter;
 }
 
+function normalizeCurrentIndex(value: unknown): number {
+  return typeof value === 'number' && Number.isFinite(value) && Number.isInteger(value)
+    ? value
+    : -1;
+}
+
+function parseLegacyCurrentIndex(value: string | null): number {
+  if (value == null || value.trim() === '') return -1;
+  return normalizeCurrentIndex(Number(value));
+}
+
 /**
  * Read the persisted queue snapshot. Falls back to legacy `player_queue` +
  * `player_index` keys on first run after upgrade, so existing sessions
@@ -43,8 +54,11 @@ export function loadQueueSnapshot(): QueueSnapshot {
     const raw = safeGetItem(SNAPSHOT_KEY);
     if (raw != null) {
       const parsed = JSON.parse(raw) as Partial<QueueSnapshot>;
-      if (Array.isArray(parsed.queue) && typeof parsed.currentIndex === 'number') {
-        return { queue: parsed.queue, currentIndex: parsed.currentIndex };
+      if (Array.isArray(parsed.queue)) {
+        return {
+          queue: parsed.queue,
+          currentIndex: normalizeCurrentIndex(parsed.currentIndex),
+        };
       }
     }
   } catch {
@@ -56,7 +70,7 @@ export function loadQueueSnapshot(): QueueSnapshot {
   // localStorage access is unavailable (WebView storage disabled / permission).
   return {
     queue: loadJSON<Track[]>('player_queue', []),
-    currentIndex: parseInt(safeGetItem('player_index') ?? '-1', 10),
+    currentIndex: parseLegacyCurrentIndex(safeGetItem('player_index')),
   };
 }
 

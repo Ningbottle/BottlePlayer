@@ -17,7 +17,7 @@ import {
   transitionPhase,
   type PlaybackPhase,
 } from './playbackPhase';
-import { loadNumber, safeGetItem } from './safeStorage';
+import { loadNumber, safeGetItem, safeSetItem } from './safeStorage';
 import {
   loadJSON,
   bindQueuePersistence,
@@ -41,6 +41,15 @@ export { loadNumber } from './safeStorage';
 
 export type LoopMode = 'list' | 'single' | 'random';
 export type QueueMode = 'normal' | 'personalFm';
+
+function parseLoopMode(value: string | null): LoopMode {
+  if (value === 'single' || value === 'random') return value;
+  return 'list';
+}
+
+function parseQueueMode(value: string | null): QueueMode {
+  return value === 'personalFm' ? value : 'normal';
+}
 
 // ── Stats play session tracking (#5 #6 #7 #8 #12) ──
 // Fire-and-forget: failures are silently ignored (stats are non-critical).
@@ -188,8 +197,8 @@ export const playerStore = reactive<PlayerState>({
   volume: loadNumber('player_volume', 0.7, 0, 1),
   queue: initialQueueSnapshot.queue,
   currentIndex: initialQueueSnapshot.currentIndex,
-  loopMode: (safeGetItem('player_loop_mode') || 'list') as LoopMode,
-  queueMode: (safeGetItem('player_queue_mode') || 'normal') as QueueMode,
+  loopMode: parseLoopMode(safeGetItem('player_loop_mode')),
+  queueMode: parseQueueMode(safeGetItem('player_queue_mode')),
   audio: null,
   isLoading: false,
   errorMsg: '',
@@ -460,7 +469,7 @@ function handlePlaybackEvent(e: PlaybackEvent) {
 
 // Watch volume and queue to persist
 watch(() => playerStore.volume, (newVol) => {
-  localStorage.setItem('player_volume', String(newVol));
+  safeSetItem('player_volume', String(newVol));
   setWebAudioEqVolume(newVol);
   if (activeBackend) {
     activeBackend.setVolume(newVol).catch(() => {});
@@ -470,11 +479,11 @@ watch(() => playerStore.volume, (newVol) => {
 });
 
 watch(() => playerStore.loopMode, (newMode) => {
-  localStorage.setItem('player_loop_mode', newMode);
+  safeSetItem('player_loop_mode', newMode);
 });
 
 watch(() => playerStore.queueMode, (newMode) => {
-  localStorage.setItem('player_queue_mode', newMode);
+  safeSetItem('player_queue_mode', newMode);
 });
 
 const playbackOrchestrator = new PlaybackOrchestrator({
@@ -551,14 +560,14 @@ export async function playTrack(track: Track) {
 export async function setQuality(quality: string) {
   if (!playerStore.currentTrack) {
     playerStore.quality = quality;
-    localStorage.setItem('player_quality', quality);
+    safeSetItem('player_quality', quality);
     return { status: 'ok' as const };
   }
 
   const result = await readyForPlayback().dispatch({ type: 'switchQuality', quality });
   if (result.status === 'ok') {
     playerStore.quality = quality;
-    localStorage.setItem('player_quality', quality);
+    safeSetItem('player_quality', quality);
   } else if (result.status === 'failed' && result.message) {
     playerStore.errorMsg = result.message;
   }

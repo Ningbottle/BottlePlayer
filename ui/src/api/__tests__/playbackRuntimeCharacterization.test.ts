@@ -11,6 +11,7 @@
  * - playerPersistence: beforeunload listener calls flushSaveQueue (locked before Phase 5 removal)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { nextTick } from 'vue';
 
 // ── audioLevelMonitor: never-close invariant ──
 // Module-level singletons (sharedCtx etc.) persist across tests, so each test
@@ -305,5 +306,83 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
     expect(mod.playerStore.quality).toBe('128');
     expect(mod.playerStore.eqEnabled).toBe(false);
     expect(mod.playerStore.activePreset).toBe('Flat');
+  });
+
+  it('loadQueueSnapshot normalizes a non-integer atomic snapshot index to -1', async () => {
+    localStorage.setItem(
+      'player_queue_snapshot',
+      JSON.stringify({
+        queue: [{ FileHash: 'fractional-index' }],
+        currentIndex: 0.5,
+      }),
+    );
+
+    const { loadQueueSnapshot } = await import('../playerPersistence');
+    const snap = loadQueueSnapshot();
+
+    expect(snap.queue).toHaveLength(1);
+    expect(snap.currentIndex).toBe(-1);
+  });
+
+  it.each(['not-a-number', '1.5', '1abc'])(
+    'loadQueueSnapshot normalizes invalid legacy index %s to -1',
+    async (legacyIndex) => {
+      localStorage.setItem('player_queue', JSON.stringify([{ FileHash: 'legacy-invalid-index' }]));
+      localStorage.setItem('player_index', legacyIndex);
+
+      const { loadQueueSnapshot } = await import('../playerPersistence');
+      const snap = loadQueueSnapshot();
+
+      expect(snap.queue).toHaveLength(1);
+      expect(snap.currentIndex).toBe(-1);
+    },
+  );
+
+  it('playerStore module-eval rejects invalid persisted playback modes', async () => {
+    localStorage.setItem('player_loop_mode', 'broken-loop-mode');
+    localStorage.setItem('player_queue_mode', 'broken-queue-mode');
+    vi.resetModules();
+
+    const mod = await import('../playerStore');
+
+    expect(mod.playerStore.loopMode).toBe('list');
+    expect(mod.playerStore.queueMode).toBe('normal');
+  });
+
+  it('playerStore module-eval preserves valid non-default playback modes', async () => {
+    localStorage.setItem('player_loop_mode', 'random');
+    localStorage.setItem('player_queue_mode', 'personalFm');
+    vi.resetModules();
+
+    const mod = await import('../playerStore');
+
+    expect(mod.playerStore.loopMode).toBe('random');
+    expect(mod.playerStore.queueMode).toBe('personalFm');
+  });
+
+  it('setQuality succeeds when persistence writes are unavailable', async () => {
+    vi.resetModules();
+    const mod = await import('../playerStore');
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+
+    await expect(mod.setQuality('320')).resolves.toEqual({ status: 'ok' });
+    expect(mod.playerStore.quality).toBe('320');
+  });
+
+  it('volume updates the audio backend fallback when persistence writes fail', async () => {
+    vi.resetModules();
+    const mod = await import('../playerStore');
+    const audio = new Audio();
+    mod.playerStore.audio = audio;
+    vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new Error('QuotaExceededError');
+    });
+
+    mod.playerStore.volume = 0.25;
+    await nextTick();
+
+    expect(audio.volume).toBe(0.25);
   });
 });
