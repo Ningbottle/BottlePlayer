@@ -19,6 +19,7 @@ vi.mock('../../api/playerStore', () => ({
 vi.mock('../../api/motion', () => ({
   animateCountUp: animateCountUpMock,
   animateBarHeight: animateBarHeightMock,
+  startVinylSpin: vi.fn(() => ({ kill: vi.fn(), setPlaying: vi.fn(), burst: vi.fn() })),
   isReducedMotion: isReducedMotionMock,
 }));
 

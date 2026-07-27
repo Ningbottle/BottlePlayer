@@ -52,7 +52,7 @@ describe('Sidebar', () => {
     const { router, wrapper } = await mountSidebar();
 
     const navEntries = wrapper.findAll('.nav > a');
-    expect(navEntries).toHaveLength(5);
+    expect(navEntries).toHaveLength(4);
     expect(navEntries[2].text()).toContain('最近播放');
     expect(navEntries[3].text()).toContain('均衡器');
 

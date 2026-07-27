@@ -9,6 +9,7 @@ import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api
 import type { Track } from '../../api/normalizer';
 import type { LyricStageModel } from './useLyricStage';
 import CoverWebGLParticles from './CoverWebGLParticles.vue';
+import SpectrumRing from './SpectrumRing.vue';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
 import PlayerProgress from '../../components/player/PlayerProgress.vue';
 import FullscreenWindowControls from '../../components/shell/FullscreenWindowControls.vue';
@@ -381,6 +382,7 @@ onBeforeUnmount(() => {
         @keydown.enter.prevent="onCoverClick"
         @keydown.space.prevent="onCoverClick"
       >
+        <SpectrumRing :is-playing="model.isPlaying" />
         <div ref="discEl" class="lyric-vinyl-disc" aria-hidden="true">
           <img v-if="model.coverUrl" :src="model.coverUrl" alt="" />
           <PhDisc
@@ -852,6 +854,9 @@ export default { name: 'AuroraLyricStage' };
 .lyric-line {
   position: relative;
   width: 100%;
+  /* Apple-style hanging indent: wrapped continuation lines indent ~2 chars */
+  padding-left: 1.5em;
+  text-indent: -1.5em;
   max-width: min(44ch, 94%);
   font-size: 20px;
   color: var(--text-muted, var(--ink-mute));
@@ -885,6 +890,7 @@ export default { name: 'AuroraLyricStage' };
 .lyric-line-fill {
   position: absolute;
   inset: 0;
+  padding-left: 1.5em;
   color: var(--accent);
   text-shadow: 0 0 28px color-mix(in srgb, var(--accent) 35%, transparent);
   pointer-events: none;

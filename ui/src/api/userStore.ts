@@ -149,8 +149,20 @@ export async function claimVip() {
     // 成功与否只看 status===1；到期时间的权威来源是 /user/vip/detail (get_union_vip)。
     // 旧逻辑把成功挂在不存在的 data.ad_vip_end_time 上，导致领取成功却永远显示“领取失败”。
     if (listen?.status === 1) {
-      await checkLoginStatus(); // 从 get_union_vip 刷新真实到期时间到 userStore.vipEndDate
       userStore.isVip = true;
+      // 领取已成功；到期时间刷新是 best-effort — 失败也要报成功，不能反报领取失败。
+      try {
+        const vip = await apiGet<any>('/user/vip/detail');
+        if (vip?.status === 1 && vip?.data) {
+          const r = resolveVip(vip.data, Date.now());
+          userStore.vipLevel = r.vipLevel;
+          userStore.vipType = r.vipType;
+          userStore.isVip = r.isVip;
+          userStore.vipEndDate = r.vipEndDate;
+        }
+      } catch {
+        /* keep the successful claim; expiry just refreshes later */
+      }
       userStore.claimMessage = userStore.vipEndDate
         ? `✓ 已激活每日 VIP，到期：${userStore.vipEndDate}`
         : '✓ 已激活每日 VIP';

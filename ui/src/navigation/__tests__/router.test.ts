@@ -227,7 +227,6 @@ describe('navigation route contract', () => {
       '/playlist/:id',
       '/lyric',
       '/login',
-      '/visualizer',
       '/overlay/island',
       '/overlay/lyric',
     ]);

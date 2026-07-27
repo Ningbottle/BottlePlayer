@@ -22,7 +22,6 @@ const sidebarNav = [
   { id: 'stats', name: '统计', icon: 'M3 3v18h18M7 14l4-4 4 4 5-5' },
   { id: 'history', name: '最近播放', icon: 'M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z' },
   { id: 'equalizer', name: '均衡器', icon: 'M4 21v-7M4 10V3m8 18v-9m0-4V3m8 18v-5m0-4V3M2 14h4m4-6h4m4 5h4' },
-  { id: 'visualizer', name: '可视化', icon: 'M2 12h2l2-7 3 14 3-10 2 5 2-3h4' },
 ];
 
 type SidebarPlaylist = Pick<UserPlaylist, 'id' | 'name'>;
