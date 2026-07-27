@@ -14,39 +14,62 @@ gsap.registerPlugin(Flip);
 const GHOST_CLASS = 'aurora-cover-ghost';
 const DOCK_COVER_SELECTOR = '.aurora-pb-cover';
 
-export function flyCoverToDock(fromEl: HTMLElement, imgUrl: string): void {
+/**
+ * Shared-element cover flight between any two elements. The ghost is cloned
+ * from the source rect and Flip.fit-animated onto the target rect; both real
+ * covers stay put. delayMs lets a route transition mount the target first.
+ */
+export function flyCoverToElement(
+  fromEl: HTMLElement,
+  targetSelector: string,
+  imgUrl: string,
+  delayMs = 0,
+): void {
   if (isReducedMotion() || !imgUrl) return;
-  const target = document.querySelector<HTMLElement>(DOCK_COVER_SELECTOR);
-  if (!target) return;
 
-  const ghost = document.createElement('img');
-  ghost.src = imgUrl;
-  ghost.className = GHOST_CLASS;
-  ghost.alt = '';
-  ghost.setAttribute('aria-hidden', 'true');
-  Object.assign(ghost.style, {
-    position: 'fixed',
-    margin: '0',
-    pointerEvents: 'none',
-    zIndex: '9999',
-    borderRadius: '10px',
-    objectFit: 'cover',
-  } satisfies Partial<CSSStyleDeclaration>);
+  const run = (): void => {
+    const target = document.querySelector<HTMLElement>(targetSelector);
+    if (!target) return;
 
-  const from = fromEl.getBoundingClientRect();
-  Object.assign(ghost.style, {
-    left: `${from.left}px`,
-    top: `${from.top}px`,
-    width: `${from.width}px`,
-    height: `${from.height}px`,
-  });
-  document.body.appendChild(ghost);
+    const ghost = document.createElement('img');
+    ghost.src = imgUrl;
+    ghost.className = GHOST_CLASS;
+    ghost.alt = '';
+    ghost.setAttribute('aria-hidden', 'true');
+    Object.assign(ghost.style, {
+      position: 'fixed',
+      margin: '0',
+      pointerEvents: 'none',
+      zIndex: '9999',
+      borderRadius: '10px',
+      objectFit: 'cover',
+    } satisfies Partial<CSSStyleDeclaration>);
 
-  Flip.fit(ghost, target, {
-    duration: 0.55,
-    ease: 'expo.inOut',
-    absolute: true,
-    opacity: 0.9,
-    onComplete: () => ghost.remove(),
-  });
+    const from = fromEl.getBoundingClientRect();
+    Object.assign(ghost.style, {
+      left: `${from.left}px`,
+      top: `${from.top}px`,
+      width: `${from.width}px`,
+      height: `${from.height}px`,
+    });
+    document.body.appendChild(ghost);
+
+    Flip.fit(ghost, target, {
+      duration: 0.55,
+      ease: 'expo.inOut',
+      absolute: true,
+      opacity: 0.9,
+      onComplete: () => ghost.remove(),
+    });
+  };
+
+  if (delayMs > 0) {
+    setTimeout(run, delayMs);
+  } else {
+    run();
+  }
+}
+
+export function flyCoverToDock(fromEl: HTMLElement, imgUrl: string): void {
+  flyCoverToElement(fromEl, DOCK_COVER_SELECTOR, imgUrl);
 }

@@ -8,6 +8,7 @@ import type { Track } from '../../../api/normalizer';
 
 vi.mock('../../../api/motion', () => ({
   animateElement: vi.fn(),
+  attachMagnet: vi.fn(() => () => {}),
   isReducedMotion: vi.fn(() => true),
 }));
 

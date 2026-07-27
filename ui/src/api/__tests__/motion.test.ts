@@ -108,8 +108,8 @@ describe('motion.ts', () => {
 
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
-      { opacity: 0, y: 28 },
-      expect.objectContaining({ opacity: 1, y: 0, ease: 'expo.out', duration: 0.56 }),
+      { opacity: 0, x: 24 },
+      expect.objectContaining({ opacity: 1, x: 0, ease: 'expo.out', duration: 0.56 }),
     );
     expect(done).toHaveBeenCalledTimes(1);
   });
@@ -123,7 +123,7 @@ describe('motion.ts', () => {
 
     expect(gsap.to).toHaveBeenCalledWith(
       el,
-      expect.objectContaining({ opacity: 0, y: -16, duration: 0.2 }),
+      expect.objectContaining({ opacity: 0, x: -16, duration: 0.2 }),
     );
     expect(done).toHaveBeenCalledTimes(1);
   });

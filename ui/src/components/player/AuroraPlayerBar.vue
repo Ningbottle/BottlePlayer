@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue';
+import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import {
   PhAppWindow,
   PhArrowsOutSimple,
@@ -20,8 +20,9 @@ import {
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
 import AuroraDockParticles from './AuroraDockParticles.vue';
-import { pressBounceDown, pressBounceUp } from '../../api/motion';
+import { pressBounceDown, pressBounceUp, attachMagnet } from '../../api/motion';
 import { toggleOverlay } from '../../api/overlayWindows';
+import { flyCoverToElement } from '../../api/coverFlight';
 
 const props = defineProps<{
   controller: PlayerController;
@@ -32,6 +33,18 @@ const emit = defineEmits<{
 }>();
 
 const c = computed(() => props.controller);
+
+const playBtnEl = ref<HTMLElement | null>(null);
+let detachMagnet: (() => void) | null = null;
+
+onMounted(() => {
+  if (playBtnEl.value) detachMagnet = attachMagnet(playBtnEl.value);
+});
+
+onUnmounted(() => {
+  detachMagnet?.();
+  detachMagnet = null;
+});
 
 /** Design-target style quality chip (e.g. 无损 · 96kHz when available). */
 const qualityChip = computed(() => {
@@ -79,6 +92,16 @@ function onPress(e: MouseEvent) {
 function onRelease(e: MouseEvent) {
   const el = e.currentTarget;
   if (el instanceof Element) pressBounceUp(el);
+}
+
+/** Lyric entries share a cover flight: dock cover → lyric stage cover. */
+function openLyricWithFlight(open: () => void): void {
+  const from = document.querySelector<HTMLElement>('.aurora-pb-cover');
+  const url = c.value.coverUrl;
+  open();
+  if (from && url) {
+    flyCoverToElement(from, '[data-test="lyric-cover"]', url, 300);
+  }
 }
 
 /** One-shot ripple on the deck button whenever playback actually toggles. */
@@ -140,7 +163,7 @@ async function onFavoriteClick(): Promise<void> {
           aria-label="打开歌词"
           title="打开歌词"
           :disabled="!c.currentTrack"
-          @click.stop="c.openLyricView"
+          @click.stop="openLyricWithFlight(c.openLyricView)"
         >
           <div class="aurora-pb-cover">
             <img v-if="c.coverUrl" :src="c.coverUrl" alt="cover" />
@@ -162,7 +185,7 @@ async function onFavoriteClick(): Promise<void> {
           aria-label="进入全屏歌词"
           title="进入全屏歌词"
           :disabled="!c.currentTrack"
-          @click.stop="c.openLyricImmersion"
+          @click.stop="openLyricWithFlight(c.openLyricImmersion)"
         >
           <PhArrowsOutSimple :size="12" weight="bold" aria-hidden="true" />
         </button>
@@ -174,7 +197,7 @@ async function onFavoriteClick(): Promise<void> {
         aria-label="查看歌曲歌词"
         title="点击查看歌词"
         :disabled="!c.currentTrack"
-        @click.stop="c.openLyricView"
+        @click.stop="openLyricWithFlight(c.openLyricView)"
       >
         <template v-if="c.currentTrack">
           <b>{{ c.currentTrack.SongName }}</b>
@@ -228,6 +251,7 @@ async function onFavoriteClick(): Promise<void> {
         </button>
 
         <button
+          ref="playBtnEl"
           type="button"
           class="aurora-pb-btn aurora-pb-play"
           :disabled="!c.currentTrack"

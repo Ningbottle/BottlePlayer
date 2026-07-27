@@ -7,6 +7,7 @@ import {
 } from 'vue-router';
 
 import { installNavigationLifecycle } from './navigationLifecycle';
+import { initNavigationDirection } from './direction';
 import { routeRecords } from './routes';
 
 export function createAppRouter(history: RouterHistory = createMemoryHistory()): Router {
@@ -15,6 +16,7 @@ export function createAppRouter(history: RouterHistory = createMemoryHistory()):
     routes: routeRecords,
   });
   installNavigationLifecycle(router);
+  initNavigationDirection(router);
   return router;
 }
 

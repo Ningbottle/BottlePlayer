@@ -4,6 +4,7 @@ import { useThemeStore } from './themeStore';
 import { getMotionProfile } from './motionProfiles';
 import type { ProfileKey, TweenSpec } from './motionProfiles';
 import { beginTransitionSession } from './transitionSession';
+import { navigationDirection } from '../navigation/direction';
 
 export interface CountUpOptions {
   duration?: number;
@@ -74,20 +75,22 @@ function currentProfile() {
   return getMotionProfile(useThemeStore().skinId.value);
 }
 
-/** Vue <Transition> JS hook: enter (fade + translateY). Kill-safe via transitionSession. */
+/** Vue <Transition> JS hook: enter. Aurora: directional shared-axis X; Newsprint: translateY. Kill-safe via transitionSession. */
 export function transitionEnter(el: Element, done?: () => void): void {
   const session = beginTransitionSession(el, 'enter', done);
   gsap.killTweensOf(el);
   if (isReducedMotion()) {
-    gsap.set(el, { opacity: 1, y: 0, clearProps: 'transform,opacity' });
+    gsap.set(el, { opacity: 1, x: 0, y: 0, clearProps: 'transform,opacity' });
     session.complete();
     return;
   }
   const spec = currentProfile().pageEnter;
-  const fromY = spec.fromY ?? 16;
-  gsap.fromTo(el, { opacity: 0, y: fromY }, {
-    opacity: 1,
-    y: 0,
+  const isAurora = useThemeStore().skinId.value === 'aurora';
+  const dir = navigationDirection.value === 'back' ? -1 : 1;
+  const fromVars = isAurora ? { opacity: 0, x: 24 * dir } : { opacity: 0, y: spec.fromY ?? 16 };
+  const toVars = isAurora ? { opacity: 1, x: 0 } : { opacity: 1, y: 0 };
+  gsap.fromTo(el, fromVars, {
+    ...toVars,
     duration: spec.duration,
     ease: spec.ease,
     delay: spec.delay ?? 0,
@@ -102,19 +105,21 @@ export function transitionEnter(el: Element, done?: () => void): void {
   });
 }
 
-/** Vue <Transition> JS hook: leave (fade + translateY). Kill-safe via transitionSession. */
+/** Vue <Transition> JS hook: leave. Kill-safe via transitionSession. */
 export function transitionLeave(el: Element, done?: () => void): void {
   const session = beginTransitionSession(el, 'leave', done);
   gsap.killTweensOf(el);
   if (isReducedMotion()) {
-    gsap.set(el, { opacity: 0, y: 0, clearProps: 'transform,opacity' });
+    gsap.set(el, { opacity: 0, x: 0, y: 0, clearProps: 'transform,opacity' });
     session.complete();
     return;
   }
   const spec = currentProfile().pageLeave;
+  const isAurora = useThemeStore().skinId.value === 'aurora';
+  const dir = navigationDirection.value === 'back' ? -1 : 1;
   gsap.to(el, {
     opacity: 0,
-    y: -16,
+    ...(isAurora ? { x: -16 * dir } : { y: -16 }),
     duration: spec.duration,
     ease: spec.ease,
     delay: spec.delay ?? 0,
@@ -230,6 +235,39 @@ export function animateStagger(
     stagger,
   });
   return { kill: () => { tween.kill(); capped.forEach((el) => gsap.killTweensOf(el)); } };
+}
+
+/**
+ * Magnetic hover: the element drifts toward the cursor by a small capped
+ * offset and springs back with the skin's controlRelease profile on leave.
+ * Returns a detach function. Reduced motion → inert.
+ */
+export function attachMagnet(el: HTMLElement, strength = 0.18, maxOffset = 3): () => void {
+  if (isReducedMotion()) return () => {};
+
+  function onMove(e: MouseEvent): void {
+    const r = el.getBoundingClientRect();
+    const dx = e.clientX - (r.left + r.width / 2);
+    const dy = e.clientY - (r.top + r.height / 2);
+    gsap.to(el, {
+      x: Math.max(-maxOffset, Math.min(maxOffset, dx * strength)),
+      y: Math.max(-maxOffset, Math.min(maxOffset, dy * strength)),
+      duration: 0.25,
+      ease: 'power2.out',
+    });
+  }
+
+  function onLeave(): void {
+    const spec = currentProfile().controlRelease;
+    gsap.to(el, { x: 0, y: 0, duration: spec.duration, ease: spec.ease });
+  }
+
+  el.addEventListener('mousemove', onMove);
+  el.addEventListener('mouseleave', onLeave);
+  return () => {
+    el.removeEventListener('mousemove', onMove);
+    el.removeEventListener('mouseleave', onLeave);
+  };
 }
 
 export interface VinylSpinHandle {
