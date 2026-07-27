@@ -22,7 +22,7 @@ interface Size {
 }
 
 const OVERLAY_SPECS: Record<OverlayKind, { label: string; url: string; width: number; height: number }> = {
-  island: { label: 'overlay-island', url: '/overlay/island', width: 340, height: 88 },
+  island: { label: 'overlay-island', url: '/overlay/island', width: 300, height: 64 },
   lyric: { label: 'overlay-lyric', url: '/overlay/lyric', width: 720, height: 96 },
 };
 
@@ -176,6 +176,8 @@ export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
     void win.once('tauri://created', () => {
       console.log(`[overlay] created ${spec.label} → ${spec.url}`);
     });
+    // Belt-and-braces for OS-level white background on WebView2.
+    void win.setBackgroundColor({ red: 0, green: 0, blue: 0, alpha: 0 }).catch(() => {});
     return true;
   } catch (err) {
     console.error(`[overlay] toggleOverlay(${kind}) failed:`, err);

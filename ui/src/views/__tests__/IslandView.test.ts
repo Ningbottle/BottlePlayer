@@ -12,6 +12,11 @@ vi.mock('../../api/playerSync', () => ({
     return () => {};
   }),
   sendPlayerCommand: vi.fn(async () => {}),
+  applySyncedTheme: vi.fn((s: { skin?: string; mode?: string; accent?: string }) => {
+    if (s.skin) document.documentElement.dataset.skin = s.skin;
+    if (s.mode) document.documentElement.dataset.mode = s.mode;
+    if (s.accent) document.documentElement.style.setProperty('--accent', s.accent);
+  }),
 }));
 
 vi.mock('../../api/overlayWindows', () => ({
@@ -90,8 +95,8 @@ describe('IslandView', () => {
     expect(img.exists()).toBe(true);
 
     const ring = wrapper.find('.island-ring-fill');
-    // 30/180 → offset = LEN * (1 - 1/6)
-    const expected = String(2 * Math.PI * 30 * (1 - 30 / 180));
+    // 30/180 → offset = LEN * (1 - 1/6), ring radius 20
+    const expected = String(2 * Math.PI * 20 * (1 - 30 / 180));
     expect(Number(ring.attributes('stroke-dashoffset'))).toBeCloseTo(Number(expected), 3);
     wrapper.unmount();
   });
@@ -109,6 +114,18 @@ describe('IslandView', () => {
     await buttons[2].trigger('click');
     expect(sendPlayerCommand).toHaveBeenLastCalledWith({ action: 'next' });
     wrapper.unmount();
+  });
+
+  it('applies the synced theme to the overlay document', async () => {
+    const wrapper = mount(IslandView);
+    emitState({ skin: 'aurora', mode: 'dark', accent: '#c4391e' });
+    await wrapper.vm.$nextTick();
+
+    expect(document.documentElement.dataset.skin).toBe('aurora');
+    expect(document.documentElement.dataset.mode).toBe('dark');
+    expect(document.documentElement.style.getPropertyValue('--accent')).toBe('#c4391e');
+    wrapper.unmount();
+    document.documentElement.style.removeProperty('--accent');
   });
 
   it('disables transport without a track', () => {

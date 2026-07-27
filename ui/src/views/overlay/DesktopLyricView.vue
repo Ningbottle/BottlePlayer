@@ -9,7 +9,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { PhGear, PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
-import { onPlayerState, sendPlayerCommand, type PlayerSyncState } from '../../api/playerSync';
+import { onPlayerState, sendPlayerCommand, applySyncedTheme, type PlayerSyncState } from '../../api/playerSync';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay, loadLyricPrefs, saveLyricPrefs, saveLyricSize } from '../../api/overlayWindows';
 import type { LyricPrefs } from '../../api/overlayWindows';
 import { fetchLyrics, type LyricLine } from '../lyric/useLyricStage';
@@ -112,6 +112,7 @@ async function closeBar(): Promise<void> {
 
 onMounted(async () => {
   unlisten = await onPlayerState((s) => {
+    applySyncedTheme(s);
     state.value = s;
   });
   document.addEventListener('mouseup', onDragRelease);
@@ -144,7 +145,7 @@ onBeforeUnmount(() => {
       :class="[{ 'is-idle': !hasTrack }, `density-${prefs.density}`]"
       :style="{ '--lyric-font-size': prefs.fontSize + 'px', '--lyric-opacity': prefs.opacity / 100 }"
     >
-      <div class="lyric-lines">
+      <div v-if="!showPrefs" class="lyric-lines">
         <span class="lyric-current" data-test="overlay-lyric-current">
           <span class="lyric-base">{{ displayText }}</span>
           <span
@@ -155,6 +156,29 @@ onBeforeUnmount(() => {
           >{{ displayText }}</span>
         </span>
         <span v-if="nextLine" class="lyric-next">{{ nextLine.text }}</span>
+      </div>
+
+      <div v-else class="lyric-prefs" data-test="lyric-prefs" @click.stop>
+        <div class="lyric-prefs-row">
+          <span>字号</span>
+          <button
+            v-for="s in FONT_STEPS"
+            :key="s"
+            type="button"
+            :class="{ active: prefs.fontSize === s }"
+            @click="prefs.fontSize = s"
+          >{{ s }}</button>
+        </div>
+        <div class="lyric-prefs-row">
+          <span>密度</span>
+          <button type="button" :class="{ active: prefs.density === 'compact' }" @click="prefs.density = 'compact'">紧凑</button>
+          <button type="button" :class="{ active: prefs.density === 'standard' }" @click="prefs.density = 'standard'">标准</button>
+        </div>
+        <div class="lyric-prefs-row">
+          <span>不透明度</span>
+          <input v-model.number="prefs.opacity" type="range" min="50" max="100" step="5" aria-label="不透明度" />
+          <b>{{ prefs.opacity }}%</b>
+        </div>
       </div>
 
       <div class="lyric-controls">
@@ -190,29 +214,6 @@ onBeforeUnmount(() => {
       >
         <PhGear :size="13" weight="bold" aria-hidden="true" />
       </button>
-
-      <div v-if="showPrefs" class="lyric-prefs" data-test="lyric-prefs" @click.stop>
-        <div class="lyric-prefs-row">
-          <span>字号</span>
-          <button
-            v-for="s in FONT_STEPS"
-            :key="s"
-            type="button"
-            :class="{ active: prefs.fontSize === s }"
-            @click="prefs.fontSize = s"
-          >{{ s }}</button>
-        </div>
-        <div class="lyric-prefs-row">
-          <span>密度</span>
-          <button type="button" :class="{ active: prefs.density === 'compact' }" @click="prefs.density = 'compact'">紧凑</button>
-          <button type="button" :class="{ active: prefs.density === 'standard' }" @click="prefs.density = 'standard'">标准</button>
-        </div>
-        <div class="lyric-prefs-row">
-          <span>不透明度</span>
-          <input v-model.number="prefs.opacity" type="range" min="50" max="100" step="5" aria-label="不透明度" />
-          <b>{{ prefs.opacity }}%</b>
-        </div>
-      </div>
     </div>
 
     <div v-if="showAnchors" class="lyric-anchors" role="menu" aria-label="窗口位置">
@@ -329,19 +330,12 @@ onBeforeUnmount(() => {
 }
 
 .lyric-prefs {
-  position: absolute;
-  right: 10px;
-  bottom: calc(100% + 6px);
-  width: 248px;
-  padding: 10px 12px;
-  border-radius: 10px;
-  background: color-mix(in srgb, var(--surface-elevated, #1a2222) 96%, #000 4%);
-  border: 1px solid color-mix(in srgb, #fff 10%, transparent);
-  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.4);
+  flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  z-index: 3;
+  justify-content: center;
+  gap: 6px;
 }
 
 .lyric-prefs-row {

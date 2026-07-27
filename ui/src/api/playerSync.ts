@@ -8,6 +8,8 @@
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { watch } from 'vue';
 import { playerStore, togglePlay, next, prev, seek, setVolume } from './playerStore';
+import { useThemeStore } from './themeStore';
+import { useAppearanceStore } from './appearanceStore';
 import { isTauriRuntime } from './overlayWindows';
 
 export interface PlayerSyncState {
@@ -20,6 +22,10 @@ export interface PlayerSyncState {
   duration: number;
   volume: number;
   loopMode: string;
+  /** Theme snapshot — overlay windows must mirror the main window's look. */
+  skin?: string;
+  mode?: string;
+  accent?: string;
 }
 
 export type PlayerCommand =
@@ -32,6 +38,7 @@ const CMD_EVENT = 'bottle://player-cmd';
 
 function snapshot(): PlayerSyncState {
   const t = playerStore.currentTrack;
+  const theme = useThemeStore();
   return {
     hash: t?.FileHash ?? '',
     name: t?.SongName ?? '',
@@ -42,7 +49,25 @@ function snapshot(): PlayerSyncState {
     duration: playerStore.duration,
     volume: playerStore.volume,
     loopMode: playerStore.loopMode,
+    skin: theme.skinId.value,
+    mode: theme.mode.value,
+    accent: useAppearanceStore().accent.value,
   };
+}
+
+/**
+ * Overlay side: mirror the main window's theme onto this document.
+ * Overlay localStorage is not guaranteed to share the main window's keys,
+ * so theme must travel through the sync channel, not storage.
+ */
+export function applySyncedTheme(state: PlayerSyncState): void {
+  if (state.skin) document.documentElement.dataset.skin = state.skin;
+  if (state.mode) document.documentElement.dataset.mode = state.mode;
+  if (state.accent) {
+    document.documentElement.style.setProperty('--accent', state.accent);
+  } else {
+    document.documentElement.style.removeProperty('--accent');
+  }
 }
 
 /**
@@ -59,7 +84,15 @@ export function startPlayerSyncHost(): () => void {
 
   // Immediate on structural changes; light throttle for progress ticks.
   const stopWatch = watch(
-    () => [playerStore.currentTrack?.FileHash, playerStore.isPlaying, playerStore.loopMode, playerStore.volume],
+    () => [
+      playerStore.currentTrack?.FileHash,
+      playerStore.isPlaying,
+      playerStore.loopMode,
+      playerStore.volume,
+      useThemeStore().skinId.value,
+      useThemeStore().mode.value,
+      useAppearanceStore().accent.value,
+    ],
     broadcast,
   );
   const tick = setInterval(() => {

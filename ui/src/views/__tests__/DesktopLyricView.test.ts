@@ -12,6 +12,7 @@ vi.mock('../../api/playerSync', () => ({
     return () => {};
   }),
   sendPlayerCommand: vi.fn(async () => {}),
+  applySyncedTheme: vi.fn(() => {}),
 }));
 
 vi.mock('../../api/overlayWindows', () => ({

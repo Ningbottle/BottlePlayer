@@ -10,13 +10,13 @@ import { computed, onBeforeUnmount, onMounted, ref, nextTick } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { LogicalSize, LogicalPosition } from '@tauri-apps/api/dpi';
 import { PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
-import { onPlayerState, sendPlayerCommand, type PlayerSyncState } from '../../api/playerSync';
+import { onPlayerState, sendPlayerCommand, applySyncedTheme, type PlayerSyncState } from '../../api/playerSync';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay } from '../../api/overlayWindows';
 import { startVinylSpin } from '../../api/motion';
 import type { VinylSpinHandle } from '../../api/motion';
 import PlayerProgress from '../../components/player/PlayerProgress.vue';
 
-const COLLAPSED_SIZE = { width: 340, height: 88 };
+const COLLAPSED_SIZE = { width: 300, height: 64 };
 const EXPANDED_SIZE = { width: 480, height: 200 };
 
 const state = ref<PlayerSyncState | null>(null);
@@ -27,8 +27,8 @@ const progress = computed(() => {
   return Math.max(0, Math.min(1, s.currentTime / s.duration));
 });
 
-/** Progress ring geometry (SVG circle, r=30). */
-const RING_R = 30;
+/** Progress ring geometry (SVG circle, r=20). */
+const RING_R = 20;
 const RING_LEN = 2 * Math.PI * RING_R;
 const ringOffset = computed(() => RING_LEN * (1 - progress.value));
 
@@ -113,6 +113,7 @@ async function closeIsland(): Promise<void> {
 
 onMounted(async () => {
   unlisten = await onPlayerState((s) => {
+    applySyncedTheme(s);
     state.value = s;
     vinylSpin?.setPlaying();
     cardSpin?.setPlaying();
@@ -146,7 +147,7 @@ onBeforeUnmount(() => {
     >
       <!-- Cover disc with progress ring -->
       <div class="island-disc-wrap">
-        <svg class="island-ring" viewBox="0 0 72 72" aria-hidden="true">
+        <svg class="island-ring" viewBox="0 0 48 48" aria-hidden="true">
           <circle class="island-ring-track" cx="36" cy="36" :r="RING_R" />
           <circle
             class="island-ring-fill"
@@ -294,8 +295,8 @@ onBeforeUnmount(() => {
 
 .island-disc-wrap {
   position: relative;
-  width: 56px;
-  height: 56px;
+  width: 40px;
+  height: 40px;
   flex: none;
 }
 
@@ -321,7 +322,7 @@ onBeforeUnmount(() => {
 
 .island-disc {
   position: absolute;
-  inset: 4px;
+  inset: 3px;
   border-radius: 50%;
   overflow: hidden;
   background: #0a0a09;
@@ -354,8 +355,8 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 16px;
-  height: 16px;
+  width: 12px;
+  height: 12px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: radial-gradient(circle at 50% 50%,
@@ -398,8 +399,8 @@ onBeforeUnmount(() => {
 }
 
 .island-transport button {
-  width: 30px;
-  height: 30px;
+  width: 26px;
+  height: 26px;
   display: grid;
   place-items: center;
   border: 0;
@@ -421,8 +422,8 @@ onBeforeUnmount(() => {
 }
 
 .island-transport .island-play {
-  width: 34px;
-  height: 34px;
+  width: 30px;
+  height: 30px;
   background: var(--accent, #62d6a2);
   color: #0a1410;
 }
