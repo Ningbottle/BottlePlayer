@@ -232,66 +232,6 @@ export function animateStagger(
   return { kill: () => { tween.kill(); capped.forEach((el) => gsap.killTweensOf(el)); } };
 }
 
-/** Start ambient breathing motion for the stage element. Aurora-only, respects visibility and playback. */
-export function startAmbientMotion(
-  el: HTMLElement,
-  isPlayingRef: Ref<boolean> | (() => boolean),
-): MotionHandle {
-  const profile = currentProfile();
-
-  if (!profile.ambient.enabled || isReducedMotion()) {
-    return { kill: () => {} };
-  }
-
-  const isPlaying = typeof isPlayingRef === 'function' ? isPlayingRef : () => isPlayingRef.value;
-  let tween: { kill: () => void } | null = null;
-  let killed = false;
-
-  function start(): void {
-    if (killed || !isPlaying() || document.hidden) return;
-    gsap.killTweensOf(el);
-    tween = gsap.to(el, {
-      scale: profile.ambient.scale,
-      duration: profile.ambient.duration,
-      ease: 'sine.inOut',
-      yoyo: true,
-      repeat: -1,
-    });
-  }
-
-  function pause(): void {
-    if (tween) { tween.kill(); tween = null; }
-    gsap.killTweensOf(el);
-  }
-
-  function onVisibilityChange(): void {
-    if (document.hidden) {
-      pause();
-    } else {
-      start();
-    }
-  }
-
-  function onBlur(): void { pause(); }
-  function onFocus(): void { start(); }
-
-  document.addEventListener('visibilitychange', onVisibilityChange);
-  window.addEventListener('blur', onBlur);
-  window.addEventListener('focus', onFocus);
-
-  start();
-
-  return {
-    kill(): void {
-      killed = true;
-      pause();
-      document.removeEventListener('visibilitychange', onVisibilityChange);
-      window.removeEventListener('blur', onBlur);
-      window.removeEventListener('focus', onFocus);
-    },
-  };
-}
-
 export interface VinylSpinHandle {
   kill: () => void;
   /** Re-read isPlayingRef and ramp the deck toward the matching state. */

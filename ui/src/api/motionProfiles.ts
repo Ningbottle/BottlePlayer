@@ -35,7 +35,6 @@ export interface MotionProfile {
   controlPress: TweenSpec;
   controlRelease: TweenSpec;
   cardEnter: TweenSpec & { stagger: number; maxItems: number };
-  ambient: { enabled: boolean; duration: number; scale: number };
   particles: ParticleMotionProfile;
   /** Turntable night: hero vinyl rotation. */
   vinyl: { enabled: boolean; spinSeconds: number; rampSeconds: number };
@@ -49,7 +48,6 @@ const auroraProfile: MotionProfile = {
   controlPress: { duration: 0.08, ease: 'power2.out' },
   controlRelease: { duration: 0.58, ease: 'elastic.out(1.12, 0.42)' },
   cardEnter: { duration: 0.4, ease: 'back.out(1.5)', stagger: 0.04, maxItems: 12 },
-  ambient: { enabled: true, duration: 3, scale: 1.01 },
   vinyl: { enabled: true, spinSeconds: 24, rampSeconds: 0.8 },
   particles: {
     dock: {
@@ -75,7 +73,6 @@ const newsprintProfile: MotionProfile = {
   controlPress: { duration: 0.1, ease: 'power2.out' },
   controlRelease: { duration: 0.18, ease: 'power2.out' },
   cardEnter: { duration: 0.25, ease: 'power3.out', stagger: 0.03, maxItems: 20 },
-  ambient: { enabled: false, duration: 0, scale: 1 },
   vinyl: { enabled: false, spinSeconds: 0, rampSeconds: 0 },
   particles: {
     dock: {

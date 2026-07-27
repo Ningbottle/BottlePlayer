@@ -12,7 +12,6 @@ const newsprintCss = readFileSync(resolve(__dirname, '../../../styles/skins/news
 vi.mock('../../../api/motion', () => ({
   animateElement: vi.fn(),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
-  startAmbientMotion: vi.fn(() => ({ kill: () => {} })),
   isReducedMotion: vi.fn(() => true),
 }));
 

@@ -10,18 +10,6 @@ describe('motionProfiles', () => {
     expect(getMotionProfile('newsprint').pageEnter.ease).toBe('power3.out');
   });
 
-  it('newsprint ambient is disabled', () => {
-    expect(getMotionProfile('newsprint').ambient.enabled).toBe(false);
-  });
-
-  it('aurora ambient duration is bounded for jelly stage drift', () => {
-    expect(getMotionProfile('aurora').ambient.duration).toBe(3);
-  });
-
-  it('aurora ambient scale <= 1.015', () => {
-    expect(getMotionProfile('aurora').ambient.scale).toBeLessThanOrEqual(1.015);
-  });
-
   it('uses a longer expo entrance and a bounded jelly card entrance for Aurora', () => {
     const profile = getMotionProfile('aurora');
     expect(profile.pageEnter).toMatchObject({ duration: 0.56, ease: 'expo.out' });

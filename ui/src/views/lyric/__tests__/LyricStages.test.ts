@@ -28,7 +28,6 @@ vi.mock('../../../api/motion', () => ({
   isReducedMotion: isReducedMotionMock,
   animateElement: vi.fn(),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
-  startAmbientMotion: vi.fn(() => ({ kill: () => {} })),
 }));
 
 const playTrackMock = vi.hoisted(() => vi.fn());

@@ -21,7 +21,6 @@ vi.mock('gsap', () => {
 vi.mock('../../../api/motion', () => ({
   animateElement: vi.fn(() => ({ kill: () => {} })),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
-  startAmbientMotion: vi.fn(() => ({ kill: () => {} })),
   startVinylSpin: vi.fn(() => ({ kill: vi.fn(), setPlaying: vi.fn(), burst: vi.fn() })),
   isReducedMotion: vi.fn(() => false),
 }));

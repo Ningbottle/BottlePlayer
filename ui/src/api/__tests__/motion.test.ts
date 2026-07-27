@@ -36,7 +36,6 @@ import {
   transitionLeave,
   animateElement,
   animateStagger,
-  startAmbientMotion,
   startVinylSpin,
   pressBounceDown,
   pressBounceUp,
@@ -403,91 +402,6 @@ describe('motion.ts', () => {
         stagger: 0.04,
       }),
     );
-  });
-
-  // --- startAmbientMotion tests ---
-
-  it('startAmbientMotion returns handle with kill()', () => {
-    const el = document.createElement('div');
-    const handle = startAmbientMotion(el, () => true);
-    expect(typeof handle.kill).toBe('function');
-    handle.kill();
-  });
-
-  it('startAmbientMotion starts for Aurora when playing', async () => {
-    const { gsap } = await import('gsap');
-    const el = document.createElement('div');
-    const handle = startAmbientMotion(el, () => true);
-
-    expect(gsap.to).toHaveBeenCalled();
-
-    handle.kill();
-  });
-
-  it('startAmbientMotion does not start for newsprint', async () => {
-    const { gsap } = await import('gsap');
-    const { skinId } = useThemeStore();
-    skinId.value = 'newsprint';
-    const el = document.createElement('div');
-    const handle = startAmbientMotion(el, () => true);
-
-    expect(gsap.to).not.toHaveBeenCalled();
-
-    handle.kill();
-  });
-
-  it('startAmbientMotion does not start when not playing', async () => {
-    const { gsap } = await import('gsap');
-    const el = document.createElement('div');
-    const handle = startAmbientMotion(el, () => false);
-
-    expect(gsap.to).not.toHaveBeenCalled();
-
-    handle.kill();
-  });
-
-  it('startAmbientMotion does not start in reduced motion', async () => {
-    const { gsap } = await import('gsap');
-    vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
-    const el = document.createElement('div');
-    const handle = startAmbientMotion(el, () => true);
-
-    expect(gsap.to).not.toHaveBeenCalled();
-
-    handle.kill();
-  });
-
-  it('startAmbientMotion pauses on document.hidden', async () => {
-    const { gsap } = await import('gsap');
-    const el = document.createElement('div');
-    const handle = startAmbientMotion(el, () => true);
-
-    // After start, killTweensOf called once (in start)
-    expect(gsap.killTweensOf).toHaveBeenCalledTimes(1);
-
-    // Simulate document becoming hidden
-    Object.defineProperty(document, 'hidden', { value: true, configurable: true, writable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    // pause() should call killTweensOf again
-    expect(gsap.killTweensOf).toHaveBeenCalledTimes(2);
-
-    handle.kill();
-  });
-
-  it('startAmbientMotion kill prevents future resume', async () => {
-    const { gsap } = await import('gsap');
-    const el = document.createElement('div');
-    const handle = startAmbientMotion(el, () => true);
-
-    handle.kill();
-
-    // Clear mock and dispatch visibility change - should not start new tween
-    (gsap.to as ReturnType<typeof vi.fn>).mockClear();
-    Object.defineProperty(document, 'hidden', { value: false, configurable: true, writable: true });
-    document.dispatchEvent(new Event('visibilitychange'));
-
-    expect(gsap.to).not.toHaveBeenCalled();
   });
 
   // --- startVinylSpin tests ---

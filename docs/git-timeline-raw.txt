@@ -1,0 +1,696 @@
+2026-07-22 23:40:37 +0800|feat(stats): daily/weekly/monthly ranges (native 1d), artist+album cover grids
+2026-07-22 23:40:37 +0800|feat(motion): launch unfold intro, softer skin-switch crossfade
+2026-07-22 23:28:29 +0800|fix(audio): shared analyser graph never closes on navigation; daily feed rotates after midnight
+2026-07-22 23:28:29 +0800|fix(aurora): keep toasts out of dock grid flow; symmetric transport, loop in right zone
+2026-07-22 22:54:21 +0800|feat(aurora): GSAP Flip cover flight from stage to dock
+2026-07-22 22:51:48 +0800|feat(visualizer): spectral horizon page with ring spectrum and spinning disc
+2026-07-22 22:43:01 +0800|feat(aurora): audio-reactive cone dust via analyser loudness tap
+2026-07-22 22:40:10 +0800|feat(stats): listening clock hero, vinyl thumbs, semantic tokens
+2026-07-22 22:20:02 +0800|feat(aurora): play ripple, favorite pop, progress hover preview, volume drag
+2026-07-22 22:20:02 +0800|feat(aurora): touchable vinyl, seek scratch, rail equalizer, card hover
+2026-07-22 20:49:25 +0800|docs(qa): turntable-night aurora QA ledger
+2026-07-21 22:32:52 +0800|feat(aurora): 64px icon rail for 900-1099px windows
+2026-07-21 22:29:19 +0800|feat(aurora): persistent muted transport, deck play button, needle playhead
+2026-07-21 22:25:36 +0800|feat(aurora): turntable vinyl hero stage, cone light, calmer rail
+2026-07-21 18:29:26 +0800|feat(aurora): rewrite stage atmosphere as light-cone dust
+2026-07-21 18:22:09 +0800|feat(aurora): vinyl spin profile and startVinylSpin deck motion
+2026-07-21 18:15:27 +0800|feat(aurora): warm charcoal dark tokens for turntable night
+2026-07-21 18:11:22 +0800|docs(plan): aurora turntable-night implementation plan
+2026-07-21 17:48:25 +0800|docs(spec): aurora turntable-night visual redesign
+2026-07-20 15:06:52 +0800|Merge pull request #22 from Ningbottle/fix/realdevice-bugs
+2026-07-20 15:06:05 +0800|fix(fonts): self-host fonts to fix blurry/missing-font rendering on other machines
+2026-07-20 14:55:52 +0800|fix(realdevice): auto-claim VIP on session login; merge loop buttons; drop lyric line numbers
+2026-07-20 11:55:28 +0800|chore: drop stale Qoder specs, gitignore local AI tool configs
+2026-07-19 18:05:35 +0800|fix(favorites): markFavoriteTrack must register pendingIntent
+2026-07-19 23:15:07 +0800|Merge pull request #21 from Ningbottle/codex/phase2-integration
+2026-07-19 23:13:17 +0800|fix(player+ui): FM auto-retry, lifecycle/HMR invalidation, Newsprint layout
+2026-07-19 18:09:34 +0800|fix(player): preserve queue on exit, keep FM session, soft FM cooldown
+2026-07-19 18:00:40 +0800|fix(ui): live recommendation rail while personalFm plays
+2026-07-19 17:57:04 +0800|fix(player): continuous daily recommendations via personalFm
+2026-07-19 17:48:50 +0800|fix(ui): Aurora exit-fs under album; stop end-of-song page crawl
+2026-07-19 17:46:09 +0800|fix(ui): move Aurora fullscreen window controls under progress
+2026-07-19 17:43:54 +0800|fix(ui): place Aurora fs controls under track meta text
+2026-07-19 17:43:06 +0800|fix(ui): pin Aurora fullscreen transport under cover
+2026-07-19 17:37:46 +0800|fix(dev): rebuild-friendly EchoCAPI load errors and worktree sqlite sync
+2026-07-19 17:19:31 +0800|merge: codex/phase2-recommendation-favorites into phase2-integration
+2026-07-19 17:19:31 +0800|merge: codex/phase2-playback-core into phase2-integration
+2026-07-19 17:13:38 +0800|fix(favorites): conditional outbox restore + sync single-flight
+2026-07-19 16:53:39 +0800|fix(favorites): restore outbox intent + opCounter on login; local status on write failure
+2026-07-19 16:46:44 +0800|fix(player): invalidate orchestrator on HMR detach
+2026-07-19 16:33:51 +0800|fix(favorites): reconcile preserves concurrent intent; anon source on write failure
+2026-07-19 16:21:59 +0800|fix(player): HMR detach without clearing shared audio
+2026-07-19 16:08:44 +0800|fix(favorites): re-login freeze, first-login offline outbox, migration order
+2026-07-19 15:57:00 +0800|fix(player): clear barrier queue, settle rejects, restore typecheck
+2026-07-19 15:44:17 +0800|fix(favorites): account-epoch isolation, outbox concurrency, reliable status, FM dedup
+2026-07-19 15:26:33 +0800|fix(player): bind command promises and route single-loop ended
+2026-07-19 15:07:21 +0800|refactor(ui): consume shared favorite state
+2026-07-19 14:59:58 +0800|feat(favorites): add reconciled favorite store and outbox
+2026-07-19 14:44:55 +0800|refactor(home): separate daily queue from personal fm session
+2026-07-19 14:41:49 +0800|test(home): characterize daily and personal fm semantics
+2026-07-19 14:38:30 +0800|test(player): add playback stability gates
+2026-07-19 14:38:30 +0800|feat(player): centralize playback command coordination
+2026-07-19 14:38:30 +0800|refactor(player): derive player state from playback phase
+2026-07-19 14:38:30 +0800|test(player): characterize playback command races
+2026-07-19 13:45:32 +0800|chore: prune completed superpowers plans/reports and design-qa captures
+2026-07-19 13:27:19 +0800|Merge pull request #20 from Ningbottle/codex/storage-actor
+2026-07-19 13:16:52 +0800|test(ui): HomeView daily rail plays personal FM, not single playTrack
+2026-07-19 13:05:37 +0800|fix(ui): fuse VIP claim into account profile without nested card
+2026-07-19 13:02:02 +0800|fix(ui): light heart when playing from 我喜欢的音乐
+2026-07-19 12:59:20 +0800|fix(ui): unclip player quality menu so 音质 can be selected
+2026-07-19 12:57:25 +0800|fix(ui): aurora daily rail, favorite heart, VIP claim skin
+2026-07-19 12:36:39 +0800|fix(ui): clear login navigate and player toast timers on dispose
+2026-07-19 12:36:07 +0800|fix(ui): quality commit-on-success, media error/clear residuals, timeout cleanup
+2026-07-19 12:36:06 +0800|fix(rust): prefer Init V2, verify DLL symbols, stress via DeviceRepository
+2026-07-19 12:36:06 +0800|fix(native): reportable init V2, safe Shutdown, open-only Actor Open
+2026-07-19 00:11:33 +0800|fix(ui): avoid double page loads and cover pending ownership races
+2026-07-18 23:45:25 +0800|fix: stop on remove-last track; package-layout DLL for runtime-deps test
+2026-07-18 23:38:10 +0800|fix(rust): zero-panic C API concurrency with backpressure retry
+2026-07-18 22:59:04 +0800|build(native): fail Release configure without SQLite
+2026-07-18 22:57:49 +0800|test(ui): playback pause-resume and switch/seek stability harness
+2026-07-18 22:55:40 +0800|fix(ui): stop QueuePanel cover fetch races and deep-watch reentry
+2026-07-18 22:53:06 +0800|fix(ui): guard search and playlist loads with request generation
+2026-07-18 22:50:53 +0800|fix(ui): serialize queue commands and clear residuals
+2026-07-18 22:46:03 +0800|feat(ui): explicit playback phase state machine
+2026-07-18 22:07:02 +0800|docs(native): document storage actor linearizability
+2026-07-18 22:01:37 +0800|feat(native): storage actor with lock-held lifecycle for Close/Submit
+2026-07-18 21:51:09 +0800|test(native): RED storage actor lifecycle and WAL multi-thread harness
+2026-07-18 23:33:04 +0800|feat(native): Storage Actor - dedicated DB thread serializes all access (P1 #1)
+2026-07-18 18:52:09 +0800|fix: OS media metadata covers artist/album/cover; CI checks default features
+2026-07-18 17:55:55 +0800|fix(ui): remove skin subtitle from titlebar, keep only BottleMusic wordmark
+2026-07-18 17:47:14 +0800|fix(ui): remove Working Set diagnostic from titlebar to blend with home (Kugou-style)
+2026-07-18 16:04:00 +0800|fix(ui): stop Aurora home stage ambient scale that moved the playlist during playback
+2026-07-18 15:09:08 +0800|fix(ui): Aurora serif font (Noto Serif SC) + icon-only window controls
+2026-07-18 14:20:51 +0800|Merge pull request #19 from Ningbottle/feat/t1-media-frontend-stability
+2026-07-18 14:10:11 +0800|fix(test): update AppNetworkBanner copy for offline polish
+2026-07-18 14:00:40 +0800|fix(ci): drop flaky WAL CTest from GHA (keep source + docs)
+2026-07-18 13:52:19 +0800|fix(test): WAL mode CTest without multi-thread stress (CI segfault)
+2026-07-18 13:44:04 +0800|fix(test): stabilize WAL concurrency CTest (write barrier then multi-read)
+2026-07-18 13:35:11 +0800|feat: T1 tray+media keys, queue filter, WAL concurrency test
+2026-07-18 13:24:07 +0800|Merge pull request #18 from Ningbottle/fix/review-wal-docs-and-os-media-comment
+2026-07-18 13:23:54 +0800|docs: note WAL RO snapshot isolation; clarify set_app_handle no-op
+2026-07-18 01:02:46 +0800|Merge pull request #17 from Ningbottle/docs/post-16-baseline-reconcile
+2026-07-18 01:02:27 +0800|docs: re-reconcile OS media design baseline after PR #16
+2026-07-18 00:59:04 +0800|Merge pull request #16 from Ningbottle/feat/landing-os-media-t1a
+2026-07-18 00:48:31 +0800|fix(rust): allow dead_code on generated deadline constants
+2026-07-18 00:47:47 +0800|fix(rust): clippy clean for OsMediaSession and deadlines module
+2026-07-18 00:36:08 +0800|fix(rust): simplify OsMediaSession to avoid Emitter link crash in cargo test
+2026-07-18 00:19:07 +0800|feat: OsMediaSession T1a bridge + CI typecheck fix for architecture stack
+2026-07-17 23:34:08 +0800|refactor: storage bound SQL + WAL read concurrency, extract usePlayerEq
+2026-07-17 23:22:42 +0800|fix(ui): Aurora uses MiSans web font (Xiaomi) instead of Inter+Noto Sans SC
+2026-07-17 23:14:41 +0800|revert(ui): undo merged big header; keep titlebar compact, enlarge window controls
+2026-07-17 22:18:41 +0800|test(native): use POST for /register/dev after method tighten
+2026-07-17 22:15:51 +0800|refactor(ui): extract playerStore leaves behind stable barrel exports
+2026-07-17 22:15:51 +0800|refactor(native): aggregate C_API globals into EchoContext
+2026-07-17 22:15:51 +0800|feat(rust): generate deadline constants from RequestDeadlines.h
+2026-07-17 22:15:51 +0800|feat: migrate write routes to POST and tighten method allowlist
+2026-07-17 21:54:00 +0800|refactor(native): SubmitWithDeadline uses process RequestWatchdog
+2026-07-17 21:54:00 +0800|refactor(native): move RequestWatchdog into EchoAsync
+2026-07-17 21:51:47 +0800|docs: add superpowers plan for remaining architecture debt
+2026-07-17 21:51:40 +0800|refactor(native): generalize RequestWatchdog to action entries
+2026-07-17 21:51:40 +0800|feat(ui): bucket circuit breakers by request category
+2026-07-17 21:51:39 +0800|docs: plan remaining architecture debt tracks
+2026-07-17 21:31:28 +0800|fix(native): bind CompatApi routes to allowed HTTP methods
+2026-07-17 21:31:28 +0800|fix(native): flip deadline token so workers exit via IsCancelled
+2026-07-17 21:31:27 +0800|fix(ui,test): harden volume parsing and drop httpbin test dependency
+2026-07-17 20:39:12 +0800|docs: record HTML5-only playback and request-path ownership
+2026-07-17 20:39:12 +0800|refactor(ui): HTML5-only playback and single-shot backend calls
+2026-07-17 20:39:06 +0800|refactor(rust): drop native playback FFI and reuse reqwest clients
+2026-07-17 20:39:00 +0800|refactor(native): remove MF playback stack and BackendFacade
+2026-07-17 20:38:54 +0800|fix(native): harden HttpClient request lifecycle and timeouts
+2026-07-17 17:09:02 +0800|fix(ui): override titlebar height to 60px in merged header (was locked to 32px)
+2026-07-17 17:02:41 +0800|feat(ui): merge titlebar into big blended header on non-playback pages
+2026-07-17 16:58:18 +0800|feat(ui): add isPlaybackView prop and data-header attribute to shells
+2026-07-17 16:55:45 +0800|fix(ui): Aurora uses Inter + Noto Sans SC web fonts instead of SF Pro
+2026-07-17 16:54:16 +0800|docs: add Aurora font + titlebar merge plan
+2026-07-17 16:51:31 +0800|docs: define Aurora font + titlebar merge design
+2026-07-17 16:10:40 +0800|fix(security): align log redaction with credential allowlist; bash for C++ build step
+2026-07-17 15:59:59 +0800|docs: add security hardening and merge final report
+2026-07-17 15:22:37 +0800|merge: dual-interface deep refactor + security hardening
+2026-07-17 15:08:40 +0800|test(ui): add unified media/canvas mocks to quiet jsdom noise
+2026-07-17 14:57:24 +0800|fix(deps): resolve RustSec advisories from cargo-audit
+2026-07-17 14:45:38 +0800|feat(ui): add Aurora lyric keyboard navigation
+2026-07-17 14:41:42 +0800|fix(ci): make release verify steps fail on any command error
+2026-07-17 14:37:45 +0800|fix(native): zero plaintext and DPAPI buffers from memory
+2026-07-17 14:23:44 +0800|fix(native): close plaintext session path after one-time migration
+2026-07-17 14:10:20 +0800|fix(native): scrub credential fields under variant names
+2026-07-17 13:33:04 +0800|fix(native): scrub session credentials at CompatApi chokepoint
+2026-07-17 13:26:49 +0800|security: harden release baseline
+2026-07-17 13:22:09 +0800|On main: main-candidate-changes-pre-merge-2026-07-17
+2026-07-17 13:22:09 +0800|index on main: 7fa75457 docs: add security hardening and merge implementation plan
+2026-07-17 13:17:44 +0800|docs: add security hardening and merge implementation plan
+2026-07-17 13:10:42 +0800|docs: define security hardening and merge design
+2026-07-16 18:11:24 +0800|fix(ui): stabilize newsprint navigation and player state
+2026-07-16 17:38:29 +0800|fix(ui): close fullscreen and playlist interaction gaps
+2026-07-16 15:21:23 +0800|fix(ui): replace inline cover fallbacks with skin icons
+2026-07-16 14:12:39 +0800|feat(ui): deepen skin motion without layout jitter
+2026-07-16 00:03:58 +0800|feat(ui): complete skin-specific states and Chinese labels
+2026-07-15 23:02:26 +0800|feat(ui): reveal fullscreen transport only on intent
+2026-07-15 21:53:35 +0800|feat(ui): align both lyric stages around a two-column contract
+2026-07-15 21:02:01 +0800|feat(ui): render independent icon player controls
+2026-07-15 20:21:38 +0800|test(ui): define icon player interaction contracts
+2026-07-15 19:48:04 +0800|fix(ui): contain Aurora player bar at desktop sizes
+2026-07-14 22:27:17 +0800|fix(audio): preserve proxy routes across long pauses
+2026-07-14 18:14:18 +0800|refactor(ui): retire the disconnected appearance drawer
+2026-07-14 16:26:46 +0800|refactor(ui): centralize validated appearance settings
+2026-07-14 15:31:54 +0800|feat(ui): recover failed pages without losing the player shell
+2026-07-14 12:38:42 +0800|refactor(ui): make router the navigation source of truth
+2026-07-14 11:41:58 +0800|test(ui): define router and lyric lifecycle contracts
+2026-07-14 11:09:48 +0800|fix(ui): isolate home feed section requests
+2026-07-14 10:33:59 +0800|fix(ui): isolate lyric requests by track generation
+2026-07-14 09:52:21 +0800|fix(ui): guard playback side effects by current intent
+2026-07-13 23:20:10 +0800|test(ui): reproduce async playback and feed races
+2026-07-13 22:33:22 +0800|docs: define dual interface deep refactor plan
+2026-07-13 22:33:22 +0800|docs: define dual interface deep refactor plan
+2026-07-13 17:35:11 +0800|fix(ui): correct lyric entry and queue follow
+2026-07-13 17:02:45 +0800|fix(ui): calm Aurora particles and follow queue playback
+2026-07-13 16:05:30 +0800|docs: add English README.en.md mirror
+2026-07-13 16:02:44 +0800|docs: rewrite README.md for v2 architecture (Chinese)
+2026-07-13 14:29:19 +0800|test(ui): cover shelf drag click timing
+2026-07-13 14:15:52 +0800|style(ui): soften fullscreen playback controls
+2026-07-13 14:06:44 +0800|feat(ui): play shelf selections without leaving fullscreen
+2026-07-13 13:56:25 +0800|feat(ui): clarify player cover fullscreen entry
+2026-07-13 13:05:35 +0800|fix(ui): stabilize fullscreen lyric controls
+2026-07-13 12:45:54 +0800|style(ui): reduce fullscreen control prominence
+2026-07-13 12:32:39 +0800|fix(ui): restore lightweight fullscreen transport controls
+2026-07-13 12:19:35 +0800|fix(ui): quiet controls and remove fullscreen transport bar
+2026-07-13 10:16:46 +0800|feat(ui): translate controls and improve fullscreen contrast
+2026-07-12 21:09:42 +0800|feat(aurora): add play/pause button in fullscreen lyric view
+2026-07-12 21:06:14 +0800|fix(aurora): dock particles follow accent color instead of hardcoded green
+2026-07-12 21:03:11 +0800|fix(aurora): fainter particles + accent-tinted bottom wash
+2026-07-12 21:00:25 +0800|feat(aurora): double-click exit fullscreen + accent-tinted particles
+2026-07-12 19:32:09 +0800|fix(aurora): light-mode wash visibility, accent-tinted gradients, bouncier entrance
+2026-07-12 19:27:50 +0800|fix: restore fullscreen entry in openLyricImmersion
+2026-07-12 19:24:46 +0800|fix(aurora): accent color, queue layout, motion bounce, fullscreen interaction, layout regression
+2026-07-12 19:07:37 +0800|feat(aurora): lyric immersion P1-3 - fullscreen progress bar
+2026-07-12 19:04:35 +0800|feat(aurora): lyric immersion P1 - wash fade, fullscreen transition, track crossfade
+2026-07-12 18:55:18 +0800|feat(ui): restore Newsprint chrome, improve secondary views and stores
+2026-07-12 18:46:16 +0800|fix: resolve TypeScript errors blocking vue-tsc and build
+2026-07-12 17:57:28 +0800|feat(aurora): lyric immersion P0 wash, click-seek, cover entry, Esc
+2026-07-12 17:50:16 +0800|fix(aurora): free lyric column, kill scrollbar and right dead zone
+2026-07-12 17:47:56 +0800|style(aurora): tone down lyric cover size
+2026-07-12 17:47:08 +0800|fix(aurora): unlock cover size and center cover+lyrics pair
+2026-07-12 17:45:08 +0800|style(aurora): bold cover scale and left-balanced placement
+2026-07-12 17:43:47 +0800|style(aurora): larger lyric cover and lyric type
+2026-07-12 17:41:02 +0800|fix(aurora): minimal cover-only lyric chrome and silent shelf
+2026-07-12 17:37:20 +0800|fix(aurora): shelf teleport, larger non-fs cover, next icon
+2026-07-12 17:30:58 +0800|feat(ui): fullscreen 3D queue shelf and cover WebGL particles
+2026-07-12 17:28:58 +0800|fix(ui): snap lyric follow under 1s and unify stage enter
+2026-07-12 17:23:08 +0800|fix(ui): remove lyric curtain; link dock particles to progress
+2026-07-12 17:17:20 +0800|feat(ui): lyric curtain drop, Q-bounce dock, softer page enter
+2026-07-12 17:11:29 +0800|feat(ui): cinematic rise-in for aurora lyric enter
+2026-07-12 17:10:43 +0800|fix(ui): blend aurora transport with dock and add bar particles
+2026-07-12 17:07:13 +0800|fix(ui): fuse aurora prev-play-next into one transport cluster
+2026-07-12 17:03:51 +0800|fix(ui): fullscreen lyric scrollbar and full LRC range
+2026-07-12 17:00:15 +0800|feat(ui): strengthen aurora home, lyric, and particle motion
+2026-07-12 16:25:34 +0800|feat(ui): aurora canvas particles without audio analyser
+2026-07-12 16:22:30 +0800|feat(ui): overlap aurora page transitions with safe done
+2026-07-13 14:56:50 +0800|feat(ui): aurora home enter session and stagger budgets
+2026-07-12 16:16:04 +0800|feat(ui): split aurora lyric stage and line enter
+2026-07-12 16:13:15 +0800|feat(ui): aurora lyric focus modes settings and a11y
+2026-07-12 16:11:38 +0800|feat(ui): lyric focus store readable default
+2026-07-12 16:10:23 +0800|feat(ui): transition session done-once for Vue hooks
+2026-07-12 10:32:23 +0800|docs: mark dual-interface redesign closeout in CONTEXT
+2026-07-12 10:32:16 +0800|docs: dual-interface closeout verification
+2026-07-12 10:30:50 +0800|feat(ui): differentiate topbar chrome by skin
+2026-07-12 10:29:15 +0800|feat(ui): differentiate sidebar chrome by skin
+2026-07-12 10:28:56 +0800|feat(ui): enrich Aurora empty queue rail
+2026-07-12 10:28:50 +0800|refactor(ui): skin headers for search and playlist
+2026-07-12 10:27:31 +0800|docs: dual-interface closeout gap audit
+2026-07-12 10:24:28 +0800|docs: dual-interface redesign closeout implementation plan
+2026-07-12 10:21:56 +0800|docs: dual-interface redesign closeout design
+2026-07-12 01:12:59 +0800|fix: pin queue height to left stage column per design
+2026-07-12 01:11:48 +0800|fix: size queue rail to left stage, scroll rows inside
+2026-07-12 01:11:26 +0800|fix: realign Aurora home to design-spec proportions
+2026-07-12 01:08:29 +0800|fix: stretch queue rail full height to touch bottom
+2026-07-12 01:06:39 +0800|fix: compact daily picks, wider queue, matte transport tray
+2026-07-12 01:02:40 +0800|fix: flatten transport keys, tall queue rail, larger hero stage
+2026-07-12 00:55:03 +0800|feat: redesign Aurora liquid player dock to match design target
+2026-07-12 00:42:34 +0800|fix: restore Aurora emerald accent and capture design QA
+2026-07-12 00:25:16 +0800|docs: record Aurora design QA
+2026-07-12 00:20:45 +0800|fix: refine Aurora responsive layout
+2026-07-12 00:18:51 +0800|feat: add Aurora jelly motion
+2026-07-12 00:18:07 +0800|feat: build Aurora liquid player console
+2026-07-12 00:17:19 +0800|feat: establish immersive Aurora shell
+2026-07-12 00:16:20 +0800|fix: cap Aurora queue rail and zero total display
+2026-07-11 23:55:12 +0800|feat: rebuild Aurora home stage
+2026-07-11 23:45:01 +0800|feat: expose Aurora queue rail state
+2026-07-11 23:39:57 +0800|docs: clarify Aurora execution scope
+2026-07-11 23:34:52 +0800|docs: plan Aurora immersive redesign
+2026-07-11 23:21:56 +0800|docs: specify Aurora immersive redesign
+2026-07-11 16:05:40 +0800|docs: record dual-interface verification
+2026-07-11 13:46:01 +0800|fix: valid HTML nesting, SkinButton active prop, bilingual subtitles, semantic color
+2026-07-11 13:37:38 +0800|refactor: apply skin primitives to secondary views
+2026-07-11 13:24:11 +0800|fix: three-row lyric layout, independent fullscreen template, queue padding
+2026-07-11 13:10:03 +0800|feat: rebuild lyric stages and fullscreen controls
+2026-07-11 12:51:21 +0800|fix: valid CSS easing, restore lyric button active state
+2026-07-11 12:43:44 +0800|feat: redesign both player consoles
+2026-07-11 12:30:10 +0800|fix: add skin crossfade, reset cover error, define skin CSS vars
+2026-07-11 12:24:30 +0800|feat: build distinct home experiences
+2026-07-11 12:08:40 +0800|feat: introduce independent aurora and newsprint shells
+2026-07-11 11:49:15 +0800|feat: define distinct skin motion profiles
+2026-07-11 11:39:27 +0800|fix: resolve progress buffered variable collision and add test
+2026-07-11 11:32:38 +0800|feat: add accessible progress and four light modes
+2026-07-11 11:17:15 +0800|refactor: keep home view identity stable
+2026-07-11 10:16:55 +0800|fix: preserve home feed across navigation
+2026-07-11 10:06:10 +0800|chore: ignore superpowers session state
+2026-07-11 10:02:53 +0800|chore: ignore local worktrees
+2026-07-11 09:57:05 +0800|docs: plan dual-interface player redesign
+2026-07-10 22:45:10 +0800|docs: redesign dual-interface player experience
+2026-07-10 21:41:28 +0800|merge: integrate motion and stability fixes
+2026-07-10 21:40:37 +0800|fix: harden playback diagnostics and UI state
+2026-07-09 18:01:27 +0800|fix: type stats timeline bar refs
+2026-07-09 17:59:24 +0800|fix: keep lyric fullscreen cover square
+2026-07-09 17:56:41 +0800|feat: animate stats dashboard values
+2026-07-09 17:53:57 +0800|feat: animate app view transitions
+2026-07-09 17:51:52 +0800|feat: strengthen shared motion helpers
+2026-07-09 17:44:22 +0800|docs: add frontend motion task 4 design
+2026-07-08 10:05:25 +0800|fix(review): cover-scale target + restore Teleport + defer Task 4 4-5
+2026-07-08 09:34:41 +0800|feat(settings): sub-nav redesign + lyric fullscreen + modal motion
+2026-07-05 23:39:03 +0800|refactor(theme): unify theming under themeStore, migrate html.dark to [data-mode=dark]
+2026-07-05 23:34:10 +0800|feat(motion): GSAP core + motion tokens + motion.ts helper
+2026-07-05 23:21:50 +0800|docs: theming+settings+animation+lyric-fullscreen implementation plan
+2026-07-05 23:17:19 +0800|docs: theming+settings+animation+lyric-fullscreen design spec
+2026-07-04 15:14:12 +0800|feat(diagnostics): SettingsView playback diagnostics UI + stall auto-flag (#11)
+2026-07-04 15:03:50 +0800|feat(recent): HistoryView local-first render + remote merge (#9)
+2026-07-04 14:48:26 +0800|feat(lyric): LyricView auto-follow integration + return-to-current UI (#10)
+2026-07-04 11:10:25 +0800|docs(context): add recent-played/lyric-follow/diagnostics modules to model
+2026-07-04 11:08:53 +0800|fix(lyric): clear idle timer on scope dispose to prevent late mutation
+2026-07-04 11:07:06 +0800|test: supplement edge-case coverage for recent-played/lyric-follow/diagnostics (22 tests)
+2026-07-04 10:54:14 +0800|feat(diagnostics): playback diagnostics ring buffer + recording hooks (#8)
+2026-07-04 00:23:53 +0800|feat(lyric): auto-follow state machine composable (#7)
+2026-07-04 00:13:51 +0800|feat(recent): local-first recent-played store + orchestrator record hook (#6)
+2026-07-03 23:51:59 +0800|docs: sync CONTEXT.md model + resolve product-stability spec decisions
+2026-07-03 23:51:46 +0800|chore(docs): remove completed S4/S5 plans, relocate learning-notes out of repo
+2026-07-03 23:51:33 +0800|feat(player): personal FM continuation + next-track protection baseline
+2026-07-01 09:16:31 +0800|Merge pull request #5 from Ningbottle/codex/playback-hmr-diagnostics
+2026-07-01 09:00:26 +0800|Add imge.kugou.com allowlist and EQ degradation gain crossfade.
+2026-06-30 17:00:43 +0800|Improve HTML5 playback diagnostics and HMR reuse
+2026-06-30 16:52:28 +0800|Merge pull request #3 from Ningbottle/codex/update-app-icon
+2026-06-30 16:41:29 +0800|Merge branch 'main' into codex/update-app-icon
+2026-06-30 16:39:26 +0800|Merge pull request #4 from Ningbottle/codex/fix-audio-proxy-resume
+2026-06-30 15:28:40 +0800|Fix audio proxy partial stream resume
+2026-06-30 10:45:13 +0800|Update app icon assets
+2026-06-29 19:53:23 +0800|Merge pull request #2 from Ningbottle/codex/eq-10-band-audibility
+2026-06-29 19:49:13 +0800|chore(audio-proxy): richer upstream error logging on stream failures
+2026-06-29 19:23:52 +0800|fix(eq): P1/P2 audit gaps — transition guard + test backfill
+2026-06-29 17:33:03 +0800|chore(eq): Phase 5 — delete spike files + remove legacy webAudioEq API
+2026-06-29 17:29:25 +0800|feat(eq): Phase 4 — degradation path + retryEq + UI retry button
+2026-06-29 17:26:05 +0800|feat(eq): Phase 3 — post-play attachSource + playerStore lifecycle split
+2026-06-29 17:22:03 +0800|feat(eq): Phase 2 — rewrite webAudioEq for AudioWorklet + captureStream
+2026-06-29 15:55:33 +0800|feat(eq): Phase 1 — AudioWorklet processor + RBJ biquad DSP
+2026-06-29 10:57:24 +0800|feat(eq): audio proxy hardening + pause-during-load fix + EQ UI
+2026-06-28 19:50:49 +0800|docs: EQ AudioWorklet redesign spec
+2026-06-28 11:04:46 +0800|fix: simplify stats dashboard play records
+2026-06-28 10:23:35 +0800|fix: bundle sqlite runtime for EchoCAPI
+2026-06-28 09:59:39 +0800|fix: keep offline banner below titlebar
+2026-06-28 09:45:43 +0800|fix: avoid false offline banner
+2026-06-28 09:23:17 +0800|fix: base offline banner on backend health
+2026-06-28 09:06:42 +0800|fix: repair stats dashboard playback data
+2026-06-04 11:08:27 +0800|chore(release): 版本号 0.1.0 → 1.0.0（首个正式版）
+2026-06-04 10:48:57 +0800|fix(updater): 开启 createUpdaterArtifacts 以生成签名更新包
+2026-06-02 22:31:16 +0800|refactor native signed request handling
+2026-06-02 10:47:33 +0800|chore(updater): 更新签名公钥为新生成的密钥对
+2026-06-02 10:37:30 +0800|fix(updater): 修复检查更新（授权 updater:default）+ 侧边栏常驻入口
+2026-05-31 15:45:28 +0800|chore(gitignore): AI 工具指针文件保留本地（不公开）
+2026-05-30 22:33:09 +0800|chore: prepare v0.1.0 release
+2026-05-30 20:14:13 +0800|docs(readme): 更新已解决/已知问题；gitignore 内部评估文档
+2026-05-30 20:14:12 +0800|fix(player): 播放队列/时长/随机循环/僵尸音频修复 + 设置文案校正
+2026-05-30 20:13:40 +0800|refactor(native): 抽取 StringUtils + 新增 /diagnostics/memory 路由
+2026-05-30 10:15:48 +0800|feat: 播放模式切换添加 Toast 提示
+2026-05-30 09:40:15 +0800|docs(readme): 更新架构描述与当前状态
+2026-05-30 09:33:27 +0800|fix(vip): 前端领取成功判定与 VIP 到期时间显示修复
+2026-05-30 08:37:32 +0800|style: 分离播放队列，修复歌词响应式重排防遮挡，美化全局滚动条
+2026-05-29 23:55:29 +0800|refactor: 替换侧车架构为 Rust FFI DLL 并实现真并发 (M1-M3)
+2026-05-29 23:54:42 +0800|feat(vip): VIP业务重构收尾，支持设备指纹注入与130012错误透传
+2026-05-29 21:17:55 +0800|feat(arch): migrate EchoCompatServer loopback to EchoCAPI.dll with Tauri FFI invoke
+2026-05-29 14:06:34 +0800|chore: remove docs, AGENTS.md, and .windsurf/skills from repo
+2026-05-29 13:57:05 +0800|docs(README): update status with P1-P6 refactor, known issues, and roadmap
+2026-05-29 13:51:52 +0800|docs: add refactoring plan for P1-P6
+2026-05-29 13:51:45 +0800|feat(diagnostics): structured logging, redaction, and exception safety
+2026-05-29 13:51:24 +0800|refactor(core): split routes into compat_routes, remove CompatApi scheduler
+2026-05-29 13:51:08 +0800|feat(async): introduce RequestScheduler and HttpUtils
+2026-05-28 19:42:05 +0800|fix: stabilize concept profile device and vip flows
+2026-05-27 13:49:02 +0800|chore: remove debug test scripts and __pycache__
+2026-05-27 10:40:07 +0800|docs: update README with current project status and working links
+2026-05-27 10:36:05 +0800|fix(backend): align PlaylistService clientver with MakcRe standard config (12143 to 20489)
+2026-05-26 23:40:17 +0800|fix(backend): use 1001 for QR login API but hardcode 1005 in payload to generate valid tokens for standard endpoints
+2026-05-26 22:44:27 +0800|fix(backend): revert device appid to 1014 for standard playlist and song url compatibility
+2026-05-26 22:11:25 +0800|fix(build): correct cmake configuration command in build-backend.ps1
+2026-05-26 20:15:29 +0800|fix(backend): use correct signature salt and preview fallback for appid 3116
+2026-05-25 20:40:38 +0800|fix: update DeviceRegisterService headers to match useAxios behavior
+2026-05-25 20:33:05 +0800|chore: clean up project - remove test files, keep Tauri structure
+2026-05-24 10:39:58 +0800|Commit C++ backend updates from previous sprint including LoginService, Crypto, UserService
+2026-05-24 10:10:00 +0800|docs: 清理旧文档，写入 Tauri+Vue3 技术栈与迁移注意事项
+2026-05-11 19:52:42 +0800|chore: focus project on BottleMusic native client
+2026-05-09 16:34:11 +0800|Merge remote-tracking branch 'origin/main'
+2026-05-09 16:31:48 +0800|chore: import BottleMusic project
+2026-05-09 10:44:46 +0800|Update README.md
+2026-05-09 10:43:52 +0800|Initial commit
+2026-05-07 16:20:00 +0800|docs: practice exercise 83
+2026-05-07 11:00:00 +0800|docs: add code snippet — Mutex Guard
+2026-05-06 20:30:00 +0800|docs: weekly review 20
+2026-05-06 16:20:00 +0800|docs: reading notes — C++ Core Guidelines
+2026-05-06 11:00:00 +0800|docs: add code snippet — RAII Pattern
+2026-05-04 16:20:00 +0800|docs: practice exercise 79
+2026-05-04 11:00:00 +0800|docs: add code snippet — Structured Bindings
+2026-04-30 20:30:00 +0800|docs: weekly review 19
+2026-04-30 16:20:00 +0800|docs: reading notes — APUE Chapter
+2026-04-30 11:00:00 +0800|docs: add code snippet — Enable_if
+2026-04-29 16:20:00 +0800|docs: practice exercise 75
+2026-04-29 11:00:00 +0800|docs: add code snippet — Type Erasure
+2026-04-27 20:30:00 +0800|docs: weekly review 18
+2026-04-27 16:20:00 +0800|docs: reading notes — Linux man: io_uring
+2026-04-27 11:00:00 +0800|docs: add code snippet — SFINAE
+2026-04-23 16:20:00 +0800|docs: practice exercise 71
+2026-04-23 11:00:00 +0800|docs: add code snippet — Lambda Closures
+2026-04-22 20:30:00 +0800|docs: weekly review 17
+2026-04-22 16:20:00 +0800|docs: reading notes — Modern C++ Design
+2026-04-22 11:00:00 +0800|docs: add code snippet — Template Metaprogramming
+2026-04-20 16:20:00 +0800|docs: practice exercise 67
+2026-04-20 11:00:00 +0800|docs: add code snippet — Strategy Pattern
+2026-04-16 20:30:00 +0800|docs: weekly review 16
+2026-04-16 16:20:00 +0800|docs: reading notes — STL Source Analysis
+2026-04-16 11:00:00 +0800|docs: add code snippet — Singleton
+2026-04-15 16:20:00 +0800|docs: practice exercise 63
+2026-04-15 11:00:00 +0800|docs: add code snippet — Mutex Guard
+2026-04-15 09:15:00 +0800|docs: add vault home page
+2026-04-13 20:30:00 +0800|docs: weekly review 15
+2026-04-13 16:20:00 +0800|docs: reading notes — C++ Core Guidelines
+2026-04-13 11:00:00 +0800|docs: add code snippet — RAII Pattern
+2026-04-13 09:15:00 +0800|docs: add C++ roadmap article
+2026-04-09 16:20:00 +0800|docs: practice exercise 59
+2026-04-09 11:00:00 +0800|docs: add code snippet — Structured Bindings
+2026-04-09 09:15:00 +0800|docs: add wiki activity log
+2026-04-08 20:30:00 +0800|docs: weekly review 14
+2026-04-08 16:20:00 +0800|docs: reading notes — APUE Chapter
+2026-04-08 11:00:00 +0800|docs: add code snippet — Enable_if
+2026-04-08 09:15:00 +0800|docs: add wiki index
+2026-04-06 16:20:00 +0800|docs: practice exercise 55
+2026-04-06 11:00:00 +0800|docs: add code snippet — Type Erasure
+2026-04-06 09:15:00 +0800|docs: add wiki schema
+2026-04-02 20:30:00 +0800|docs: weekly review 13
+2026-04-02 16:20:00 +0800|docs: reading notes — Linux man: io_uring
+2026-04-02 11:00:00 +0800|docs: add code snippet — SFINAE
+2026-04-02 09:15:00 +0800|docs: add AI coding agent guide
+2026-04-01 16:20:00 +0800|docs: practice exercise 51
+2026-04-01 11:00:00 +0800|docs: add code snippet — Lambda Closures
+2026-04-01 09:15:00 +0800|docs: add architecture diagram guide
+2026-03-30 20:30:00 +0800|docs: weekly review 12
+2026-03-30 16:20:00 +0800|docs: reading notes — Modern C++ Design
+2026-03-30 11:00:00 +0800|docs: add code snippet — Template Metaprogramming
+2026-03-30 09:15:00 +0800|docs: add Obsidian tips
+2026-03-26 16:20:00 +0800|docs: practice exercise 47
+2026-03-26 11:00:00 +0800|docs: add code snippet — Strategy Pattern
+2026-03-26 09:15:00 +0800|docs: add Word processing guide
+2026-03-25 20:30:00 +0800|docs: weekly review 11
+2026-03-25 16:20:00 +0800|docs: reading notes — STL Source Analysis
+2026-03-25 11:00:00 +0800|docs: add code snippet — Singleton
+2026-03-25 09:15:00 +0800|docs: add PowerPoint guide
+2026-03-23 16:20:00 +0800|docs: practice exercise 43
+2026-03-23 11:00:00 +0800|docs: add code snippet — Mutex Guard
+2026-03-23 09:15:00 +0800|docs: add PDF editing guide
+2026-03-19 20:30:00 +0800|docs: weekly review 10
+2026-03-19 16:20:00 +0800|docs: reading notes — C++ Core Guidelines
+2026-03-19 11:00:00 +0800|docs: add code snippet — RAII Pattern
+2026-03-19 09:15:00 +0800|docs: add OCR guide
+2026-03-18 16:20:00 +0800|docs: practice exercise 39
+2026-03-18 11:00:00 +0800|docs: add code snippet — Structured Bindings
+2026-03-18 09:15:00 +0800|docs: add AI-SDK interview part 2
+2026-03-16 20:30:00 +0800|docs: weekly review 09
+2026-03-16 16:20:00 +0800|docs: reading notes — APUE Chapter
+2026-03-16 11:00:00 +0800|docs: add code snippet — Enable_if
+2026-03-16 09:15:00 +0800|docs: add AI-SDK interview part 1
+2026-03-12 16:20:00 +0800|docs: practice exercise 35
+2026-03-12 11:00:00 +0800|docs: add code snippet — Type Erasure
+2026-03-12 09:15:00 +0800|docs: add Git introduction
+2026-03-11 20:30:00 +0800|docs: weekly review 08
+2026-03-11 16:20:00 +0800|docs: reading notes — Linux man: io_uring
+2026-03-11 11:00:00 +0800|docs: add code snippet — SFINAE
+2026-03-11 09:15:00 +0800|docs: add Git tutorial entry
+2026-03-09 16:20:00 +0800|docs: practice exercise 31
+2026-03-09 11:00:00 +0800|docs: add code snippet — Lambda Closures
+2026-03-09 09:15:00 +0800|docs: add interview question bank
+2026-03-05 20:30:00 +0800|docs: weekly review 07
+2026-03-05 16:20:00 +0800|docs: reading notes — Modern C++ Design
+2026-03-05 11:00:00 +0800|docs: add code snippet — Template Metaprogramming
+2026-03-05 09:15:00 +0800|docs: add mock interview checklist
+2026-03-04 16:20:00 +0800|docs: practice exercise 27
+2026-03-04 11:00:00 +0800|docs: add code snippet — Strategy Pattern
+2026-03-04 09:15:00 +0800|docs: add interview day 7
+2026-03-02 20:30:00 +0800|docs: weekly review 06
+2026-03-02 16:20:00 +0800|docs: reading notes — STL Source Analysis
+2026-03-02 11:00:00 +0800|docs: add code snippet — Singleton
+2026-03-02 09:15:00 +0800|docs: add interview day 6
+2026-02-26 16:20:00 +0800|docs: practice exercise 23
+2026-02-26 11:00:00 +0800|docs: add code snippet — Mutex Guard
+2026-02-26 09:15:00 +0800|docs: add BST to doubly linked list
+2026-02-25 20:30:00 +0800|docs: weekly review 05
+2026-02-25 16:20:00 +0800|docs: reading notes — C++ Core Guidelines
+2026-02-25 11:00:00 +0800|docs: add code snippet — RAII Pattern
+2026-02-25 09:15:00 +0800|docs: add algorithm learning entry
+2026-02-23 16:20:00 +0800|docs: practice exercise 19
+2026-02-23 11:00:00 +0800|docs: add code snippet — Structured Bindings
+2026-02-23 09:15:00 +0800|docs: add algorithm study preface
+2026-02-19 20:30:00 +0800|docs: weekly review 04
+2026-02-19 16:20:00 +0800|docs: reading notes — APUE Chapter
+2026-02-19 11:00:00 +0800|docs: add code snippet — Enable_if
+2026-02-19 09:15:00 +0800|docs: add miscellaneous Linux notes
+2026-02-18 16:20:00 +0800|docs: practice exercise 15
+2026-02-18 11:00:00 +0800|docs: add code snippet — Type Erasure
+2026-02-18 09:15:00 +0800|docs: add HEAP_CORRUPTION fix notes
+2026-02-16 20:30:00 +0800|docs: weekly review 03
+2026-02-16 16:20:00 +0800|docs: reading notes — Linux man: io_uring
+2026-02-16 11:00:00 +0800|docs: add code snippet — SFINAE
+2026-02-16 09:15:00 +0800|docs: add networking summary
+2026-02-12 16:20:00 +0800|docs: practice exercise 11
+2026-02-12 11:00:00 +0800|docs: add code snippet — Lambda Closures
+2026-02-12 09:15:00 +0800|docs: add Linux learning roadmap
+2026-02-11 20:30:00 +0800|docs: weekly review 02
+2026-02-11 16:20:00 +0800|docs: reading notes — Modern C++ Design
+2026-02-11 11:00:00 +0800|docs: add code snippet — Template Metaprogramming
+2026-02-11 09:15:00 +0800|docs: add C++ interview Q&A (cleaned)
+2026-02-09 16:20:00 +0800|docs: practice exercise 7
+2026-02-09 11:00:00 +0800|docs: add code snippet — Strategy Pattern
+2026-02-09 09:15:00 +0800|docs: add C++ interview reading guide
+2026-02-05 20:30:00 +0800|docs: weekly review 01
+2026-02-05 16:20:00 +0800|docs: reading notes — STL Source Analysis
+2026-02-05 11:00:00 +0800|docs: add code snippet — Singleton
+2026-02-05 09:15:00 +0800|docs: add C++ interview Q&A transcript
+2026-02-04 16:20:00 +0800|docs: practice exercise 3
+2026-02-04 11:00:00 +0800|docs: add code snippet — Mutex Guard
+2026-02-04 09:15:00 +0800|docs: add C++ project recommendations
+2026-02-02 20:30:00 +0800|docs: weekly review 00
+2026-02-02 16:20:00 +0800|docs: reading notes — C++ Core Guidelines
+2026-02-02 11:00:00 +0800|docs: add code snippet — RAII Pattern
+2026-02-02 09:15:00 +0800|docs: add C++ learning roadmap
+2026-05-08 15:00:00 +0800|docs: add wiki entity — muduo network library
+2026-05-07 10:00:00 +0800|docs: add wiki entry — data structures and algorithms
+2026-05-06 15:00:00 +0800|docs: add wiki entry — STL containers and templates
+2026-05-05 10:00:00 +0800|docs: add wiki entry — C++ object model
+2026-05-04 15:00:00 +0800|docs: add wiki entry — C++ learning roadmap
+2026-05-03 10:00:00 +0800|docs: add wiki entry — C language basics
+2026-05-08 11:00:00 +0800|docs: add interview day 5 — AI-SDK project architecture
+2026-05-07 19:00:00 +0800|docs: add interview day 4 — network programming and IO models
+2026-05-07 15:15:00 +0800|docs: add interview day 3 — Linux process, thread, files
+2026-05-06 09:30:00 +0800|docs: add interview day 2 — C++ object model and STL
+2026-05-05 14:00:00 +0800|docs: add interview day 1 — C++ basics and memory
+2026-05-04 10:00:00 +0800|docs: add 7-day interview prep learning entry
+2026-05-02 16:00:00 +0800|docs: add AI-SDK build summary and configuration
+2026-05-01 11:30:00 +0800|docs: add AI-SDK project README and build guide
+2026-04-30 15:00:00 +0800|docs: add ChatSDK final integration notes
+2026-04-29 09:15:00 +0800|docs: add SessionManager implementation notes
+2026-04-28 13:30:00 +0800|docs: add DataManager implementation notes
+2026-04-27 10:00:00 +0800|docs: add LLMManager implementation notes
+2026-04-25 16:30:00 +0800|docs: add LLMProvider base class design
+2026-04-24 11:00:00 +0800|docs: add Kimi provider implementation notes
+2026-04-23 15:15:00 +0800|docs: add Ollama provider implementation notes
+2026-04-22 09:30:00 +0800|docs: add ZhipuGLM provider implementation notes
+2026-04-21 14:00:00 +0800|docs: add DeepSeek provider implementation notes
+2026-04-20 10:00:00 +0800|docs: add AI-SDK project learning entry and architecture
+2026-04-18 16:00:00 +0800|docs: add muduo Channel design and event handling
+2026-04-17 11:30:00 +0800|docs: add muduo Socket class design
+2026-04-16 15:00:00 +0800|docs: add muduo Buffer module design
+2026-04-15 09:15:00 +0800|docs: add muduo library design overview
+2026-04-14 13:30:00 +0800|docs: add muduo library prerequisites
+2026-04-13 10:00:00 +0800|docs: add muduo network library learning entry
+2026-04-11 16:30:00 +0800|docs: add algorithm — binary tree longest common subsequence
+2026-04-10 11:00:00 +0800|docs: add algorithm — valid triangle number (611)
+2026-04-09 15:00:00 +0800|docs: add algorithm — happy number (two pointers)
+2026-04-08 09:30:00 +0800|docs: add signal processing and system interrupts
+2026-04-07 14:00:00 +0800|docs: add Linux signal handling mechanisms
+2026-04-06 10:00:00 +0800|docs: add C++ inheritance — core programming concept
+2026-04-04 16:30:00 +0800|docs: add Linux signal pending and preservation
+2026-04-03 11:00:00 +0800|docs: add Linux inter-process signals
+2026-04-02 15:15:00 +0800|docs: add C++ template fundamentals
+2026-04-01 09:30:00 +0800|docs: add C++ stack and queue container adapters
+2026-03-31 14:00:00 +0800|docs: add C++ list container analysis
+2026-03-30 10:00:00 +0800|docs: add C++ vector container deep dive
+2026-03-28 16:00:00 +0800|docs: add Git common scenarios and troubleshooting
+2026-03-27 11:30:00 +0800|docs: add mutex lock encapsulation implementation
+2026-03-26 15:00:00 +0800|docs: add mutex and lock concepts
+2026-03-25 09:15:00 +0800|docs: add Linux thread control and encapsulation
+2026-03-24 13:30:00 +0800|docs: add C++ string class deep dive
+2026-03-23 10:00:00 +0800|docs: add C++ classes and objects (advanced)
+2026-03-21 16:30:00 +0800|docs: add Git collaboration workflow and commit conventions
+2026-03-20 11:00:00 +0800|docs: add introduction to Linux threads
+2026-03-19 15:15:00 +0800|docs: add C++ classes and objects (intermediate)
+2026-03-18 09:30:00 +0800|docs: add C++ classes and objects fundamentals
+2026-03-17 14:00:00 +0800|docs: add sorting algorithms part 2
+2026-03-16 10:00:00 +0800|docs: add sorting algorithms part 1
+2026-03-14 16:00:00 +0800|docs: add Git tags and version releases
+2026-03-13 11:00:00 +0800|docs: add Linux process pool fundamentals
+2026-03-12 15:30:00 +0800|docs: add Linux IPC — anonymous pipes
+2026-03-11 09:00:00 +0800|docs: add binary tree fundamentals implementation in C
+2026-03-10 14:15:00 +0800|docs: add heap fundamentals implementation in C
+2026-03-09 10:00:00 +0800|docs: add queue implementation in C
+2026-03-07 16:30:00 +0800|docs: add Git version rollback — reset, revert, checkout
+2026-03-06 11:20:00 +0800|docs: add stack implementation in C
+2026-03-05 15:00:00 +0800|docs: add sequential list implementation in C
+2026-03-04 09:30:00 +0800|docs: add introduction to C++ programming
+2026-03-03 13:45:00 +0800|docs: add Linux dynamic and static libraries
+2026-03-02 10:00:00 +0800|docs: add how processes open files — open() to file descriptors
+2026-02-28 16:00:00 +0800|docs: add Git remote operations — clone, push, pull, fetch
+2026-02-27 11:30:00 +0800|docs: add Linux disk filesystem — blocks, partitions, inode, ext2
+2026-02-26 15:00:00 +0800|docs: add Linux file management system notes
+2026-02-25 09:15:00 +0800|docs: add Linux Virtual File System (VFS) notes
+2026-02-24 14:30:00 +0800|docs: add Linux process concepts and states
+2026-02-23 10:00:00 +0800|docs: add deep dive into C memory alignment
+2026-02-21 16:45:00 +0800|docs: add Git merge and conflict resolution guide
+2026-02-20 11:00:00 +0800|docs: add advanced C pointers (part 3)
+2026-02-19 15:15:00 +0800|docs: add advanced C pointers (part 2)
+2026-02-18 09:30:00 +0800|docs: add C recursion applications
+2026-02-17 14:00:00 +0800|docs: add C language practice set 1
+2026-02-16 10:00:00 +0800|docs: add C language practice set 0
+2026-02-14 16:30:00 +0800|docs: add Git branching — create, switch, delete
+2026-02-13 11:00:00 +0800|docs: add Git basic commands — add, commit, status, log
+2026-02-12 15:00:00 +0800|docs: add C memory functions and custom variables
+2026-02-11 09:45:00 +0800|docs: add C character handling functions
+2026-02-10 13:30:00 +0800|docs: add C pointers deep dive (part 1)
+2026-02-09 10:00:00 +0800|docs: add C pointers fundamentals (part 0)
+2026-02-07 11:20:00 +0800|docs: add Git core concepts — workspace, staging, repository
+2026-02-06 16:00:00 +0800|docs: add Git installation and configuration guide
+2026-02-05 09:15:00 +0800|docs: add C operators and applications notes
+2026-02-04 14:30:00 +0800|docs: add minesweeper game implementation notes
+2026-02-03 10:00:00 +0800|docs: add C language function notes
+2026-05-22 15:00:00 +0800|feat: implement circuit breaker
+2026-05-15 09:30:00 +0800|feat: create home view
+2026-05-08 13:45:00 +0800|feat: add HTML5 audio backend
+2026-05-01 10:00:00 +0800|feat: implement player bar
+2026-04-22 16:20:00 +0800|feat: add topbar with search
+2026-04-15 11:30:00 +0800|feat: create sidebar component
+2026-04-08 14:00:00 +0800|feat: implement request scheduler
+2026-04-01 09:45:00 +0800|feat: build KuGou API routes
+2026-03-24 15:15:00 +0800|feat: add SQLite storage layer
+2026-03-17 10:30:00 +0800|feat: implement HTTP client
+2026-03-10 13:00:00 +0800|feat: create C++ DLL project
+2026-03-03 11:20:00 +0800|feat: initialize Tauri 2.0 project
+2026-02-24 16:45:00 +0800|docs: setup development environment
+2026-02-17 09:15:00 +0800|docs: design 3-layer architecture
+2026-02-10 14:30:00 +0800|docs: research KuGou API endpoints
+2026-02-03 10:00:00 +0800|docs: initial project setup
+2026-06-27 00:22:30 +0800|feat(player): extract PlaybackOrchestrator for playback transitions
+2026-06-27 14:11:30 +0800|fix: add vcpkg DLL path for Rust tests
+2026-06-27 13:58:08 +0800|fix: run Rust CI tests serially
+2026-06-27 13:44:01 +0800|fix: avoid blocking worker in timeout test
+2026-06-27 13:29:40 +0800|fix: join Rust timeout test blocking task
+2026-06-27 13:11:40 +0800|fix: isolate native C API Rust tests
+2026-06-27 12:50:39 +0800|fix: move vcpkg triplet out of manifest
+2026-06-27 12:47:27 +0800|fix: update vcpkg pin for GitHub Actions
+2026-06-26 23:20:55 +0800|fix: preserve login state and clear stale audio source
+2026-06-26 23:20:06 +0800|fix: harden native shutdown and CI coverage
+2026-06-26 00:37:43 +0800|chore: minor fixes + sync CONTEXT.md to post-S5 state
+2026-06-25 23:45:10 +0800|fix(s4/s5): single-loop intend ordering + EQ UI notice + session cleanup + test isolation
+2026-06-25 23:25:06 +0800|fix(s5): move intend() before playUrl + togglePlay empty-src reload (Bug A)
+2026-06-25 15:06:14 +0800|fix(s4/s5): rewire playerStore — event ownership, EQ CORS-safe, stats session (TDD)
+2026-06-25 14:40:49 +0800|feat(s4): add WebAudioEq controller with safe graph build + CORS-gated EQ (TDD)
+2026-06-25 14:36:34 +0800|feat(s5): add PlaySessionTracker with seek-immune listened accumulator (TDD)
+2026-06-25 14:29:28 +0800|docs(s4/s5-fix): brainstorming design spec for player/EQ/stats fixes
+2026-06-25 10:22:42 +0800|test(s5): remove redundant FFI integration test (covered by lib test)
+2026-06-25 10:07:46 +0800|fix(s5): thread safety for g_stats + ExecuteQuery + test mocks + Rust FFI test
+2026-06-25 09:34:21 +0800|fix(s5): SQL injection + param swap + timeline format + empty DB crash + exception safety
+2026-06-25 09:05:40 +0800|fix(s4): update stale tests for HTML5 default + Web Audio EQ
+2026-06-25 00:21:42 +0800|test(s5): add StatsView data loading and rendering tests
+2026-06-25 00:18:40 +0800|feat(s5): add timeline chart, recent plays, and AI analysis panel
+2026-06-25 00:15:12 +0800|feat(s5): StatsView overview cards + top lists with album art
+2026-06-25 00:10:08 +0800|feat(s5): add stats nav item + placeholder StatsView
+2026-06-24 23:56:12 +0800|feat(s5): add 6 stats Tauri commands + invoke_handler registration
+2026-06-24 23:51:40 +0800|test(s5): add PlayStatsService CTest contract test
+2026-06-24 23:49:47 +0800|feat(s5): add 6 EchoStats fn pointers to CApiHandle
+2026-06-24 23:43:27 +0800|feat(s5): add 6 EchoStats C API exports
+2026-06-24 23:30:35 +0800|feat(s5): add PlayStatsService with record + query methods
+2026-06-24 23:24:14 +0800|feat(s5): add play_history_v2 schema + ExecuteQuery method
+2026-06-24 23:23:32 +0800|feat(s5): add DeepSeek AI analysis Tauri command
+2026-06-24 23:02:20 +0800|docs(s5): add 2-part implementation plan
+2026-06-24 22:54:05 +0800|docs(s5): add statistics dashboard + AI analysis design spec
+2026-06-24 22:46:40 +0800|docs: sync project status — S1-S3 complete, S4 partial (Web Audio EQ), S5 next
+2026-06-24 22:42:42 +0800|fix(s4): MESessionTopologySet + mfobjects.h + nullptr for Start()
+2026-06-24 16:57:33 +0800|fix(eq): make EqualizerPanel work with HTML5 audio via Web Audio API
+2026-06-24 16:52:02 +0800|fix(s4): HTML5 default backend + EQ to Drawer + fix exit deadlock
+2026-06-24 16:38:57 +0800|fix(mfs): fix MFS playback pipeline - remove blocking wait, auto-start on topology set
+2026-06-24 16:14:50 +0800|fix: wait for MESessionTopologyReady in PlayUrl before returning
+2026-06-24 16:14:09 +0800|Move EqualizerPanel from PlayerBar to SettingsView appearance section
+2026-06-24 16:08:58 +0800|fix: remove State<CApiHandle> from playback commands, use static CAPI_HANDLE directly
+2026-06-24 15:52:35 +0800|fix(s4): critical review fixes - SetBandGain sample rate + bool/c_int ABI
+2026-06-24 15:24:20 +0800|docs(s4): mark MFP deprecated, document known limitations
+2026-06-24 15:23:55 +0800|test(s4): add HTML5 fallback test (both backends fail)
+2026-06-24 15:19:31 +0800|fix: add missing MF headers and MF_SET_ALL_TYPES guard in EqualizerMFT.cpp
+2026-06-24 15:17:50 +0800|test(s4): add PlayerBackend mock + EqualizerPanel component tests
+2026-06-24 15:11:58 +0800|refactor(s4): playerStore actions delegate to activeBackend
+2026-06-24 15:09:28 +0800|feat(s4): integrate EqualizerPanel below PlayerBar
+2026-06-24 15:04:00 +0800|feat(s4): add EqualizerPanel.vue (5 sliders + 4 presets + localStorage)
+2026-06-24 15:03:35 +0800|feat(s4): add playerStore backend field + initPlayerBackend + event handler
+2026-06-24 14:56:31 +0800|feat(s4): add NativePlaybackBackend (Tauri invoke + listen)
+2026-06-24 14:54:20 +0800|feat(s4): add Html5AudioBackend
+2026-06-24 14:49:15 +0800|test(s4): add playback FFI integration test
+2026-06-24 14:47:38 +0800|feat(s4): add PlayerBackend interface + PlaybackEvent type
+2026-06-24 14:43:10 +0800|feat(s4): add MFS EQ methods delegating to EqualizerMFT
+2026-06-24 14:39:30 +0800|feat(s4): add 13 Rust Tauri commands for playback control
+2026-06-24 14:39:05 +0800|feat(s4): MFS creates EqualizerMFT (insertion deferred - see task notes)
+2026-06-24 14:35:31 +0800|feat(s4): add Rust event bridge (C callback -> Tauri emit)
+2026-06-24 14:35:29 +0800|feat(s4): add EqualizerMFT ProcessInput/ProcessOutput with biquad cascade
+2026-06-24 14:31:11 +0800|feat(s4): extend CApiHandle with 14 playback fn pointers
+2026-06-24 14:30:04 +0800|feat(s4): add EqualizerMFT media type negotiation (PCM float32 44.1/48kHz)
+2026-06-24 14:22:52 +0800|feat(s4): add EqualizerMFT skeleton (IUnknown + IMFTransform stubs)
+2026-06-24 14:21:23 +0800|feat(s4): wire EchoSetEventCallback to PlaybackController
+2026-06-24 14:19:06 +0800|fix(s4): add mutex guard to EchoPlaybackGetState
+2026-06-24 14:14:03 +0800|feat(s4): add 14 EchoPlayback C API exports
+2026-06-24 14:09:44 +0800|feat(s4): add BiquadFilter pure-math class with chirp/FFT test
+2026-06-24 13:54:19 +0800|test(s4): add PlaybackControllerMFS initialize test (Phase 4.1a checkpoint)
+2026-06-24 13:54:10 +0800|fix(s4): unbreak MFS build (GetClock + Start time format + UAF in dtor)
+2026-06-24 12:19:48 +0800|fix(s4): drop lock before EmitEvent in OnSessionEvent (deadlock)
+2026-06-24 12:14:36 +0800|feat(s4): add MFS volume/rate/position polling (10Hz)
+2026-06-24 12:10:32 +0800|fix(s4): re-arm BeginGetEvent after each session event
+2026-06-24 12:08:49 +0800|feat(s4): add PlaybackControllerMFS pause/resume/stop/seek + state events
+2026-06-24 12:04:45 +0800|feat(s4): add PlaybackControllerMFS PlayUrl with IMFMediaSession topology
+2026-06-24 12:00:29 +0800|fix(s4): only set comInitialized_ when we own the COM ref count
+2026-06-24 11:56:04 +0800|feat(s4): add PlaybackControllerMFS skeleton with Initialize/Shutdown
+2026-06-24 11:47:08 +0800|refactor(s4): move existing MFPlay code to PlaybackControllerMFP
+2026-06-24 11:34:17 +0800|fix(s4): clear impl_ on init failure and default Initialize to MFS
+2026-06-24 11:26:26 +0800|refactor(s4): convert PlaybackController to Pimpl wrapper
+2026-06-24 11:13:00 +0800|refactor(s4): extract PlaybackControllerImpl abstract base
+2026-06-24 11:05:28 +0800|docs(s4): add 5-part implementation plan
+2026-06-24 10:51:50 +0800|docs(s4): add playback + equalizer design spec
+2026-06-24 10:16:50 +0800|fix(review): close double-close race (C1) and g_api UAF (C2)
+2026-06-24 09:58:21 +0800|fix(review): address S1+S2 review findings (close-time, typecheck, watchdog, ci, reactivity)
+2026-06-24 09:08:27 +0800|fix(s1): harden resilience tests and shutdown ordering
+2026-06-23 21:46:37 +0800|feat(s3): add Aurora skin (Apple Music light), dark mode, FOUC prevention, appearance settings
+2026-06-23 21:43:48 +0800|feat(s3): add reactive themeStore with skin/mode management
+2026-06-23 21:39:19 +0800|feat(s2): add CI+release workflows, build-backend release preset, post-install relaunch, skip-version
+2026-06-23 21:34:43 +0800|feat(s2): add sync-version.mjs to centralize version string
+2026-06-23 21:24:59 +0800|feat(s1): route requests through RequestScheduler with per-kind deadlines + bounded EchoShutdown
+2026-06-23 20:47:06 +0800|feat(s1): add RequestScheduler job deadline, bounded shutdown, queue-full rejection
+2026-06-23 20:43:42 +0800|feat(s1): harden HttpClient with total timeout, body cap, bounded retry
+2026-06-23 20:38:21 +0800|feat(s1): recover from RwLock poisoning and bound shutdown to 5s
+2026-06-23 20:35:20 +0800|feat(s1): add tokio timeout around native_request with per-kind deadlines
+2026-06-23 19:36:27 +0800|feat(s1): add global network-degraded banner
+2026-06-23 19:35:15 +0800|feat(s1): render HomeView sections independently with per-section error states
+2026-06-23 19:32:51 +0800|feat(s1): make login QR poll serial with backoff
+2026-06-23 19:31:40 +0800|feat(s1): add frontend timeout, retry, and circuit breaker
+2026-06-23 19:25:41 +0800|feat(s1): add CircuitBreaker for frontend resilience
+2026-06-16 11:41:26 +0800|fix(native): system-wide robustness, security hardening & connection pool lease
+2026-06-14 16:32:19 +0800|perf(http): reuse WinHTTP session + connect handles across requests
+2026-06-14 16:12:40 +0800|test(userStore): extract & test VIP resolution (TDD)
+2026-06-14 16:07:50 +0800|refactor(native): remove the abandoned pure-Win32 shell (EchoWin32)
+2026-06-14 15:59:37 +0800|fix(diagnostics): redact SongUrl diagnostic logs to stop token/play_url leaks
+2026-06-14 15:57:54 +0800|fix(log): use Tauri app_data_dir for log path instead of hardcoded D:\BottleMusic\logs
+2026-06-14 15:53:02 +0800|chore: checkpoint before EchoWin32 removal
