@@ -8,7 +8,6 @@ import { useLyricFocusStore } from '../../api/lyricFocusStore';
 import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api/playerStore';
 import type { Track } from '../../api/normalizer';
 import type { LyricStageModel } from './useLyricStage';
-import SpectrumRing from './SpectrumRing.vue';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
 import PlayerProgress from '../../components/player/PlayerProgress.vue';
 import FullscreenWindowControls from '../../components/shell/FullscreenWindowControls.vue';
@@ -381,7 +380,6 @@ onBeforeUnmount(() => {
         @keydown.enter.prevent="onCoverClick"
         @keydown.space.prevent="onCoverClick"
       >
-        <SpectrumRing :is-playing="model.isPlaying" />
         <div ref="discEl" class="lyric-vinyl-disc" aria-hidden="true">
           <img v-if="model.coverUrl" :src="model.coverUrl" alt="" />
           <PhDisc
