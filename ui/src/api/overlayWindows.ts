@@ -85,28 +85,41 @@ export function saveOverlayPos(kind: OverlayKind, pos: OverlayPos): void {
 }
 
 /** Create the overlay window if absent; close it if present. Tauri-only. */
-export async function toggleOverlay(kind: OverlayKind): Promise<void> {
-  if (!isTauriRuntime()) return;
+export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
+  if (!isTauriRuntime()) return false;
   const spec = OVERLAY_SPECS[kind];
-  const existing = await WebviewWindow.getByLabel(spec.label);
-  if (existing) {
-    await existing.close();
-    return;
+  try {
+    const existing = await WebviewWindow.getByLabel(spec.label);
+    if (existing) {
+      await existing.close();
+      return false;
+    }
+    const pos = loadOverlayPos(kind);
+    const win = new WebviewWindow(spec.label, {
+      url: spec.url,
+      title: 'BottleMusic',
+      width: spec.width,
+      height: spec.height,
+      decorations: false,
+      transparent: true,
+      alwaysOnTop: true,
+      skipTaskbar: true,
+      resizable: false,
+      shadow: false,
+      ...(pos ? { x: pos.x, y: pos.y } : { center: true }),
+    });
+    // Creation is async — surface failures instead of vanishing silently.
+    void win.once('tauri://error', (event) => {
+      console.error(`[overlay] failed to create ${spec.label}:`, event);
+    });
+    void win.once('tauri://created', () => {
+      console.log(`[overlay] created ${spec.label} → ${spec.url}`);
+    });
+    return true;
+  } catch (err) {
+    console.error(`[overlay] toggleOverlay(${kind}) failed:`, err);
+    return false;
   }
-  const pos = loadOverlayPos(kind);
-  new WebviewWindow(spec.label, {
-    url: spec.url,
-    title: 'BottleMusic',
-    width: spec.width,
-    height: spec.height,
-    decorations: false,
-    transparent: true,
-    alwaysOnTop: true,
-    skipTaskbar: true,
-    resizable: false,
-    shadow: false,
-    ...(pos ? { x: pos.x, y: pos.y } : { center: true }),
-  });
 }
 
 /**
