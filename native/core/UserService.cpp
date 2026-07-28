@@ -1,4 +1,4 @@
-﻿#include "echo/core/UserService.h"
+#include "echo/core/UserService.h"
 #include "echo/core/Crypto.h"
 #include "echo/core/DeviceService.h"
 #include "echo/core/KuGouAndroidRequest.h"
@@ -10,6 +10,7 @@
 #include <ctime>
 #include <iomanip>
 #include <sstream>
+#include <utility>
 
 namespace echo::core {
 namespace {
@@ -21,6 +22,16 @@ nlohmann::json MakeError(const std::string& message, long statusCode = 0) {
       {"status_code", statusCode},
       {"data", nullptr},
   };
+}
+
+std::string UpstreamErrorMessage(const nlohmann::json& json) {
+  for (const char* key : {"error_msg", "error", "msg", "message"}) {
+    if (json.contains(key) && json[key].is_string()) {
+      const auto message = json[key].get<std::string>();
+      if (!message.empty()) return message;
+    }
+  }
+  return {};
 }
 
 }  // namespace
@@ -145,18 +156,15 @@ nlohmann::json UserService::GetUserVip(
         {"busi_type", "concept"},
         {"userid", userId.empty() ? "0" : userId},
         {"token", token},
-        {"opt_product_types", "dvip,qvip"},
-        {"product_type", "svip"},
-        // Pin clienttime in params so BuildSignedUrl and BuildAndroidHeaders
-        // (called as separate statements below) share one value instead of
-        // each calling std::time(nullptr) and straddling a second boundary —
-        // clienttime feeds the signature digest, so skew would break signing.
+        // get_union_vip 只认 busi_type；product_type/opt_product_types 会被上游判 params invalid
         {"clienttime", clienttime},
     };
     req.device = device;
 
     const std::string url = BuildSignedUrl(req);
     auto headers = BuildAndroidHeaders(req);
+    // kugouvip.kugou.com 要求会话 Cookie（参考 youth_union_vip 与可用的领取端点）
+    headers["Cookie"] = "token=" + token + "; userid=" + userId + "; KugooID=" + userId;
 
     const auto result = httpGet_(url, std::move(headers));
 
@@ -167,6 +175,47 @@ nlohmann::json UserService::GetUserVip(
 
     try {
       auto json = nlohmann::json::parse(result.body);
+      if (json.value("status", 0) == 1 && json.contains("data") && json["data"].is_object()) {
+        const auto& data = json["data"];
+        const auto field = [&](const char* key) {
+          return data.contains(key) ? data[key].dump() : std::string("missing");
+        };
+        std::ostringstream diagnostic;
+        diagnostic << "vip_fields is_vip=" << field("is_vip")
+                   << " vip_type=" << field("vip_type")
+                   << " vip_level=" << field("vip_level")
+                   << " svip_level=" << field("svip_level")
+                   << " vip_end_time=" << field("vip_end_time")
+                   << " busi_vip=";
+        if (data.contains("busi_vip") && data["busi_vip"].is_array()) {
+          diagnostic << '[';
+          bool first = true;
+          for (const auto& item : data["busi_vip"]) {
+            if (!item.is_object()) continue;
+            if (!first) diagnostic << ',';
+            first = false;
+            diagnostic << "{product_type:"
+                       << (item.contains("product_type") ? item["product_type"].dump() : "missing")
+                       << ",is_vip:"
+                       << (item.contains("is_vip") ? item["is_vip"].dump() : "missing")
+                       << ",vip_end_time:"
+                       << (item.contains("vip_end_time") ? item["vip_end_time"].dump() : "missing")
+                       << '}';
+          }
+          diagnostic << ']';
+        } else {
+          diagnostic << "missing";
+        }
+        ECHO_LOG("UserVip", diagnostic.str());
+      } else {
+        // 上游未返回权威 VIP 数据：打出状态与响应截断，定位签名/参数问题
+        const std::string bodyPreview = result.body.substr(0, 400);
+        ECHO_LOG("UserVip", std::string("upstream rejected status=")
+          + std::to_string(json.value("status", -1))
+          + " body=" + bodyPreview
+          + " | userid=" + (userId.empty() ? std::string("EMPTY") : userId)
+          + " token=" + (token.empty() ? std::string("EMPTY") : std::string("PRESENT(len=") + std::to_string(token.size()) + ")"));
+      }
       #ifdef _DEBUG
       json["_debug_profile_appid"] = profile.appid;
       #endif
@@ -176,7 +225,7 @@ nlohmann::json UserService::GetUserVip(
     }
   };
 
-  auto conceptResult = DoGetVip(GetKuGouProfile(KuGouEdition::Concept));
+  auto conceptResult = DoGetVip(GetKuGouProfile(KuGouEdition::Standard));
   if (conceptResult.value("status", 0) == 1) {
     bool hasVipFields = false;
     if (conceptResult.contains("data") && conceptResult["data"].is_object()) {
@@ -387,7 +436,9 @@ nlohmann::json UserService::ClaimYouthListenSong(
   const std::string body = R"({"mixsongid":666075191})";
 
   // listen_song report uses a distinct clientver from the global concept profile.
-  auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  // The youth reward endpoint uses the standard Android signing identity and
+  // only overrides clientver for its report protocol.
+  auto profile = GetKuGouProfile(KuGouEdition::Standard);
   profile.clientver = "10566";
 
   KuGouAndroidRequest req;
@@ -396,20 +447,25 @@ nlohmann::json UserService::ClaimYouthListenSong(
   req.device = device;
   req.body = body;
   // Note: old code didn't send 'plat' param, so we don't add it here
+  req.params["clienttime"] = std::to_string(std::time(nullptr));
+  // This endpoint's Android client contract deliberately uses a sentinel
+  // UUID, even when the registered device has a persistent UUID.
+  req.params["uuid"] = "-";
   if (!userId.empty() && userId != "0") req.params["userid"] = userId;
   if (!token.empty()) req.params["token"] = token;
 
   const std::string url = BuildSignedUrl(req);
   const std::string cookie = "token=" + token + "; userid=" + userId + "; KugooID=" + userId;
+  auto headers = BuildAndroidHeaders(req);
+  headers["Cookie"] = cookie;
+  headers["Content-Type"] = "application/json; charset=utf-8";
+  headers["User-Agent"] =
+      "Android13-1070-10566-201-0-ReportPlaySongToServerProtocol-wifi";
 
   const auto result = httpPost_(
       url,
       body,
-      {
-          {"Cookie", cookie},
-          {"Content-Type", "application/json; charset=utf-8"},
-          {"User-Agent", "Android13-1070-10566-201-0-ReportPlaySongToServerProtocol-wifi"},
-      });
+      std::move(headers));
 
   if (!result.error.empty()) {
     ECHO_LOG("YouthListen", std::string("network error: ") + result.error);
@@ -418,10 +474,22 @@ nlohmann::json UserService::ClaimYouthListenSong(
 
   try {
     auto json = nlohmann::json::parse(result.body);
+    const auto upstreamError = UpstreamErrorMessage(json);
+    if (json.value("status", 0) != 1) {
+      std::ostringstream diagnostic;
+      diagnostic << "upstream status=" << json.value("status", 0)
+                 << " error_code="
+                 << (json.contains("error_code") ? json["error_code"].dump() : "missing")
+                 << " message=" << (upstreamError.empty() ? "<empty>" : upstreamError)
+                 << " data_type="
+                 << (json.contains("data") ? json["data"].type_name() : "missing");
+      ECHO_LOG("YouthListen", diagnostic.str());
+    }
     nlohmann::json out = {
         {"status", json.value("status", 0)},
-        {"error_code", json.value("error_code", 0)},
-        {"error_msg", json.value("error_msg", "")},
+        {"error_code", json.contains("error_code") ? json["error_code"] : nlohmann::json(0)},
+        {"error_msg", upstreamError},
+        {"error", upstreamError},
         {"data", json.contains("data") && json["data"].is_object() ? json["data"] : nlohmann::json::object()},
     };
 
