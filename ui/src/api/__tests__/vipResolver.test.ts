@@ -94,6 +94,29 @@ describe('resolveVip — 规则 2: busi_vip svip 广告/临时 SVIP', () => {
     );
     expect(r.isVip).toBe(false);
   });
+
+  it('busi_vip music/musicpack 未过期 → 解锁（每日免费听歌 VIP）', () => {
+    const music = resolveVip(
+      { is_vip: 0, busi_vip: [{ product_type: 'music', is_vip: 1, vip_end_time: FUTURE }] },
+      NOW,
+    );
+    expect(music.isVip).toBe(true);
+    expect(music.vipEndDate).toBe(FUTURE);
+
+    const pack = resolveVip(
+      { is_vip: 0, busi_vip: [{ product_type: 'musicpack', is_vip: 1, vip_end_time: FUTURE }] },
+      NOW,
+    );
+    expect(pack.isVip).toBe(true);
+  });
+
+  it('busi_vip music 已过期 → 不解锁', () => {
+    const r = resolveVip(
+      { is_vip: 0, busi_vip: [{ product_type: 'music', is_vip: 1, vip_end_time: PAST }] },
+      NOW,
+    );
+    expect(r.isVip).toBe(false);
+  });
 });
 
 describe('resolveVip — 到期时间选取（最晚未过期）', () => {

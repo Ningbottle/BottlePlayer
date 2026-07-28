@@ -69,9 +69,10 @@ export function resolveVip(d: any, nowMs: number = Date.now()): VipResolution {
   if (Array.isArray(d.busi_vip)) {
     for (const b of d.busi_vip) {
       if (!b) continue;
-      const isSvip = String(b.product_type || '') === 'svip';
+      // 音乐类权益（svip/music/musicpack）未过期 → 解锁歌曲；tvip 是听书，不解锁。
+      const unlocksSongs = ['svip', 'music', 'musicpack'].includes(String(b.product_type || ''));
       const bIsVip = b.is_vip === 1 || b.is_vip === '1';
-      if (isSvip && bIsVip) {
+      if (unlocksSongs && bIsVip) {
         const endStr = String(b.vip_end_time || '');
         if (!endStr || parseVipEndTime(endStr) === 0 || parseVipEndTime(endStr) > nowMs) {
           isVip = true;
