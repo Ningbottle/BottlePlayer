@@ -48,6 +48,20 @@ export function pickBucket(path: string): CircuitBucket {
   return 'generic';
 }
 
+export function describeBackendError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (message.includes('C API not loaded')) {
+    return '本地音乐服务未就绪，请重新打开应用';
+  }
+  if (message.includes('request_timeout')) {
+    return '请求超时，请稍后重试';
+  }
+  if (message.includes('circuit_open')) {
+    return '服务暂时繁忙，请稍后重试';
+  }
+  return fallback;
+}
+
 async function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   return new Promise<T>((resolve, reject) => {
     const timeoutId = setTimeout(() => reject(new Error('request_timeout')), ms);

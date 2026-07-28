@@ -1,7 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
+const { getByLabelMock, webviewWindowMock } = vi.hoisted(() => ({
+  getByLabelMock: vi.fn(),
+  webviewWindowMock: vi.fn(),
+}));
+
 vi.mock('@tauri-apps/api/webviewWindow', () => ({
-  WebviewWindow: vi.fn(),
+  WebviewWindow: Object.assign(webviewWindowMock, {
+    getByLabel: getByLabelMock,
+  }),
 }));
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn(),
@@ -13,7 +20,47 @@ vi.mock('@tauri-apps/api/dpi', () => ({
   },
 }));
 
-import { snapToEdges, anchorPosition, loadOverlayPos, saveOverlayPos, resolveCreatePos, loadLyricPrefs, saveLyricPrefs, loadLyricSize, saveLyricSize, SNAP_MARGIN } from '../overlayWindows';
+import { snapToEdges, anchorPosition, loadOverlayPos, saveOverlayPos, resolveCreatePos, loadLyricPrefs, saveLyricPrefs, loadLyricSize, saveLyricSize, toggleOverlay, SNAP_MARGIN } from '../overlayWindows';
+
+describe('overlay toggle result', () => {
+  beforeEach(() => {
+    getByLabelMock.mockReset();
+    webviewWindowMock.mockReset();
+    delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
+  });
+
+  it('reports an unavailable runtime as a failure, not as a closed overlay', async () => {
+    await expect(toggleOverlay('island')).resolves.toBe('failed');
+  });
+
+  it('reports an existing overlay as closed after closing it', async () => {
+    const close = vi.fn().mockResolvedValue(undefined);
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    getByLabelMock.mockResolvedValue({ close });
+
+    await expect(toggleOverlay('island')).resolves.toBe('closed');
+    expect(close).toHaveBeenCalledOnce();
+  });
+
+  it('creates the island with a transparent first-frame background', async () => {
+    const setBackgroundColor = vi.fn().mockResolvedValue(undefined);
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    getByLabelMock.mockResolvedValue(null);
+    webviewWindowMock.mockImplementation(function MockWebviewWindow() {
+      return {
+      once: vi.fn().mockResolvedValue(() => {}),
+      setBackgroundColor,
+      };
+    });
+
+    await expect(toggleOverlay('island')).resolves.toBe('opened');
+    expect(webviewWindowMock).toHaveBeenCalledWith('overlay-island', expect.objectContaining({
+      transparent: true,
+      backgroundColor: { red: 0, green: 0, blue: 0, alpha: 0 },
+    }));
+    expect(setBackgroundColor).toHaveBeenCalledWith({ red: 0, green: 0, blue: 0, alpha: 0 });
+  });
+});
 
 describe('snapToEdges', () => {
   const win = { w: 340, h: 88 };

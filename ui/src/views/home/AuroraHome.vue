@@ -5,8 +5,7 @@ import type { Track } from '../../api/normalizer';
 import type { PlaylistInfo } from '../../api/homeFeedStore';
 import { gsap } from 'gsap';
 import type { HomeEnterMode } from '../../api/homeEnterSession';
-import { animateStagger, isReducedMotion, startVinylSpin } from '../../api/motion';
-import type { VinylSpinHandle } from '../../api/motion';
+import { animateStagger, isReducedMotion } from '../../api/motion';
 import { playerStore, togglePlay as storeTogglePlay } from '../../api/playerStore';
 import { createAudioLevelMonitor, type AudioLevelMonitor } from '../../api/audioLevelMonitor';
 import { flyCoverToDock } from '../../api/coverFlight';
@@ -59,8 +58,7 @@ function observeSections(): void {
     if (!revealedSections.has(section)) revealObserver?.observe(section);
   });
 }
-const vinylEl = ref<HTMLElement | null>(null);
-let vinylSpin: VinylSpinHandle | null = null;
+const coverEl = ref<HTMLElement | null>(null);
 
 /** Live loudness tap for the cone dust (falls back to a static 0). */
 let levelMonitor: AudioLevelMonitor | null = null;
@@ -79,24 +77,15 @@ function bootLevelMonitor(): void {
 
 watch(() => playerStore.audio, () => bootLevelMonitor());
 
-function bootVinyl(): void {
-  if (vinylSpin || !vinylEl.value) return;
-  vinylSpin = startVinylSpin(vinylEl.value, () => !!props.model.isPlaying);
-}
 const recommendationEls = ref<HTMLElement[]>([]);
 /** Stage + stagger enter handles (killed on re-enter). */
 const enterHandles: Array<{ kill(): void }> = [];
 
 watch(() => props.model.heroTrack, () => {
   coverError.value = false;
-  // heroTrack renders vinylEl — boot the deck once it exists.
-  void nextTick(() => bootVinyl());
 });
 
-watch(() => props.model.isPlaying, () => vinylSpin?.setPlaying());
-
 onMounted(() => {
-  bootVinyl();
   bootLevelMonitor();
   void nextTick(() => observeSections());
 });
@@ -109,14 +98,10 @@ watch(
 );
 
 onActivated(() => {
-  bootVinyl();
-  vinylSpin?.setPlaying();
   bootLevelMonitor();
 });
 
 onDeactivated(() => {
-  vinylSpin?.kill();
-  vinylSpin = null;
   levelMonitor?.stop();
   levelMonitor = null;
 });
@@ -192,8 +177,6 @@ watch(
 );
 
 onUnmounted(() => {
-  vinylSpin?.kill();
-  vinylSpin = null;
   levelMonitor?.stop();
   levelMonitor = null;
   revealObserver?.disconnect();
@@ -264,10 +247,9 @@ function onHeroPlay() {
   onTrackPlay(t);
 }
 
-/** GSAP Flip flight from the hero vinyl into the dock cover slot. */
+/** GSAP Flip flight from the hero cover into the dock cover slot. */
 function flyFromVinyl(): void {
-  const root = vinylEl.value?.parentElement;
-  if (root && heroCover.value) flyCoverToDock(root, heroCover.value);
+  if (coverEl.value && heroCover.value) flyCoverToDock(coverEl.value, heroCover.value);
 }
 
 function coverElFromEvent(e: MouseEvent): HTMLElement | undefined {
@@ -290,17 +272,6 @@ function onVinylToggle(): void {
     onTrackPlay(t);
   }
 }
-
-/** Seek = jump in currentTime → scratch burst on the deck. Track change counts too. */
-let lastTime: number | null = null;
-watch(
-  () => playerStore.currentTime,
-  (t) => {
-    const jumped = lastTime !== null && Math.abs(t - lastTime) > 1.5;
-    lastTime = t;
-    if (jumped) vinylSpin?.burst();
-  },
-);
 
 function onTrackPlay(track: Track, fromEl?: HTMLElement): void {
   if (fromEl && track.Image) flyCoverToDock(fromEl, track.Image);
@@ -350,28 +321,24 @@ function formatDuration(sec: number | undefined | null): string {
       <AuroraAtmosphere :is-playing="model.isPlaying" :level="atmosphereLevel" :tint="coverTint" />
       <div class="aurora-stage-hero">
         <div v-if="model.heroTrack" class="aurora-stage-main">
-          <div class="aurora-cover aurora-vinyl" data-test="hero-vinyl">
-            <div ref="vinylEl" class="aurora-vinyl-disc">
-              <img
-                v-if="heroCover"
-                :src="heroCover"
-                :alt="`${model.heroTrack?.SongName || '当前歌曲'}封面`"
-                @error="onCoverError"
-              />
-              <div v-else class="aurora-cover-placeholder">封面暂缺</div>
-              <div class="aurora-vinyl-grooves" aria-hidden="true" />
-            </div>
-            <div class="aurora-vinyl-spindle" aria-hidden="true" />
+          <div ref="coverEl" class="aurora-cover aurora-cover-square" data-test="hero-vinyl">
+            <img
+              v-if="heroCover"
+              :src="heroCover"
+              :alt="`${model.heroTrack?.SongName || '当前歌曲'}封面`"
+              @error="onCoverError"
+            />
+            <div v-else class="aurora-cover-placeholder">封面暂缺</div>
             <button
               type="button"
-              class="aurora-vinyl-toggle"
+              class="aurora-cover-toggle"
               data-test="vinyl-toggle"
               :aria-label="model.isPlaying && isHeroCurrent ? '暂停' : '播放'"
               :title="model.isPlaying && isHeroCurrent ? '暂停' : '播放'"
               @click.stop="onVinylToggle"
             >
-              <PhPause v-if="model.isPlaying && isHeroCurrent" :size="20" weight="fill" aria-hidden="true" />
-              <PhPlay v-else :size="20" weight="fill" aria-hidden="true" />
+              <PhPause v-if="model.isPlaying && isHeroCurrent" :size="14" weight="fill" aria-hidden="true" />
+              <PhPlay v-else :size="14" weight="fill" aria-hidden="true" />
             </button>
           </div>
 
@@ -429,11 +396,8 @@ function formatDuration(sec: number | undefined | null): string {
         </div>
 
         <div v-else class="aurora-stage-empty" data-test="aurora-stage-empty">
-          <div class="aurora-cover aurora-vinyl aurora-vinyl-empty" aria-hidden="true">
-            <div class="aurora-vinyl-disc">
-              <div class="aurora-vinyl-grooves" aria-hidden="true" />
-            </div>
-            <div class="aurora-vinyl-spindle" aria-hidden="true" />
+          <div class="aurora-cover aurora-cover-square aurora-cover-empty" aria-hidden="true">
+            <div class="aurora-cover-placeholder">封面暂缺</div>
           </div>
           <div class="aurora-stage-empty-copy">
             <p class="aurora-label"><span class="aurora-label-dot" aria-hidden="true" />还没有开始播放</p>
@@ -877,14 +841,52 @@ export default { name: 'AuroraHome' };
   background: #0a0a09;
 }
 
-/* Touchable deck: hover/focus reveals a play/pause disc over the label */
-.aurora-vinyl-toggle {
+.aurora-cover-square.aurora-cover-empty {
+  max-width: 280px;
+}
+
+.aurora-cover-square.aurora-cover-empty .aurora-cover-placeholder {
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 13px;
+  border: 1px dashed var(--border-subtle);
+  border-radius: inherit;
+  box-sizing: border-box;
+}
+
+/* Square hero cover — big art first, playback badge tucked in the corner */
+.aurora-cover.aurora-cover-square {
+  position: relative;
+  aspect-ratio: 1;
+  width: 100%;
+  max-width: 320px;
+  height: auto;
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--surface-2);
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.32),
+    0 0 0 1px color-mix(in srgb, #fff 6%, transparent);
+  flex: none;
+}
+
+.aurora-cover-square > img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.aurora-cover-toggle {
   position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 56px;
-  height: 56px;
-  transform: translate(-50%, -50%);
+  right: 10px;
+  bottom: 10px;
+  width: 34px;
+  height: 34px;
   border: 0;
   border-radius: 50%;
   background: color-mix(in srgb, var(--accent) 92%, #000 8%);
@@ -893,21 +895,20 @@ export default { name: 'AuroraHome' };
   place-items: center;
   cursor: pointer;
   opacity: 0;
-  transition: opacity 0.18s ease, filter 0.15s ease;
-  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.45);
-  z-index: 2;
+  transition: opacity 0.15s ease, filter 0.15s ease;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
 }
 
-.aurora-vinyl:hover .aurora-vinyl-toggle,
-.aurora-vinyl-toggle:focus-visible {
+.aurora-cover-square:hover .aurora-cover-toggle,
+.aurora-cover-toggle:focus-visible {
   opacity: 1;
 }
 
-.aurora-vinyl-toggle:hover { filter: brightness(1.06); }
+.aurora-cover-toggle:hover { filter: brightness(1.06); }
 
-.aurora-vinyl-toggle:focus-visible {
+.aurora-cover-toggle:focus-visible {
   outline: 2px solid var(--focus-ring);
-  outline-offset: 3px;
+  outline-offset: 2px;
 }
 
 .aurora-info {

@@ -10,6 +10,7 @@ import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
 import { PhysicalPosition } from '@tauri-apps/api/dpi';
 
 export type OverlayKind = 'island' | 'lyric';
+export type OverlayToggleResult = 'opened' | 'closed' | 'failed';
 
 export interface OverlayPos {
   x: number;
@@ -68,12 +69,24 @@ export function loadOverlayPos(kind: OverlayKind): OverlayPos | null {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as Partial<OverlayPos>;
     if (typeof parsed.x === 'number' && typeof parsed.y === 'number') {
-      return { x: parsed.x, y: parsed.y };
+      return clampToScreen(kind, { x: parsed.x, y: parsed.y });
     }
   } catch {
     // corrupted entry → fall through to null
   }
   return null;
+}
+
+/** Keep a remembered position fully inside the primary screen. */
+function clampToScreen(kind: OverlayKind, pos: OverlayPos): OverlayPos {
+  const spec = OVERLAY_SPECS[kind];
+  if (window.screen.width <= 0 || window.screen.height <= 0) return pos;
+  const maxX = Math.max(0, window.screen.width - spec.width);
+  const maxY = Math.max(0, window.screen.height - spec.height);
+  return {
+    x: Math.max(0, Math.min(maxX, pos.x)),
+    y: Math.max(0, Math.min(maxY, pos.y)),
+  };
 }
 
 export function saveOverlayPos(kind: OverlayKind, pos: OverlayPos): void {
@@ -138,14 +151,14 @@ export function saveLyricSize(width: number): void {
 }
 
 /** Create the overlay window if absent; close it if present. Tauri-only. */
-export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
-  if (!isTauriRuntime()) return false;
+export async function toggleOverlay(kind: OverlayKind): Promise<OverlayToggleResult> {
+  if (!isTauriRuntime()) return 'failed';
   const spec = OVERLAY_SPECS[kind];
   try {
     const existing = await WebviewWindow.getByLabel(spec.label);
     if (existing) {
       await existing.close();
-      return false;
+      return 'closed';
     }
     const pos = loadOverlayPos(kind);
     const savedWidth = kind === 'lyric' ? loadLyricSize() : null;
@@ -160,6 +173,7 @@ export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
       height: spec.height,
       decorations: false,
       transparent: true,
+      backgroundColor: { red: 0, green: 0, blue: 0, alpha: 0 },
       alwaysOnTop: true,
       skipTaskbar: true,
       resizable: kind === 'lyric',
@@ -176,13 +190,13 @@ export async function toggleOverlay(kind: OverlayKind): Promise<boolean> {
     void win.once('tauri://created', () => {
       console.log(`[overlay] created ${spec.label} → ${spec.url}`);
     });
-    // Belt-and-braces: OS transparency is unreliable on some WebView2 setups,
-    // so the window itself carries the island's dark backing (no white corners).
-    void win.setBackgroundColor({ red: 11, green: 10, blue: 9, alpha: 255 }).catch(() => {});
-    return true;
+    // Keep the native window transparent too; the rounded overlay surface owns
+    // its background, so the rectangular WebView bounds never become visible.
+    void win.setBackgroundColor({ red: 0, green: 0, blue: 0, alpha: 0 }).catch(() => {});
+    return 'opened';
   } catch (err) {
     console.error(`[overlay] toggleOverlay(${kind}) failed:`, err);
-    return false;
+    return 'failed';
   }
 }
 

@@ -18,6 +18,7 @@ import PlayerProgress from '../../components/player/PlayerProgress.vue';
 
 const COLLAPSED_SIZE = { width: 300, height: 64 };
 const EXPANDED_SIZE = { width: 480, height: 200 };
+const AUTO_COLLAPSE_MS = 5_000;
 
 const state = ref<PlayerSyncState | null>(null);
 const hasTrack = computed(() => !!state.value?.hash);
@@ -40,31 +41,98 @@ let unlisten: (() => void) | null = null;
 const expanded = ref(false);
 const cardDiscEl = ref<HTMLElement | null>(null);
 let cardSpin: VinylSpinHandle | null = null;
+let desiredExpanded = false;
+let windowExpanded = false;
+let resizeTask: Promise<void> | null = null;
+let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null;
 
 async function applyWindowSize(size: { width: number; height: number }): Promise<void> {
   if (!isTauriRuntime()) return;
   const win = getCurrentWindow();
-  const [pos, old] = await Promise.all([win.outerPosition(), win.outerSize()]);
+  const [pos, old, scaleFactor] = await Promise.all([
+    win.outerPosition(),
+    win.outerSize(),
+    win.scaleFactor(),
+  ]);
   // Expand downward from the pill: top edge unchanged, card centered on the pill.
-  // Physical pixels end-to-end — logical conversion caused the right-jump bug.
+  // Position APIs use physical pixels while setSize uses logical pixels.
   const cx = pos.x + old.width / 2;
+  const targetPhysicalWidth = size.width * scaleFactor;
   await win.setSize(new LogicalSize(size.width, size.height));
   await win.setPosition(new PhysicalPosition(
-    Math.round(cx - size.width / 2),
+    Math.round(cx - targetPhysicalWidth / 2),
     pos.y,
   ));
 }
 
-async function toggleExpanded(): Promise<void> {
-  expanded.value = !expanded.value;
-  await applyWindowSize(expanded.value ? EXPANDED_SIZE : COLLAPSED_SIZE);
-  if (expanded.value) {
-    void nextTick(() => {
-      if (cardDiscEl.value && !cardSpin) {
-        cardSpin = startVinylSpin(cardDiscEl.value, () => !!state.value?.isPlaying);
-      }
-    });
+function clearAutoCollapse(): void {
+  if (autoCollapseTimer !== null) {
+    clearTimeout(autoCollapseTimer);
+    autoCollapseTimer = null;
   }
+}
+
+function stopCardSpin(): void {
+  cardSpin?.kill();
+  cardSpin = null;
+}
+
+function armAutoCollapse(): void {
+  clearAutoCollapse();
+  if (!desiredExpanded) return;
+  autoCollapseTimer = setTimeout(() => {
+    autoCollapseTimer = null;
+    requestExpanded(false);
+  }, AUTO_COLLAPSE_MS);
+}
+
+function runResizeQueue(): Promise<void> {
+  if (resizeTask) return resizeTask;
+
+  resizeTask = (async () => {
+    try {
+      while (windowExpanded !== desiredExpanded) {
+        const target = desiredExpanded;
+        if (target) {
+          await applyWindowSize(EXPANDED_SIZE);
+          windowExpanded = true;
+          if (desiredExpanded) {
+            expanded.value = true;
+            await nextTick();
+            if (cardDiscEl.value && !cardSpin) {
+              cardSpin = startVinylSpin(cardDiscEl.value, () => !!state.value?.isPlaying);
+            }
+            armAutoCollapse();
+          }
+        } else {
+          clearAutoCollapse();
+          expanded.value = false;
+          stopCardSpin();
+          await nextTick();
+          await applyWindowSize(COLLAPSED_SIZE);
+          windowExpanded = false;
+        }
+      }
+    } catch (error) {
+      desiredExpanded = windowExpanded;
+      expanded.value = windowExpanded;
+      console.error('[island] resize transition failed:', error);
+    } finally {
+      resizeTask = null;
+    }
+  })();
+
+  return resizeTask;
+}
+
+function requestExpanded(next: boolean): void {
+  desiredExpanded = next;
+  if (!next) clearAutoCollapse();
+  void runResizeQueue();
+}
+
+function toggleExpanded(): void {
+  requestExpanded(!desiredExpanded);
 }
 
 /** Click-to-toggle must not fire after a drag — require <5px pointer travel. */
@@ -72,21 +140,26 @@ let downX = 0;
 let downY = 0;
 
 function onAreaPointerDown(e: PointerEvent): void {
+  if (desiredExpanded) armAutoCollapse();
   downX = e.clientX;
   downY = e.clientY;
 }
 
 function onAreaPointerUp(e: PointerEvent): void {
-  if ((e.target as HTMLElement).closest('button')) return;
+  if ((e.target as HTMLElement).closest('button, [role="slider"], input, select, textarea, a[href]')) return;
   if (Math.hypot(e.clientX - downX, e.clientY - downY) < 5) {
     void toggleExpanded();
   }
 }
 
 function onKeydown(e: KeyboardEvent): void {
-  if (e.key === 'Escape' && expanded.value) {
-    void toggleExpanded();
+  if (e.key === 'Escape' && desiredExpanded) {
+    requestExpanded(false);
   }
+}
+
+function onWindowBlur(): void {
+  if (desiredExpanded) requestExpanded(false);
 }
 
 const anchors = ['top-left', 'top-center', 'top-right', 'center-left', 'center', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right'];
@@ -124,22 +197,25 @@ onMounted(async () => {
   }
   document.addEventListener('mouseup', onDragRelease);
   document.addEventListener('keydown', onKeydown);
+  window.addEventListener('blur', onWindowBlur);
 });
 
 onBeforeUnmount(() => {
+  clearAutoCollapse();
   unlisten?.();
   vinylSpin?.kill();
   vinylSpin = null;
-  cardSpin?.kill();
-  cardSpin = null;
+  stopCardSpin();
   document.removeEventListener('mouseup', onDragRelease);
   document.removeEventListener('keydown', onKeydown);
+  window.removeEventListener('blur', onWindowBlur);
 });
 </script>
 
 <template>
   <div class="island-root" @contextmenu="toggleAnchors">
     <div
+      v-if="!expanded"
       class="island-capsule"
       :class="{ 'is-idle': !hasTrack }"
       data-tauri-drag-region
@@ -199,7 +275,7 @@ onBeforeUnmount(() => {
 
     <!-- Expanded wide card: vinyl cover + meta + seekable progress + transport -->
     <div
-      v-if="expanded"
+      v-else
       class="island-card"
       data-test="island-card"
       data-tauri-drag-region
@@ -262,7 +338,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 :global(html),
-:global(body) {
+:global(body),
+:global(#app) {
   background: transparent !important;
   overflow: hidden;
 }
@@ -273,6 +350,7 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   position: relative;
+  background: transparent;
 }
 
 .island-capsule {
@@ -280,8 +358,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 10px;
-  width: calc(100% - 12px);
-  height: calc(100% - 12px);
+  width: 288px;
+  height: 52px;
   padding: 6px 10px;
   box-sizing: border-box;
   border-radius: 999px;
@@ -494,8 +572,8 @@ onBeforeUnmount(() => {
   display: flex;
   align-items: center;
   gap: 14px;
-  width: calc(100% - 12px);
-  height: calc(100% - 12px);
+  width: 468px;
+  height: 188px;
   padding: 14px;
   box-sizing: border-box;
   border-radius: 18px;

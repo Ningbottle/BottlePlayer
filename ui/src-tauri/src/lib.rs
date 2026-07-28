@@ -60,6 +60,10 @@ fn deadline_for_path(path: &str) -> Duration {
     }
 }
 
+fn should_shutdown_c_api(event: &tauri::RunEvent) -> bool {
+    matches!(event, tauri::RunEvent::Exit)
+}
+
 #[tauri::command]
 async fn native_request(
     method: String,
@@ -101,7 +105,7 @@ pub fn run() {
         builder = builder.plugin(tauri_plugin_global_shortcut::Builder::new().build());
     }
 
-    builder
+    let app = builder
         .setup(|app| {
             use tauri::Manager;
 
@@ -208,11 +212,6 @@ pub fn run() {
 
             Ok(())
         })
-        .on_window_event(|_window, event| {
-            if let tauri::WindowEvent::CloseRequested { .. } = event {
-                backend_api::shutdown_c_api();
-            }
-        })
         .invoke_handler(tauri::generate_handler![
             ping,
             backend_base_url,
@@ -234,8 +233,14 @@ pub fn run() {
             os_media_session::os_media_inject_button,
             os_media_session::os_media_debug_snapshot,
         ])
-        .run(tauri::generate_context!())
+        .build(tauri::generate_context!())
         .expect("error while running BottleMusic Tauri app");
+
+    app.run(|_app_handle, event| {
+        if should_shutdown_c_api(&event) {
+            backend_api::shutdown_c_api();
+        }
+    });
 }
 
 #[cfg(test)]
@@ -302,5 +307,15 @@ mod tests {
         assert!(deadlines::kDeadlineSongUrlMs >= deadlines::kDeadlineSongUrlMs);
         assert!(deadlines::kFrontendTimeoutMs >= deadlines::kDeadlineGenericMs);
         assert!(deadlines::kDeadlineGenericMs >= 1000);
+    }
+
+    #[test]
+    fn non_exit_run_events_do_not_shutdown_process_global_c_api() {
+        assert!(!should_shutdown_c_api(&tauri::RunEvent::Ready));
+    }
+
+    #[test]
+    fn process_exit_shuts_down_process_global_c_api() {
+        assert!(should_shutdown_c_api(&tauri::RunEvent::Exit));
     }
 }

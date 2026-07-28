@@ -219,7 +219,6 @@ fn install_tray(app: &tauri::AppHandle) -> Result<(), String> {
                     }
                 }
                 "quit" => {
-                    crate::backend_api::shutdown_c_api();
                     app_handle.exit(0);
                 }
                 _ => {}
@@ -284,8 +283,11 @@ fn install_media_key_shortcuts(app: &tauri::AppHandle) -> Result<(), String> {
 mod tests {
     use super::*;
 
+    static TEST_SESSION_GUARD: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn bind_then_metadata_round_trip() {
+        let _guard = TEST_SESSION_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let _ = os_media_unbind();
         assert!(os_media_set_now_playing(NowPlaying {
             title: "t".into(),
@@ -321,6 +323,7 @@ mod tests {
 
     #[test]
     fn debug_snapshot_reports_bound() {
+        let _guard = TEST_SESSION_GUARD.lock().unwrap_or_else(|p| p.into_inner());
         let _ = os_media_unbind();
         os_media_bind().unwrap();
         let snap = os_media_debug_snapshot().unwrap();

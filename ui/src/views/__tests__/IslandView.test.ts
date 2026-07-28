@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { mount } from '@vue/test-utils';
+import { flushPromises, mount } from '@vue/test-utils';
 import { reactive } from 'vue';
 
 const syncState = reactive({
@@ -34,6 +34,7 @@ const windowMock = vi.hoisted(() => ({
   close: vi.fn(async () => {}),
   outerPosition: vi.fn(async () => ({ x: 0, y: 0 })),
   outerSize: vi.fn(async () => ({ width: 340, height: 88 })),
+  scaleFactor: vi.fn(async () => 1),
   setSize: vi.fn(async (_size: { width: number; height: number }) => {}),
   setPosition: vi.fn(async (_pos: { x: number; y: number }) => {}),
 }));
@@ -76,8 +77,15 @@ function emitState(partial: Record<string, unknown> = {}) {
 
 describe('IslandView', () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.clearAllMocks();
     syncState.cb = null;
+    (isTauriRuntime as Mock).mockReturnValue(false);
+    windowMock.outerPosition.mockResolvedValue({ x: 0, y: 0 });
+    windowMock.outerSize.mockResolvedValue({ width: 300, height: 64 });
+    windowMock.scaleFactor.mockResolvedValue(1);
+    windowMock.setSize.mockResolvedValue(undefined);
+    windowMock.setPosition.mockResolvedValue(undefined);
   });
 
   it('renders idle capsule without a track', () => {
@@ -148,12 +156,55 @@ describe('IslandView', () => {
     const capsule = wrapper.get('.island-capsule');
     capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
     capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 101, clientY: 51 }));
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="island-card"]').exists()).toBe(true);
+    expect(wrapper.find('.island-capsule').exists()).toBe(false);
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+    expect(wrapper.find('[data-test="island-card"]').exists()).toBe(false);
+    expect(wrapper.find('.island-capsule').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('automatically collapses the expanded card after inactivity', async () => {
+    vi.useFakeTimers();
+    const wrapper = mount(IslandView);
+    const capsule = wrapper.get('.island-capsule');
+
+    capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
+    capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 50 }));
+    await flushPromises();
     await wrapper.vm.$nextTick();
     expect(wrapper.find('[data-test="island-card"]').exists()).toBe(true);
 
-    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await vi.advanceTimersByTimeAsync(6_000);
+    await flushPromises();
     await wrapper.vm.$nextTick();
     expect(wrapper.find('[data-test="island-card"]').exists()).toBe(false);
+    expect(wrapper.find('.island-capsule').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('keeps the card open while the user seeks on the progress slider', async () => {
+    const wrapper = mount(IslandView);
+    emitState();
+    await wrapper.vm.$nextTick();
+    const capsule = wrapper.get('.island-capsule');
+    capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
+    capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 50 }));
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    const progress = wrapper.get('[role="slider"]');
+    progress.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 120, clientY: 20 }));
+    progress.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 120, clientY: 20 }));
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    expect(wrapper.find('[data-test="island-card"]').exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -187,6 +238,35 @@ describe('IslandView', () => {
       x: Math.round(100 + 150 - 240),
       y: 100, // top edge unchanged — the card grows downward
     });
+    wrapper.unmount();
+  });
+
+  it('serializes rapid expand/collapse window resizes', async () => {
+    (isTauriRuntime as Mock).mockReturnValue(true);
+    let releaseFirstResize!: () => void;
+    windowMock.setSize
+      .mockImplementationOnce(() => new Promise<void>((resolve) => {
+        releaseFirstResize = resolve;
+      }))
+      .mockResolvedValue(undefined);
+
+    const wrapper = mount(IslandView);
+    const capsule = wrapper.get('.island-capsule');
+    const clickCapsule = () => {
+      capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
+      capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 50 }));
+    };
+
+    clickCapsule();
+    await vi.waitFor(() => expect(windowMock.setSize).toHaveBeenCalledTimes(1));
+    clickCapsule();
+    await Promise.resolve();
+    expect(windowMock.setSize).toHaveBeenCalledTimes(1);
+
+    releaseFirstResize();
+    await vi.waitFor(() => expect(windowMock.setSize).toHaveBeenCalledTimes(2));
+    expect(wrapper.find('[data-test="island-card"]').exists()).toBe(false);
+    expect(wrapper.find('.island-capsule').exists()).toBe(true);
     wrapper.unmount();
   });
 });

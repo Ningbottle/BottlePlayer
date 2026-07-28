@@ -126,6 +126,7 @@ async function loadDailyItems(): Promise<Track[]> {
     primaryItems = responseList(primaryResponse, ['song_list', 'info', 'list']);
   } catch {
     // The top-song endpoint is the established fallback for unavailable daily recommendations.
+    console.info('[home] daily: /everyday/recommend failed, falling back to static /top/song chart');
     const fallbackResponse = await apiGet<unknown>('/top/song', { pagesize: 6 });
     return responseList(fallbackResponse, ['info', 'list']).slice(0, 6).map(normalizeTrack);
   }
@@ -134,6 +135,7 @@ async function loadDailyItems(): Promise<Track[]> {
     return primaryItems.slice(0, 6).map(normalizeTrack);
   }
 
+  console.info('[home] daily: /everyday/recommend returned empty, falling back to static /top/song chart');
   const fallbackResponse = await apiGet<unknown>('/top/song', { pagesize: 6 });
   return responseList(fallbackResponse, ['info', 'list']).slice(0, 6).map(normalizeTrack);
 }

@@ -5,10 +5,9 @@ import AuroraHome from '../AuroraHome.vue';
 import type { HomeSectionError, HomeSectionViewState, HomeViewModel } from '../homeViewModel';
 import type { Track } from '../../../api/normalizer';
 import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
-import { animateStagger, startVinylSpin } from '../../../api/motion';
+import { animateStagger } from '../../../api/motion';
 import { playerStore, togglePlay } from '../../../api/playerStore';
 import { flyCoverToDock } from '../../../api/coverFlight';
-import type { Mock } from 'vitest';
 
 vi.mock('gsap', () => {
   const fromTo = vi.fn(() => ({ kill: vi.fn() }));
@@ -760,21 +759,6 @@ describe('AuroraHome', () => {
       await wrapper.get(`[data-test="daily-track-daily-x"]`).trigger('click');
 
       expect(flyCoverToDock).toHaveBeenCalledWith(expect.any(HTMLElement), 'http://img.example/x.jpg');
-    });
-
-    it('scratches the vinyl on seek jumps in currentTime', async () => {
-      mount(AuroraHome, {
-        props: { model: createViewModel({ isPlaying: true }) },
-      });
-      const spin = (startVinylSpin as Mock).mock.results[0]?.value as { burst: Mock };
-
-      playerStore.currentTime = 0.2;
-      await nextTick();
-      expect(spin.burst).not.toHaveBeenCalled();
-
-      playerStore.currentTime = 42;
-      await nextTick();
-      expect(spin.burst).toHaveBeenCalledTimes(1);
     });
   });
 });

@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
-import { apiGet } from '../api/backend';
+import { apiGet, describeBackendError } from '../api/backend';
 import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
 import AddToPlaylistModal from '../components/AddToPlaylistModal.vue';
@@ -48,7 +48,7 @@ async function performSearch() {
   } catch (err: any) {
     if (gen !== searchGeneration) return;
     console.error('Search error', err);
-    error.value = '连接 C++ 后端 Sidecar 出错';
+    error.value = describeBackendError(err, '搜索失败，请稍后重试');
   } finally {
     if (gen === searchGeneration) {
       loading.value = false;

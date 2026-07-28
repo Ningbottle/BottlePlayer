@@ -3,6 +3,7 @@ import {
   apiGet,
   isCircuitOpen,
   pickBucket,
+  describeBackendError,
   __resetCircuitBucketsForTests,
 } from '../backend';
 
@@ -64,6 +65,32 @@ describe('backend resilience', () => {
     );
     await expect(apiGet('/healthz')).resolves.toEqual({ ok: true });
     expect(mockInvoke).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('backend error messages', () => {
+  it('distinguishes an unavailable native runtime from a legacy sidecar error', () => {
+    expect(describeBackendError(new Error('C API not loaded'), '请求失败')).toBe(
+      '本地音乐服务未就绪，请重新打开应用',
+    );
+    expect(describeBackendError('C API not loaded', '请求失败')).toBe(
+      '本地音乐服务未就绪，请重新打开应用',
+    );
+  });
+
+  it('distinguishes timeouts and open circuits', () => {
+    expect(describeBackendError(new Error('request_timeout'), '请求失败')).toBe(
+      '请求超时，请稍后重试',
+    );
+    expect(describeBackendError(new Error('circuit_open'), '请求失败')).toBe(
+      '服务暂时繁忙，请稍后重试',
+    );
+  });
+
+  it('uses the caller fallback for unknown backend failures', () => {
+    expect(describeBackendError(new Error('HTTP 503 (via IPC)'), '搜索失败，请稍后重试')).toBe(
+      '搜索失败，请稍后重试',
+    );
   });
 });
 

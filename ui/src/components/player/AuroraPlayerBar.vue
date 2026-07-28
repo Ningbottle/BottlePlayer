@@ -24,8 +24,8 @@ import { toggleOverlay } from '../../api/overlayWindows';
 
 /** Overlay toggles surface failures on-screen (the windows themselves can't toast). */
 async function onToggleOverlay(kind: 'island' | 'lyric'): Promise<void> {
-  const ok = await toggleOverlay(kind);
-  if (!ok) {
+  const result = await toggleOverlay(kind);
+  if (result === 'failed') {
     c.value.toastMsg = kind === 'island' ? '灵动岛打开失败（见控制台）' : '桌面歌词打开失败（见控制台）';
     window.setTimeout(() => {
       if (c.value.toastMsg.includes('打开失败')) c.value.toastMsg = '';
@@ -444,10 +444,7 @@ async function onFavoriteClick(): Promise<void> {
   );
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  box-shadow:
-    0 18px 40px rgba(0, 0, 0, 0.38),
-    0 2px 0 color-mix(in srgb, #fff 6%, transparent) inset,
-    0 -1px 0 rgba(0, 0, 0, 0.25) inset;
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.28);
   /* Must stay visible: quality / volume menus open upward out of the dock. */
   overflow: visible;
 }

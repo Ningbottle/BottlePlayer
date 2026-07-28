@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { apiGet } from '../api/backend';
+import { apiGet, describeBackendError } from '../api/backend';
 import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
 import { favoriteStore, isLikedPlaylistName } from '../api/favoriteStore';
@@ -52,7 +52,7 @@ async function loadPlaylistTracks() {
   } catch (err: any) {
     if (gen !== playlistGeneration) return;
     console.error('Playlist load error', err);
-    error.value = '连接 C++ 后端 Sidecar 出错';
+    error.value = describeBackendError(err, '歌单加载失败，请稍后重试');
   } finally {
     if (gen === playlistGeneration) {
       loading.value = false;

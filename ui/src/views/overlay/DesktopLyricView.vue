@@ -242,6 +242,8 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   position: relative;
+  /* Fill the whole window with the bar's surface — no OS-colored corners */
+  background: color-mix(in srgb, var(--surface-elevated, #1a2222) 96%, #000 4%);
 }
 
 .lyric-bar {
