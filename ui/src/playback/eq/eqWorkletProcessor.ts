@@ -169,7 +169,7 @@ export function cascadeBiquad(
  */
 export const EQ_PROCESSOR_SOURCE = `
 // EqProcessor: 10-band peaking EQ cascade, running inside an AudioWorklet.
-// Generated from ui/src/api/eqWorkletProcessor.ts — see that file for the
+// Generated from ui/src/playback/eq/eqWorkletProcessor.ts — see that file for the
 // pure-DSP unit tests. This string is loaded via Blob URL (see loadEqWorklet).
 
 const NUM_BANDS = 10;
