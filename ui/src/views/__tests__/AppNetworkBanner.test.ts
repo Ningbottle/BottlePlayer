@@ -44,7 +44,7 @@ vi.mock('../../api/homeFeedStore', () => ({
   useHomeFeedStore: () => homeFeedStoreMock,
 }));
 
-vi.mock('../../api/playerStore', () => ({
+vi.mock('../../playback/playerStore', () => ({
   initPlayer: vi.fn(),
   initPlayerBackend: vi.fn(),
   playerStore: {

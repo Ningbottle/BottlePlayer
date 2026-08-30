@@ -23,7 +23,7 @@ import "./styles/skins/aurora.css";
 import "./styles/skins/newsprint.css";
 import { useThemeStore } from "./api/themeStore";
 import { useLyricFocusStore } from "./api/lyricFocusStore";
-import { disposePlayerRuntime } from "./api/playerStore";
+import { disposePlayerRuntime } from "./playback/playerStore";
 import { installPageLifecycle } from "./app/lifecycle/pageLifecycle";
 import { router } from "./navigation/router";
 

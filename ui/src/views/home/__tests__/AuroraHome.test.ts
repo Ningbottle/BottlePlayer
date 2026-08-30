@@ -5,9 +5,9 @@ import AuroraHome from '../AuroraHome.vue';
 import type { HomeSectionError, HomeSectionViewState, HomeViewModel } from '../homeViewModel';
 import type { Track } from '../../../api/normalizer';
 import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
-import type { PlaybackPhase } from '../../../api/playbackPhase';
+import type { PlaybackPhase } from '../../../playback/playbackPhase';
 import { animateStagger } from '../../../api/motion';
-import { playerStore, togglePlay } from '../../../api/playerStore';
+import { playerStore, togglePlay } from '../../../playback/playerStore';
 import { flyCoverToDock } from '../../../api/coverFlight';
 
 vi.mock('gsap', () => {
@@ -25,7 +25,7 @@ vi.mock('../../../api/motion', () => ({
   isReducedMotion: vi.fn(() => false),
 }));
 
-vi.mock('../../../api/playerStore', async () => {
+vi.mock('../../../playback/playerStore', async () => {
   const { reactive } = await import('vue');
   return {
     playerStore: reactive({ currentTime: 0 }),

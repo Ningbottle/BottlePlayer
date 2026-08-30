@@ -1,5 +1,5 @@
-import { normalizeTrack, type Track } from './normalizer';
-import type { QualityOption } from './playbackOrchestrator';
+import { normalizeTrack, type Track } from '../api/normalizer';
+import type { QualityOption } from '../api/playbackOrchestrator';
 import type { PlaybackPhase } from './playbackPhase';
 
 export type QueueState = {

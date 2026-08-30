@@ -15,7 +15,7 @@ vi.mock('../../platform/tauri/nativeClient', async (importOriginal) => {
     apiGet: (...args: any[]) => mockApiGet(...args),
   };
 });
-vi.mock('../../api/playerStore', () => ({
+vi.mock('../../playback/playerStore', () => ({
   playAll: vi.fn(),
   playerStore: { currentTrack: null },
 }));

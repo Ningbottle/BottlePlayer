@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { apiGet } from '../platform/tauri/nativeClient';
-import { playAll, playerStore } from '../api/playerStore';
+import { playAll, playerStore } from '../playback/playerStore';
 import { normalizeTrack } from '../api/normalizer';
 import { userStore } from '../api/userStore';
 import { recentPlayedStore, type RecentPlayedEntry } from '../api/recentPlayedStore';

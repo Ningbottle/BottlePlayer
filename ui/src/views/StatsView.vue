@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, watch, nextTick, type ComponentPublicInstance } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { normalizeTrack, type Track } from '../api/normalizer';
-import { playAll, playerStore } from '../api/playerStore';
+import { playAll, playerStore } from '../playback/playerStore';
 import { animateBarHeight, animateCountUp, isReducedMotion } from '../api/motion';
 import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 import SkinButton from '../components/primitives/SkinButton.vue';

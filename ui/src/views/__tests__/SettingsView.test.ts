@@ -17,7 +17,7 @@ vi.mock('../../api/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
 
 import SettingsView from '../SettingsView.vue';
 import { openUrl } from '@tauri-apps/plugin-opener';
-import { playbackDiagnostics } from '../../api/playbackDiagnostics';
+import { playbackDiagnostics } from '../../playback/playbackDiagnostics';
 import { useAppearanceStore, __resetForTest as resetAppearance } from '../../api/appearanceStore';
 import { __resetForTest as resetTheme } from '../../api/themeStore';
 import { ensureVipDeviceReady } from '../../api/userStore';

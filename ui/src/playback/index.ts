@@ -30,7 +30,7 @@ import {
   setWebAudioEqBand,
   setWebAudioEqEnabled,
   retryEq,
-} from '../api/playerStore';
+} from './playerStore';
 import type {
   Track,
   LoopMode,

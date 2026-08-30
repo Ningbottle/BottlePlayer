@@ -38,11 +38,11 @@ import {
   retryEq,
 } from '../playerStore';
 import { flagsFromPhase } from '../playbackPhase';
-import { getMediaRuntime, getOrCreateMediaRuntime } from '../mediaRuntime';
-import { PlaybackCommandCoordinator } from '../playbackCommandCoordinator';
-import type { Track } from '../normalizer';
+import { getMediaRuntime, getOrCreateMediaRuntime } from '../../api/mediaRuntime';
+import { PlaybackCommandCoordinator } from '../../api/playbackCommandCoordinator';
+import type { Track } from '../../api/normalizer';
 import { playbackDiagnostics } from '../playbackDiagnostics';
-import { __resetFmSessionForTests } from '../fmSession';
+import { __resetFmSessionForTests } from '../../api/fmSession';
 
 function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'A', Duration: 100 } as Track;
@@ -553,7 +553,7 @@ describe('playerStore integration', () => {
     tracker.intend = (t: any) => { intendCalled = true; realIntend(t); };
 
     // jsdom audio.play() rejects, so patch the backend to report success.
-    const { Html5AudioBackend } = await import('../html5Backend');
+    const { Html5AudioBackend } = await import('../../api/html5Backend');
     const realPlayUrl = Html5AudioBackend.prototype.playUrl;
     Html5AudioBackend.prototype.playUrl = async function () { return true; };
 
@@ -593,7 +593,7 @@ describe('playerStore integration', () => {
     audio.removeAttribute('src');
 
     // Stub playUrl on the prototype so jsdom's rejecting audio.play() is bypassed.
-    const { Html5AudioBackend } = await import('../html5Backend');
+    const { Html5AudioBackend } = await import('../../api/html5Backend');
     const realPlayUrl = Html5AudioBackend.prototype.playUrl;
     Html5AudioBackend.prototype.playUrl = async function (this: any, url: string) {
       this.audio.src = url;
@@ -633,7 +633,7 @@ describe('playerStore integration', () => {
     // readyState===0 false-positive regresses, togglePlay will call
     // playTrack → mockInvoke('song_url') → fail, and isPlaying stays false.
     const playUrlCalls: string[] = [];
-    const { Html5AudioBackend } = await import('../html5Backend');
+    const { Html5AudioBackend } = await import('../../api/html5Backend');
     const realPlayUrl = Html5AudioBackend.prototype.playUrl;
     Html5AudioBackend.prototype.playUrl = async function (this: any, url: string) {
       playUrlCalls.push(url);

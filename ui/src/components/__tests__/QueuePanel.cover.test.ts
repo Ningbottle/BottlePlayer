@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
-import { playerStore } from '../../api/playerStore';
+import { playerStore } from '../../playback/playerStore';
 
 const mockFetchCoverImage = vi.fn();
 

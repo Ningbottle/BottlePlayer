@@ -7,7 +7,7 @@ import {
   seek as storeSeek,
   setVolume as storeSetVolume,
   setQuality as storeSetQuality,
-} from '../../api/playerStore';
+} from '../../playback/playerStore';
 import { setLyricFullscreen } from '../../api/lyricFullscreen';
 import {
   isFavoriteMarker,
@@ -16,7 +16,7 @@ import {
 } from '../../api/favoriteMarkers';
 import { favoriteStore } from '../../api/favoriteStore';
 import type { Track } from '../../api/normalizer';
-import type { LoopMode } from '../../api/playerStore';
+import type { LoopMode } from '../../playback/playerStore';
 
 export interface PlayerController {
   readonly currentTrack: Track | null;

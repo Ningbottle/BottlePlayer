@@ -1,22 +1,22 @@
 import { reactive, watch } from 'vue';
-import { Track, fetchCoverImage } from './normalizer';
-import { Html5AudioBackend } from './html5Backend';
-import type { PlayerBackend, PlaybackEvent } from './playerBackend';
+import { Track, fetchCoverImage } from '../api/normalizer';
+import { Html5AudioBackend } from '../api/html5Backend';
+import type { PlayerBackend, PlaybackEvent } from '../api/playerBackend';
 import {
   getMediaRuntime,
   getOrCreateMediaRuntime,
   type MediaRuntime,
   type MediaRuntimeDeps,
-} from './mediaRuntime';
+} from '../api/mediaRuntime';
 import { PlaySessionTracker } from './playSessionTracker';
-import { recordPlay } from './playStatsGateway';
-import { normalizeEqBands } from './equalizerConfig';
-import { recentPlayedStore } from './recentPlayedStore';
+import { recordPlay } from '../api/playStatsGateway';
+import { normalizeEqBands } from '../api/equalizerConfig';
+import { recentPlayedStore } from '../api/recentPlayedStore';
 import { playbackDiagnostics } from './playbackDiagnostics';
 import {
   PlaybackOrchestrator,
   type QualityOption,
-} from './playbackOrchestrator';
+} from '../api/playbackOrchestrator';
 import {
   canTransition,
   flagsFromPhase,
@@ -32,17 +32,17 @@ import {
   saveQueue,
   flushSaveQueue,
   loadQueueSnapshot,
-} from './playerPersistence';
-import { appendPersonalFmRecommendations as appendFm, disposeFmSession } from './fmSession';
+} from '../api/playerPersistence';
+import { appendPersonalFmRecommendations as appendFm, disposeFmSession } from '../api/fmSession';
 import { __resetQueueCommandChainForTests } from './playbackQueue';
 import {
   PlaybackCommandCoordinator,
   type PlaybackCommand,
-} from './playbackCommandCoordinator';
-import { resolveTrack } from './songUrlResolver';
-import { uploadPlayHistory } from './playHistory';
-import { createPlayerEq } from './usePlayerEq';
-import { disposeAudioLevelMonitor } from './audioLevelMonitor';
+} from '../api/playbackCommandCoordinator';
+import { resolveTrack } from '../api/songUrlResolver';
+import { uploadPlayHistory } from '../api/playHistory';
+import { createPlayerEq } from '../api/usePlayerEq';
+import { disposeAudioLevelMonitor } from '../api/audioLevelMonitor';
 
 export type { Track };
 

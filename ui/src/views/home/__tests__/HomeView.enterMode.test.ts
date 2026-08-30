@@ -14,7 +14,7 @@ vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: unknown[]) => mockApiGet(...args),
 }));
 
-vi.mock('../../../api/playerStore', () => ({
+vi.mock('../../../playback/playerStore', () => ({
   playTrack: vi.fn(),
   playAll: vi.fn(),
   playPersonalFm: vi.fn(),

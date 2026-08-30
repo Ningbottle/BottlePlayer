@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import QueuePanel from '../QueuePanel.vue';
-import { playerStore } from '../../api/playerStore';
+import { playerStore } from '../../playback/playerStore';
 
 describe('QueuePanel filter', () => {
   beforeEach(() => {

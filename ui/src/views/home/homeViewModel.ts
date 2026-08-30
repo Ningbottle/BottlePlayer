@@ -5,9 +5,9 @@ import {
   type HomeSectionState,
   type PlaylistInfo,
 } from '../../api/homeFeedStore';
-import { playerStore } from '../../api/playerStore';
+import { playerStore } from '../../playback/playerStore';
 import type { Track } from '../../api/normalizer';
-import type { PlaybackPhase } from '../../api/playbackPhase';
+import type { PlaybackPhase } from '../../playback/playbackPhase';
 
 export interface HomeSectionError {
   section: string;

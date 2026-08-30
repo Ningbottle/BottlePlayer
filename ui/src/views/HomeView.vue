@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, onActivated, onDeactivated, nextTick, ref, computed } from 'vue';
-import { playTrack, playPersonalFm, clearQueue, playerStore } from '../api/playerStore';
+import { playTrack, playPersonalFm, clearQueue, playerStore } from '../playback/playerStore';
 import type { Track } from '../api/normalizer';
 import { useHomeFeedStore } from '../api/homeFeedStore';
 import { useThemeStore } from '../api/themeStore';

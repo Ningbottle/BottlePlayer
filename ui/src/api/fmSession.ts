@@ -1,6 +1,6 @@
 import { apiGet } from '../platform/tauri/nativeClient';
 import { normalizeTrack, type Track } from './normalizer';
-import { playbackDiagnostics } from './playbackDiagnostics';
+import { playbackDiagnostics } from '../playback/playbackDiagnostics';
 
 export type FmState = {
   currentTrack: Track | null;

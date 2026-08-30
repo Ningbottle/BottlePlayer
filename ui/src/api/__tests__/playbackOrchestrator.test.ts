@@ -6,7 +6,7 @@ import {
 } from '../playbackOrchestrator';
 import type { ResolveTrackResult } from '../../playback/types';
 import { Html5AudioBackend } from '../html5Backend';
-import type { DiagEvent } from '../playbackDiagnostics';
+import type { DiagEvent } from '../../playback/playbackDiagnostics';
 
 function mkTrack(hash: string, name = hash): Track {
   return {

@@ -7,7 +7,7 @@
  */
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { watch } from 'vue';
-import { playerStore, togglePlay, next, prev, seek, setVolume } from './playerStore';
+import { playerStore, togglePlay, next, prev, seek, setVolume } from '../playback/playerStore';
 import { useThemeStore } from './themeStore';
 import { useAppearanceStore } from './appearanceStore';
 import { isTauriRuntime } from '../platform/tauri/windows';

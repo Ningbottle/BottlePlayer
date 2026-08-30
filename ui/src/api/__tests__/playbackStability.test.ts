@@ -12,8 +12,8 @@ import {
   type PlaybackStateSlice,
 } from '../playbackOrchestrator';
 import type { ResolveTrackResult } from '../../playback/types';
-import { transitionPhase } from '../playbackPhase';
-import type { DiagEvent } from '../playbackDiagnostics';
+import { transitionPhase } from '../../playback/playbackPhase';
+import type { DiagEvent } from '../../playback/playbackDiagnostics';
 
 function mkTrack(hash: string, name = hash): Track {
   return {

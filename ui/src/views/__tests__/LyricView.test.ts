@@ -8,12 +8,12 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 const seekMock = vi.hoisted(() => vi.fn(async (seconds: number) => {
   // Mirror store seek side-effect used by follow index (tests assert call + time)
-  const { playerStore: store } = await import('../../api/playerStore');
+  const { playerStore: store } = await import('../../playback/playerStore');
   store.currentTime = seconds;
 }));
 
-vi.mock('../../api/playerStore', async () => {
-  const actual = await vi.importActual<typeof import('../../api/playerStore')>('../../api/playerStore');
+vi.mock('../../playback/playerStore', async () => {
+  const actual = await vi.importActual<typeof import('../../playback/playerStore')>('../../playback/playerStore');
   return { ...actual, playTrack: vi.fn(), seek: seekMock };
 });
 
@@ -43,7 +43,7 @@ vi.mock('../../platform/tauri/nativeClient', () => ({
 }));
 
 import LyricView from '../LyricView.vue';
-import { playerStore } from '../../api/playerStore';
+import { playerStore } from '../../playback/playerStore';
 import { lyricFullscreen, setLyricFullscreen } from '../../api/lyricFullscreen';
 import type { Track } from '../../api/normalizer';
 

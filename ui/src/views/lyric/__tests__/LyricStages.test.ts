@@ -45,7 +45,7 @@ const mockPlayerStoreState = vi.hoisted(() => ({
 }));
 const queueTracks = mockPlayerStoreState.queue;
 const mockPlayerStoreHolder = vi.hoisted(() => ({ value: null as any }));
-vi.mock('../../../api/playerStore', () => ({
+vi.mock('../../../playback/playerStore', () => ({
   playerStore: (() => {
     mockPlayerStoreHolder.value = reactive(mockPlayerStoreState);
     return mockPlayerStoreHolder.value;

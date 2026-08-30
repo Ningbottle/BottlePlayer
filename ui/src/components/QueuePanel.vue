@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { playerStore, playTrack } from '../api/playerStore';
+import { playerStore, playTrack } from '../playback/playerStore';
 import { fetchCoverImage } from '../api/normalizer';
 
 defineProps<{

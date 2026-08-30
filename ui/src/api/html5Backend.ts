@@ -1,5 +1,5 @@
 import type { PlayerBackend, PlaybackEvent, PlaybackState } from './playerBackend';
-import type { DiagEvent } from './playbackDiagnostics';
+import type { DiagEvent } from '../playback/playbackDiagnostics';
 import type { PreparedAudioSource } from '../shared/media/audioSource';
 
 export interface Html5AudioBackendOptions {

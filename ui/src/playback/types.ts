@@ -5,7 +5,7 @@
  * definition here (moved from playbackOrchestrator.ts in C3).
  */
 import type { Track } from '../api/normalizer';
-import type { LoopMode, QueueMode } from '../api/playerStore';
+import type { LoopMode, QueueMode } from './playerStore';
 import type { QualityOption } from '../api/playbackOrchestrator';
 
 export type { Track };

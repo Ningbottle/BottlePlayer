@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { Track } from '../../../api/normalizer';
 
-vi.mock('../../../api/playerStore', async () => {
+vi.mock('../../../playback/playerStore', async () => {
   const { reactive } = await import('vue');
 
   return {
@@ -30,7 +30,7 @@ vi.mock('../../../api/homeFeedStore', () => ({
   useHomeFeedStore: () => homeFeedMock,
 }));
 
-import { playerStore as playerStoreMock } from '../../../api/playerStore';
+import { playerStore as playerStoreMock } from '../../../playback/playerStore';
 import {
   useHomeViewModel,
   formatHomeErrorSummary,

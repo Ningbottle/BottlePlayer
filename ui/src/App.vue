@@ -12,7 +12,7 @@ import NewsprintShell from './components/shell/NewsprintShell.vue';
 import FullscreenWindowControls from './components/shell/FullscreenWindowControls.vue';
 import PageRecoveryBoundary from './components/shell/PageRecoveryBoundary.vue';
 
-import { initPlayer, initPlayerBackend } from './api/playerStore';
+import { initPlayer, initPlayerBackend } from './playback/playerStore';
 import { bindOsMediaBridge, unbindOsMediaBridge } from './api/osMediaBridge';
 import { checkLoginStatus } from './api/userStore';
 import { ping } from './platform/tauri/nativeClient';

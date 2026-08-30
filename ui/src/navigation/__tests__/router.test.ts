@@ -137,7 +137,7 @@ vi.mock('../../components/shell/NewsprintShell.vue', () => ({
     template: '<div><slot name="sidebar"/><slot name="topbar"/><slot/><slot name="extras"/><slot name="playerbar"/></div>',
   },
 }));
-vi.mock('../../api/playerStore', () => ({ initPlayer: vi.fn(), initPlayerBackend: vi.fn() }));
+vi.mock('../../playback/playerStore', () => ({ initPlayer: vi.fn(), initPlayerBackend: vi.fn() }));
 vi.mock('../../api/userStore', () => ({ checkLoginStatus: vi.fn() }));
 vi.mock('../../platform/tauri/nativeClient', () => ({ ping: vi.fn().mockResolvedValue(true) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(0) }));
@@ -167,7 +167,7 @@ import LoginView from '../../views/LoginView.vue';
 import PlaylistView from '../../views/PlaylistView.vue';
 import SearchView from '../../views/SearchView.vue';
 import App from '../../App.vue';
-import { initPlayer, initPlayerBackend } from '../../api/playerStore';
+import { initPlayer, initPlayerBackend } from '../../playback/playerStore';
 import { registerPageTransition } from '../navigationLifecycle';
 import { routeNames, routeRecords } from '../routes';
 import { createAppRouter } from '../router';

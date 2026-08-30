@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import EqualizerPanel from '../components/EqualizerPanel.vue';
-import { playerStore, setWebAudioEqBand, eqState } from '../api/playerStore';
+import { playerStore, setWebAudioEqBand, eqState } from '../playback/playerStore';
 import {
   EQ_BANDS,
   EQ_PRESET_LABELS,

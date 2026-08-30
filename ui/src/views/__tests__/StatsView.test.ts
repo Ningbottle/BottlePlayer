@@ -9,7 +9,7 @@ const animateCountUpMock = vi.hoisted(() => vi.fn((targetRef, target) => {
 const animateBarHeightMock = vi.hoisted(() => vi.fn());
 const isReducedMotionMock = vi.hoisted(() => vi.fn(() => false));
 
-vi.mock('../../api/playerStore', () => ({
+vi.mock('../../playback/playerStore', () => ({
   playAll: playAllMock,
   playerStore: {
     currentTrack: null,
@@ -108,7 +108,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 import StatsView from '../StatsView.vue';
 import { invoke } from '@tauri-apps/api/core';
-import { playAll } from '../../api/playerStore';
+import { playAll } from '../../playback/playerStore';
 
 describe('StatsView data loading', () => {
   beforeEach(() => vi.clearAllMocks());

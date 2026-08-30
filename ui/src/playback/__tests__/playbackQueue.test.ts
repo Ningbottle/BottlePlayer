@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Track } from '../normalizer';
+import type { Track } from '../../api/normalizer';
 import {
   playAll,
   playPersonalFm,

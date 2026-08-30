@@ -15,7 +15,7 @@
  */
 
 import { normalizeTrack, type Track } from './normalizer';
-import { flagsFromPhase, type PlaybackPhase } from './playbackPhase';
+import { flagsFromPhase, type PlaybackPhase } from '../playback/playbackPhase';
 import type { QualityOption } from './playbackOrchestrator';
 import type { PersonalFmAppendOptions, PersonalFmAppendSuccess } from './fmSession';
 

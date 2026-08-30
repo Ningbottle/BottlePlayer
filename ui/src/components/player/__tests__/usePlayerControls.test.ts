@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   store: null as any,
 }));
 
-vi.mock('../../../api/playerStore', async () => {
+vi.mock('../../../playback/playerStore', async () => {
   const { reactive } = await import('vue');
   mocks.store = reactive({
     currentTrack: null,

@@ -5,7 +5,7 @@ import { PhArrowsOutSimple, PhDisc, PhPause, PhPlay } from '@phosphor-icons/vue'
 import { isReducedMotion, startVinylSpin } from '../../api/motion';
 import type { VinylSpinHandle } from '../../api/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
-import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../api/playerStore';
+import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../playback/playerStore';
 import type { Track } from '../../api/normalizer';
 import type { LyricStageModel } from './useLyricStage';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
