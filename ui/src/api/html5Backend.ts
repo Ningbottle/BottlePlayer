@@ -1,10 +1,6 @@
 import type { PlayerBackend, PlaybackEvent, PlaybackState } from './playerBackend';
 import type { DiagEvent } from './playbackDiagnostics';
-
-export interface PreparedAudioSource {
-  url: string;
-  crossOriginSafe: boolean;
-}
+import type { PreparedAudioSource } from '../shared/media/audioSource';
 
 export interface Html5AudioBackendOptions {
   /** Starting element volume; persistence is owned by playerPersistence. */

@@ -1,7 +1,8 @@
 /**
- * Playback type facade (C1). Type-only re-exports of the types UI consumers
- * need, still owned by their legacy api/ modules until Phase C moves them.
- * No runtime import is allowed in this file (pure type surface).
+ * Playback type facade. Public playback types UI consumers are allowed to use.
+ * Track/LoopMode/QueueMode/QualityOption are type-only re-exports still owned
+ * by their legacy api/ modules; ResolveTrackResult has its single actual
+ * definition here (moved from playbackOrchestrator.ts in C3).
  */
 import type { Track } from '../api/normalizer';
 import type { LoopMode, QueueMode } from '../api/playerStore';
@@ -11,3 +12,15 @@ export type { Track };
 export type { LoopMode };
 export type { QueueMode };
 export type { QualityOption };
+
+export interface ResolveTrackResult {
+  status: number;
+  url?: string;
+  error?: string;
+  is_preview?: boolean;
+  vip_required?: boolean;
+  data?: {
+    available_qualities?: QualityOption[];
+    [key: string]: unknown;
+  };
+}

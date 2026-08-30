@@ -5,6 +5,7 @@ import {
   flagsFromPhase,
   type PlaybackPhase,
 } from './playbackPhase';
+import type { ResolveTrackResult } from '../playback/types';
 
 export interface QualityOption {
   quality: string;
@@ -12,18 +13,6 @@ export interface QualityOption {
   fileSize?: number;
   bitRate?: number;
   extName?: string;
-}
-
-export interface ResolveTrackResult {
-  status: number;
-  url?: string;
-  error?: string;
-  is_preview?: boolean;
-  vip_required?: boolean;
-  data?: {
-    available_qualities?: QualityOption[];
-    [key: string]: unknown;
-  };
 }
 
 export interface PlaybackStateSlice {

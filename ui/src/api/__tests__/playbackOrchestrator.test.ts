@@ -3,8 +3,8 @@ import type { Track } from '../normalizer';
 import {
   PlaybackOrchestrator,
   type PlaybackStateSlice,
-  type ResolveTrackResult,
 } from '../playbackOrchestrator';
+import type { ResolveTrackResult } from '../../playback/types';
 import { Html5AudioBackend } from '../html5Backend';
 import type { DiagEvent } from '../playbackDiagnostics';
 

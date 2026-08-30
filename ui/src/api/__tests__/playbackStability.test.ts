@@ -10,8 +10,8 @@ import type { Track } from '../normalizer';
 import {
   PlaybackOrchestrator,
   type PlaybackStateSlice,
-  type ResolveTrackResult,
 } from '../playbackOrchestrator';
+import type { ResolveTrackResult } from '../../playback/types';
 import { transitionPhase } from '../playbackPhase';
 import type { DiagEvent } from '../playbackDiagnostics';
 

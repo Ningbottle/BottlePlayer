@@ -1,6 +1,6 @@
 import { apiGet } from '../platform/tauri/nativeClient';
 import type { Track } from './normalizer';
-import type { ResolveTrackResult } from './playbackOrchestrator';
+import type { ResolveTrackResult } from '../playback/types';
 
 export function resolveTrack(
   track: Track,
