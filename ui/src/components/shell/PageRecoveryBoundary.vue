@@ -2,9 +2,9 @@
 import { onErrorCaptured, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { cancelPageTransition } from '../../navigation/navigationLifecycle';
+import { cancelPageTransition } from '../../app/navigation/navigationLifecycle';
 import { clearLyricFullscreenUnlessOnLyric } from '../../api/lyricFullscreen';
-import { settleActiveTransitionSessions } from '../../api/transitionSession';
+import { settleActiveTransitionSessions } from '../../app/navigation/transitionSession';
 import { useThemeStore, type SkinId } from '../../app/appearance/themeStore';
 
 interface PageFailure {

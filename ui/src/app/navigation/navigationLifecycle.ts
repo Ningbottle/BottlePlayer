@@ -1,8 +1,8 @@
 import { gsap } from 'gsap';
 import type { Router } from 'vue-router';
 
-import { clearLyricFullscreenUnlessOnLyric } from '../api/lyricFullscreen';
-import { settleActiveTransitionSessions } from '../api/transitionSession';
+import { clearLyricFullscreenUnlessOnLyric } from '../../api/lyricFullscreen';
+import { settleActiveTransitionSessions } from './transitionSession';
 import { routeNames } from './routes';
 
 const activePageTransitions = new Set<Element>();

@@ -18,7 +18,7 @@ import { getMediaRuntime } from '../runtime/mediaRuntime';
 // Module-level singletons (sharedCtx etc.) persist across tests, so each test
 // uses vi.resetModules() + dynamic import for clean state.
 
-vi.mock('../../api/motion', () => ({
+vi.mock('../../shared/motion/motion', () => ({
   isReducedMotion: vi.fn(() => false),
 }));
 

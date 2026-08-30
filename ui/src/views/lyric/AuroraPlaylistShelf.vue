@@ -7,7 +7,7 @@
 import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue';
 import { gsap } from 'gsap';
 import type { Track } from '../../api/normalizer';
-import { isReducedMotion } from '../../api/motion';
+import { isReducedMotion } from '../../shared/motion/motion';
 
 const props = defineProps<{
   open: boolean;

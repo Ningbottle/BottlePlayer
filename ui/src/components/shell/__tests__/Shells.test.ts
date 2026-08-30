@@ -273,7 +273,7 @@ vi.mock('../../../platform/tauri/nativeClient', () => ({
   ping: pingMock,
 }));
 
-vi.mock('../../../api/motion', () => ({
+vi.mock('../../../shared/motion/motion', () => ({
   transitionEnter: transitionEnterMock,
   transitionLeave: transitionLeaveMock,
   animateElement: vi.fn(() => ({ kill: () => {} })),
@@ -346,8 +346,8 @@ vi.mock('../../../views/EqualizerView.vue', () => ({ default: { template: '<main
 
 import { useThemeStore, __resetForTest } from '../../../app/appearance/themeStore';
 import App from '../../../App.vue';
-import { createAppRouter } from '../../../navigation/router';
-import { routeNames } from '../../../navigation/routes';
+import { createAppRouter } from '../../../app/navigation/router';
+import { routeNames } from '../../../app/navigation/routes';
 
 async function mountApp() {
   const router = createAppRouter();

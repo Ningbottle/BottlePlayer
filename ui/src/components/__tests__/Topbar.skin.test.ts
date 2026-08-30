@@ -3,8 +3,8 @@ import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import Topbar from '../Topbar.vue';
 import { useThemeStore, __resetForTest } from '../../app/appearance/themeStore';
-import { createAppRouter } from '../../navigation/router';
-import { routeNames } from '../../navigation/routes';
+import { createAppRouter } from '../../app/navigation/router';
+import { routeNames } from '../../app/navigation/routes';
 
 vi.mock('../../api/userStore', () => ({
   userStore: {

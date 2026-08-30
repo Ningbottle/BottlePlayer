@@ -12,7 +12,7 @@ import {
   ref,
   watch,
 } from 'vue';
-import { isReducedMotion } from '../../api/motion';
+import { isReducedMotion } from '../../shared/motion/motion';
 
 const props = withDefaults(defineProps<{ isPlaying: boolean; level?: { value: number } | null; tint?: [number, number, number] | null }>(), {
   level: null,

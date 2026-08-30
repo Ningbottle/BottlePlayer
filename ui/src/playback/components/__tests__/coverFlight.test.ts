@@ -8,7 +8,7 @@ vi.mock('gsap', () => ({
 vi.mock('gsap/Flip', () => ({
   Flip: { fit: fitMock },
 }));
-vi.mock('../../../api/motion', () => ({
+vi.mock('../../../shared/motion/motion', () => ({
   isReducedMotion: vi.fn(() => false),
 }));
 

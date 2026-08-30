@@ -16,7 +16,7 @@
  * monitor whose level stays 0. Reduced motion → level pinned to 0.
  */
 import { ref, type Ref } from 'vue';
-import { isReducedMotion } from '../../api/motion';
+import { isReducedMotion } from '../../shared/motion/motion';
 
 export interface AudioLevelMonitor {
   /** Smoothed loudness 0..1 (RMS with attack/decay easing). */

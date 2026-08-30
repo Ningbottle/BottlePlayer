@@ -19,7 +19,7 @@ import {
 } from '@phosphor-icons/vue';
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
-import { pressBounceDown, pressBounceUp, attachMagnet } from '../../../api/motion';
+import { pressBounceDown, pressBounceUp, attachMagnet } from '../../../shared/motion/motion';
 import { toggleOverlay } from '../../../platform/tauri/windows';
 
 /** Overlay toggles surface failures on-screen (the windows themselves can't toast). */

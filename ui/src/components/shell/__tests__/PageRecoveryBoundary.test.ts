@@ -14,14 +14,14 @@ vi.mock('vue-router', () => ({
   useRouter: () => router,
 }));
 
-vi.mock('../../../navigation/navigationLifecycle', () => ({
+vi.mock('../../../app/navigation/navigationLifecycle', () => ({
   cancelPageTransition: cancelPageTransitionMock,
 }));
 
 import PageRecoveryBoundary from '../PageRecoveryBoundary.vue';
 import { lyricFullscreen, setLyricFullscreen } from '../../../api/lyricFullscreen';
 import { useThemeStore, __resetForTest as resetTheme } from '../../../app/appearance/themeStore';
-import { beginTransitionSession } from '../../../api/transitionSession';
+import { beginTransitionSession } from '../../../app/navigation/transitionSession';
 
 function mountHarness(page: Component) {
   const broken = ref(false);

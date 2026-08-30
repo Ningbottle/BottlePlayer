@@ -13,8 +13,8 @@ import { LogicalSize, PhysicalPosition } from '@tauri-apps/api/dpi';
 import { PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
 import { onPlayerState, sendPlayerCommand, applySyncedTheme, type PlayerSyncState } from '../../playback/sync/playerSync';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay } from '../../platform/tauri/windows';
-import { startVinylSpin } from '../../api/motion';
-import type { VinylSpinHandle } from '../../api/motion';
+import { startVinylSpin } from '../../shared/motion/motion';
+import type { VinylSpinHandle } from '../../shared/motion/motion';
 import PlayerProgress from '../../playback/components/player/PlayerProgress.vue';
 
 const COLLAPSED_SIZE = { width: 236, height: 40 };

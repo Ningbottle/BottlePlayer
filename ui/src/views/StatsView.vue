@@ -3,7 +3,7 @@ import { ref, computed, onMounted, watch, nextTick, type ComponentPublicInstance
 import { invoke } from '@tauri-apps/api/core';
 import { normalizeTrack, type Track } from '../api/normalizer';
 import { playAll, playerStore } from '../playback/playerStore';
-import { animateBarHeight, animateCountUp, isReducedMotion } from '../api/motion';
+import { animateBarHeight, animateCountUp, isReducedMotion } from '../shared/motion/motion';
 import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 import SkinButton from '../components/primitives/SkinButton.vue';
 import SkinEmptyState from '../components/primitives/SkinEmptyState.vue';

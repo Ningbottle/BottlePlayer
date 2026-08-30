@@ -5,7 +5,7 @@ import AuroraAtmosphere from '../AuroraAtmosphere.vue';
 
 const isReducedMotionMock = vi.hoisted(() => vi.fn(() => false));
 
-vi.mock('../../../api/motion', () => ({
+vi.mock('../../../shared/motion/motion', () => ({
   isReducedMotion: () => isReducedMotionMock(),
 }));
 

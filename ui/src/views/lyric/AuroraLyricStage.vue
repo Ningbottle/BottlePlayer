@@ -2,8 +2,8 @@
 import { ref, watch, onMounted, onBeforeUnmount, nextTick, computed } from 'vue';
 import { gsap } from 'gsap';
 import { PhArrowsOutSimple, PhDisc, PhPause, PhPlay } from '@phosphor-icons/vue';
-import { isReducedMotion, startVinylSpin } from '../../api/motion';
-import type { VinylSpinHandle } from '../../api/motion';
+import { isReducedMotion, startVinylSpin } from '../../shared/motion/motion';
+import type { VinylSpinHandle } from '../../shared/motion/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
 import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../playback/playerStore';
 import type { Track } from '../../api/normalizer';

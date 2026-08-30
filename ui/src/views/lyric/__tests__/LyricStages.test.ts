@@ -24,7 +24,7 @@ vi.mock('gsap', () => ({
 
 const isReducedMotionMock = vi.hoisted(() => vi.fn(() => false));
 
-vi.mock('../../../api/motion', () => ({
+vi.mock('../../../shared/motion/motion', () => ({
   isReducedMotion: isReducedMotionMock,
   animateElement: vi.fn(),
   animateStagger: vi.fn(() => ({ kill: () => {} })),

@@ -6,7 +6,7 @@ import AuroraPlayerBar from '../AuroraPlayerBar.vue';
 import type { PlayerController } from '../usePlayerControls';
 import type { Track } from '../../../../api/normalizer';
 
-vi.mock('../../../../api/motion', () => ({
+vi.mock('../../../../../../shared/motion/motion', () => ({
   animateElement: vi.fn(),
   attachMagnet: vi.fn(() => () => {}),
   isReducedMotion: vi.fn(() => true),

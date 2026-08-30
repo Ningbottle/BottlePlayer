@@ -17,10 +17,11 @@ import { bindOsMediaBridge, unbindOsMediaBridge } from './playback/sync/osMediaB
 import { checkLoginStatus } from './api/userStore';
 import { ping } from './platform/tauri/nativeClient';
 import { lyricFullscreen, setLyricFullscreen } from './api/lyricFullscreen';
-import { transitionEnter, transitionLeave, isReducedMotion } from './api/motion';
+import { transitionEnter, transitionLeave } from './app/navigation/pageTransitions';
+import { isReducedMotion } from './shared/motion/motion';
 import { startPlayerSyncHost } from './playback/sync/playerSync';
-import { registerPageTransition, unregisterPageTransition } from './navigation/navigationLifecycle';
-import { routeNames, type AppRouteName } from './navigation/routes';
+import { registerPageTransition, unregisterPageTransition } from './app/navigation/navigationLifecycle';
+import { routeNames, type AppRouteName } from './app/navigation/routes';
 import { useThemeStore } from './app/appearance/themeStore';
 
 const themeStore = useThemeStore();

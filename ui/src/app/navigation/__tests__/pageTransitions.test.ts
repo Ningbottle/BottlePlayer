@@ -14,14 +14,14 @@ vi.mock('gsap', () => {
   return { gsap: { to, fromTo, set, killTweensOf } };
 });
 
-vi.mock('../../app/appearance/themeStore', () => {
+vi.mock('../../appearance/themeStore', () => {
   const skinId = { value: 'aurora' };
   const useThemeStore = () => ({ skinId });
   return { useThemeStore };
 });
 
 // Direction lives in navigation; the adapter reads it per transition.
-vi.mock('../../navigation/direction', () => {
+vi.mock('../direction', () => {
   const navigationDirection = { value: 'forward' as 'forward' | 'back' };
   return { navigationDirection };
 });
@@ -60,8 +60,8 @@ vi.mock('../transitionSession', () => {
 });
 
 import { transitionEnter, transitionLeave } from '../pageTransitions';
-import { navigationDirection } from '../../navigation/direction';
-import { useThemeStore } from '../../app/appearance/themeStore';
+import { navigationDirection } from '../direction';
+import { useThemeStore } from '../../appearance/themeStore';
 
 describe('pageTransitions (navigation adapter)', () => {
   beforeEach(async () => {

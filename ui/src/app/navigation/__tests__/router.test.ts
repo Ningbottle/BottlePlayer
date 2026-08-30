@@ -9,7 +9,7 @@ const pageLifecycle = vi.hoisted(() => ({
   nextInstance: { home: 0, search: 0, playlist: 0, lyric: 0 },
 }));
 
-vi.mock('../../views/HomeView.vue', async () => {
+vi.mock('../../../views/HomeView.vue', async () => {
   const { defineComponent, h, onMounted, onUnmounted } = await import('vue');
   return {
     default: defineComponent({
@@ -28,7 +28,7 @@ vi.mock('../../views/HomeView.vue', async () => {
   };
 });
 
-vi.mock('../../views/SearchView.vue', async () => {
+vi.mock('../../../views/SearchView.vue', async () => {
   const { defineComponent, h, onMounted, onUnmounted } = await import('vue');
   return {
     default: defineComponent({
@@ -43,7 +43,7 @@ vi.mock('../../views/SearchView.vue', async () => {
   };
 });
 
-vi.mock('../../views/PlaylistView.vue', async () => {
+vi.mock('../../../views/PlaylistView.vue', async () => {
   const { defineComponent, h, onMounted, onUnmounted } = await import('vue');
   return {
     default: defineComponent({
@@ -58,7 +58,7 @@ vi.mock('../../views/PlaylistView.vue', async () => {
   };
 });
 
-vi.mock('../../views/LyricView.vue', async () => {
+vi.mock('../../../views/LyricView.vue', async () => {
   const { defineComponent, h, onMounted, onUnmounted } = await import('vue');
   return {
     default: defineComponent({
@@ -83,7 +83,7 @@ vi.mock('../../views/LyricView.vue', async () => {
   };
 });
 
-vi.mock('../../views/LoginView.vue', async () => {
+vi.mock('../../../views/LoginView.vue', async () => {
   const { defineComponent, h } = await import('vue');
   return {
     default: defineComponent({
@@ -96,21 +96,21 @@ vi.mock('../../views/LoginView.vue', async () => {
   };
 });
 
-vi.mock('../../views/SettingsView.vue', () => ({
+vi.mock('../../../views/SettingsView.vue', () => ({
   default: { name: 'SettingsView', template: '<div data-test="page-settings" />' },
 }));
 
-vi.mock('../../components/Sidebar.vue', () => ({
+vi.mock('../../../components/Sidebar.vue', () => ({
   default: { name: 'Sidebar', emits: ['navigate'], template: '<nav><button data-test="sidebar-search" @click="$emit(\'navigate\', \'search\')" /></nav>' },
 }));
-vi.mock('../../components/Topbar.vue', () => ({
+vi.mock('../../../components/Topbar.vue', () => ({
   default: {
     name: 'Topbar',
     emits: ['search', 'navigate', 'back', 'forward'],
     template: '<header><button data-test="topbar-search" @click="$emit(\'search\', \'jazz\')" /><button data-test="topbar-settings" @click="$emit(\'navigate\', \'settings\')" /><button data-test="topbar-back" @click="$emit(\'back\')" /><button data-test="topbar-forward" @click="$emit(\'forward\')" /></header>',
   },
 }));
-vi.mock('../../playback/components/PlayerBar.vue', () => ({
+vi.mock('../../../playback/components/PlayerBar.vue', () => ({
   default: {
     name: 'PlayerBar',
     props: ['navigate'],
@@ -118,7 +118,7 @@ vi.mock('../../playback/components/PlayerBar.vue', () => ({
     template: '<footer><button data-test="player-lyric" @click="navigate ? navigate(\'lyric\') : $emit(\'navigate\', \'lyric\')" /><button data-test="player-queue" @click="$emit(\'toggle-queue\')" /></footer>',
   },
 }));
-vi.mock('../../playback/components/QueuePanel.vue', () => ({
+vi.mock('../../../playback/components/QueuePanel.vue', () => ({
   default: { name: 'QueuePanel', template: '<aside data-test="queue-panel" />' },
 }));
 vi.mock('../../components/shell/FullscreenWindowControls.vue', () => ({
@@ -137,17 +137,33 @@ vi.mock('../../components/shell/NewsprintShell.vue', () => ({
     template: '<div><slot name="sidebar"/><slot name="topbar"/><slot/><slot name="extras"/><slot name="playerbar"/></div>',
   },
 }));
-vi.mock('../../playback/playerStore', () => ({ initPlayer: vi.fn(), initPlayerBackend: vi.fn() }));
-vi.mock('../../api/userStore', () => ({ checkLoginStatus: vi.fn() }));
-vi.mock('../../platform/tauri/nativeClient', () => ({ ping: vi.fn().mockResolvedValue(true) }));
+vi.mock('../../../playback/playerStore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../playback/playerStore')>();
+  return {
+    ...actual,
+    initPlayer: vi.fn(),
+    initPlayerBackend: vi.fn(),
+  };
+});
+vi.mock('../../../api/userStore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../api/userStore')>();
+  return { ...actual, checkLoginStatus: vi.fn() };
+});
+vi.mock('../../../platform/tauri/nativeClient', () => ({ ping: vi.fn().mockResolvedValue(true) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(0) }));
-vi.mock('../../api/motion', () => ({ transitionEnter: vi.fn(), transitionLeave: vi.fn(), isReducedMotion: vi.fn(() => true) }));
-vi.mock('../../app/appearance/themeStore', async () => {
+vi.mock('../pageTransitions', () => ({ transitionEnter: vi.fn(), transitionLeave: vi.fn() }));
+vi.mock('../../../shared/motion/motion', () => ({
+  isReducedMotion: vi.fn(() => true),
+  pressBounceDown: vi.fn(),
+  pressBounceUp: vi.fn(),
+  attachMagnet: vi.fn(() => () => {}),
+}));
+vi.mock('../appearance/themeStore', async () => {
   const { ref } = await import('vue');
   const skinId = ref('aurora');
   return { useThemeStore: () => ({ skinId }) };
 });
-vi.mock('../../api/lyricFullscreen', async () => {
+vi.mock('../../../api/lyricFullscreen', async () => {
   const { ref } = await import('vue');
   const lyricFullscreen = ref(false);
   return {
@@ -161,13 +177,13 @@ vi.mock('../../api/lyricFullscreen', async () => {
   };
 });
 
-import HomeView from '../../views/HomeView.vue';
-import LyricView from '../../views/LyricView.vue';
-import LoginView from '../../views/LoginView.vue';
-import PlaylistView from '../../views/PlaylistView.vue';
-import SearchView from '../../views/SearchView.vue';
-import App from '../../App.vue';
-import { initPlayer, initPlayerBackend } from '../../playback/playerStore';
+import HomeView from '../../../views/HomeView.vue';
+import LyricView from '../../../views/LyricView.vue';
+import LoginView from '../../../views/LoginView.vue';
+import PlaylistView from '../../../views/PlaylistView.vue';
+import SearchView from '../../../views/SearchView.vue';
+import App from '../../../App.vue';
+import { initPlayer, initPlayerBackend } from '../../../playback/playerStore';
 import { registerPageTransition } from '../navigationLifecycle';
 import { routeNames, routeRecords } from '../routes';
 import { createAppRouter } from '../router';
@@ -472,7 +488,7 @@ describe('navigation route contract', () => {
   });
 
   it('runs page transition hooks from the RouterView slot', async () => {
-    const { transitionEnter, transitionLeave } = await import('../../api/motion');
+    const { transitionEnter, transitionLeave } = await import('../pageTransitions');
     const router = createAppRouter();
     await router.push({ name: routeNames.home });
     await router.isReady();

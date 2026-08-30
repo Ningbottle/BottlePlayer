@@ -5,7 +5,7 @@ import { addTrackToPlaylist, type UserPlaylist } from '../api/favorite';
 import { getUserPlaylists, favoriteStore } from '../api/favoriteStore';
 import { Track } from '../api/normalizer';
 import { userStore } from '../api/userStore';
-import { transitionEnter, transitionLeave } from '../api/motion';
+import { transitionEnter, transitionLeave } from '../app/navigation/pageTransitions';
 
 const props = defineProps<{
   show: boolean;

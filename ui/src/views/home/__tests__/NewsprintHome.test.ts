@@ -9,7 +9,7 @@ import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
 
 const newsprintCss = readFileSync(resolve(__dirname, '../../../styles/skins/newsprint.css'), 'utf8');
 
-vi.mock('../../../api/motion', () => ({
+vi.mock('../../../shared/motion/motion', () => ({
   animateElement: vi.fn(),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
   isReducedMotion: vi.fn(() => true),

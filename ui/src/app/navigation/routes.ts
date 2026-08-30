@@ -1,16 +1,16 @@
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from 'vue-router';
 
-import EqualizerView from '../views/EqualizerView.vue';
-import HistoryView from '../views/HistoryView.vue';
-import HomeView from '../views/HomeView.vue';
-import LoginView from '../views/LoginView.vue';
-import LyricView from '../views/LyricView.vue';
-import PlaylistView from '../views/PlaylistView.vue';
-import SearchView from '../views/SearchView.vue';
-import SettingsView from '../views/SettingsView.vue';
-import StatsView from '../views/StatsView.vue';
-import IslandView from '../views/overlay/IslandView.vue';
-import DesktopLyricView from '../views/overlay/DesktopLyricView.vue';
+import EqualizerView from '../../views/EqualizerView.vue';
+import HistoryView from '../../views/HistoryView.vue';
+import HomeView from '../../views/HomeView.vue';
+import LoginView from '../../views/LoginView.vue';
+import LyricView from '../../views/LyricView.vue';
+import PlaylistView from '../../views/PlaylistView.vue';
+import SearchView from '../../views/SearchView.vue';
+import SettingsView from '../../views/SettingsView.vue';
+import StatsView from '../../views/StatsView.vue';
+import IslandView from '../../views/overlay/IslandView.vue';
+import DesktopLyricView from '../../views/overlay/DesktopLyricView.vue';
 
 export const routeNames = {
   home: 'home',

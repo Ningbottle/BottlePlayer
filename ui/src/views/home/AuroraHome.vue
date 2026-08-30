@@ -5,7 +5,7 @@ import type { Track } from '../../api/normalizer';
 import type { PlaylistInfo } from '../../api/homeFeedStore';
 import { gsap } from 'gsap';
 import type { HomeEnterMode } from '../../api/homeEnterSession';
-import { animateStagger, isReducedMotion } from '../../api/motion';
+import { animateStagger, isReducedMotion } from '../../shared/motion/motion';
 import { playerStore, togglePlay as storeTogglePlay } from '../../playback/playerStore';
 import { getMediaRuntime } from '../../playback/runtime/mediaRuntime';
 import { createAudioLevelMonitor, type AudioLevelMonitor } from '../../playback/runtime/audioLevelMonitor';

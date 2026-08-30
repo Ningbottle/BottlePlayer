@@ -20,7 +20,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { getMediaRuntime } from '../runtime/mediaRuntime';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-vi.mock('../../api/motion', () => ({ isReducedMotion: vi.fn(() => false) }));
+vi.mock('../../shared/motion/motion', () => ({ isReducedMotion: vi.fn(() => false) }));
 vi.mock('../playbackDiagnostics', () => ({
   playbackDiagnostics: {
     recordEvent: vi.fn(),

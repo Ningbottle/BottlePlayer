@@ -6,7 +6,7 @@ import type { HomeSectionError, HomeSectionViewState, HomeViewModel } from '../h
 import type { Track } from '../../../api/normalizer';
 import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
 import type { PlaybackPhase } from '../../../playback/playbackPhase';
-import { animateStagger } from '../../../api/motion';
+import { animateStagger } from '../../../shared/motion/motion';
 import { playerStore, togglePlay } from '../../../playback/playerStore';
 import { flyCoverToDock } from '../../../playback/components/coverFlight';
 
@@ -18,7 +18,7 @@ vi.mock('gsap', () => {
   return { gsap: { fromTo, set, killTweensOf, to } };
 });
 
-vi.mock('../../../api/motion', () => ({
+vi.mock('../../../shared/motion/motion', () => ({
   animateElement: vi.fn(() => ({ kill: () => {} })),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
   startVinylSpin: vi.fn(() => ({ kill: vi.fn(), setPlaying: vi.fn(), burst: vi.fn() })),

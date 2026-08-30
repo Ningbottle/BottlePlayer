@@ -5,8 +5,8 @@ import Sidebar from '../Sidebar.vue';
 import { apiGet } from '../../platform/tauri/nativeClient';
 import { userStore } from '../../api/userStore';
 import { useThemeStore, __resetForTest } from '../../app/appearance/themeStore';
-import { createAppRouter } from '../../navigation/router';
-import { routeNames } from '../../navigation/routes';
+import { createAppRouter } from '../../app/navigation/router';
+import { routeNames } from '../../app/navigation/routes';
 
 vi.mock('@tauri-apps/plugin-updater', () => ({
   check: vi.fn().mockResolvedValue(null),

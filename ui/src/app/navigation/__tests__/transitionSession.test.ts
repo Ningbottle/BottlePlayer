@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { beginTransitionSession, settleActiveTransitionSessions } from '../transitionSession';
-import { cancelPageTransition, registerPageTransition } from '../../navigation/navigationLifecycle';
+import { cancelPageTransition, registerPageTransition } from '../navigationLifecycle';
 
 describe('transitionSession', () => {
   it('does not call done on begin; complete settles exactly once', () => {

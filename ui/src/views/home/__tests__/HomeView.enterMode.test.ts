@@ -30,7 +30,7 @@ vi.mock('../../../playback/playerStore', () => ({
   },
 }));
 
-vi.mock('../../../api/motion', () => ({
+vi.mock('../../../shared/motion/motion', () => ({
   animateElement: vi.fn(() => ({ kill: () => {} })),
   animateStagger: vi.fn(() => ({ kill: () => {} })),
   startVinylSpin: vi.fn(() => ({ kill: () => {}, setPlaying: () => {}, burst: () => {} })),

@@ -26,7 +26,7 @@ vi.mock('../../platform/tauri/windows', () => ({
   moveCurrentOverlayTo: vi.fn(async () => {}),
 }));
 
-vi.mock('../../api/motion', () => ({
+vi.mock('../../shared/motion/motion', () => ({
   isReducedMotion: vi.fn(() => true),
   startVinylSpin: vi.fn(() => ({ kill: vi.fn(), setPlaying: vi.fn(), burst: vi.fn() })),
 }));
@@ -68,7 +68,7 @@ vi.mock('@tauri-apps/api/dpi', () => ({
 import IslandView from '../overlay/IslandView.vue';
 import { sendPlayerCommand } from '../../playback/sync/playerSync';
 import { isTauriRuntime, settleCurrentOverlay } from '../../platform/tauri/windows';
-import { startVinylSpin } from '../../api/motion';
+import { startVinylSpin } from '../../shared/motion/motion';
 import type { Mock } from 'vitest';
 
 function emitState(partial: Record<string, unknown> = {}) {
