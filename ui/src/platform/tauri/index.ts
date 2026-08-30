@@ -33,5 +33,5 @@ export {
   toggleOverlay,
   settleCurrentOverlay,
   moveCurrentOverlayTo,
-} from '../../api/overlayWindows';
-export type { OverlayKind, OverlayToggleResult, OverlayPos, LyricPrefs } from '../../api/overlayWindows';
+} from './windows';
+export type { OverlayKind, OverlayToggleResult, OverlayPos, LyricPrefs } from './windows';

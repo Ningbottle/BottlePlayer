@@ -10,7 +10,7 @@ import { watch } from 'vue';
 import { playerStore, togglePlay, next, prev, seek, setVolume } from './playerStore';
 import { useThemeStore } from './themeStore';
 import { useAppearanceStore } from './appearanceStore';
-import { isTauriRuntime } from './overlayWindows';
+import { isTauriRuntime } from '../platform/tauri/windows';
 
 export interface PlayerSyncState {
   hash: string;

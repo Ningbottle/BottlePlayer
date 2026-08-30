@@ -43,7 +43,7 @@ import {
   settleCurrentOverlay,
   snapToEdges,
   toggleOverlay,
-} from '../overlayWindows';
+} from '../windows';
 
 describe('overlay toggle result', () => {
   beforeEach(() => {

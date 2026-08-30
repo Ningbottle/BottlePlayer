@@ -10,8 +10,8 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { PhGear, PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
 import { onPlayerState, sendPlayerCommand, applySyncedTheme, pinOverlayThemeDark, type PlayerSyncState } from '../../api/playerSync';
-import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay, loadLyricPrefs, saveLyricPrefs, saveLyricSize } from '../../api/overlayWindows';
-import type { LyricPrefs } from '../../api/overlayWindows';
+import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay, loadLyricPrefs, saveLyricPrefs, saveLyricSize } from '../../platform/tauri/windows';
+import type { LyricPrefs } from '../../platform/tauri/windows';
 import { fetchLyrics, type LyricLine } from '../lyric/useLyricStage';
 
 const state = ref<PlayerSyncState | null>(null);

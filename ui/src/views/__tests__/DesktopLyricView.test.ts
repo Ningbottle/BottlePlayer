@@ -16,7 +16,7 @@ vi.mock('../../api/playerSync', () => ({
   pinOverlayThemeDark: vi.fn(() => {}),
 }));
 
-vi.mock('../../api/overlayWindows', () => ({
+vi.mock('../../platform/tauri/windows', () => ({
   isTauriRuntime: () => false,
   settleCurrentOverlay: vi.fn(async () => {}),
   moveCurrentOverlayTo: vi.fn(async () => {}),

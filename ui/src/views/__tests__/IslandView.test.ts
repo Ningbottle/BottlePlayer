@@ -20,7 +20,7 @@ vi.mock('../../api/playerSync', () => ({
   }),
 }));
 
-vi.mock('../../api/overlayWindows', () => ({
+vi.mock('../../platform/tauri/windows', () => ({
   isTauriRuntime: vi.fn(() => false),
   settleCurrentOverlay: vi.fn(async () => {}),
   moveCurrentOverlayTo: vi.fn(async () => {}),
@@ -67,7 +67,7 @@ vi.mock('@tauri-apps/api/dpi', () => ({
 
 import IslandView from '../overlay/IslandView.vue';
 import { sendPlayerCommand } from '../../api/playerSync';
-import { isTauriRuntime, settleCurrentOverlay } from '../../api/overlayWindows';
+import { isTauriRuntime, settleCurrentOverlay } from '../../platform/tauri/windows';
 import { startVinylSpin } from '../../api/motion';
 import type { Mock } from 'vitest';
 
