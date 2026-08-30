@@ -8,8 +8,8 @@ import {
   type MediaRuntime,
   type MediaRuntimeDeps,
 } from './mediaRuntime';
-import { invoke } from '@tauri-apps/api/core';
-import { PlaySessionTracker, type PlayRecord } from './playSessionTracker';
+import { PlaySessionTracker } from './playSessionTracker';
+import { recordPlay } from './playStatsGateway';
 import { normalizeEqBands } from './equalizerConfig';
 import { recentPlayedStore } from './recentPlayedStore';
 import { playbackDiagnostics } from './playbackDiagnostics';
@@ -58,18 +58,10 @@ function parseQueueMode(value: string | null): QueueMode {
 }
 
 // ── Stats play session tracking (#5 #6 #7 #8 #12) ──
-// Fire-and-forget: failures are silently ignored (stats are non-critical).
+// Records flow through the play-stats gateway (its sole production owner).
 // See playSessionTracker.ts for the state machine + seek-immune accumulator.
-function emitPlayRecord(record: PlayRecord) {
-  try {
-    invoke('stats_record_play', { json: JSON.stringify(record) }).catch(() => {});
-  } catch {
-    // 静默失败：统计记录不影响播放
-  }
-}
-
 const playSession = new PlaySessionTracker(
-  emitPlayRecord,
+  recordPlay,
   () => playerStore.quality || '',
   () => Date.now(),
 );
@@ -102,11 +94,6 @@ interface PlayerState {
   activePreset: string;
 }
 
-type BottleMusicAudioGlobal = Window & {
-  /** Single-owner pagehide handler; replaced on HMR/re-import. */
-  __bottlemusic_pagehide__?: (event: Event) => void;
-};
-
 /**
  * This module generation's MediaRuntime binding. The <audio> element and the
  * PlayerBackend instance are owned by MediaRuntime (mediaRuntime.ts); the
@@ -114,10 +101,6 @@ type BottleMusicAudioGlobal = Window & {
  */
 let moduleRuntime: MediaRuntime | null = null;
 let playbackCoordinator: PlaybackCommandCoordinator | null = null;
-
-function audioGlobal(): BottleMusicAudioGlobal {
-  return window as unknown as BottleMusicAudioGlobal;
-}
 
 /**
  * App exit: stop media without clearing the queue (queue already flushed).
@@ -172,8 +155,9 @@ function cleanupCurrentModuleForHmr() {
   if (audio) audio.volume = playerStore.volume;
   closeWebAudioEq();
   // R3: dispose the analyser AudioContext so HMR cycles don't leak module-level
-  // singletons. Dev-only — production pagehide does NOT call this (preserves
-  // the no-blip behavior; the analyser is analysis-only, never to destination).
+  // singletons. Dev-only — the application shutdown command does NOT call this
+  // (preserves the no-blip behavior; the analyser is analysis-only, never to
+  // destination).
   disposeAudioLevelMonitor();
 }
 
@@ -350,21 +334,6 @@ export function initPlayer() {
     queue: playerStore.queue,
     currentIndex: playerStore.currentIndex,
   }));
-
-  // Single-owner pagehide handler, bound in initPlayer (not at module top
-  // level) so only the LIVE module - the one that owns the <audio> - registers
-  // it. A re-evaluated orphan (HMR / vi.resetModules) that never calls
-  // initPlayer cannot own the listener, so it cannot flush a stale (empty)
-  // queue and overwrite the live module's just-saved session.
-  const g2 = audioGlobal();
-  if (g2.__bottlemusic_pagehide__) {
-    window.removeEventListener('pagehide', g2.__bottlemusic_pagehide__);
-  }
-  const onPageHide = () => {
-    void disposePlayerRuntime();
-  };
-  g2.__bottlemusic_pagehide__ = onPageHide;
-  window.addEventListener('pagehide', onPageHide);
 
   // NOTE: currentTrack restoration was moved ABOVE the phase projection block
   // (near the top of this function) so that phase=paused fires correctly when
@@ -628,8 +597,10 @@ export function clearQueue() {
 }
 
 /**
- * App exit / pagehide: persist queue first, then stop media WITHOUT clearing
- * the queue. Do not use for HMR (use module cleanup → detach).
+ * Application shutdown command: persist queue first, then stop media WITHOUT
+ * clearing the queue. Installed by the composition root (main.ts) as the
+ * page-unload shutdown callback via app/lifecycle/pageLifecycle.ts; do not
+ * use for HMR (use module cleanup → detach).
  *
  * Shutdown orchestration stays here (Store/composition side): flush queue →
  * dispose FM → shutdown Coordinator → MediaRuntime.shutdown() → close EQ.
@@ -644,7 +615,7 @@ export async function disposePlayerRuntime(): Promise<void> {
   // part of the stop barrier), then let the runtime retire it.
   await shutdownCoordinatorInstance();
   if (moduleRuntime) {
-    await moduleRuntime.shutdown('pagehide');
+    await moduleRuntime.shutdown('shutdown');
   }
   closeWebAudioEq();
 }
@@ -656,6 +627,3 @@ export function __resetPlaybackCoordinatorForTests() {
 }
 
 export type { PlaybackCommand };
-
-// The pagehide handler is registered in initPlayer() (single global owner) so
-// only the live module owns it - see initPlayer for the rationale.

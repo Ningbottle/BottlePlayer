@@ -173,23 +173,17 @@ describe('single-owner invariants across HMR module generations', () => {
     vi.resetModules();
     localStorage.clear();
     (window as any).__bottlemusic_media_runtime__ = undefined;
-    (window as any).__bottlemusic_pagehide__ = undefined;
   });
 
   afterEach(() => {
-    const handler = (window as any).__bottlemusic_pagehide__;
-    if (typeof handler === 'function') {
-      window.removeEventListener('pagehide', handler);
-    }
     (window as any).__bottlemusic_media_runtime__ = undefined;
-    (window as any).__bottlemusic_pagehide__ = undefined;
     vi.restoreAllMocks();
   });
 
-  it('one live <audio> and one pagehide owner survive a module re-evaluation; pagehide flushes once', async () => {
+  it('one live <audio> survives a module re-evaluation; the re-evaluated module flushes once via its shutdown command', async () => {
     const audioCtorSpy = vi.spyOn(window, 'Audio');
 
-    // Generation 1: creates THE audio element, binds persistence + pagehide.
+    // Generation 1: creates THE audio element and binds persistence.
     const gen1 = await import('../playerStore');
     gen1.initPlayer();
     const sharedAudio = getMediaRuntime()!.audio as HTMLAudioElement;
@@ -201,8 +195,8 @@ describe('single-owner invariants across HMR module generations', () => {
 
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
 
-    // Generation 2 (HMR-style re-evaluation): must reuse the SAME element and
-    // REPLACE (not stack) the pagehide owner.
+    // Generation 2 (HMR-style re-evaluation): must reuse the SAME element.
+    // (Pagehide single-owner/replace behavior now lives in pageLifecycle.test.ts.)
     vi.resetModules();
     const gen2 = await import('../playerStore');
     gen2.initPlayer();
@@ -215,14 +209,13 @@ describe('single-owner invariants across HMR module generations', () => {
       ([key]) => key === 'player_queue_snapshot',
     ).length;
 
-    window.dispatchEvent(new Event('pagehide'));
-    await new Promise((r) => setTimeout(r, 20));
+    // The live module's shutdown command flushes exactly once.
+    await gen2.disposePlayerRuntime();
 
-    const writesAfterPagehide = setItemSpy.mock.calls.filter(
+    const writesAfterShutdown = setItemSpy.mock.calls.filter(
       ([key]) => key === 'player_queue_snapshot',
     ).length;
-    // One pagehide owner → exactly one flush. A stacked handler would double this.
-    expect(writesAfterPagehide - writesAfterHmr).toBe(1);
+    expect(writesAfterShutdown - writesAfterHmr).toBe(1);
     const snap = JSON.parse(localStorage.getItem('player_queue_snapshot') || 'null');
     expect(snap.queue).toEqual([expect.objectContaining({ FileHash: 'gen-owner' })]);
 
@@ -330,13 +323,13 @@ describe('mediaRuntime: single global owner contract', () => {
     expect(gen2.deps.beforeHmrDetach).not.toHaveBeenCalled();
   });
 
-  it('shutdown retires the backend exactly once (pagehide) and is safe to repeat', async () => {
+  it('shutdown retires the backend exactly once and is safe to repeat', async () => {
     const { getOrCreateMediaRuntime } = await import('../mediaRuntime');
     const { deps, backend, unsubSpy } = makeRuntimeDeps();
     const runtime = getOrCreateMediaRuntime(deps);
     runtime.ensureBackend();
 
-    await runtime.shutdown('pagehide');
+    await runtime.shutdown('shutdown');
 
     expect(backend.shutdown).toHaveBeenCalledTimes(1);
     expect(unsubSpy).toHaveBeenCalledTimes(1);

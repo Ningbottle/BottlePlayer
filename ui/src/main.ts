@@ -23,10 +23,19 @@ import "./styles/skins/aurora.css";
 import "./styles/skins/newsprint.css";
 import { useThemeStore } from "./api/themeStore";
 import { useLyricFocusStore } from "./api/lyricFocusStore";
+import { disposePlayerRuntime } from "./api/playerStore";
+import { installPageLifecycle } from "./app/lifecycle/pageLifecycle";
 import { router } from "./navigation/router";
 
 useThemeStore().init();
 useLyricFocusStore().init();
+
+// Application composition owns the page lifecycle: the single pagehide
+// listener lives in app/lifecycle and calls the player's public shutdown
+// command. The Store itself registers no listeners.
+installPageLifecycle({
+  shutdownPlayback: disposePlayerRuntime,
+});
 
 const app = createApp(App);
 app.use(router);

@@ -28,6 +28,7 @@ import {
   setWebAudioEqEnabled,
   setVolume,
   resumeAudioContext,
+  disposePlayerRuntime,
   __getActiveBackend,
   __getPlaySession,
   __patchPlayerStateForTests,
@@ -1303,7 +1304,7 @@ describe('playerStore integration', () => {
     expect(getMediaRuntime()!.audio.src).toBe(srcBefore);
   });
 
-  it('pagehide flushes the current queue without persisting an empty session', async () => {
+  it('application shutdown flushes the current queue without persisting an empty session', async () => {
     initPlayer();
     initPlayerBackend();
     const first = mkTrack('exit-a');
@@ -1313,7 +1314,7 @@ describe('playerStore integration', () => {
     playerStore.currentTrack = second;
     localStorage.removeItem('player_queue_snapshot');
 
-    window.dispatchEvent(new Event('pagehide'));
+    await disposePlayerRuntime();
 
     // Persistence uses a single atomic snapshot key (queue + currentIndex
     // together) so a quota error cannot leave a half-written snapshot.
@@ -1324,10 +1325,9 @@ describe('playerStore integration', () => {
     ]);
     expect(snap.currentIndex).toBe(1);
     expect(playerStore.queue.map((track) => track.FileHash)).toEqual(['exit-a', 'exit-b']);
-    await Promise.resolve();
   });
 
-  it('B1: one pagehide triggers exactly one queue flush, one coordinator shutdown, one backend shutdown', async () => {
+  it('B1: one application shutdown triggers exactly one queue flush, one coordinator shutdown, one backend shutdown', async () => {
     initPlayer();
     initPlayerBackend();
     HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
@@ -1355,23 +1355,19 @@ describe('playerStore integration', () => {
     const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
     localStorage.removeItem('player_queue_snapshot');
 
-    window.dispatchEvent(new Event('pagehide'));
-    // disposePlayerRuntime is async; let the shutdown chain settle.
-    await Promise.resolve();
-    await Promise.resolve();
-    await new Promise((r) => setTimeout(r, 30));
+    await disposePlayerRuntime();
 
     const snapshotWrites = setItemSpy.mock.calls.filter(
       ([key]) => key === 'player_queue_snapshot',
     );
-    expect(snapshotWrites, 'queue flush must run exactly once per pagehide').toHaveLength(1);
+    expect(snapshotWrites, 'queue flush must run exactly once per shutdown').toHaveLength(1);
     expect(
       coordShutdownSpy,
-      'coordinator shutdown must run exactly once per pagehide',
+      'coordinator shutdown must run exactly once per shutdown',
     ).toHaveBeenCalledTimes(1);
     expect(
       backendShutdownSpy,
-      'backend shutdown must run exactly once per pagehide',
+      'backend shutdown must run exactly once per shutdown',
     ).toHaveBeenCalledTimes(1);
     const snap = JSON.parse(localStorage.getItem('player_queue_snapshot') || 'null');
     expect(snap.queue).toEqual([expect.objectContaining({ FileHash: 'b1-pagehide-once' })]);
