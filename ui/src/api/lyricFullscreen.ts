@@ -6,3 +6,10 @@ export const lyricFullscreen = ref(false);
 export function setLyricFullscreen(value: boolean): void {
   lyricFullscreen.value = value;
 }
+
+/** Idempotent: any non-lyric route must not keep the shell hidden. */
+export function clearLyricFullscreenUnlessOnLyric(isLyricRoute: boolean): void {
+  if (!isLyricRoute && lyricFullscreen.value) {
+    lyricFullscreen.value = false;
+  }
+}

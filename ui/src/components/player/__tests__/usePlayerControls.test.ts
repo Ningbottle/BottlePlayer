@@ -241,6 +241,28 @@ describe('usePlayerControls', () => {
     expect(mocks.setLyricFullscreen).toHaveBeenCalledWith(true);
   });
 
+  it('openLyricImmersion does not enter fullscreen when navigate reports failure', async () => {
+    mocks.store.currentTrack = mkTrack();
+    const onNavigate = vi.fn().mockResolvedValue(false);
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate });
+    await ctrl.openLyricImmersion();
+    expect(onNavigate).toHaveBeenCalledWith('lyric');
+    expect(mocks.setLyricFullscreen).toHaveBeenCalledWith(false);
+    expect(mocks.setLyricFullscreen).not.toHaveBeenCalledWith(true);
+  });
+
+  it('openLyricImmersion consumes a rejected navigate promise and clears fullscreen', async () => {
+    mocks.store.currentTrack = mkTrack();
+    const onNavigate = vi.fn().mockRejectedValue(new Error('navigation aborted'));
+    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate });
+    const pending = ctrl.openLyricImmersion();
+    expect(pending).toBeInstanceOf(Promise);
+    await expect(pending).resolves.toBeUndefined();
+    expect(onNavigate).toHaveBeenCalledWith('lyric');
+    expect(mocks.setLyricFullscreen).toHaveBeenCalledWith(false);
+    expect(mocks.setLyricFullscreen).not.toHaveBeenCalledWith(true);
+  });
+
   it('openLyricImmersion is a no-op without a current track', () => {
     mocks.store.currentTrack = null;
     const onNavigate = vi.fn();

@@ -4,7 +4,8 @@ export type DiagKind =
   | 'media_event'
   | 'proxy_prep'
   | 'fm_fetch'
-  | 'potential_stall';
+  | 'potential_stall'
+  | 'eq';
 
 export type DiagPhase = 'start' | 'ok' | 'fail' | 'noop';
 

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { reactive } from 'vue';
+import overlayCapability from '../../../src-tauri/capabilities/default.json';
 
 const syncState = reactive({
   cb: null as null | ((s: Record<string, unknown>) => void),
@@ -37,10 +38,19 @@ const windowMock = vi.hoisted(() => ({
   scaleFactor: vi.fn(async () => 1),
   setSize: vi.fn(async (_size: { width: number; height: number }) => {}),
   setPosition: vi.fn(async (_pos: { x: number; y: number }) => {}),
+  setBackgroundColor: vi.fn(async (_color: [number, number, number, number]) => {}),
 }));
 
 vi.mock('@tauri-apps/api/window', () => ({
   getCurrentWindow: vi.fn(() => windowMock),
+}));
+
+const webviewMock = vi.hoisted(() => ({
+  setBackgroundColor: vi.fn(async (_color: [number, number, number, number]) => {}),
+}));
+
+vi.mock('@tauri-apps/api/webview', () => ({
+  getCurrentWebview: vi.fn(() => webviewMock),
 }));
 
 vi.mock('@tauri-apps/api/dpi', () => ({
@@ -57,7 +67,8 @@ vi.mock('@tauri-apps/api/dpi', () => ({
 
 import IslandView from '../overlay/IslandView.vue';
 import { sendPlayerCommand } from '../../api/playerSync';
-import { isTauriRuntime } from '../../api/overlayWindows';
+import { isTauriRuntime, settleCurrentOverlay } from '../../api/overlayWindows';
+import { startVinylSpin } from '../../api/motion';
 import type { Mock } from 'vitest';
 
 function emitState(partial: Record<string, unknown> = {}) {
@@ -82,16 +93,36 @@ describe('IslandView', () => {
     syncState.cb = null;
     (isTauriRuntime as Mock).mockReturnValue(false);
     windowMock.outerPosition.mockResolvedValue({ x: 0, y: 0 });
-    windowMock.outerSize.mockResolvedValue({ width: 300, height: 64 });
+    windowMock.outerSize.mockResolvedValue({ width: 236, height: 40 });
     windowMock.scaleFactor.mockResolvedValue(1);
     windowMock.setSize.mockResolvedValue(undefined);
     windowMock.setPosition.mockResolvedValue(undefined);
+    windowMock.setBackgroundColor.mockResolvedValue(undefined);
+    webviewMock.setBackgroundColor.mockResolvedValue(undefined);
   });
 
   it('renders idle capsule without a track', () => {
     const wrapper = mount(IslandView);
     expect(wrapper.text()).toContain('未播放');
     expect(wrapper.find('.island-capsule').classes()).toContain('is-idle');
+    wrapper.unmount();
+  });
+
+  it('grants the native window capabilities used by island transitions', () => {
+    expect(overlayCapability.permissions).toEqual(expect.arrayContaining([
+      'core:window:allow-scale-factor',
+      'core:window:allow-set-background-color',
+      'core:webview:allow-set-webview-background-color',
+    ]));
+  });
+
+  it('reasserts transparent native window and webview backgrounds on mount', async () => {
+    (isTauriRuntime as Mock).mockReturnValue(true);
+    const wrapper = mount(IslandView);
+    await flushPromises();
+
+    expect(windowMock.setBackgroundColor).toHaveBeenCalledWith([0, 0, 0, 0]);
+    expect(webviewMock.setBackgroundColor).toHaveBeenCalledWith([0, 0, 0, 0]);
     wrapper.unmount();
   });
 
@@ -106,8 +137,8 @@ describe('IslandView', () => {
     expect(img.exists()).toBe(true);
 
     const ring = wrapper.find('.island-ring-fill');
-    // 30/180 → offset = LEN * (1 - 1/6), ring radius 20
-    const expected = String(2 * Math.PI * 20 * (1 - 30 / 180));
+    // 30/180 → offset = LEN * (1 - 1/6), compact ring radius 15
+    const expected = String(2 * Math.PI * 15 * (1 - 30 / 180));
     expect(Number(ring.attributes('stroke-dashoffset'))).toBeCloseTo(Number(expected), 3);
     wrapper.unmount();
   });
@@ -146,6 +177,19 @@ describe('IslandView', () => {
     wrapper.unmount();
   });
 
+  it('offers only the three top docking positions', async () => {
+    const wrapper = mount(IslandView);
+    await wrapper.get('.island-root').trigger('contextmenu');
+
+    expect(wrapper.findAll('.island-anchor-dot')).toHaveLength(3);
+    expect(wrapper.findAll('.island-anchor-dot').map((dot) => dot.attributes('title'))).toEqual([
+      'top-left',
+      'top-center',
+      'top-right',
+    ]);
+    wrapper.unmount();
+  });
+
   it('expands to the wide card on a blank click and collapses on Escape', async () => {
     const wrapper = mount(IslandView);
     emitState();
@@ -172,6 +216,7 @@ describe('IslandView', () => {
   it('automatically collapses the expanded card after inactivity', async () => {
     vi.useFakeTimers();
     const wrapper = mount(IslandView);
+    await flushPromises();
     const capsule = wrapper.get('.island-capsule');
 
     capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
@@ -185,6 +230,38 @@ describe('IslandView', () => {
     await wrapper.vm.$nextTick();
     expect(wrapper.find('[data-test="island-card"]').exists()).toBe(false);
     expect(wrapper.find('.island-capsule').exists()).toBe(true);
+    wrapper.unmount();
+  });
+
+  it('automatically collapses through the real Tauri resize path', async () => {
+    vi.useFakeTimers();
+    (isTauriRuntime as Mock).mockReturnValue(true);
+    const wrapper = mount(IslandView);
+    await flushPromises();
+    windowMock.setSize.mockClear();
+    windowMock.setPosition.mockClear();
+
+    const capsule = wrapper.get('.island-capsule');
+    capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 20 }));
+    capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 20 }));
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    expect(windowMock.setSize).toHaveBeenCalledWith(expect.objectContaining({
+      width: 360,
+      height: 128,
+    }));
+
+    await vi.advanceTimersByTimeAsync(5_100);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    expect(windowMock.setSize).toHaveBeenLastCalledWith(expect.objectContaining({
+      width: 236,
+      height: 40,
+    }));
+    expect(wrapper.find('.island-capsule').exists()).toBe(true);
+    await vi.waitFor(() => expect(startVinylSpin).toHaveBeenCalledTimes(3));
     wrapper.unmount();
   });
 
@@ -210,20 +287,53 @@ describe('IslandView', () => {
 
   it('does not expand after a drag (pointer travel >= 5px)', async () => {
     const wrapper = mount(IslandView);
+    await flushPromises();
     const capsule = wrapper.get('.island-capsule');
     capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
     capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 130, clientY: 80 }));
     await wrapper.vm.$nextTick();
     expect(wrapper.find('[data-test="island-card"]').exists()).toBe(false);
+    expect(settleCurrentOverlay).toHaveBeenCalledOnce();
+    wrapper.unmount();
+  });
+
+  it('rebinds the vinyl animation when switching between capsule and card', async () => {
+    const wrapper = mount(IslandView);
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+    const spinMock = startVinylSpin as Mock;
+    expect(spinMock).toHaveBeenCalledTimes(1);
+    const capsuleSpin = spinMock.mock.results[0].value as { kill: Mock };
+
+    const capsule = wrapper.get('.island-capsule');
+    capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
+    capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 50 }));
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    expect(capsuleSpin.kill).toHaveBeenCalledOnce();
+    expect(spinMock).toHaveBeenCalledTimes(2);
+    const cardSpin = spinMock.mock.results[1].value as { kill: Mock };
+
+    document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    await flushPromises();
+    await wrapper.vm.$nextTick();
+
+    expect(cardSpin.kill).toHaveBeenCalledOnce();
+    expect(spinMock).toHaveBeenCalledTimes(3);
     wrapper.unmount();
   });
 
   it('resizes the window growing downward from the pill (tauri)', async () => {
     (isTauriRuntime as Mock).mockReturnValue(true);
     windowMock.outerPosition.mockResolvedValue({ x: 100, y: 100 });
-    windowMock.outerSize.mockResolvedValue({ width: 300, height: 64 });
+    windowMock.outerSize.mockResolvedValue({ width: 236, height: 40 });
 
     const wrapper = mount(IslandView);
+    await flushPromises();
+    windowMock.setSize.mockClear();
+    windowMock.setPosition.mockClear();
+    windowMock.outerPosition.mockResolvedValue({ x: 100, y: 0 });
     const capsule = wrapper.get('.island-capsule');
     capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));
     capsule.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true, clientX: 100, clientY: 50 }));
@@ -232,12 +342,29 @@ describe('IslandView', () => {
       expect(windowMock.setSize).toHaveBeenCalledTimes(1);
     });
     const size = windowMock.setSize.mock.calls[0][0] as { width: number; height: number };
-    expect(size).toMatchObject({ width: 480, height: 200 });
+    expect(size).toMatchObject({ width: 360, height: 128 });
     const pos = windowMock.setPosition.mock.calls[0][0] as { x: number; y: number };
     expect(pos).toMatchObject({
-      x: Math.round(100 + 150 - 240),
-      y: 100, // top edge unchanged — the card grows downward
+      x: Math.round(100 + 118 - 180),
+      y: 0,
     });
+    wrapper.unmount();
+  });
+
+  it('normalizes a stale expanded native window back to the compact size on mount', async () => {
+    (isTauriRuntime as Mock).mockReturnValue(true);
+    windowMock.outerPosition.mockResolvedValue({ x: 200, y: 16 });
+    windowMock.outerSize.mockResolvedValue({ width: 400, height: 152 });
+
+    const wrapper = mount(IslandView);
+    await vi.waitFor(() => {
+      expect(windowMock.setSize).toHaveBeenCalledWith(expect.objectContaining({
+        width: 236,
+        height: 40,
+      }));
+    });
+    expect(windowMock.setPosition).toHaveBeenCalledWith(expect.objectContaining({ y: 0 }));
+    expect(wrapper.find('.island-capsule').exists()).toBe(true);
     wrapper.unmount();
   });
 
@@ -251,6 +378,7 @@ describe('IslandView', () => {
       .mockResolvedValue(undefined);
 
     const wrapper = mount(IslandView);
+    await flushPromises();
     const capsule = wrapper.get('.island-capsule');
     const clickCapsule = () => {
       capsule.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 100, clientY: 50 }));

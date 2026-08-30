@@ -652,4 +652,34 @@ describe('PlaybackCommandCoordinator', () => {
     expect(state.queue).toEqual([]);
     expect(state.currentTrack).toBeNull();
   });
+
+  it.each(['resolving', 'loading'] as const)(
+    'toggle while %s invalidates, stops, and pauses without pause()/resumeOrReload()',
+    async (phase) => {
+      const track = mkTrack('cur');
+      state.queue = [track];
+      state.currentIndex = 0;
+      state.currentTrack = track;
+      state.playbackPhase = phase;
+      state.isLoading = true;
+      state.isPlaying = false;
+
+      await coord.dispatch({ type: 'togglePlay' });
+
+      expect(deps.invalidatePlaybackIntent).toHaveBeenCalledTimes(1);
+      expect(deps.stopInvalidatedPlayback).toHaveBeenCalledTimes(1);
+      expect(deps.stopInvalidatedPlayback).toHaveBeenCalledWith(1);
+      expect(deps.pause).not.toHaveBeenCalled();
+      expect(deps.resumeOrReload).not.toHaveBeenCalled();
+      expect(state.playbackPhase).toBe('paused');
+      expect(state.isLoading).toBe(false);
+      expect(state.isPlaying).toBe(false);
+
+      await coord.dispatch({ type: 'togglePlay' });
+      expect(deps.resumeOrReload).toHaveBeenCalledTimes(1);
+      expect(deps.pause).not.toHaveBeenCalled();
+      expect(deps.invalidatePlaybackIntent).toHaveBeenCalledTimes(1);
+      expect(deps.stopInvalidatedPlayback).toHaveBeenCalledTimes(1);
+    },
+  );
 });

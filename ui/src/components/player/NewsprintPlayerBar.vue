@@ -150,16 +150,17 @@ function onRelease(e: MouseEvent) {
       </button>
     </div>
 
-    <!-- Transport: block-style buttons, no capsules — hidden when no track -->
+    <!-- Transport: keep icon controls stable; disable them until a track exists. -->
     <div
-      v-if="c.currentTrack"
       class="np-pb-transport"
+      :class="{ 'is-muted': !c.currentTrack }"
       data-test="newsprint-player-transport"
     >
       <button
         type="button"
         class="np-pb-btn"
         :class="{ active: c.loopMode !== 'list' }"
+        :disabled="!c.currentTrack"
         :aria-label="c.loopMode === 'random' ? '随机播放' : c.loopMode === 'single' ? '单曲循环' : '列表顺序播放'"
         :aria-pressed="c.loopMode !== 'list'"
         :title="c.loopMode === 'random' ? '随机播放' : c.loopMode === 'single' ? '单曲循环' : '列表顺序播放'"
@@ -176,6 +177,7 @@ function onRelease(e: MouseEvent) {
       <button
         type="button"
         class="np-pb-btn"
+        :disabled="!c.currentTrack"
         aria-label="上一首"
         title="上一首"
         @click="c.prev"
@@ -189,6 +191,7 @@ function onRelease(e: MouseEvent) {
       <button
         type="button"
         class="np-pb-btn np-pb-play"
+        :disabled="!c.currentTrack"
         :aria-label="c.showPauseIcon ? '暂停' : '播放'"
         :title="c.isLoading ? '取消加载' : (c.isPlaying ? '暂停' : '播放')"
         @click="c.togglePlay"
@@ -203,6 +206,7 @@ function onRelease(e: MouseEvent) {
       <button
         type="button"
         class="np-pb-btn"
+        :disabled="!c.currentTrack"
         aria-label="下一首"
         title="下一首"
         @click="c.next"
@@ -213,14 +217,6 @@ function onRelease(e: MouseEvent) {
         <SkipForward :size="15" :stroke-width="1.75" aria-hidden="true" />
       </button>
     </div>
-    <div
-      v-else
-      class="np-pb-empty-console"
-      data-test="newsprint-player-empty-console"
-    >
-      选择曲目后显示播放控制
-    </div>
-
     <!-- Progress: straight line, no thumb rounding -->
     <div v-if="c.currentTrack" class="np-pb-progress">
       <PlayerProgress

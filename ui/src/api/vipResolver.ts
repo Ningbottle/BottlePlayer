@@ -84,7 +84,9 @@ export function resolveVip(d: any, nowMs: number = Date.now()): VipResolution {
   // 顶层时间作为候选（过期则不入选）
   consider(String(d.vip_end_time || d.end_time || ''));
 
-  const vipEndDate = bestStr || String(d.vip_end_time || d.end_time || '');
+  // 无活跃权益时不再回退到已死的顶层时间（会把过期 VIP 显示成有效日期）；
+  // bestStr 为空 = 当前无有效 VIP，界面按"普通用户"呈现。
+  const vipEndDate = bestStr;
 
   return {
     isVip,

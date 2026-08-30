@@ -3,7 +3,7 @@ import { onErrorCaptured, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { cancelPageTransition } from '../../navigation/navigationLifecycle';
-import { setLyricFullscreen } from '../../api/lyricFullscreen';
+import { clearLyricFullscreenUnlessOnLyric } from '../../api/lyricFullscreen';
 import { settleActiveTransitionSessions } from '../../api/transitionSession';
 import { useThemeStore, type SkinId } from '../../api/themeStore';
 
@@ -38,7 +38,7 @@ onErrorCaptured((error) => {
     skin,
     error: capturedError,
   });
-  setLyricFullscreen(false);
+  clearLyricFullscreenUnlessOnLyric(false);
   const restoreTransitionStyles = settleActiveTransitionSessions();
   cancelPageTransition();
   restoreTransitionStyles();

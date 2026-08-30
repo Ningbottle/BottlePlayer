@@ -56,6 +56,7 @@ export const routeRecords: RouteRecordRaw[] = [
     props: (route) => ({
       playlistId: routeParam(route, 'id'),
       playlistName: queryValue(route.query.name),
+      playlistSource: queryValue(route.query.source),
     }),
   },
   { path: '/lyric', name: routeNames.lyric, component: LyricView },

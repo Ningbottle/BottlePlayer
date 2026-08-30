@@ -3,11 +3,12 @@
  * IslandView — 播放灵动岛（/overlay/island）
  *
  * 透明置顶胶囊：旋转封面盘（带环形进度）+ 曲目信息 + 三键传输。
- * 状态经 playerSync 与主窗口同步；拖拽自由摆放，松手磁吸边缘，
- * 右键九宫格快速锚点，位置记忆。
+ * 状态经 playerSync 与主窗口同步；支持顶部横向摆放，
+ * 右键选择左/中/右锚点并记忆位置。
  */
 import { computed, onBeforeUnmount, onMounted, ref, nextTick } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { LogicalSize, PhysicalPosition } from '@tauri-apps/api/dpi';
 import { PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
 import { onPlayerState, sendPlayerCommand, applySyncedTheme, type PlayerSyncState } from '../../api/playerSync';
@@ -16,9 +17,10 @@ import { startVinylSpin } from '../../api/motion';
 import type { VinylSpinHandle } from '../../api/motion';
 import PlayerProgress from '../../components/player/PlayerProgress.vue';
 
-const COLLAPSED_SIZE = { width: 300, height: 64 };
-const EXPANDED_SIZE = { width: 480, height: 200 };
+const COLLAPSED_SIZE = { width: 236, height: 40 };
+const EXPANDED_SIZE = { width: 360, height: 128 };
 const AUTO_COLLAPSE_MS = 5_000;
+const TOP_Y = 0;
 
 const state = ref<PlayerSyncState | null>(null);
 const hasTrack = computed(() => !!state.value?.hash);
@@ -28,8 +30,8 @@ const progress = computed(() => {
   return Math.max(0, Math.min(1, s.currentTime / s.duration));
 });
 
-/** Progress ring geometry (SVG circle, r=20). */
-const RING_R = 20;
+/** Progress ring geometry for the compact cover disc. */
+const RING_R = 15;
 const RING_LEN = 2 * Math.PI * RING_R;
 const ringOffset = computed(() => RING_LEN * (1 - progress.value));
 
@@ -45,6 +47,7 @@ let desiredExpanded = false;
 let windowExpanded = false;
 let resizeTask: Promise<void> | null = null;
 let autoCollapseTimer: ReturnType<typeof setTimeout> | null = null;
+let nativeReady: Promise<void> = Promise.resolve();
 
 async function applyWindowSize(size: { width: number; height: number }): Promise<void> {
   if (!isTauriRuntime()) return;
@@ -61,8 +64,38 @@ async function applyWindowSize(size: { width: number; height: number }): Promise
   await win.setSize(new LogicalSize(size.width, size.height));
   await win.setPosition(new PhysicalPosition(
     Math.round(cx - targetPhysicalWidth / 2),
-    pos.y,
+    TOP_Y,
   ));
+}
+
+async function prepareNativeWindow(): Promise<void> {
+  if (!isTauriRuntime()) return;
+
+  const win = getCurrentWindow();
+  await Promise.allSettled([
+    win.setBackgroundColor([0, 0, 0, 0]),
+    getCurrentWebview().setBackgroundColor([0, 0, 0, 0]),
+  ]);
+
+  const [pos, size, scaleFactor] = await Promise.all([
+    win.outerPosition(),
+    win.outerSize(),
+    win.scaleFactor(),
+  ]);
+  const compactWidth = Math.round(COLLAPSED_SIZE.width * scaleFactor);
+  const compactHeight = Math.round(COLLAPSED_SIZE.height * scaleFactor);
+  const staleExpandedWindow =
+    Math.abs(size.width - compactWidth) > 1 ||
+    Math.abs(size.height - compactHeight) > 1;
+
+  desiredExpanded = false;
+  expanded.value = false;
+  if (staleExpandedWindow) {
+    await applyWindowSize(COLLAPSED_SIZE);
+  } else if (pos.y !== TOP_Y) {
+    await win.setPosition(new PhysicalPosition(pos.x, TOP_Y));
+  }
+  windowExpanded = false;
 }
 
 function clearAutoCollapse(): void {
@@ -75,6 +108,17 @@ function clearAutoCollapse(): void {
 function stopCardSpin(): void {
   cardSpin?.kill();
   cardSpin = null;
+}
+
+function startCapsuleSpin(): void {
+  if (discEl.value && !vinylSpin) {
+    vinylSpin = startVinylSpin(discEl.value, () => !!state.value?.isPlaying);
+  }
+}
+
+function stopCapsuleSpin(): void {
+  vinylSpin?.kill();
+  vinylSpin = null;
 }
 
 function armAutoCollapse(): void {
@@ -97,6 +141,7 @@ function runResizeQueue(): Promise<void> {
           await applyWindowSize(EXPANDED_SIZE);
           windowExpanded = true;
           if (desiredExpanded) {
+            stopCapsuleSpin();
             expanded.value = true;
             await nextTick();
             if (cardDiscEl.value && !cardSpin) {
@@ -111,11 +156,22 @@ function runResizeQueue(): Promise<void> {
           await nextTick();
           await applyWindowSize(COLLAPSED_SIZE);
           windowExpanded = false;
+          startCapsuleSpin();
         }
       }
     } catch (error) {
       desiredExpanded = windowExpanded;
       expanded.value = windowExpanded;
+      await nextTick();
+      if (windowExpanded) {
+        stopCapsuleSpin();
+        if (cardDiscEl.value && !cardSpin) {
+          cardSpin = startVinylSpin(cardDiscEl.value, () => !!state.value?.isPlaying);
+        }
+      } else {
+        stopCardSpin();
+        startCapsuleSpin();
+      }
       console.error('[island] resize transition failed:', error);
     } finally {
       resizeTask = null;
@@ -128,7 +184,7 @@ function runResizeQueue(): Promise<void> {
 function requestExpanded(next: boolean): void {
   desiredExpanded = next;
   if (!next) clearAutoCollapse();
-  void runResizeQueue();
+  void nativeReady.then(runResizeQueue);
 }
 
 function toggleExpanded(): void {
@@ -147,9 +203,11 @@ function onAreaPointerDown(e: PointerEvent): void {
 
 function onAreaPointerUp(e: PointerEvent): void {
   if ((e.target as HTMLElement).closest('button, [role="slider"], input, select, textarea, a[href]')) return;
-  if (Math.hypot(e.clientX - downX, e.clientY - downY) < 5) {
-    void toggleExpanded();
+  if (Math.hypot(e.clientX - downX, e.clientY - downY) >= 5) {
+    void settleCurrentOverlay('island');
+    return;
   }
+  void toggleExpanded();
 }
 
 function onKeydown(e: KeyboardEvent): void {
@@ -162,7 +220,7 @@ function onWindowBlur(): void {
   if (desiredExpanded) requestExpanded(false);
 }
 
-const anchors = ['top-left', 'top-center', 'top-right', 'center-left', 'center', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+const anchors = ['top-left', 'top-center', 'top-right'];
 const showAnchors = ref(false);
 
 function toggleAnchors(event: MouseEvent): void {
@@ -175,10 +233,6 @@ async function pickAnchor(anchor: string): Promise<void> {
   await moveCurrentOverlayTo(anchor, 'island');
 }
 
-function onDragRelease(): void {
-  void settleCurrentOverlay('island');
-}
-
 async function closeIsland(): Promise<void> {
   if (isTauriRuntime()) {
     await getCurrentWindow().close();
@@ -186,16 +240,18 @@ async function closeIsland(): Promise<void> {
 }
 
 onMounted(async () => {
-  unlisten = await onPlayerState((s) => {
+  const listenTask = onPlayerState((s) => {
     applySyncedTheme(s);
     state.value = s;
     vinylSpin?.setPlaying();
     cardSpin?.setPlaying();
   });
-  if (discEl.value) {
-    vinylSpin = startVinylSpin(discEl.value, () => !!state.value?.isPlaying);
-  }
-  document.addEventListener('mouseup', onDragRelease);
+  nativeReady = prepareNativeWindow().catch((error) => {
+    console.error('[island] native window preparation failed:', error);
+  });
+  await nativeReady;
+  unlisten = await listenTask;
+  startCapsuleSpin();
   document.addEventListener('keydown', onKeydown);
   window.addEventListener('blur', onWindowBlur);
 });
@@ -203,17 +259,15 @@ onMounted(async () => {
 onBeforeUnmount(() => {
   clearAutoCollapse();
   unlisten?.();
-  vinylSpin?.kill();
-  vinylSpin = null;
+  stopCapsuleSpin();
   stopCardSpin();
-  document.removeEventListener('mouseup', onDragRelease);
   document.removeEventListener('keydown', onKeydown);
   window.removeEventListener('blur', onWindowBlur);
 });
 </script>
 
 <template>
-  <div class="island-root" @contextmenu="toggleAnchors">
+  <div class="island-root" :class="{ 'is-expanded': expanded }" @contextmenu="toggleAnchors">
     <div
       v-if="!expanded"
       class="island-capsule"
@@ -224,11 +278,11 @@ onBeforeUnmount(() => {
     >
       <!-- Cover disc with progress ring -->
       <div class="island-disc-wrap">
-        <svg class="island-ring" viewBox="0 0 48 48" aria-hidden="true">
-          <circle class="island-ring-track" cx="36" cy="36" :r="RING_R" />
+        <svg class="island-ring" viewBox="0 0 36 36" aria-hidden="true">
+          <circle class="island-ring-track" cx="18" cy="18" :r="RING_R" />
           <circle
             class="island-ring-fill"
-            cx="36" cy="36" :r="RING_R"
+            cx="18" cy="18" :r="RING_R"
             :stroke-dasharray="RING_LEN"
             :stroke-dashoffset="ringOffset"
           />
@@ -322,7 +376,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <!-- Nine-grid anchor picker (right-click to open) -->
+    <!-- Top-edge anchor picker (right-click to open) -->
     <div v-if="showAnchors" class="island-anchors" role="menu" aria-label="窗口位置">
       <button
         v-for="a in anchors"
@@ -342,13 +396,14 @@ onBeforeUnmount(() => {
 :global(#app) {
   background: transparent !important;
   overflow: hidden;
+  color-scheme: dark;
 }
 
 .island-root {
   width: 100vw;
   height: 100vh;
   display: grid;
-  place-items: center;
+  place-items: start;
   position: relative;
   background: transparent;
 }
@@ -357,15 +412,17 @@ onBeforeUnmount(() => {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
-  width: 288px;
-  height: 52px;
-  padding: 6px 10px;
+  gap: 7px;
+  width: 236px;
+  height: 40px;
+  padding: 4px 7px;
   box-sizing: border-box;
   border-radius: 999px;
-  border: 1px solid color-mix(in srgb, #fff 10%, transparent);
-  background: color-mix(in srgb, var(--surface-elevated, #1a2222) 88%, #000 12%);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+  border: 0;
+  background: #050505;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
 }
 
 .island-capsule.is-idle {
@@ -374,8 +431,8 @@ onBeforeUnmount(() => {
 
 .island-disc-wrap {
   position: relative;
-  width: 40px;
-  height: 40px;
+  width: 32px;
+  height: 32px;
   flex: none;
 }
 
@@ -434,8 +491,8 @@ onBeforeUnmount(() => {
   position: absolute;
   left: 50%;
   top: 50%;
-  width: 12px;
-  height: 12px;
+  width: 10px;
+  height: 10px;
   transform: translate(-50%, -50%);
   border-radius: 50%;
   background: radial-gradient(circle at 50% 50%,
@@ -454,17 +511,17 @@ onBeforeUnmount(() => {
 }
 
 .island-name {
-  font-size: 13px;
+  font-size: 12px;
   font-weight: 600;
-  color: var(--text-primary, #f2f5f2);
+  color: #f5f5f7;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .island-artist {
-  font-size: 11px;
-  color: var(--text-muted, #626d69);
+  font-size: 10px;
+  color: rgba(235, 235, 245, 0.52);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -473,26 +530,26 @@ onBeforeUnmount(() => {
 .island-transport {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 1px;
   flex: none;
 }
 
 .island-transport button {
-  width: 26px;
-  height: 26px;
+  width: 22px;
+  height: 22px;
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: color-mix(in srgb, var(--text-primary, #f2f5f2) 75%, transparent);
+  color: rgba(245, 245, 247, 0.72);
   cursor: pointer;
   transition: color 0.15s ease, background 0.15s ease;
 }
 
 .island-transport button:hover:not(:disabled) {
-  color: var(--text-primary, #f2f5f2);
-  background: color-mix(in srgb, var(--text-primary, #f2f5f2) 8%, transparent);
+  color: #f5f5f7;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .island-transport button:disabled {
@@ -501,8 +558,8 @@ onBeforeUnmount(() => {
 }
 
 .island-transport .island-play {
-  width: 30px;
-  height: 30px;
+  width: 24px;
+  height: 24px;
   background: var(--accent, #62d6a2);
   color: #0a1410;
 }
@@ -515,16 +572,16 @@ onBeforeUnmount(() => {
 
 .island-close {
   position: absolute;
-  top: -4px;
-  right: -4px;
-  width: 18px;
-  height: 18px;
+  top: 2px;
+  right: 2px;
+  width: 16px;
+  height: 16px;
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 50%;
-  background: var(--surface-2, #141a1b);
-  color: var(--text-muted, #626d69);
+  background: #171717;
+  color: rgba(235, 235, 245, 0.55);
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.15s ease;
@@ -541,7 +598,7 @@ onBeforeUnmount(() => {
 .island-anchors {
   position: absolute;
   right: 10px;
-  bottom: calc(100% - 6px);
+  top: 6px;
   display: grid;
   grid-template-columns: repeat(3, 12px);
   gap: 5px;
@@ -571,16 +628,25 @@ onBeforeUnmount(() => {
 .island-card {
   display: flex;
   align-items: center;
-  gap: 14px;
-  width: 468px;
-  height: 188px;
-  padding: 14px;
+  gap: 12px;
+  width: 360px;
+  height: 128px;
+  padding: 9px;
   box-sizing: border-box;
-  border-radius: 18px;
-  border: 1px solid color-mix(in srgb, #fff 10%, transparent);
-  background: color-mix(in srgb, var(--surface-elevated, #1a2222) 88%, #000 12%);
-  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
-  animation: island-card-in 0.35s cubic-bezier(0.16, 1, 0.3, 1);
+  border-radius: 20px;
+  border: 0;
+  background: #050505;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.09),
+    inset 0 -1px 0 rgba(255, 255, 255, 0.04);
+  --progress-time: rgba(235, 235, 245, 0.52);
+  --progress-track: rgba(255, 255, 255, 0.16);
+  --progress-buffered: rgba(255, 255, 255, 0.24);
+  --progress-fill: var(--accent, #62d6a2);
+  --progress-thumb-fill: #f5f5f7;
+  --progress-thumb-ring: rgba(0, 0, 0, 0.72);
+  --focus-ring: color-mix(in srgb, var(--accent, #62d6a2) 54%, transparent);
+  animation: island-card-in 0.38s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 @keyframes island-card-in {
@@ -594,7 +660,7 @@ onBeforeUnmount(() => {
 
 .island-card-cover {
   position: relative;
-  width: 140px;
+  width: 92px;
   aspect-ratio: 1;
   flex: none;
 }
@@ -604,8 +670,8 @@ onBeforeUnmount(() => {
 }
 
 .island-card-cover .island-disc-spindle {
-  width: 36px;
-  height: 36px;
+  width: 28px;
+  height: 28px;
 }
 
 .island-card-main {
@@ -614,7 +680,7 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 10px;
+  gap: 7px;
 }
 
 .island-card-meta {
@@ -631,21 +697,21 @@ onBeforeUnmount(() => {
 }
 
 .island-card-controls button {
-  width: 32px;
-  height: 32px;
+  width: 28px;
+  height: 28px;
   display: grid;
   place-items: center;
   border: 0;
   border-radius: 50%;
   background: transparent;
-  color: color-mix(in srgb, var(--text-primary, #f2f5f2) 75%, transparent);
+  color: rgba(245, 245, 247, 0.72);
   cursor: pointer;
   transition: color 0.15s ease, background 0.15s ease;
 }
 
 .island-card-controls button:hover:not(:disabled) {
-  color: var(--text-primary, #f2f5f2);
-  background: color-mix(in srgb, var(--text-primary, #f2f5f2) 8%, transparent);
+  color: #f5f5f7;
+  background: rgba(255, 255, 255, 0.08);
 }
 
 .island-card-controls button:disabled {
@@ -654,8 +720,8 @@ onBeforeUnmount(() => {
 }
 
 .island-card-controls .island-play {
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   background: var(--accent, #62d6a2);
   color: #0a1410;
 }

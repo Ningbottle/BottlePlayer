@@ -1,11 +1,12 @@
 import { reactive } from 'vue';
-import { apiGet, apiPost } from './backend';
+import { apiGet, apiPost, describeBackendError } from './backend';
 import { resolveVip } from './vipResolver';
 import { recentPlayedStore } from './recentPlayedStore';
 import { favoriteStore } from './favoriteStore';
 
 interface UserState {
   isLoggedIn: boolean;
+  deviceReady: boolean;
   userId: string;
   username: string;
   avatar: string;
@@ -19,6 +20,7 @@ interface UserState {
 
 export const userStore = reactive<UserState>({
   isLoggedIn: false,
+  deviceReady: false,
   userId: '',
   username: '未登录',
   avatar: '',
@@ -39,6 +41,7 @@ function resetVipState() {
 
 function resetLoginState() {
   userStore.isLoggedIn = false;
+  userStore.deviceReady = false;
   userStore.userId = '';
   userStore.username = '未登录';
   userStore.avatar = '';
@@ -49,6 +52,109 @@ function resetLoginState() {
   favoriteStore.onLogout();
 }
 
+interface VipDeviceResult {
+  ok: boolean;
+  error?: string;
+}
+
+function isUsableDfid(dfid: unknown): boolean {
+  return typeof dfid === 'string' && dfid.trim() !== '' && dfid.trim() !== '-';
+}
+
+function isAuthoritativeVipDetail(detail: any): boolean {
+  return !!detail
+    && detail.status === 1
+    && detail.authoritative !== false
+    && detail.data
+    && typeof detail.data === 'object';
+}
+
+function applyVipSnapshot(detail: any, opts: { allowDowngrade: boolean }): 'applied' | 'kept' | 'pending' {
+  if (!isAuthoritativeVipDetail(detail)) {
+    return 'kept';
+  }
+  const resolved = resolveVip(detail.data, Date.now());
+  if (!opts.allowDowngrade && userStore.isVip && !resolved.isVip) {
+    return 'pending';
+  }
+  userStore.vipLevel = resolved.vipLevel;
+  userStore.vipType = resolved.vipType;
+  userStore.isVip = resolved.isVip;
+  userStore.vipEndDate = resolved.vipEndDate;
+  if (resolved.nickname && !userStore.username.startsWith(resolved.nickname)) {
+    userStore.username = resolved.nickname;
+  }
+  if (resolved.pic && !userStore.avatar) {
+    userStore.avatar = resolved.pic;
+  }
+  return 'applied';
+}
+
+function formatDeviceGateFailure(result: VipDeviceResult): string {
+  if (result.error === 'request_timeout') {
+    return '领取失败：请求超时，请稍后重试';
+  }
+  if (result.error === 'circuit_open') {
+    return '领取失败：服务暂时繁忙，请稍后重试';
+  }
+  return '领取失败：设备注册失败（设备未完成注册或指纹不可用）';
+}
+
+export function formatVipClaimFailure(result: any): string {
+  const detail = [result?.error_msg, result?.error, result?.msg, result?.message]
+    .find((value) => typeof value === 'string' && value.trim())?.trim() ?? '';
+  const code = result?.error_code;
+  const hasCode = code !== undefined && code !== null && String(code) !== '' && Number(code) !== 0;
+  if (Number(code) === 130012) {
+    return '今天已经领过了';
+  }
+  // 51002：领取/上报均被上游拒绝（VIP 到期与否都一样，实测）。原因未公开，
+  // 可能是活动风控/频次限制——如实展示，不编造含义。
+  if (Number(code) === 51002) {
+    return '领取失败：酷狗活动暂不可领（错误码 51002），请稍后再试或在官方 App 内领取';
+  }
+  if (detail.includes('已领') || detail.includes('已经领')) {
+    return '今天已经领过了';
+  }
+  if (detail) {
+    const suffix = hasCode && !detail.includes(String(code)) ? `（错误码 ${code}）` : '';
+    return `领取失败：${detail}${suffix}`;
+  }
+  if (hasCode) {
+    return `领取失败：酷狗返回错误码 ${code}`;
+  }
+  return '领取失败：酷狗未返回具体原因';
+}
+
+export async function ensureVipDeviceReady(): Promise<VipDeviceResult> {
+  try {
+    // This is an ensure operation, not a device reset. The backend registers
+    // an unregistered/legacy device and otherwise returns the persisted one.
+    // Forcing every restored session makes r_register_dev rotate a valid dfid
+    // and destabilizes protected APIs. A real 20017 still has one isolated
+    // refresh/retry in the native user-playlist route.
+    const result = await apiPost<any>('/register/dev');
+    const data = result?.data && typeof result.data === 'object' ? result.data : {};
+    const registered = data.registered === true;
+    if (result?.status === 1 && registered && isUsableDfid(data.dfid)) {
+      userStore.deviceReady = true;
+      return { ok: true };
+    }
+    userStore.deviceReady = false;
+    return { ok: false, error: 'device_registration_failed' };
+  } catch (error: any) {
+    userStore.deviceReady = false;
+    const message = error?.message || String(error);
+    if (message.includes('request_timeout')) {
+      return { ok: false, error: 'request_timeout' };
+    }
+    if (message.includes('circuit_open')) {
+      return { ok: false, error: 'circuit_open' };
+    }
+    return { ok: false, error: 'device_registration_failed' };
+  }
+}
+
 export async function checkLoginStatus() {
   userStore.loading = true;
   try {
@@ -57,73 +163,39 @@ export async function checkLoginStatus() {
       userStore.userId = String(detail.data.userid || '');
       userStore.username = detail.data.nickname || detail.data.username || '听歌用户';
       userStore.avatar = detail.data.pic || detail.data.avatar || '';
-      userStore.isLoggedIn = true;
+      userStore.deviceReady = false;
 
-      // Reconcile favorites for this user (resolves the liked playlist, pages
-      // in its tracks, and replays any persisted offline outbox). Fire-and-
-      // forget: favorite sync must not block the login flow.
-      void favoriteStore.onLogin(userStore.userId);
-
-      // Trigger lazy device registration with KuGou's risk service so that
+      // Register before any VIP claim so the request cannot race ahead with
+      // the placeholder dfid="-". The backend is idempotent once registered.
       // /song/url returns full VIP audio (instead of 60s previews) and
       // /user/playlist stops returning error_code 20017. The backend is
-      // idempotent — re-calls are cheap once registered=true.
-      apiPost('/register/dev').catch(e => console.warn('Device upgrade failed', e));
+      // idempotent — re-calls return the persisted device once registered=true.
+      const deviceResult = await ensureVipDeviceReady();
+      userStore.isLoggedIn = true;
+      if (!deviceResult.ok) {
+        console.warn('Device upgrade failed', deviceResult.error);
+      } else {
+        // Playlist-backed favorites use the same registered-device contract.
+        // Publish login first, then reconcile after registration has completed.
+        void favoriteStore.onLogin(userStore.userId);
+      }
 
       // VIP 解析抽到 vipResolver.resolveVip（纯函数，有单元测试覆盖）。
       // 规则摘要：顶层 is_vip/vip_type → 付费；busi_vip[svip] 未过期 → 临时 SVIP；
       // 到期时间取所有来源里"最晚且未过期"的。旧"顶层短路"bug 已由测试锁定。
       try {
         const vip = await apiGet<any>('/user/vip/detail');
-        if (vip && vip.status === 1 && vip.data) {
-          const r = resolveVip(vip.data, Date.now());
-          userStore.vipLevel = r.vipLevel;
-          userStore.vipType = r.vipType;
-          userStore.isVip = r.isVip;
-          userStore.vipEndDate = r.vipEndDate;
-
-          // Backfill avatar/nickname if /user/vip/detail surfaced them.
-          if (r.nickname && !userStore.username.startsWith(r.nickname)) {
-            userStore.username = r.nickname;
-          }
-          if (r.pic && !userStore.avatar) {
-            userStore.avatar = r.pic;
-          }
-        } else {
-          resetVipState();
+        const outcome = applyVipSnapshot(vip, { allowDowngrade: true });
+        if (outcome === 'kept') {
+          console.warn('VIP detail returned no authoritative state; keeping prior VIP state');
         }
       } catch (e) {
         console.warn('VIP detail refresh failed; keeping login state', e);
-        resetVipState();
       }
 
-      // Auto-claim the daily free VIP on session/auto-login. claimVip() is only
-      // wired to the manual login button (LoginView), so an app restart that
-      // restores the session via checkLoginStatus would skip it and /song/url
-      // would return 60s preview URLs -> HTML5 media error ~60s into playback.
-      // Fire-and-forget; idempotent (an already-claimed day returns a business
-      // error we swallow). No UI side effects (no loading/claimMessage).
-      if (!userStore.isVip) {
-        void apiGet<any>('/youth/listen/song')
-          .then(async (listen) => {
-            if (listen?.status !== 1) return; // already claimed today, or business error
-            try {
-              const vip = await apiGet<any>('/user/vip/detail');
-              if (vip?.status === 1 && vip?.data) {
-                const r = resolveVip(vip.data, Date.now());
-                userStore.vipLevel = r.vipLevel;
-                userStore.vipType = r.vipType;
-                userStore.isVip = r.isVip;
-                userStore.vipEndDate = r.vipEndDate;
-              }
-            } catch {
-              /* keep prior state */
-            }
-          })
-          .catch(() => {
-            /* VIP claim is best-effort; don't block login */
-          });
-      }
+      // 不再静默自动领取：每日免费 VIP 应由用户在账户中心手动领取，
+      // 自动续领会让 VIP 状态永不过期（用户反馈“vip一直无法过期”），
+      // 且对标准 token 的播放无任何帮助。
     } else {
       resetLoginState();
     }
@@ -143,43 +215,52 @@ export async function claimVip() {
   userStore.loading = true;
   userStore.claimMessage = '正在领取每日免费 VIP…';
   try {
+    const deviceResult = await ensureVipDeviceReady();
+    if (!deviceResult.ok) {
+      userStore.claimMessage = formatDeviceGateFailure(deviceResult);
+      return;
+    }
+    void favoriteStore.onLogin(userStore.userId);
     const listen = await apiGet<any>('/youth/listen/song');
 
     // 关键：listen_song 成功响应是 {status:1, data:"", error_msg:""} —— 不携带到期时间。
     // 成功与否只看 status===1；到期时间的权威来源是 /user/vip/detail (get_union_vip)。
-    // 旧逻辑把成功挂在不存在的 data.ad_vip_end_time 上，导致领取成功却永远显示“领取失败”。
     if (listen?.status === 1) {
       userStore.isVip = true;
-      // 领取已成功；到期时间刷新是 best-effort — 失败也要报成功，不能反报领取失败。
+      userStore.claimMessage = '领取成功，正在同步权益';
       try {
         const vip = await apiGet<any>('/user/vip/detail');
-        if (vip?.status === 1 && vip?.data) {
-          const r = resolveVip(vip.data, Date.now());
-          userStore.vipLevel = r.vipLevel;
-          userStore.vipType = r.vipType;
-          userStore.isVip = r.isVip;
-          userStore.vipEndDate = r.vipEndDate;
+        const outcome = applyVipSnapshot(vip, { allowDowngrade: false });
+        if (outcome === 'applied' && userStore.isVip) {
+          userStore.claimMessage = userStore.vipEndDate
+            ? `✓ 已激活每日 VIP，到期：${userStore.vipEndDate}`
+            : '✓ 已激活每日 VIP';
+        } else if (outcome === 'pending') {
+          userStore.claimMessage = '领取成功，权益状态同步中';
+        } else {
+          userStore.claimMessage = '领取上报成功，会员状态查询失败';
         }
       } catch {
-        /* keep the successful claim; expiry just refreshes later */
+        userStore.claimMessage = '领取上报成功，会员状态查询失败';
       }
-      userStore.claimMessage = userStore.vipEndDate
-        ? `✓ 已激活每日 VIP，到期：${userStore.vipEndDate}`
-        : '✓ 已激活每日 VIP';
       return;
     }
 
-    const errMsg = listen?.error_msg || listen?.error || '';
-    if (errMsg.includes('已领') || errMsg.includes('已经领')) {
+    if (Number(listen?.error_code) === 130012) {
       userStore.claimMessage = '今天已经领过了';
-    } else if (errMsg) {
-      userStore.claimMessage = `领取失败：${errMsg}`;
-    } else {
-      userStore.claimMessage = '领取失败：需要在酷狗官方 App 内领取';
+      try {
+        const vip = await apiGet<any>('/user/vip/detail');
+        applyVipSnapshot(vip, { allowDowngrade: false });
+      } catch {
+        /* keep "already claimed"; only authoritative VIP may update state */
+      }
+      return;
     }
+
+    userStore.claimMessage = formatVipClaimFailure(listen);
   } catch (e: any) {
     console.error('Claim VIP error', e);
-    userStore.claimMessage = '领取失败：网络异常或接口调用出错';
+    userStore.claimMessage = `领取失败：${describeBackendError(e, '网络异常或接口调用出错')}`;
   } finally {
     userStore.loading = false;
   }

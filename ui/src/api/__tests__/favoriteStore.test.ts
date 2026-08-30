@@ -39,7 +39,7 @@ function likedPlaylistResponse(listid: string, userid: string) {
           listname: '我喜欢的音乐',
           songcount: 0,
         },
-        { global_collection_id: `collection_3_${userid}_other_0`, listid: 'other', listname: '通勤精选', songcount: 3 },
+        { global_collection_id: `collection_3_${userid}_888_0`, listid: '888', listname: '通勤精选', songcount: 3 },
       ],
     },
   };
@@ -50,12 +50,12 @@ let currentUser = 'u1';
 function setupLiked(tracks: Track[], total = tracks.length) {
   mockApiGet.mockImplementation((path: string, query?: Record<string, unknown>) => {
     if (path === '/user/playlist') {
-      const listid = currentUser === 'uA' ? 'aL' : currentUser === 'uB' ? 'bL' : '999';
+      const listid = currentUser === 'uA' ? '101' : currentUser === 'uB' ? '102' : '999';
       return Promise.resolve(likedPlaylistResponse(listid, currentUser));
     }
     if (path === '/playlist/track/all') {
       const id = String(query?.id ?? '');
-      const listid = currentUser === 'uA' ? 'aL' : currentUser === 'uB' ? 'bL' : '999';
+      const listid = currentUser === 'uA' ? '101' : currentUser === 'uB' ? '102' : '999';
       const useTracks = id.includes(listid) ? tracks : [];
       return Promise.resolve({
         status: 1,
@@ -97,12 +97,33 @@ describe('favoriteStore', () => {
       setupLiked([]);
       await favoriteStore.onLogin('u1');
       expect(favoriteStore.getLikedPlaylist()?.listid).toBe('999');
+      expect(favoriteStore.getLikedPlaylist()?.gid).toBe('collection_3_u1_999_0');
 
       // Second reconcile reuses the persisted id (no /user/playlist refetch).
       mockApiGet.mockClear();
       await favoriteStore.reconcile();
       expect(mockApiGet).not.toHaveBeenCalledWith('/user/playlist', expect.anything());
-      expect(mockApiGet).toHaveBeenCalledWith('/playlist/track/all', expect.anything());
+      expect(mockApiGet).toHaveBeenCalledWith(
+        '/playlist/track/all',
+        expect.objectContaining({ id: 'collection_3_u1_999_0' }),
+      );
+    });
+
+    it('ignores a persisted liked playlist without a collection GID and re-resolves', async () => {
+      favoriteRepository.saveLikedPlaylist('u1', {
+        gid: '999',
+        listid: '999',
+        name: '我喜欢的音乐',
+      });
+      setupLiked([]);
+      await favoriteStore.onLogin('u1');
+      expect(favoriteStore.getLikedPlaylist()?.gid).toBe('collection_3_u1_999_0');
+      expect(favoriteStore.getLikedPlaylist()?.listid).toBe('999');
+      expect(mockApiGet).toHaveBeenCalledWith('/user/playlist', expect.anything());
+      expect(mockApiGet).toHaveBeenCalledWith(
+        '/playlist/track/all',
+        expect.objectContaining({ id: 'collection_3_u1_999_0' }),
+      );
     });
 
     it('hydrates a single liked page incrementally (PlaylistView pagination sync)', async () => {
@@ -266,13 +287,13 @@ describe('favoriteStore', () => {
       let resolveATracks!: (v: unknown) => void;
       mockApiGet.mockImplementation((path: string, query?: Record<string, unknown>) => {
         if (path === '/user/playlist') {
-          const listid = currentUser === 'uA' ? 'aL' : 'bL';
+          const listid = currentUser === 'uA' ? '101' : '102';
           return Promise.resolve(likedPlaylistResponse(listid, currentUser));
         }
         if (path === '/playlist/track/all') {
           const id = String(query?.id ?? '');
-          if (id.includes('aL')) return new Promise((r) => { resolveATracks = r; });
-          if (id.includes('bL')) {
+          if (id.includes('101')) return new Promise((r) => { resolveATracks = r; });
+          if (id.includes('102')) {
             return Promise.resolve({ status: 1, data: { list: [mkTrack('b1', '2')], total: 1 } });
           }
           return Promise.resolve({ status: 1, data: { list: [], total: 0 } });

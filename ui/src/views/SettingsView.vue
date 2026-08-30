@@ -1,7 +1,7 @@
 ﻿<script setup lang="ts">
 import { ref, onMounted } from 'vue';
 import { apiGet, apiPost } from '../api/backend';
-import { checkLoginStatus } from '../api/userStore';
+import { checkLoginStatus, ensureVipDeviceReady, formatVipClaimFailure } from '../api/userStore';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { openUrl } from '@tauri-apps/plugin-opener';
@@ -263,12 +263,17 @@ async function claimListenVip() {
   listenVipLoading.value = true;
   listenVipMsg.value = '';
   try {
+    const deviceResult = await ensureVipDeviceReady();
+    if (!deviceResult.ok) {
+      listenVipMsg.value = `领取失败：设备注册失败${deviceResult.error ? `（${deviceResult.error}）` : ''}`;
+      return;
+    }
     const res = await apiGet<any>('/youth/listen/song');
     if (res?.status === 1) {
       listenVipMsg.value = '✓ 听歌领 VIP 成功';
       await checkLoginStatus(); // 领取成功后刷新持久 VIP 状态/到期时间（权威来源 get_union_vip）
     } else {
-      listenVipMsg.value = res?.error_msg || res?.error || '领取失败（需要酷狗官方 App 内领取）';
+      listenVipMsg.value = formatVipClaimFailure(res);
     }
   } catch (e: any) {
     listenVipMsg.value = '出错：' + (e?.message || String(e));
@@ -281,12 +286,17 @@ async function claimAdVip() {
   adVipLoading.value = true;
   adVipMsg.value = '';
   try {
+    const deviceResult = await ensureVipDeviceReady();
+    if (!deviceResult.ok) {
+      adVipMsg.value = `领取失败：设备注册失败${deviceResult.error ? `（${deviceResult.error}）` : ''}`;
+      return;
+    }
     const res = await apiGet<any>('/youth/vip/ad');
     if (res?.status === 1) {
       adVipMsg.value = '✓ 领取成功';
       await checkLoginStatus(); // 领取成功后刷新持久 VIP 状态/到期时间
     } else {
-      adVipMsg.value = res?.error_msg || res?.error || '领取失败（需要酷狗官方 App 内领取）';
+      adVipMsg.value = formatVipClaimFailure(res);
     }
   } catch (e: any) {
     adVipMsg.value = '出错：' + (e?.message || String(e));
@@ -450,7 +460,9 @@ async function copyDiag() {
             </h3>
 
             <p class="settings-hint">
-              登录后 App 会自动生成并通过 <code>/register/dev</code> 注册设备指纹（dfid / mid / uuid），正常播放 VIP 音频与歌单<strong>无需手动设置</strong>。下面三个框是<strong>可选的高级覆盖</strong>——若你想用从酷狗官方 App / 网页抓到的真实指纹替代自动生成的，填进去即可，所有 KuGou API 调用都会改用你输入的指纹。（格式：dfid 24 位 base64，mid 约 32–40 位 hex，uuid 32 位 hex / GUID）
+              本地初始 dfid 为 <code>-</code>。只有 <code>/risk/v2/r_register_dev</code> 返回并持久化的 dfid 才视为 registered。登录后 App 会通过 <code>/register/dev</code> 完成这次注册（dfid / mid / uuid），正常播放与领取<strong>无需手动设置</strong>。
+              <br>
+              下面三个框是<strong>诊断用手工覆盖</strong>：填入从酷狗官方 App / 网页抓到的指纹后，后续请求会改用这些值，但<strong>不保证上游接受</strong>，也不会把手工 dfid 自动标记为 registered。（格式：dfid 24 位 base64，mid 约 32–40 位 hex，uuid 32 位 hex / GUID）
               <br>
               <strong>怎么获取</strong>：浏览器打开
               <button
@@ -460,8 +472,6 @@ async function copyDiag() {
                 @click="openDeviceHelp"
               >m.kugou.com</button>
               → F12 → Network → 找任意请求里的 query 字符串 → 复制 <code>dfid=</code><code>mid=</code><code>uuid=</code> 三个字段。
-              <br>
-              <strong class="settings-warn">注意</strong>：三个框留空即用 App 自动生成 / 注册的指纹，绝大多数情况够用——随机生成的 dfid 也能正常领 VIP 与播放。仅当个别接口因风控偶发受限（如歌单 20017、song/url 只给 60s 试听）时，再尝试填入官方渠道抓到的真实指纹覆盖。
             </p>
 
             <!-- Use monospace font for these three inputs because dfid contains

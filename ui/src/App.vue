@@ -44,7 +44,8 @@ const pageTransitionMode = computed<'out-in' | undefined>(() =>
 const isAuroraOverlap = computed(() => themeStore.skinId.value === 'aurora');
 
 /** Overlay windows (island / desktop lyric) render the bare view — no shell, no player init. */
-const isOverlayRoute = computed(() => appRouter.currentRoute.value.meta.overlay === true);
+const isOverlayWindow = typeof location !== 'undefined' && location.pathname.startsWith('/overlay/');
+const isOverlayRoute = computed(() => isOverlayWindow || appRouter.currentRoute.value.meta.overlay === true);
 
 const isQueueOpen = ref(false);
 const networkDegraded = ref(false);
@@ -75,16 +76,24 @@ async function updateNetworkBanner() {
   }
 }
 
-function handleNavigate(view: string, params?: { id?: string; name?: string }) {
-  if (view === routeNames.playlist && params?.id) {
-    void appRouter.push({
-      name: routeNames.playlist,
-      params: { id: params.id },
-      query: params.name ? { name: params.name } : {},
-    });
-    return;
+async function handleNavigate(view: string, params?: { id?: string; name?: string; source?: string }): Promise<boolean> {
+  try {
+    if (view === routeNames.playlist && params?.id) {
+      await appRouter.push({
+        name: routeNames.playlist,
+        params: { id: params.id },
+        query: {
+          ...(params.name ? { name: params.name } : {}),
+          ...(params.source ? { source: params.source } : {}),
+        },
+      });
+    } else {
+      await appRouter.push({ name: view as AppRouteName });
+    }
+    return appRouter.currentRoute.value.name === view;
+  } catch {
+    return false;
   }
-  void appRouter.push({ name: view as AppRouteName });
 }
 
 function handleSearch(query: string) {
@@ -204,7 +213,7 @@ onUnmounted(() => {
 
     <template #playerbar>
       <PlayerBar
-        @navigate="handleNavigate"
+        :navigate="handleNavigate"
         @toggle-queue="isQueueOpen = !isQueueOpen"
       />
     </template>

@@ -288,6 +288,31 @@ describe('Html5AudioBackend', () => {
     expect(attachCount.b).toBe(1);
   });
 
+  it('playUrl disconnects EQ before assigning a new src', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    audio.src = 'https://example.com/old.mp3';
+    const callOrder: string[] = [];
+    Object.defineProperty(audio, 'src', {
+      configurable: true,
+      get: () => (audio.getAttribute('src') || ''),
+      set: (v: string) => {
+        callOrder.push(`src=${v}`);
+        audio.setAttribute('src', v);
+      },
+    });
+    const disconnectEq = vi.fn(() => callOrder.push('disconnectEq'));
+    const backend = new Html5AudioBackend(audio, { disconnectEq });
+
+    await backend.playUrl('https://example.com/new.mp3');
+
+    expect(callOrder[0]).toBe('disconnectEq');
+    expect(callOrder.some((step) => step.startsWith('src='))).toBe(true);
+    expect(callOrder.indexOf('disconnectEq')).toBeLessThan(
+      callOrder.findIndex((step) => step.startsWith('src=')),
+    );
+  });
+
   it('stop disconnects EQ before clearing source', async () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
     audio.pause = vi.fn();

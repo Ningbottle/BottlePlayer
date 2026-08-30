@@ -7,7 +7,12 @@ vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: vi.fn() }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 const mockApiGet = vi.fn();
 vi.mock('../../api/backend', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
-vi.mock('../../api/userStore', () => ({ checkLoginStatus: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('../../api/userStore', () => ({
+  checkLoginStatus: vi.fn().mockResolvedValue(undefined),
+  ensureVipDeviceReady: vi.fn().mockResolvedValue({ ok: true }),
+  formatVipClaimFailure: vi.fn((result: any) =>
+    result?.error_code ? `领取失败：酷狗返回错误码 ${result.error_code}` : '领取失败：酷狗未返回具体原因'),
+}));
 vi.mock('../../api/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
 
 import SettingsView from '../SettingsView.vue';
@@ -15,6 +20,7 @@ import { openUrl } from '@tauri-apps/plugin-opener';
 import { playbackDiagnostics } from '../../api/playbackDiagnostics';
 import { useAppearanceStore, __resetForTest as resetAppearance } from '../../api/appearanceStore';
 import { __resetForTest as resetTheme } from '../../api/themeStore';
+import { ensureVipDeviceReady } from '../../api/userStore';
 
 // Reduced-motion stub: makes GSAP transition hooks (transitionEnter/Leave)
 // call done() synchronously so <Transition> leave/enter completes within the
@@ -78,6 +84,8 @@ describe('SettingsView sub-navigation', () => {
     resetTheme();
     mockApiGet.mockReset();
     mockApiGet.mockResolvedValue({ status: 1, data: {} });
+    vi.mocked(ensureVipDeviceReady).mockReset();
+    vi.mocked(ensureVipDeviceReady).mockResolvedValue({ ok: true });
   });
   afterEach(() => {
     wrapper?.unmount();
@@ -124,6 +132,99 @@ describe('SettingsView sub-navigation', () => {
     await flushPromises();
     expect(store.mode.value).toBe('dark');
     expect(document.documentElement.dataset.mode).toBe('dark');
+  });
+
+  it('shows the upstream VIP error code instead of an official-app guess', async () => {
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/listen/song') {
+        return { status: 0, error_code: 51002, error_msg: '' };
+      }
+      return { status: 1, data: {} };
+    });
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    const vipNav = wrapper.findAll('[data-test="settings-nav-item"]').find((node) => node.text() === 'VIP');
+    await vipNav!.trigger('click');
+    await flushPromises();
+
+    const claimButton = wrapper.findAll('button').find((button) => button.text().includes('听歌领 VIP'));
+    await claimButton!.trigger('click');
+    await flushPromises();
+
+    const vipSection = wrapper.get('[data-test="settings-section-vip"]');
+    expect(vipSection.text()).toContain('51002');
+    expect(vipSection.text()).not.toContain('需要酷狗官方 App 内领取');
+  });
+
+  it('calls ensureVipDeviceReady before listen and ad VIP requests', async () => {
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    const vipNav = wrapper.findAll('[data-test="settings-nav-item"]').find((node) => node.text() === 'VIP');
+    await vipNav!.trigger('click');
+    await flushPromises();
+
+    const listenButton = wrapper.findAll('button').find((button) => button.text().includes('听歌领 VIP'));
+    await listenButton!.trigger('click');
+    await flushPromises();
+    expect(ensureVipDeviceReady).toHaveBeenCalled();
+    expect(mockApiGet).toHaveBeenCalledWith('/youth/listen/song');
+
+    vi.mocked(ensureVipDeviceReady).mockClear();
+    mockApiGet.mockClear();
+    mockApiGet.mockResolvedValue({ status: 1, data: {} });
+    const adButton = wrapper.findAll('button').find((button) => button.text().includes('看广告领 VIP'));
+    await adButton!.trigger('click');
+    await flushPromises();
+    expect(ensureVipDeviceReady).toHaveBeenCalled();
+    expect(mockApiGet).toHaveBeenCalledWith('/youth/vip/ad');
+  });
+
+  it('does not send listen or ad activity requests when device registration fails', async () => {
+    vi.mocked(ensureVipDeviceReady).mockResolvedValue({
+      ok: false,
+      error: 'device_registration_failed',
+    });
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    const vipNav = wrapper.findAll('[data-test="settings-nav-item"]').find((node) => node.text() === 'VIP');
+    await vipNav!.trigger('click');
+    await flushPromises();
+
+    mockApiGet.mockClear();
+    const listenButton = wrapper.findAll('button').find((button) => button.text().includes('听歌领 VIP'));
+    await listenButton!.trigger('click');
+    await flushPromises();
+    expect(mockApiGet).not.toHaveBeenCalledWith('/youth/listen/song');
+    expect(wrapper.get('[data-test="settings-section-vip"]').text()).toContain('设备注册失败');
+
+    mockApiGet.mockClear();
+    const adButton = wrapper.findAll('button').find((button) => button.text().includes('看广告领 VIP'));
+    await adButton!.trigger('click');
+    await flushPromises();
+    expect(mockApiGet).not.toHaveBeenCalledWith('/youth/vip/ad');
+    expect(wrapper.get('[data-test="settings-section-vip"]').text()).toContain('设备注册失败');
+  });
+
+  it('does not guess that ad VIP must be claimed in the official app', async () => {
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad') {
+        return { status: 0, error_code: 51003, error_msg: '' };
+      }
+      return { status: 1, data: {} };
+    });
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    const vipNav = wrapper.findAll('[data-test="settings-nav-item"]').find((node) => node.text() === 'VIP');
+    await vipNav!.trigger('click');
+    await flushPromises();
+
+    const claimButton = wrapper.findAll('button').find((button) => button.text().includes('看广告领 VIP'));
+    await claimButton!.trigger('click');
+    await flushPromises();
+
+    const vipSection = wrapper.get('[data-test="settings-section-vip"]');
+    expect(vipSection.text()).toContain('51003');
+    expect(vipSection.text()).not.toContain('需要酷狗官方 App 内领取');
   });
 });
 

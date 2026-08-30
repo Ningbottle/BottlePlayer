@@ -113,8 +113,9 @@ vi.mock('../../components/Topbar.vue', () => ({
 vi.mock('../../components/PlayerBar.vue', () => ({
   default: {
     name: 'PlayerBar',
+    props: ['navigate'],
     emits: ['navigate', 'toggle-queue'],
-    template: '<footer><button data-test="player-lyric" @click="$emit(\'navigate\', \'lyric\')" /><button data-test="player-queue" @click="$emit(\'toggle-queue\')" /></footer>',
+    template: '<footer><button data-test="player-lyric" @click="navigate ? navigate(\'lyric\') : $emit(\'navigate\', \'lyric\')" /><button data-test="player-queue" @click="$emit(\'toggle-queue\')" /></footer>',
   },
 }));
 vi.mock('../../components/QueuePanel.vue', () => ({
@@ -148,7 +149,16 @@ vi.mock('../../api/themeStore', async () => {
 });
 vi.mock('../../api/lyricFullscreen', async () => {
   const { ref } = await import('vue');
-  return { lyricFullscreen: ref(false), setLyricFullscreen: vi.fn() };
+  const lyricFullscreen = ref(false);
+  return {
+    lyricFullscreen,
+    setLyricFullscreen: vi.fn((value: boolean) => {
+      lyricFullscreen.value = value;
+    }),
+    clearLyricFullscreenUnlessOnLyric: vi.fn((isLyricRoute: boolean) => {
+      if (!isLyricRoute) lyricFullscreen.value = false;
+    }),
+  };
 });
 
 import HomeView from '../../views/HomeView.vue';
@@ -157,6 +167,7 @@ import LoginView from '../../views/LoginView.vue';
 import PlaylistView from '../../views/PlaylistView.vue';
 import SearchView from '../../views/SearchView.vue';
 import App from '../../App.vue';
+import { initPlayer, initPlayerBackend } from '../../api/playerStore';
 import { registerPageTransition } from '../navigationLifecycle';
 import { routeNames, routeRecords } from '../routes';
 import { createAppRouter } from '../router';
@@ -475,6 +486,25 @@ describe('navigation route contract', () => {
       expect(transitionEnter).toHaveBeenCalled();
     } finally {
       wrapper.unmount();
+    }
+  });
+
+  it('does not boot a player when the window URL is an overlay path even if the router is still on a page route', async () => {
+    vi.mocked(initPlayer).mockClear();
+    vi.mocked(initPlayerBackend).mockClear();
+    const previous = `${location.pathname}${location.search}${location.hash}`;
+    window.history.replaceState({}, '', '/overlay/island');
+    const router = createAppRouter();
+    await router.push({ name: routeNames.home });
+    await router.isReady();
+    const wrapper = mount(App, { global: { plugins: [router] } });
+    try {
+      await nextTick();
+      expect(initPlayer, 'overlay windows must not call initPlayer').not.toHaveBeenCalled();
+      expect(initPlayerBackend, 'overlay windows must not call initPlayerBackend').not.toHaveBeenCalled();
+    } finally {
+      wrapper.unmount();
+      window.history.replaceState({}, '', previous || '/');
     }
   });
 

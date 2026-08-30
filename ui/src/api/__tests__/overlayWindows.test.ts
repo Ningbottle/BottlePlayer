@@ -1,7 +1,16 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { getByLabelMock, webviewWindowMock } = vi.hoisted(() => ({
+const {
+  currentMonitorMock,
+  getByLabelMock,
+  getCurrentWindowMock,
+  setPositionMock,
+  webviewWindowMock,
+} = vi.hoisted(() => ({
+  currentMonitorMock: vi.fn(),
   getByLabelMock: vi.fn(),
+  getCurrentWindowMock: vi.fn(),
+  setPositionMock: vi.fn(),
   webviewWindowMock: vi.fn(),
 }));
 
@@ -11,21 +20,39 @@ vi.mock('@tauri-apps/api/webviewWindow', () => ({
   }),
 }));
 vi.mock('@tauri-apps/api/window', () => ({
-  getCurrentWindow: vi.fn(),
-  currentMonitor: vi.fn(async () => null),
+  getCurrentWindow: getCurrentWindowMock,
+  currentMonitor: currentMonitorMock,
 }));
 vi.mock('@tauri-apps/api/dpi', () => ({
-  LogicalPosition: class {
+  PhysicalPosition: class {
     constructor(public x: number, public y: number) {}
   },
 }));
 
-import { snapToEdges, anchorPosition, loadOverlayPos, saveOverlayPos, resolveCreatePos, loadLyricPrefs, saveLyricPrefs, loadLyricSize, saveLyricSize, toggleOverlay, SNAP_MARGIN } from '../overlayWindows';
+import {
+  SNAP_MARGIN,
+  anchorPosition,
+  loadLyricPrefs,
+  loadLyricSize,
+  loadOverlayPos,
+  moveCurrentOverlayTo,
+  resolveCreatePos,
+  saveLyricPrefs,
+  saveLyricSize,
+  saveOverlayPos,
+  settleCurrentOverlay,
+  snapToEdges,
+  toggleOverlay,
+} from '../overlayWindows';
 
 describe('overlay toggle result', () => {
   beforeEach(() => {
     getByLabelMock.mockReset();
+    getCurrentWindowMock.mockReset();
+    currentMonitorMock.mockReset();
+    setPositionMock.mockReset();
     webviewWindowMock.mockReset();
+    localStorage.clear();
     delete (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__;
   });
 
@@ -44,21 +71,58 @@ describe('overlay toggle result', () => {
 
   it('creates the island with a transparent first-frame background', async () => {
     const setBackgroundColor = vi.fn().mockResolvedValue(undefined);
+    const show = vi.fn().mockResolvedValue(undefined);
+    const callbacks: { created?: () => void } = {};
     (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
     getByLabelMock.mockResolvedValue(null);
     webviewWindowMock.mockImplementation(function MockWebviewWindow() {
       return {
-      once: vi.fn().mockResolvedValue(() => {}),
-      setBackgroundColor,
+        once: vi.fn(async (event: string, callback: () => void) => {
+          if (event === 'tauri://created') callbacks.created = callback;
+          return () => {};
+        }),
+        setBackgroundColor,
+        show,
       };
     });
 
     await expect(toggleOverlay('island')).resolves.toBe('opened');
     expect(webviewWindowMock).toHaveBeenCalledWith('overlay-island', expect.objectContaining({
+      width: 236,
+      height: 40,
+      y: 0,
+      visible: false,
       transparent: true,
       backgroundColor: { red: 0, green: 0, blue: 0, alpha: 0 },
     }));
+    expect(setBackgroundColor).not.toHaveBeenCalled();
+    expect(callbacks.created).toBeTypeOf('function');
+    callbacks.created?.();
+    await Promise.resolve();
     expect(setBackgroundColor).toHaveBeenCalledWith({ red: 0, green: 0, blue: 0, alpha: 0 });
+    expect(show).toHaveBeenCalledOnce();
+    expect(setBackgroundColor.mock.invocationCallOrder[0]).toBeLessThan(show.mock.invocationCallOrder[0]);
+  });
+
+  it('creates a compact top-docked lyric overlay', async () => {
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+    getByLabelMock.mockResolvedValue(null);
+    webviewWindowMock.mockImplementation(function MockWebviewWindow() {
+      return {
+        once: vi.fn().mockResolvedValue(() => {}),
+        setBackgroundColor: vi.fn().mockResolvedValue(undefined),
+        show: vi.fn().mockResolvedValue(undefined),
+      };
+    });
+
+    await expect(toggleOverlay('lyric')).resolves.toBe('opened');
+    expect(webviewWindowMock).toHaveBeenCalledWith('overlay-lyric', expect.objectContaining({
+      width: 560,
+      height: 80,
+      minWidth: 420,
+      maxWidth: 640,
+      y: 0,
+    }));
   });
 });
 
@@ -92,7 +156,7 @@ describe('anchorPosition', () => {
   const screen = { w: 1920, h: 1080 };
 
   it('places corners with the margin', () => {
-    expect(anchorPosition('top-left', win, screen)).toEqual({ x: 16, y: 16 });
+    expect(anchorPosition('top-left', win, screen)).toEqual({ x: 16, y: 0 });
     expect(anchorPosition('bottom-right', win, screen)).toEqual({
       x: 1920 - 340 - 16,
       y: 1080 - 88 - 16,
@@ -109,7 +173,7 @@ describe('anchorPosition', () => {
   it('mixes edges: top-center and center-left', () => {
     expect(anchorPosition('top-center', win, screen)).toEqual({
       x: Math.round((1920 - 340) / 2),
-      y: 16,
+      y: 0,
     });
     expect(anchorPosition('center-left', win, screen)).toEqual({
       x: 16,
@@ -121,12 +185,12 @@ describe('anchorPosition', () => {
 describe('resolveCreatePos', () => {
   it('places a first-run island at the top-center of the screen', () => {
     const pos = resolveCreatePos({ width: 340, height: 88 }, { w: 1920, h: 1080 });
-    expect(pos).toEqual({ x: Math.round((1920 - 340) / 2), y: 16 });
+    expect(pos).toEqual({ x: Math.round((1920 - 340) / 2), y: 0 });
   });
 
   it('places a first-run lyric bar top-center too', () => {
     const pos = resolveCreatePos({ width: 720, height: 96 }, { w: 1920, h: 1080 });
-    expect(pos).toEqual({ x: Math.round((1920 - 720) / 2), y: 16 });
+    expect(pos).toEqual({ x: Math.round((1920 - 720) / 2), y: 0 });
   });
 });
 
@@ -143,10 +207,45 @@ describe('lyric prefs persistence', () => {
 
   it('persists lyric width with bounds', () => {
     expect(loadLyricSize()).toBeNull();
-    saveLyricSize(860);
-    expect(loadLyricSize()).toBe(860);
+    saveLyricSize(600);
+    expect(loadLyricSize()).toBe(600);
+    localStorage.setItem('overlay_lyric_size', '860');
+    expect(loadLyricSize()).toBeNull();
     localStorage.setItem('overlay_lyric_size', '100');
     expect(loadLyricSize()).toBeNull();
+  });
+});
+
+describe('top docking', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    setPositionMock.mockReset().mockResolvedValue(undefined);
+    getCurrentWindowMock.mockReset().mockReturnValue({
+      outerPosition: vi.fn(async () => ({ x: 120, y: 420 })),
+      outerSize: vi.fn(async () => ({ width: 560, height: 80 })),
+      setPosition: setPositionMock,
+    });
+    currentMonitorMock.mockReset().mockResolvedValue({
+      size: { width: 1920, height: 1080 },
+    });
+    (window as Window & { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__ = {};
+  });
+
+  it('returns both overlay kinds to the fixed top inset after dragging', async () => {
+    await settleCurrentOverlay('lyric');
+
+    expect(setPositionMock).toHaveBeenCalledWith(expect.objectContaining({ x: 120, y: 0 }));
+    expect(loadOverlayPos('lyric')).toEqual({ x: 120, y: 0 });
+  });
+
+  it('keeps a lyric anchor on the top edge even if a lower anchor is requested', async () => {
+    await moveCurrentOverlayTo('bottom-right', 'lyric');
+
+    expect(setPositionMock).toHaveBeenCalledWith(expect.objectContaining({
+      x: 1920 - 560 - 16,
+      y: 0,
+    }));
+    expect(loadOverlayPos('lyric')).toEqual({ x: 1920 - 560 - 16, y: 0 });
   });
 });
 

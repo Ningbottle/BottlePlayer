@@ -939,9 +939,9 @@ describe('playerStore integration', () => {
 
     resumeAudioContext();
     await vi.waitFor(() => expect(eqState.available).toBe(false));
+    await vi.waitFor(() => expect(sourceNodes[0]!.disconnect).toHaveBeenCalled());
 
     expect(audio.volume).toBe(0.55);
-    expect(sourceNodes[0]!.disconnect).toHaveBeenCalled();
     expect(eqState.reason).toContain('重试');
   });
 

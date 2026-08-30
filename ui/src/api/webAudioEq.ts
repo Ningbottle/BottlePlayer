@@ -87,6 +87,9 @@ export class WebAudioEq {
   /** Last user volume on the gainNode path (preserved across degradation). */
   private outputVolume = 1;
   private degradationTimer: ReturnType<typeof setTimeout> | null = null;
+  private currentAudio: HTMLAudioElement | null = null;
+  private fallbackElementVolume = 1;
+  private leaseId = 0;
 
   constructor(
     private readonly createCtx: AudioContextFactory,
@@ -98,20 +101,60 @@ export class WebAudioEq {
     this.doInit(opts);
   }
 
-  attachSource(audio: HTMLAudioElement): void {
-    if (!this.ctx || !this.workletNode || this.workletFailed) return;
+  attachSource(audio: HTMLAudioElement, fallbackVolume: number): boolean {
+    if (!this.ctx || !this.workletNode || this.workletFailed) return false;
 
     this.disconnectSource();
 
-    const capturable = audio as CapturableAudioElement;
-    capturable.volume = 0;
-    this.currentStream = capturable.captureStream();
-    this.sourceNode = this.ctx.createMediaStreamSource(this.currentStream);
-    this.sourceNode.connect(this.workletNode);
+    let stream: MediaStream | null = null;
+    let source: AudioNodeLike | null = null;
+    try {
+      stream = (audio as CapturableAudioElement).captureStream();
+      source = this.ctx.createMediaStreamSource(stream);
+      source.connect(this.workletNode);
+    } catch {
+      try {
+        source?.disconnect();
+      } catch {
+        /* already disconnected or never connected */
+      }
+      stream?.getAudioTracks().forEach((t) => t.stop());
+      audio.volume = fallbackVolume;
+      this.currentAudio = null;
+      this.sourceNode = null;
+      this.currentStream = null;
+      this.rerouted = false;
+      this.onDegradedCb?.();
+      return false;
+    }
+
+    this.currentAudio = audio;
+    this.fallbackElementVolume = fallbackVolume;
+    this.currentStream = stream;
+    this.sourceNode = source;
+    this.leaseId += 1;
+    audio.volume = 0;
     this.rerouted = true;
+    return true;
+  }
+
+  get currentLeaseId(): number {
+    return this.leaseId;
+  }
+
+  get contextState(): string {
+    return this.ctx?.state ?? 'closed';
+  }
+
+  releaseLease(leaseId: number): void {
+    if (leaseId !== this.leaseId) return;
+    this.disconnectSource();
   }
 
   disconnectSource(): void {
+    this.clearDegradationTimer();
+    const ownedAudio = this.currentAudio;
+    const restoreVolume = this.fallbackElementVolume;
     if (this.sourceNode) {
       this.sourceNode.disconnect();
       this.sourceNode = null;
@@ -121,6 +164,10 @@ export class WebAudioEq {
       this.currentStream = null;
     }
     this.rerouted = false;
+    this.currentAudio = null;
+    if (ownedAudio) {
+      ownedAudio.volume = restoreVolume;
+    }
   }
 
   setBand(index: number, gainDb: number, enabled: boolean): void {
@@ -145,7 +192,9 @@ export class WebAudioEq {
   /** User volume when EQ is rerouted (gainNode path). No-op when not rerouted. */
   setVolume(vol: number): void {
     this.outputVolume = vol;
-    if (!this.rerouted || !this.gainNode) return;
+    if (!this.rerouted) return;
+    this.fallbackElementVolume = vol;
+    if (!this.gainNode) return;
     this.gainNode.gain.value = vol;
   }
 
@@ -185,33 +234,27 @@ export class WebAudioEq {
     this.readyPromise = null;
   }
 
-  /** §3.3 / §4.4: fade gainNode out, disconnect worklet input, then unmute element. */
+  /** §3.3 / §4.4: fade gainNode out, then release the volume lease. */
   enterDegradation(audio: HTMLAudioElement, vol: number): void {
     this.clearDegradationTimer();
+    this.currentAudio = audio;
+    this.fallbackElementVolume = vol;
     this.rampGainTo(0);
-    if (this.sourceNode && this.workletNode) {
-      this.sourceNode.disconnect(this.workletNode);
-    }
-    if (this.currentStream) {
-      this.currentStream.getAudioTracks().forEach((t) => t.stop());
-      this.currentStream = null;
-    }
-    this.sourceNode = null;
-    this.rerouted = false;
     this.degradationTimer = setTimeout(() => {
       this.degradationTimer = null;
-      audio.volume = vol;
+      this.disconnectSource();
       this.onDegradedCb?.();
     }, GAIN_CROSSFADE_MS);
   }
 
-  /** §3.3 / §4.4: mute element, attachSource, fade gainNode back in. */
-  recoverFromDegradation(audio: HTMLAudioElement): void {
+  /** §3.3 / §4.4: reattach via the atomic lease, then fade gainNode back in. */
+  recoverFromDegradation(audio: HTMLAudioElement, fallbackVolume: number): boolean {
     this.clearDegradationTimer();
-    audio.volume = 0;
-    this.attachSource(audio);
+    const ok = this.attachSource(audio, fallbackVolume);
+    if (!ok) return false;
     this.rampGainTo(this.outputVolume);
     this.onRecoveredCb?.();
+    return true;
   }
 
   private doInit(opts: EqOptions): void {

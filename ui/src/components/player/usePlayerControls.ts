@@ -57,7 +57,7 @@ export interface PlayerController {
   /** Open the regular lyric page and leave fullscreen mode. */
   openLyricView: () => void;
   /** Open lyric view + fullscreen immersion (explicit fullscreen entry). */
-  openLyricImmersion: () => void;
+  openLyricImmersion: () => void | Promise<void>;
   handleFavorite: () => Promise<void>;
   handleSelectQuality: (q: string) => void;
   closeQualityMenu: () => void;
@@ -71,7 +71,7 @@ export interface PlayerController {
 
 export interface UsePlayerControlsOptions {
   activeView: () => string;
-  onNavigate: (view: string) => void;
+  onNavigate: (view: string) => void | boolean | Promise<void | boolean>;
 }
 
 const qualityLabels: Record<string, string> = {
@@ -215,7 +215,22 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   function openLyricImmersion() {
     if (!currentTrack.value) return;
     if (options.activeView() !== 'lyric') {
-      options.onNavigate('lyric');
+      const result = options.onNavigate('lyric');
+      if (result != null && typeof (result as Promise<unknown>).then === 'function') {
+        return Promise.resolve(result).then((ok) => {
+          if (ok === false) {
+            setLyricFullscreen(false);
+            return;
+          }
+          setLyricFullscreen(true);
+        }).catch(() => {
+          setLyricFullscreen(false);
+        });
+      }
+      if (result === false) {
+        setLyricFullscreen(false);
+        return;
+      }
     }
     setLyricFullscreen(true);
   }

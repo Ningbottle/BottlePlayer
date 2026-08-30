@@ -114,6 +114,45 @@ describe('motion.ts', () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
+  it('transitionLeave sets pointer-events none immediately on the leaving element', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('div');
+    el.style.pointerEvents = 'auto';
+    let interrupt: (() => void) | undefined;
+    (gsap.to as ReturnType<typeof vi.fn>).mockImplementationOnce((_el, opts) => {
+      interrupt = opts.onInterrupt;
+      return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
+    });
+    const done = vi.fn();
+    transitionLeave(el, done);
+    expect((el as HTMLElement).style.pointerEvents).toBe('none');
+    expect(done).not.toHaveBeenCalled();
+    interrupt?.();
+    expect((el as HTMLElement).style.pointerEvents).toBe('auto');
+    interrupt?.();
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
+  it('transitionLeave restores pointer-events after success so KeepAlive can reuse the page root', async () => {
+    const { gsap } = await import('gsap');
+    const el = document.createElement('div');
+    el.style.pointerEvents = 'auto';
+    let complete: (() => void) | undefined;
+    (gsap.to as ReturnType<typeof vi.fn>).mockImplementationOnce((_el, opts) => {
+      complete = opts.onComplete;
+      return { kill: vi.fn(), play: vi.fn(), pause: vi.fn() };
+    });
+    const done = vi.fn();
+
+    transitionLeave(el, done);
+    expect(el.style.pointerEvents).toBe('none');
+
+    complete?.();
+
+    expect(el.style.pointerEvents).toBe('auto');
+    expect(done).toHaveBeenCalledTimes(1);
+  });
+
   it('transitionLeave stays fast and calls gsap.to', async () => {
     const { gsap } = await import('gsap');
     const el = document.createElement('div');

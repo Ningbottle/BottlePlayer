@@ -6,6 +6,7 @@
 import { reactive } from 'vue';
 import { WebAudioEq } from './webAudioEq';
 import { prepareAudioSourceUrl } from './audioProxy';
+import { playbackDiagnostics } from './playbackDiagnostics';
 
 export type PlayerEqStoreSlice = {
   eqEnabled: boolean;
@@ -95,6 +96,21 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
     });
   }
 
+  function restoreElementVolume(audio: HTMLAudioElement) {
+    audio.volume = getStore().volume;
+  }
+
+  function recordEqEvent(
+    phase: 'start' | 'ok' | 'fail' | 'noop',
+    detail: string,
+  ) {
+    playbackDiagnostics.recordEvent({
+      kind: 'eq',
+      phase,
+      detail,
+    });
+  }
+
   /** Post-play attach: captureStream → worklet (spec §5.2). Skips when not CORS-safe. */
   async function attachWebAudioEqSource(
     audio: HTMLAudioElement,
@@ -106,23 +122,69 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
     if (!crossOriginSafe) {
       eqState.available = false;
       eqState.reason = EQ_UNAVAILABLE_REASON;
-      audio.volume = getStore().volume;
+      restoreElementVolume(audio);
+      recordEqEvent('noop', `cors_unsafe volume=${getStore().volume}`);
       return;
     }
 
     await webAudioEq.awaitReady();
     if (!isCurrent()) return;
-    webAudioEq.attachSource(audio);
+
+    const volumeBefore = audio.volume;
+    try {
+      await webAudioEq.resume();
+    } catch (e) {
+      eqState.available = false;
+      eqState.reason = EQ_DEGRADED_REASON;
+      restoreElementVolume(audio);
+      recordEqEvent(
+        'fail',
+        `resume_reject ctx=${webAudioEq.contextState} volume_before=${volumeBefore} volume_after=${audio.volume} err=${e instanceof Error ? e.message : String(e)}`,
+      );
+      return;
+    }
     if (!isCurrent()) return;
+    if (webAudioEq.contextState !== 'running') {
+      eqState.available = false;
+      eqState.reason = EQ_DEGRADED_REASON;
+      restoreElementVolume(audio);
+      recordEqEvent('fail', `ctx_not_running ctx=${webAudioEq.contextState} volume=${audio.volume}`);
+      return;
+    }
+
+    const attached = webAudioEq.attachSource(audio, getStore().volume);
+    const leaseId = webAudioEq.currentLeaseId;
+    if (!attached) {
+      restoreElementVolume(audio);
+      eqState.available = false;
+      eqState.reason = EQ_DEGRADED_REASON;
+      recordEqEvent('fail', `attach_false lease=${leaseId} volume=${audio.volume}`);
+      return;
+    }
+    if (!isCurrent()) {
+      webAudioEq.releaseLease(leaseId);
+      recordEqEvent('noop', `stale_after_attach released_lease=${leaseId}`);
+      return;
+    }
     syncEqAvailabilityFromReroute();
-    if (!isCurrent()) return;
+    if (!isCurrent()) {
+      webAudioEq.releaseLease(leaseId);
+      recordEqEvent('noop', `stale_after_sync released_lease=${leaseId}`);
+      return;
+    }
     setWebAudioEqVolume(getStore().volume);
+    recordEqEvent(
+      'ok',
+      `attached lease=${leaseId} proxy=${isLocalAudioProxySource(getAudioSource(audio))} ctx=${webAudioEq.contextState} volume_before=${volumeBefore} volume_after=${audio.volume}`,
+    );
   }
 
   function disconnectWebAudioEqSource() {
+    const leaseId = webAudioEq.currentLeaseId;
     currentEqSafeSource = '';
     webAudioEq.disconnectSource();
     syncEqAvailabilityFromReroute();
+    recordEqEvent('ok', `disconnect lease=${leaseId} ctx=${webAudioEq.contextState}`);
   }
 
   function setWebAudioEqVolume(vol: number) {
@@ -156,10 +218,27 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
 
   /** Resume the AudioContext after a user gesture (autoplay policy). */
   function resumeAudioContext() {
-    void webAudioEq.resume().catch(() => {
+    void webAudioEq.resume().then(() => {
+      if (webAudioEq.contextState !== 'running') {
+        const store = getStore();
+        if (store.audio) {
+          eqState.available = false;
+          eqState.reason = EQ_DEGRADED_REASON;
+          store.audio.volume = store.volume;
+          if (webAudioEq.isRerouted) {
+            webAudioEq.enterDegradation(store.audio, store.volume);
+          }
+        }
+      }
+    }).catch(() => {
       const store = getStore();
-      if (store.audio && webAudioEq.isRerouted) {
-        webAudioEq.enterDegradation(store.audio, store.volume);
+      if (store.audio) {
+        eqState.available = false;
+        eqState.reason = EQ_DEGRADED_REASON;
+        store.audio.volume = store.volume;
+        if (webAudioEq.isRerouted) {
+          webAudioEq.enterDegradation(store.audio, store.volume);
+        }
       }
     });
   }
@@ -170,11 +249,16 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
     if (eqState.retryDisabled || !store.audio) return;
     try {
       await webAudioEq.resume();
-      webAudioEq.recoverFromDegradation(store.audio);
+      if (webAudioEq.contextState !== 'running') {
+        throw new Error('AudioContext not running');
+      }
+      const recovered = webAudioEq.recoverFromDegradation(store.audio, store.volume);
+      if (!recovered) throw new Error('eq recover failed');
       eqState.available = true;
       eqState.reason = '';
       eqState.retryFailCount = 0;
     } catch {
+      store.audio.volume = store.volume;
       eqState.retryFailCount++;
       if (eqState.retryFailCount >= 3) {
         eqState.retryDisabled = true;

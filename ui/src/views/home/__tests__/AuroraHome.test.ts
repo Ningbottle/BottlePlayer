@@ -5,6 +5,7 @@ import AuroraHome from '../AuroraHome.vue';
 import type { HomeSectionError, HomeSectionViewState, HomeViewModel } from '../homeViewModel';
 import type { Track } from '../../../api/normalizer';
 import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
+import type { PlaybackPhase } from '../../../api/playbackPhase';
 import { animateStagger } from '../../../api/motion';
 import { playerStore, togglePlay } from '../../../api/playerStore';
 import { flyCoverToDock } from '../../../api/coverFlight';
@@ -87,6 +88,8 @@ function createViewModel(overrides: Partial<HomeViewModel> = {}): HomeViewModel 
     queueMode: 'normal' as const,
     activeQueueHash: null,
     isPlaying: false,
+    isPlaybackLoading: false,
+    playbackPhase: 'idle' as PlaybackPhase,
     isInitialLoading: false,
     isRefreshing: false,
     sections: createSectionStates(),
@@ -465,6 +468,70 @@ describe('AuroraHome', () => {
     expect(wrapper.emitted('play-track')![0]).toEqual([track]);
   });
 
+  it('disables hero CTA while current track is loading and does not emit play-track', async () => {
+    const track = createTrack({ FileHash: 'hero-1' });
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: track,
+          activeQueueHash: 'hero-1',
+          isPlaying: false,
+          isPlaybackLoading: true,
+          playbackPhase: 'loading',
+        }),
+      },
+    });
+
+    const hero = wrapper.get('[data-test="hero-play"]');
+    expect(hero.attributes('disabled')).toBeDefined();
+    expect(hero.text()).toContain('正在加载');
+    expect(hero.attributes('aria-label')).toBe('正在加载…');
+    await hero.trigger('click');
+    expect(togglePlay).not.toHaveBeenCalled();
+    expect(wrapper.emitted('play-track')).toBeUndefined();
+  });
+
+  it('toggles pause from hero CTA when the current track is playing', async () => {
+    const track = createTrack({ FileHash: 'hero-1' });
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: track,
+          activeQueueHash: 'hero-1',
+          isPlaying: true,
+          isPlaybackLoading: false,
+          playbackPhase: 'playing',
+        }),
+      },
+    });
+
+    const hero = wrapper.get('[data-test="hero-play"]');
+    expect(hero.attributes('disabled')).toBeUndefined();
+    expect(hero.text()).toContain('暂停');
+    await hero.trigger('click');
+    expect(togglePlay).toHaveBeenCalledTimes(1);
+    expect(wrapper.emitted('play-track')).toBeUndefined();
+  });
+
+  it('toggles play from hero CTA when the current track is paused', async () => {
+    const track = createTrack({ FileHash: 'hero-1' });
+    const wrapper = mount(AuroraHome, {
+      props: {
+        model: createViewModel({
+          heroTrack: track,
+          activeQueueHash: 'hero-1',
+          isPlaying: false,
+          isPlaybackLoading: false,
+          playbackPhase: 'paused',
+        }),
+      },
+    });
+
+    await wrapper.get('[data-test="hero-play"]').trigger('click');
+    expect(togglePlay).toHaveBeenCalledTimes(1);
+    expect(wrapper.emitted('play-track')).toBeUndefined();
+  });
+
   it('emits refresh when refresh button is clicked', async () => {
     const vm = createViewModel();
 
@@ -746,6 +813,82 @@ describe('AuroraHome', () => {
       expect(togglePlay).not.toHaveBeenCalled();
       expect(wrapper.emitted('play-track')?.[0]).toEqual([track]);
       expect(flyCoverToDock).toHaveBeenCalledWith(expect.any(HTMLElement), 'http://img.example/hero.jpg');
+    });
+
+    it.each(['resolving', 'loading', 'recovering'] as const)(
+      'cancels loading from vinyl when the hero is current and %s',
+      async (phase) => {
+        const track = createTrack({ FileHash: 'hero-1' });
+        const wrapper = mount(AuroraHome, {
+          props: {
+            model: createViewModel({
+              heroTrack: track,
+              activeQueueHash: 'hero-1',
+              isPlaying: false,
+              isPlaybackLoading: true,
+              playbackPhase: phase,
+            }),
+          },
+        });
+
+        const toggle = wrapper.get('[data-test="vinyl-toggle"]');
+        expect(toggle.attributes('aria-label')).toBe('取消加载');
+        expect(toggle.attributes('title')).toBe('取消加载');
+        expect(toggle.attributes('disabled')).toBeUndefined();
+        await toggle.trigger('click');
+        expect(togglePlay).toHaveBeenCalledTimes(1);
+        expect(wrapper.emitted('play-track')).toBeUndefined();
+      },
+    );
+
+    it('shows play on vinyl for current+paused and still toggles', async () => {
+      const track = createTrack({ FileHash: 'hero-1' });
+      const wrapper = mount(AuroraHome, {
+        props: {
+          model: createViewModel({
+            heroTrack: track,
+            activeQueueHash: 'hero-1',
+            isPlaying: false,
+            isPlaybackLoading: false,
+            playbackPhase: 'paused',
+          }),
+        },
+      });
+
+      const toggle = wrapper.get('[data-test="vinyl-toggle"]');
+      expect(toggle.attributes('aria-label')).toBe('播放');
+      await toggle.trigger('click');
+      expect(togglePlay).toHaveBeenCalledTimes(1);
+      expect(wrapper.emitted('play-track')).toBeUndefined();
+    });
+
+    it('reprojects vinyl copy when playbackPhase changes without remounting', async () => {
+      const track = createTrack({ FileHash: 'hero-1' });
+      const wrapper = mount(AuroraHome, {
+        props: {
+          model: createViewModel({
+            heroTrack: track,
+            activeQueueHash: 'hero-1',
+            isPlaying: false,
+            isPlaybackLoading: true,
+            playbackPhase: 'resolving',
+          }),
+        },
+      });
+      expect(wrapper.get('[data-test="vinyl-toggle"]').attributes('aria-label')).toBe('取消加载');
+
+      await wrapper.setProps({
+        model: createViewModel({
+          heroTrack: track,
+          activeQueueHash: 'hero-1',
+          isPlaying: false,
+          isPlaybackLoading: false,
+          playbackPhase: 'paused',
+        }),
+      });
+      await nextTick();
+      expect(wrapper.get('[data-test="vinyl-toggle"]').attributes('aria-label')).toBe('播放');
+      expect(wrapper.get('[data-test="hero-play"]').text()).toContain('播放');
     });
 
     it('flies the cover to the dock when a daily card is clicked', async () => {

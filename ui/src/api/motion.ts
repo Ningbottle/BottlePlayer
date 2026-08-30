@@ -108,6 +108,7 @@ export function transitionEnter(el: Element, done?: () => void): void {
 /** Vue <Transition> JS hook: leave. Kill-safe via transitionSession. */
 export function transitionLeave(el: Element, done?: () => void): void {
   const session = beginTransitionSession(el, 'leave', done);
+  (el as HTMLElement).style.pointerEvents = 'none';
   gsap.killTweensOf(el);
   if (isReducedMotion()) {
     gsap.set(el, { opacity: 0, x: 0, y: 0, clearProps: 'transform,opacity' });

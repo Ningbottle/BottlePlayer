@@ -9,6 +9,7 @@ interface TransitionStyleSnapshot {
   opacity: string;
   transform: string;
   filter: string;
+  pointerEvents: string;
 }
 
 interface ActiveTransitionSession {
@@ -24,6 +25,7 @@ function snapshotStyles(element: Element): TransitionStyleSnapshot {
     opacity: style.opacity,
     transform: style.transform,
     filter: style.filter,
+    pointerEvents: style.pointerEvents,
   };
 }
 
@@ -32,11 +34,12 @@ function restoreStyles(element: Element, snapshot: TransitionStyleSnapshot): voi
   style.opacity = snapshot.opacity;
   style.transform = snapshot.transform;
   style.filter = snapshot.filter;
+  style.pointerEvents = snapshot.pointerEvents;
 }
 
 export function beginTransitionSession(
   el: Element,
-  _phase: TransitionPhase,
+  phase: TransitionPhase,
   done?: () => void,
 ): TransitionSession {
   active.get(el)?.settle('interrupt');
@@ -48,7 +51,10 @@ export function beginTransitionSession(
     if (settled) return;
     settled = true;
     active.delete(el);
-    if (reason === 'interrupt') restore();
+    // A completed leave is commonly cached by Vue KeepAlive rather than
+    // destroyed. Restore its inline transition state before Vue deactivates
+    // it, otherwise pointer-events:none survives into the next activation.
+    if (reason === 'interrupt' || phase === 'leave') restore();
     done?.();
   };
 

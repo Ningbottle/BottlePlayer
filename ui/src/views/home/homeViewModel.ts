@@ -7,6 +7,7 @@ import {
 } from '../../api/homeFeedStore';
 import { playerStore } from '../../api/playerStore';
 import type { Track } from '../../api/normalizer';
+import type { PlaybackPhase } from '../../api/playbackPhase';
 
 export interface HomeSectionError {
   section: string;
@@ -34,6 +35,9 @@ export interface HomeViewModel {
   queueMode: 'normal' | 'personalFm';
   activeQueueHash: string | null;
   isPlaying: boolean;
+  /** Audio loading (resolving/loading/recovering). Independent of feed `isInitialLoading`. */
+  isPlaybackLoading: boolean;
+  playbackPhase: PlaybackPhase;
   isInitialLoading: boolean;
   isRefreshing: boolean;
   sections: Readonly<Record<HomeSection, HomeSectionViewState>>;
@@ -154,6 +158,8 @@ export function useHomeViewModel(): ComputedRef<HomeViewModel> {
       queueMode: playerStore.queueMode === 'personalFm' ? 'personalFm' : 'normal',
       activeQueueHash: playerStore.currentTrack?.FileHash ?? null,
       isPlaying: playerStore.isPlaying,
+      isPlaybackLoading: playerStore.isLoading,
+      playbackPhase: playerStore.playbackPhase,
       isInitialLoading:
         (!homeFeed.daily.loaded && homeFeed.daily.loading) ||
         (!homeFeed.playlists.loaded && homeFeed.playlists.loading) ||

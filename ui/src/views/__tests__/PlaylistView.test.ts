@@ -8,8 +8,13 @@ import {
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 
 const mockApiGet = vi.fn();
-vi.mock('../../api/backend', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
-
+vi.mock('../../api/backend', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../api/backend')>();
+  return {
+    ...actual,
+    apiGet: (...args: any[]) => mockApiGet(...args),
+  };
+});
 vi.mock('../../api/playerStore', () => ({
   playAll: vi.fn(),
   playerStore: { currentTrack: null },
@@ -198,5 +203,78 @@ describe('PlaylistView request generation', () => {
     expect(wrapper.text()).toContain('Song B');
     expect(wrapper.text()).not.toContain('连接 C++ 后端 Sidecar 出错');
     expect(wrapper.find('.spinner').exists()).toBe(false);
+  });
+});
+
+describe('PlaylistView failure layers', () => {
+  let wrapper: VueWrapper<any> | undefined;
+
+  beforeEach(() => {
+    mockApiGet.mockReset();
+  });
+
+  afterEach(() => {
+    wrapper?.unmount();
+    wrapper = undefined;
+  });
+
+  it('shows 无法获取歌单曲目 for a business status=0 body', async () => {
+    mockApiGet.mockResolvedValue({ status: 0, error: '无法获取歌单曲目', data: { list: [], total: 0 } });
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: '12345', playlistName: 'Public' },
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain('无法获取歌单曲目');
+    expect(wrapper.text()).not.toContain('请稍后重试');
+  });
+
+  it('shows a transport copy when the request throws circuit_open', async () => {
+    mockApiGet.mockRejectedValue(new Error('circuit_open'));
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: '12345', playlistName: 'Public' },
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain('服务暂时繁忙');
+    expect(wrapper.text()).not.toContain('无法获取歌单曲目');
+  });
+
+  it('shows the empty playlist copy for a successful empty list', async () => {
+    mockApiGet.mockResolvedValue({ status: 1, data: { list: [], total: 0 } });
+    wrapper = mount(PlaylistView, {
+      props: { playlistId: '12345', playlistName: 'Public' },
+    });
+    await flushPromises();
+    expect(wrapper.text()).toContain('该歌单暂无曲目记录');
+  });
+
+  it('does not fetch tracks for a user playlist that is only a numeric listid', async () => {
+    wrapper = mount(PlaylistView, {
+      props: {
+        playlistId: '98765',
+        playlistName: '收藏歌单',
+        playlistSource: 'user',
+      },
+    });
+    await flushPromises();
+    expect(mockApiGet).not.toHaveBeenCalled();
+    expect(wrapper.text()).toContain('歌单标识无效（缺少 global_collection_id）');
+  });
+
+  it('fetches user playlist tracks by global_collection_id, not numeric listid', async () => {
+    mockApiGet.mockResolvedValue({ status: 1, data: { list: [trackA], total: 1 } });
+    wrapper = mount(PlaylistView, {
+      props: {
+        playlistId: 'collection_3_42_98765_0',
+        playlistName: '收藏歌单',
+        playlistSource: 'user',
+      },
+    });
+    await flushPromises();
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+    expect(mockApiGet).toHaveBeenCalledWith(
+      '/playlist/track/all',
+      expect.objectContaining({ id: 'collection_3_42_98765_0' }),
+    );
+    expect(wrapper.text()).toContain('Song A');
   });
 });

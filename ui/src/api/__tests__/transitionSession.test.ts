@@ -53,12 +53,14 @@ describe('transitionSession', () => {
     el.style.opacity = '0.4';
     el.style.transform = 'scale(1)';
     el.style.filter = 'none';
+    el.style.pointerEvents = 'auto';
     const done = vi.fn();
     beginTransitionSession(el, 'enter', done);
 
     el.style.opacity = '0';
     el.style.transform = 'translateY(28px)';
     el.style.filter = 'blur(2px)';
+    el.style.pointerEvents = 'none';
 
     const restore = settleActiveTransitionSessions();
 
@@ -68,6 +70,7 @@ describe('transitionSession', () => {
     expect(el.style.opacity).toBe('0.4');
     expect(el.style.transform).toBe('scale(1)');
     expect(el.style.filter).toBe('none');
+    expect(el.style.pointerEvents).toBe('auto');
     settleActiveTransitionSessions();
     expect(done).toHaveBeenCalledTimes(1);
   });
@@ -77,11 +80,13 @@ describe('transitionSession', () => {
     el.style.opacity = '0.6';
     el.style.transform = 'scale(1)';
     el.style.filter = 'none';
+    el.style.pointerEvents = 'auto';
     registerPageTransition(el);
     beginTransitionSession(el, 'enter', vi.fn());
     el.style.opacity = '0';
     el.style.transform = 'translateY(28px)';
     el.style.filter = 'blur(2px)';
+    el.style.pointerEvents = 'none';
 
     const finalRestore = settleActiveTransitionSessions() as unknown as (() => void);
     cancelPageTransition();
@@ -90,6 +95,7 @@ describe('transitionSession', () => {
     expect(el.style.opacity).toBe('0.6');
     expect(el.style.transform).toBe('scale(1)');
     expect(el.style.filter).toBe('none');
+    expect(el.style.pointerEvents).toBe('auto');
   });
 
   it('cancelPageTransition settles Vue transition done even when GSAP does not report interruption', () => {

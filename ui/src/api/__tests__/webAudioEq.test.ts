@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { Html5AudioBackend } from '../html5Backend';
 import { WebAudioEq, type EqOptions } from '../webAudioEq';
 
 /**
@@ -390,7 +391,8 @@ await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] })
   it('attachSource sets audio.volume=0, calls captureStream, createMediaStreamSource, connect to workletNode', async () => {
     const { eq, ctx } = await makeInitializedEq();
     const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
-    eq.attachSource(audio);
+    audio.volume = 0.8;
+    expect(eq.attachSource(audio, 0.8)).toBe(true);
     expect(audio.volume).toBe(0);
     expect(mocks.captureStreamImpl).toHaveBeenCalledTimes(1);
     expect(ctx.createMediaStreamSource).toHaveBeenCalledTimes(1);
@@ -404,12 +406,16 @@ await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] })
     const audio1 = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
     const audio2 = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
 
-    eq.attachSource(audio1);
+    audio1.volume = 0.4;
+    audio2.volume = 0.9;
+    expect(eq.attachSource(audio1, 0.4)).toBe(true);
     const firstSourceNode = ctx._sourceNodes[0];
     const firstStream = mocks.createdStreams[0];
     const firstTracks = firstStream._tracks;
 
-    eq.attachSource(audio2);
+    expect(eq.attachSource(audio2, 0.9)).toBe(true);
+    expect(audio1.volume).toBe(0.4);
+    expect(audio2.volume).toBe(0);
 
     // First sourceNode.disconnect was called (re-entrancy self-cleanup).
     expect(firstSourceNode.disconnect).toHaveBeenCalled();
@@ -442,20 +448,22 @@ describe('WebAudioEq (new path) — Step 2.4: disconnectSource resource release'
     const eq = new WebAudioEq(mockCtxFactory(ctx));
 await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
     const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
-    eq.attachSource(audio);
+    audio.volume = 0.73;
+    expect(eq.attachSource(audio, 0.73)).toBe(true);
     const sourceNode = ctx._sourceNodes[0];
     const stream = mocks.createdStreams[0];
     return { eq, ctx, sourceNode, stream, audio };
   }
 
   it('disconnectSource disconnects sourceNode, stops all audio tracks, nulls refs, sets isRerouted=false', async () => {
-    const { eq, sourceNode, stream } = await makeInitializedEqWithSource();
+    const { eq, sourceNode, stream, audio } = await makeInitializedEqWithSource();
     eq.disconnectSource();
     expect(sourceNode.disconnect).toHaveBeenCalled();
     expect(stream.getAudioTracks).toHaveBeenCalled();
     const tracks = stream._tracks;
     expect(tracks[0].stop).toHaveBeenCalled();
     expect(eq.isRerouted).toBe(false);
+    expect(audio.volume).toBe(0.73);
   });
 
   it('disconnectSource is idempotent (2x calls do not throw)', async () => {
@@ -525,7 +533,7 @@ await initAndReady(eq, { enabled: true, bands });
   it('setVolume writes gainNode.gain.value when isRerouted', async () => {
     const { eq, ctx } = await makeInitializedEq();
     const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
-    eq.attachSource(audio);
+    expect(eq.attachSource(audio, 1)).toBe(true);
     expect(eq.isRerouted).toBe(true);
     eq.setVolume(0.7);
     expect(ctx._gainNode.gain.value).toBe(0.7);
@@ -599,7 +607,8 @@ await initAndReady(eq, {
   it('close: disconnects workletNode + gainNode, closes ctx, cleans source/stream', async () => {
     const { eq, ctx } = await makeInitializedEq();
     const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
-    eq.attachSource(audio);
+    audio.volume = 0.61;
+    expect(eq.attachSource(audio, 0.61)).toBe(true);
     const sourceNode = ctx._sourceNodes[0];
     const stream = mocks.createdStreams[0];
 
@@ -611,6 +620,7 @@ await initAndReady(eq, {
     expect(ctx._gainNode.disconnect).toHaveBeenCalled();
     expect(ctx.close).toHaveBeenCalled();
     expect(eq.isRerouted).toBe(false);
+    expect(audio.volume).toBe(0.61);
   });
 
   it('close without attachSource: disconnects workletNode + gainNode, closes ctx (no throw)', async () => {
@@ -648,7 +658,8 @@ describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
       onRecovered,
     });
     const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
-    eq.attachSource(audio);
+    audio.volume = 0.65;
+    expect(eq.attachSource(audio, 0.65)).toBe(true);
     return { eq, ctx, audio, onDegraded, onRecovered };
   }
 
@@ -657,9 +668,8 @@ describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
     const { eq, ctx, audio } = await makeReroutedEq(onDegraded);
     const sourceNode = ctx._sourceNodes[0]!;
     const callOrder: string[] = [];
-    sourceNode.disconnect.mockImplementation((target?: unknown) => {
+    sourceNode.disconnect.mockImplementation(() => {
       callOrder.push('disconnect');
-      expect(target).toBe(ctx._workletNode);
     });
     Object.defineProperty(audio, 'volume', {
       configurable: true,
@@ -671,9 +681,10 @@ describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
 
     eq.enterDegradation(audio, 0.65);
     expect(onDegraded).not.toHaveBeenCalled();
-    expect(callOrder.indexOf('disconnect')).toBeGreaterThanOrEqual(0);
+    expect(callOrder.indexOf('disconnect')).toBe(-1);
     vi.advanceTimersByTime(50);
 
+    expect(callOrder.indexOf('disconnect')).toBeGreaterThanOrEqual(0);
     expect(callOrder.indexOf('disconnect')).toBeLessThan(callOrder.indexOf('volume=0.65'));
     expect(onDegraded).toHaveBeenCalledTimes(1);
     expect(eq.isRerouted).toBe(false);
@@ -700,32 +711,23 @@ describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
     vi.advanceTimersByTime(50);
 
     expect(tracks[0].stop).toHaveBeenCalled();
-    expect(ctx._sourceNodes[0]!.disconnect).toHaveBeenCalledWith(ctx._workletNode);
+    expect(ctx._sourceNodes[0]!.disconnect).toHaveBeenCalled();
     expect(eq.isRerouted).toBe(false);
   });
 
-  it('recoverFromDegradation: audio.volume=0 before attachSource, then onRecovered', async () => {
+  it('recoverFromDegradation does not pre-zero volume; only recovers after attachSource returns true', async () => {
     const onRecovered = vi.fn();
     const { eq, audio } = await makeReroutedEq(vi.fn(), onRecovered);
-    const callOrder: string[] = [];
-    let vol = 0.8;
-    Object.defineProperty(audio, 'volume', {
-      configurable: true,
-      get: () => vol,
-      set: (v: number) => {
-        callOrder.push(`volume=${v}`);
-        vol = v;
-      },
-    });
-    const attachSpy = vi.spyOn(eq, 'attachSource').mockImplementation(() => {
-      callOrder.push('attachSource');
-    });
+    eq.disconnectSource();
+    audio.volume = 0.8;
+    const attachSpy = vi.spyOn(eq, 'attachSource');
 
-    eq.recoverFromDegradation(audio);
+    expect(eq.recoverFromDegradation(audio, 0.8)).toBe(true);
 
-    expect(callOrder.indexOf('volume=0')).toBeLessThan(callOrder.indexOf('attachSource'));
-    expect(attachSpy).toHaveBeenCalledWith(audio);
+    expect(attachSpy).toHaveBeenCalledWith(audio, 0.8);
     expect(onRecovered).toHaveBeenCalledTimes(1);
+    expect(eq.isRerouted).toBe(true);
+    expect(audio.volume).toBe(0);
     attachSpy.mockRestore();
   });
 
@@ -734,11 +736,160 @@ describe('WebAudioEq (new path) — Phase 4: degradation order (§3.3)', () => {
     eq.setVolume(0.55);
     ctx._gainNode.gain.value = 0;
 
-    eq.recoverFromDegradation(audio);
+    eq.recoverFromDegradation(audio, 0.65);
 
     const { gain } = ctx._gainNode;
     expect(gain.cancelScheduledValues).toHaveBeenCalledWith(0);
     expect(gain.setValueAtTime).toHaveBeenCalledWith(0, 0);
     expect(gain.linearRampToValueAtTime).toHaveBeenCalledWith(0.55, 0.05);
+  });
+});
+
+describe('WebAudioEq volume lease', () => {
+  let mocks: ReturnType<typeof setupMocks>;
+
+  beforeEach(() => {
+    mocks = setupMocks();
+  });
+  afterEach(() => mocks.teardown());
+
+  async function makeEq() {
+    const ctx = mocks.makeMockCtx();
+    const eq = new WebAudioEq(mockCtxFactory(ctx));
+    await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    return { eq, ctx };
+  }
+
+  it('captureStream throw returns false and does not leave volume at 0', async () => {
+    const { eq } = await makeEq();
+    const audio = makeMockAudio() as HTMLAudioElement & { captureStream: () => MediaStream };
+    audio.volume = 0.5;
+    audio.captureStream = () => {
+      throw new Error('captureStream failed');
+    };
+    expect(eq.attachSource(audio, 0.5)).toBe(false);
+    expect(audio.volume).toBe(0.5);
+    expect(eq.isRerouted).toBe(false);
+  });
+
+  it('createMediaStreamSource throw stops the new stream tracks and restores volume', async () => {
+    const { eq, ctx } = await makeEq();
+    ctx.createMediaStreamSource.mockImplementation(() => {
+      throw new Error('createMediaStreamSource failed');
+    });
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    audio.volume = 0.44;
+    expect(eq.attachSource(audio, 0.44)).toBe(false);
+    expect(audio.volume).toBe(0.44);
+    expect(eq.isRerouted).toBe(false);
+    expect(mocks.createdStreams[0]!._tracks[0]!.stop).toHaveBeenCalled();
+  });
+
+  it('connect throw stops tracks, restores volume, and returns false', async () => {
+    const { eq, ctx } = await makeEq();
+    ctx.createMediaStreamSource.mockImplementation((stream: MockStream) => {
+      const sn = {
+        connect: vi.fn(() => {
+          throw new Error('connect failed');
+        }),
+        disconnect: vi.fn(),
+        _stream: stream,
+      };
+      ctx._sourceNodes.push(sn);
+      return sn;
+    });
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    audio.volume = 0.3;
+    expect(eq.attachSource(audio, 0.3)).toBe(false);
+    expect(audio.volume).toBe(0.3);
+    expect(eq.isRerouted).toBe(false);
+    expect(ctx._sourceNodes[0]!.disconnect).toHaveBeenCalled();
+    expect(mocks.createdStreams[0]!._tracks[0]!.stop).toHaveBeenCalled();
+  });
+
+  it('returns false and does not change volume when ctx/worklet is unavailable', async () => {
+    const eq = new WebAudioEq(() => null);
+    eq.init({ enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] });
+    await eq.awaitReady();
+    const audio = makeMockAudio();
+    audio.volume = 0.22;
+    expect(eq.attachSource(audio, 0.22)).toBe(false);
+    expect(audio.volume).toBe(0.22);
+  });
+
+  it('disconnect after setVolume restores the current volume, not the attach-time fallback', async () => {
+    const { eq } = await makeEq();
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    audio.volume = 0.7;
+    expect(eq.attachSource(audio, 0.7)).toBe(true);
+    expect(audio.volume).toBe(0);
+    eq.setVolume(0.2);
+    eq.disconnectSource();
+    expect(audio.volume).toBe(0.2);
+  });
+
+  it('backend.setVolume then stop restores the current volume, not the attach fallback', async () => {
+    const { eq } = await makeEq();
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.pause = vi.fn();
+    audio.load = vi.fn();
+    (audio as HTMLAudioElement & { captureStream: () => MediaStream }).captureStream = () =>
+      mocks.captureStreamImpl() as unknown as MediaStream;
+    const backend = new Html5AudioBackend(audio, {
+      disconnectEq: () => eq.disconnectSource(),
+      isEqRerouted: () => eq.isRerouted,
+      setEqVolume: (vol) => eq.setVolume(vol),
+    });
+    audio.volume = 0.7;
+    expect(eq.attachSource(audio, 0.7)).toBe(true);
+    expect(audio.volume).toBe(0);
+    await backend.setVolume(0.2);
+    await backend.stop();
+    expect(audio.volume).toBe(0.2);
+    expect(eq.isRerouted).toBe(false);
+  });
+
+  it('second disconnect is idempotent and does not overwrite a later user volume', async () => {
+    const { eq } = await makeEq();
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    audio.volume = 0.5;
+    expect(eq.attachSource(audio, 0.5)).toBe(true);
+    eq.disconnectSource();
+    expect(audio.volume).toBe(0.5);
+    audio.volume = 0.9;
+    eq.disconnectSource();
+    expect(audio.volume).toBe(0.9);
+  });
+
+  it('cancelling enterDegradation via disconnect still restores volume', async () => {
+    vi.useFakeTimers();
+    try {
+      const { eq } = await makeEq();
+      const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+      audio.volume = 0.7;
+      expect(eq.attachSource(audio, 0.7)).toBe(true);
+      eq.enterDegradation(audio, 0.7);
+      eq.disconnectSource();
+      expect(audio.volume).toBe(0.7);
+      vi.advanceTimersByTime(50);
+      expect(audio.volume).toBe(0.7);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('releaseLease is a no-op for a stale lease id after a newer attach', async () => {
+    const { eq } = await makeEq();
+    const audio1 = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    const audio2 = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+    audio1.volume = 0.2;
+    audio2.volume = 0.8;
+    expect(eq.attachSource(audio1, 0.2)).toBe(true);
+    const firstLease = eq.currentLeaseId;
+    expect(eq.attachSource(audio2, 0.8)).toBe(true);
+    eq.releaseLease(firstLease);
+    expect(eq.isRerouted).toBe(true);
+    expect(audio2.volume).toBe(0);
+    expect(audio1.volume).toBe(0.2);
   });
 });

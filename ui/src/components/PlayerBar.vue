@@ -7,6 +7,10 @@ import AuroraPlayerBar from './player/AuroraPlayerBar.vue';
 import NewsprintPlayerBar from './player/NewsprintPlayerBar.vue';
 import AddToPlaylistModal from './AddToPlaylistModal.vue';
 
+const props = defineProps<{
+  navigate?: (view: string) => void | boolean | Promise<void | boolean>;
+}>();
+
 const emit = defineEmits<{
   (e: 'navigate', view: string): void;
   (e: 'toggle-queue'): void;
@@ -17,7 +21,10 @@ const route = useRoute();
 
 const controller = usePlayerControls({
   activeView: () => route.name as string,
-  onNavigate: (view: string) => emit('navigate', view),
+  onNavigate: (view: string) => {
+    if (props.navigate) return props.navigate(view);
+    emit('navigate', view);
+  },
 });
 
 const playerBarComponent = computed(() =>

@@ -1,7 +1,7 @@
 import { gsap } from 'gsap';
 import type { Router } from 'vue-router';
 
-import { setLyricFullscreen } from '../api/lyricFullscreen';
+import { clearLyricFullscreenUnlessOnLyric } from '../api/lyricFullscreen';
 import { settleActiveTransitionSessions } from '../api/transitionSession';
 import { routeNames } from './routes';
 
@@ -36,10 +36,8 @@ export function cancelPageTransition(): void {
 }
 
 export function installNavigationLifecycle(router: Router): void {
-  router.beforeEach((to, from) => {
-    if (from.name === routeNames.lyric && to.name !== routeNames.lyric) {
-      setLyricFullscreen(false);
-    }
+  router.beforeEach((to) => {
+    clearLyricFullscreenUnlessOnLyric(to.name === routeNames.lyric);
     cancelPageTransition();
   });
 }

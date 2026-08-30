@@ -23,9 +23,13 @@ interface Size {
 }
 
 const OVERLAY_SPECS: Record<OverlayKind, { label: string; url: string; width: number; height: number }> = {
-  island: { label: 'overlay-island', url: '/overlay/island', width: 300, height: 64 },
-  lyric: { label: 'overlay-lyric', url: '/overlay/lyric', width: 720, height: 96 },
+  island: { label: 'overlay-island', url: '/overlay/island', width: 236, height: 40 },
+  lyric: { label: 'overlay-lyric', url: '/overlay/lyric', width: 560, height: 80 },
 };
+
+const TOP_INSET = 0;
+const LYRIC_WIDTH_MIN = 420;
+const LYRIC_WIDTH_MAX = 640;
 
 /** Pixels within a screen edge that trigger magnetic snapping. */
 export const SNAP_MARGIN = 24;
@@ -52,7 +56,7 @@ export function anchorPosition(anchor: string, win: Size, screen: Size, margin =
     right: screen.w - win.w - margin,
   };
   const ys: Record<string, number> = {
-    top: margin,
+    top: TOP_INSET,
     center: Math.round((screen.h - win.h) / 2),
     bottom: screen.h - win.h - margin,
   };
@@ -77,15 +81,14 @@ export function loadOverlayPos(kind: OverlayKind): OverlayPos | null {
   return null;
 }
 
-/** Keep a remembered position fully inside the primary screen. */
+/** Keep a remembered horizontal position inside the primary screen and dock it to the top. */
 function clampToScreen(kind: OverlayKind, pos: OverlayPos): OverlayPos {
   const spec = OVERLAY_SPECS[kind];
   if (window.screen.width <= 0 || window.screen.height <= 0) return pos;
   const maxX = Math.max(0, window.screen.width - spec.width);
-  const maxY = Math.max(0, window.screen.height - spec.height);
   return {
     x: Math.max(0, Math.min(maxX, pos.x)),
-    y: Math.max(0, Math.min(maxY, pos.y)),
+    y: TOP_INSET,
   };
 }
 
@@ -137,9 +140,13 @@ export function saveLyricPrefs(prefs: LyricPrefs): void {
 }
 
 export function loadLyricSize(): number | null {
-  const raw = localStorage.getItem('overlay_lyric_size');
-  const n = raw ? Number(raw) : NaN;
-  return Number.isFinite(n) && n >= 480 && n <= 1200 ? Math.round(n) : null;
+  try {
+    const raw = localStorage.getItem('overlay_lyric_size');
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) && n >= LYRIC_WIDTH_MIN && n <= LYRIC_WIDTH_MAX ? Math.round(n) : null;
+  } catch {
+    return null;
+  }
 }
 
 export function saveLyricSize(width: number): void {
@@ -174,11 +181,12 @@ export async function toggleOverlay(kind: OverlayKind): Promise<OverlayToggleRes
       decorations: false,
       transparent: true,
       backgroundColor: { red: 0, green: 0, blue: 0, alpha: 0 },
+      visible: false,
       alwaysOnTop: true,
       skipTaskbar: true,
       resizable: kind === 'lyric',
-      minWidth: kind === 'lyric' ? 480 : undefined,
-      maxWidth: kind === 'lyric' ? 1200 : undefined,
+      minWidth: kind === 'lyric' ? LYRIC_WIDTH_MIN : undefined,
+      maxWidth: kind === 'lyric' ? LYRIC_WIDTH_MAX : undefined,
       shadow: false,
       x: createPos.x,
       y: createPos.y,
@@ -187,12 +195,21 @@ export async function toggleOverlay(kind: OverlayKind): Promise<OverlayToggleRes
     void win.once('tauri://error', (event) => {
       console.error(`[overlay] failed to create ${spec.label}:`, event);
     });
-    void win.once('tauri://created', () => {
+    void win.once('tauri://created', async () => {
       console.log(`[overlay] created ${spec.label} → ${spec.url}`);
+      try {
+        // The constructor can resolve before WebView2 has applied its content
+        // background. Re-apply transparency after creation, then reveal the
+        // window so no rectangular first frame leaks through.
+        await win.setBackgroundColor({ red: 0, green: 0, blue: 0, alpha: 0 });
+      } catch (error) {
+        console.warn(`[overlay] could not re-apply transparency for ${spec.label}:`, error);
+      } finally {
+        await win.show().catch((error) => {
+          console.error(`[overlay] could not show ${spec.label}:`, error);
+        });
+      }
     });
-    // Keep the native window transparent too; the rounded overlay surface owns
-    // its background, so the rectangular WebView bounds never become visible.
-    void win.setBackgroundColor({ red: 0, green: 0, blue: 0, alpha: 0 }).catch(() => {});
     return 'opened';
   } catch (err) {
     console.error(`[overlay] toggleOverlay(${kind}) failed:`, err);
@@ -218,15 +235,15 @@ export async function settleCurrentOverlay(kind: OverlayKind): Promise<void> {
     { w: size.width, h: size.height },
     { w: monitor.size.width, h: monitor.size.height },
   );
-  // The island docks to the top edge — horizontal placement only.
-  if (kind === 'island') snapped.y = 16;
+  // Both compact overlays dock to the top edge — horizontal placement only.
+  snapped.y = TOP_INSET;
   if (snapped.x !== pos.x || snapped.y !== pos.y) {
     await win.setPosition(new PhysicalPosition(snapped.x, snapped.y));
   }
   saveOverlayPos(kind, snapped);
 }
 
-/** Jump the current overlay window to a nine-grid anchor. */
+/** Jump the current overlay window to a horizontal anchor along the top edge. */
 export async function moveCurrentOverlayTo(anchor: string, kind: OverlayKind): Promise<void> {
   if (!isTauriRuntime()) return;
   const win = getCurrentWindow();
@@ -237,6 +254,7 @@ export async function moveCurrentOverlayTo(anchor: string, kind: OverlayKind): P
     { w: size.width, h: size.height },
     { w: monitor.size.width, h: monitor.size.height },
   );
+  pos.y = TOP_INSET;
   await win.setPosition(new PhysicalPosition(pos.x, pos.y));
   saveOverlayPos(kind, pos);
 }

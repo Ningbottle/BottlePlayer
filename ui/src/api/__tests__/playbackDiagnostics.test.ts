@@ -9,6 +9,18 @@ function mkStore(opts: { now?: () => number; capacity?: number } = {}) {
 }
 
 describe('PlaybackDiagnostics', () => {
+  it('records eq lifecycle events without CDN URLs', () => {
+    const store = mkStore({ now: () => 5 });
+    store.recordEvent({
+      kind: 'eq',
+      phase: 'ok',
+      detail: 'attached lease=3 proxy=true ctx=running volume_before=0.7 volume_after=0',
+    });
+    const events = store.getEvents();
+    expect(events[0].kind).toBe('eq');
+    expect(events[0].detail).not.toMatch(/https?:\/\//);
+  });
+
   it('records an event with a timestamp and returns it via getEvents', () => {
     const store = mkStore({ now: () => 1000 });
     store.recordEvent({ kind: 'track_switch', phase: 'start', detail: 'switched to h1' });

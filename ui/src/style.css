@@ -353,6 +353,11 @@ button {
   color: var(--ink-soft);
   border-color: var(--ink-mute);
 }
+.playlist-retry {
+  width: calc(100% - 8px);
+  background: transparent;
+  cursor: pointer;
+}
 .playlists a {
   font-size: 13px;
   padding: 6px 8px;

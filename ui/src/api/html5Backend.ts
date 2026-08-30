@@ -292,6 +292,8 @@ export class Html5AudioBackend implements PlayerBackend {
     }
 
     if (!this.ownsPlayback(lease, attachSeq)) return false;
+    this.options.disconnectEq?.();
+    if (!this.ownsPlayback(lease, attachSeq)) return false;
     if (prepared.crossOriginSafe) {
       this.audio.crossOrigin = 'anonymous';
     } else {

@@ -13,6 +13,7 @@ vi.mock('../../api/playerSync', () => ({
   }),
   sendPlayerCommand: vi.fn(async () => {}),
   applySyncedTheme: vi.fn(() => {}),
+  pinOverlayThemeDark: vi.fn(() => {}),
 }));
 
 vi.mock('../../api/overlayWindows', () => ({
@@ -115,6 +116,19 @@ describe('DesktopLyricView', () => {
     await sizeButtons[3].trigger('click'); // 20
     expect(wrapper.get('.lyric-bar').attributes('style')).toContain('--lyric-font-size: 20px');
     expect(JSON.parse(localStorage.getItem('overlay_lyric_prefs')!)).toMatchObject({ fontSize: 20 });
+    wrapper.unmount();
+  });
+
+  it('offers only the three top docking positions', async () => {
+    const wrapper = mount(DesktopLyricView);
+    await wrapper.get('.lyric-root').trigger('contextmenu');
+
+    expect(wrapper.findAll('.lyric-anchor-dot')).toHaveLength(3);
+    expect(wrapper.findAll('.lyric-anchor-dot').map((dot) => dot.attributes('title'))).toEqual([
+      'top-left',
+      'top-center',
+      'top-right',
+    ]);
     wrapper.unmount();
   });
 });

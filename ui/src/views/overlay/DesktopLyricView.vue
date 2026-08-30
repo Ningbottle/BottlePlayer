@@ -4,12 +4,12 @@
  *
  * 透明置顶横条：当前行大字（卡拉 OK 填充）+ 次行小字。
  * 歌词数据在浮层内按同步曲目自取（与主窗口同一条 fetchLyrics 路径），
- * 时间轴经 playerSync 同步。拖拽自由摆放 + 右键九宫格锚点 + 位置记忆。
+ * 时间轴经 playerSync 同步。窗口固定在屏幕顶部，可横向拖放或选择锚点。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { getCurrentWindow } from '@tauri-apps/api/window';
 import { PhGear, PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
-import { onPlayerState, sendPlayerCommand, applySyncedTheme, type PlayerSyncState } from '../../api/playerSync';
+import { onPlayerState, sendPlayerCommand, applySyncedTheme, pinOverlayThemeDark, type PlayerSyncState } from '../../api/playerSync';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay, loadLyricPrefs, saveLyricPrefs, saveLyricSize } from '../../api/overlayWindows';
 import type { LyricPrefs } from '../../api/overlayWindows';
 import { fetchLyrics, type LyricLine } from '../lyric/useLyricStage';
@@ -76,7 +76,7 @@ watch(
   },
 );
 
-const anchors = ['top-left', 'top-center', 'top-right', 'center-left', 'center', 'center-right', 'bottom-left', 'bottom-center', 'bottom-right'];
+const anchors = ['top-left', 'top-center', 'top-right'];
 const showAnchors = ref(false);
 
 /** User preferences: font size / density / background opacity (persisted). */
@@ -111,6 +111,8 @@ async function closeBar(): Promise<void> {
 }
 
 onMounted(async () => {
+  // 桌面歌词条常驻深色：悬浮在任意壁纸上，主题白会读作眩目“白边”
+  pinOverlayThemeDark();
   unlisten = await onPlayerState((s) => {
     applySyncedTheme(s);
     state.value = s;
@@ -231,7 +233,8 @@ onBeforeUnmount(() => {
 
 <style scoped>
 :global(html),
-:global(body) {
+:global(body),
+:global(#app) {
   background: transparent !important;
   overflow: hidden;
 }
@@ -242,20 +245,19 @@ onBeforeUnmount(() => {
   display: grid;
   place-items: center;
   position: relative;
-  /* Fill the whole window with the bar's surface — no OS-colored corners */
-  background: color-mix(in srgb, var(--surface-elevated, #1a2222) 96%, #000 4%);
+  background: transparent;
 }
 
 .lyric-bar {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 14px;
+  gap: 10px;
   width: calc(100% - 12px);
   height: calc(100% - 12px);
-  padding: 8px 16px;
+  padding: 6px 12px;
   box-sizing: border-box;
-  border-radius: 14px;
+  border-radius: 12px;
   border: 1px solid color-mix(in srgb, #fff 10%, transparent);
   background: transparent;
   box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
@@ -337,24 +339,24 @@ onBeforeUnmount(() => {
   display: flex;
   flex-direction: column;
   justify-content: center;
-  gap: 6px;
+  gap: 3px;
 }
 
 .lyric-prefs-row {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
+  gap: 4px;
+  font-size: 11px;
   color: var(--text-secondary, #929c98);
 }
 
 .lyric-prefs-row > span {
-  width: 52px;
+  width: 46px;
   flex: none;
 }
 
 .lyric-prefs-row button {
-  padding: 2px 8px;
+  padding: 1px 6px;
   border: 1px solid color-mix(in srgb, var(--text-primary, #f2f5f2) 16%, transparent);
   border-radius: 6px;
   background: transparent;
@@ -417,8 +419,8 @@ onBeforeUnmount(() => {
 }
 
 .lyric-controls button {
-  width: 28px;
-  height: 28px;
+  width: 24px;
+  height: 24px;
   display: grid;
   place-items: center;
   border: 0;
@@ -467,7 +469,7 @@ onBeforeUnmount(() => {
 .lyric-anchors {
   position: absolute;
   right: 10px;
-  bottom: calc(100% - 6px);
+  top: 6px;
   display: grid;
   grid-template-columns: repeat(3, 12px);
   gap: 5px;

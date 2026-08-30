@@ -61,9 +61,22 @@ function snapshot(): PlayerSyncState {
  * Overlay localStorage is not guaranteed to share the main window's keys,
  * so theme must travel through the sync channel, not storage.
  */
+let overlayDarkPinned = false;
+
+/**
+ * Desktop widgets (e.g. the lyric bar) stay dark regardless of app theme —
+ * they float over arbitrary desktop content where a theme-white pill reads
+ * as glare (用户反馈的“浮层白边”). Call once from the overlay view on mount;
+ * afterwards every synced theme tick keeps mode pinned to dark.
+ */
+export function pinOverlayThemeDark(): void {
+  overlayDarkPinned = true;
+  document.documentElement.dataset.mode = 'dark';
+}
+
 export function applySyncedTheme(state: PlayerSyncState): void {
   if (state.skin) document.documentElement.dataset.skin = state.skin;
-  if (state.mode) document.documentElement.dataset.mode = state.mode;
+  if (state.mode) document.documentElement.dataset.mode = overlayDarkPinned ? 'dark' : state.mode;
   if (state.accent) {
     document.documentElement.style.setProperty('--accent', state.accent);
   } else {

@@ -32,9 +32,18 @@ const PLAYLIST_ARRAY_KEYS = [
   'cloud_list', 'cloudList', 'playlist', 'playlists', 'data',
 ];
 
+const USER_PLAYLIST_GID_KEYS = [
+  'global_collection_id', 'global_collectionid', 'gid',
+];
+
+const USER_PLAYLIST_LISTID_KEYS = [
+  'listid', 'list_id', 'list_create_listid',
+];
+
 const PLAYLIST_ID_KEYS = [
-  'global_collection_id', 'global_collectionid', 'listid', 'list_id',
-  'specialid', 'special_id', 'id', 'list_create_listid', 'collection_id', 'gid',
+  ...USER_PLAYLIST_GID_KEYS,
+  ...USER_PLAYLIST_LISTID_KEYS,
+  'collection_id',
 ];
 
 const PLAYLIST_NAME_KEYS = [
@@ -96,23 +105,21 @@ export function normalizePlaylists(payload: unknown): UserPlaylist[] {
   collectPlaylistCandidates(payload, candidates);
 
   const seen = new Set<string>();
-  return candidates
-    .map((item) => {
-      const id = readField(item, PLAYLIST_ID_KEYS);
-      // 优先使用 listid（纯数字），用于 C++ 后端 AddPlaylistTracks / DeletePlaylistTracks
-      const listid = readField(item, ['listid', 'list_id']);
-      return {
-        id,
-        name: readField(item, PLAYLIST_NAME_KEYS) || '无标题歌单',
-        songcount: Number(item.songcount || item.song_count || 0),
-        listid: listid || undefined,
-      };
-    })
-    .filter((item) => {
-      if (!item.id || seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
+  const normalized: UserPlaylist[] = [];
+  for (const item of candidates) {
+    const gid = readField(item, USER_PLAYLIST_GID_KEYS);
+    const listid = readField(item, USER_PLAYLIST_LISTID_KEYS);
+    if (!gid.startsWith('collection_') || !/^\d+$/.test(listid)) continue;
+    if (seen.has(gid)) continue;
+    seen.add(gid);
+    normalized.push({
+      id: gid,
+      name: readField(item, PLAYLIST_NAME_KEYS) || '无标题歌单',
+      songcount: Number(item.songcount || item.song_count || 0),
+      listid,
     });
+  }
+  return normalized;
 }
 
 /**
@@ -294,7 +301,11 @@ async function resolveLikedPlaylist(): Promise<LikedPlaylistInfo | null> {
   const userId = boundUserId;
   if (userId) {
     const persisted = loadLikedPlaylist(userId);
-    if (persisted) {
+    if (
+      persisted &&
+      persisted.gid.startsWith('collection_') &&
+      /^\d+$/.test(persisted.listid)
+    ) {
       likedPlaylist = persisted;
       return likedPlaylist;
     }

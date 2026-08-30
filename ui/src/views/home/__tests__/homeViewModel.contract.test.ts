@@ -9,6 +9,8 @@ vi.mock('../../../api/playerStore', async () => {
       currentTrack: null as Track | null,
       currentIndex: -1,
       isPlaying: false,
+      isLoading: false,
+      playbackPhase: 'idle' as 'idle' | 'resolving' | 'loading' | 'playing' | 'paused' | 'recovering' | 'error',
       queue: [] as Track[],
       queueMode: 'normal' as 'normal' | 'personalFm',
       quality: '128',
@@ -97,6 +99,30 @@ describe('useHomeViewModel', () => {
     const model = useHomeViewModel().value;
     expect(model.heroQualityChips).toEqual(['无损', 'VIP']);
     expect(buildHeroQualityChips(makeTrack('other'), track, 'flac', false)).toEqual([]);
+  });
+
+  it('projects playbackPhase and isPlaybackLoading independently of feed loading', () => {
+    homeFeedMock.daily.loaded = true;
+    homeFeedMock.daily.loading = false;
+    homeFeedMock.playlists.loaded = true;
+    homeFeedMock.playlists.loading = false;
+    homeFeedMock.albums.loaded = true;
+    homeFeedMock.albums.loading = false;
+    playerStoreMock.currentTrack = makeTrack('now');
+    playerStoreMock.isPlaying = false;
+    playerStoreMock.isLoading = true;
+    playerStoreMock.playbackPhase = 'resolving';
+
+    const modelRef = useHomeViewModel();
+    expect(modelRef.value.isPlaybackLoading).toBe(true);
+    expect(modelRef.value.playbackPhase).toBe('resolving');
+    expect(modelRef.value.isPlaying).toBe(false);
+    expect(modelRef.value.isInitialLoading).toBe(false);
+
+    playerStoreMock.playbackPhase = 'paused';
+    playerStoreMock.isLoading = false;
+    expect(modelRef.value.isPlaybackLoading).toBe(false);
+    expect(modelRef.value.playbackPhase).toBe('paused');
   });
 
   it('exposes independent section states and target-scoped retries', async () => {

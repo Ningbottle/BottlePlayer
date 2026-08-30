@@ -64,9 +64,9 @@ describe('resolveVip — 规则 2: busi_vip svip 广告/临时 SVIP', () => {
       { is_vip: 0, vip_end_time: PAST, busi_vip: [{ product_type: 'svip', is_vip: 1, vip_end_time: PAST }] },
       NOW,
     );
-    // 顶层 is_vip=0，svip 过期，所以非 VIP；vipEndDate 仍是顶层（过期但作为兜底展示）
+    // 顶层 is_vip=0，svip 过期，所以非 VIP；无活跃权益时 vipEndDate 置空（不再兜底展示死日期）
     expect(r.isVip).toBe(false);
-    expect(r.vipEndDate).toBe(PAST);
+    expect(r.vipEndDate).toBe('');
   });
 
   it('busi_vip svip 缺省 vip_end_time（永久/广告临时）→ 判为 VIP 且按最高优先', () => {
@@ -137,12 +137,12 @@ describe('resolveVip — 到期时间选取（最晚未过期）', () => {
     expect(r.vipEndDate).toBe(FUTURE);
   });
 
-  it('所有来源都过期 → 兜底返回顶层时间（即使过期，供用户参考）', () => {
+  it('所有来源都过期 → vipEndDate 置空，界面按普通用户呈现', () => {
     const r = resolveVip(
       { is_vip: 0, vip_end_time: PAST, busi_vip: [{ product_type: 'svip', is_vip: 1, vip_end_time: PAST }] },
       NOW,
     );
-    expect(r.vipEndDate).toBe(PAST);
+    expect(r.vipEndDate).toBe('');
   });
 
   it('多个 svip 项 → 取最晚的', () => {
@@ -159,6 +159,20 @@ describe('resolveVip — 到期时间选取（最晚未过期）', () => {
       NOW,
     );
     expect(r.vipEndDate).toBe(later);
+  });
+});
+
+describe('resolveVip — 权威/未知输入', () => {
+  it('权威 data 对象按业务规则解析', () => {
+    const r = resolveVip({ is_vip: 1, vip_type: 1, vip_end_time: FUTURE }, NOW);
+    expect(r.isVip).toBe(true);
+    expect(r.vipEndDate).toBe(FUTURE);
+  });
+
+  it('未知/缺失 data 不能被当成一次权威的“确认无 VIP”输入', () => {
+    expect(resolveVip(null, NOW)).toEqual({ isVip: false, vipEndDate: '', vipLevel: 0, vipType: 0 });
+    expect(resolveVip(undefined, NOW)).toEqual({ isVip: false, vipEndDate: '', vipLevel: 0, vipType: 0 });
+    expect(resolveVip({}, NOW).isVip).toBe(false);
   });
 });
 

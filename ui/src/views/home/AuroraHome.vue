@@ -243,6 +243,11 @@ const dailyRailIndexOffset = computed(() =>
 function onHeroPlay() {
   const t = props.model.heroTrack;
   if (!t) return;
+  if (isHeroCurrent.value) {
+    if (props.model.isPlaybackLoading) return;
+    storeTogglePlay();
+    return;
+  }
   flyFromVinyl();
   onTrackPlay(t);
 }
@@ -261,6 +266,28 @@ function coverElFromEvent(e: MouseEvent): HTMLElement | undefined {
 const isHeroCurrent = computed(
   () => !!props.model.heroTrack && props.model.heroTrack.FileHash === props.model.activeQueueHash,
 );
+
+const isHeroPlaybackLoading = computed(
+  () => isHeroCurrent.value && props.model.isPlaybackLoading,
+);
+
+const vinylActionLabel = computed(() => {
+  if (!isHeroCurrent.value) return '播放';
+  if (props.model.isPlaybackLoading) return '取消加载';
+  if (props.model.isPlaying) return '暂停';
+  return '播放';
+});
+
+const vinylShowsPause = computed(
+  () => isHeroCurrent.value && (props.model.isPlaying || props.model.isPlaybackLoading),
+);
+
+const heroPlayLabel = computed(() => {
+  if (!isHeroCurrent.value) return '播放';
+  if (props.model.isPlaybackLoading) return '正在加载…';
+  if (props.model.isPlaying) return '暂停';
+  return '播放';
+});
 
 function onVinylToggle(): void {
   const t = props.model.heroTrack;
@@ -333,11 +360,12 @@ function formatDuration(sec: number | undefined | null): string {
               type="button"
               class="aurora-cover-toggle"
               data-test="vinyl-toggle"
-              :aria-label="model.isPlaying && isHeroCurrent ? '暂停' : '播放'"
-              :title="model.isPlaying && isHeroCurrent ? '暂停' : '播放'"
+              :class="{ 'is-cancelling': isHeroPlaybackLoading }"
+              :aria-label="vinylActionLabel"
+              :title="vinylActionLabel"
               @click.stop="onVinylToggle"
             >
-              <PhPause v-if="model.isPlaying && isHeroCurrent" :size="14" weight="fill" aria-hidden="true" />
+              <PhPause v-if="vinylShowsPause" :size="14" weight="fill" aria-hidden="true" />
               <PhPlay v-else :size="14" weight="fill" aria-hidden="true" />
             </button>
           </div>
@@ -364,9 +392,16 @@ function formatDuration(sec: number | undefined | null): string {
               {{ heroAlbumLine }}
             </p>
             <div class="aurora-meta-row">
-              <button class="aurora-play play-cta" data-test="hero-play" @click="onHeroPlay">
-                <span aria-hidden="true">播放</span>
-                <span class="sr-only">播放当前歌曲</span>
+              <button
+                class="aurora-play play-cta"
+                type="button"
+                data-test="hero-play"
+                :disabled="isHeroPlaybackLoading"
+                :aria-label="heroPlayLabel"
+                :title="heroPlayLabel"
+                @click="onHeroPlay"
+              >
+                {{ heroPlayLabel }}
               </button>
               <button class="aurora-lyrics-link" type="button" @click="onOpenLyrics">查看歌词</button>
               <button
@@ -904,6 +939,8 @@ export default { name: 'AuroraHome' };
   opacity: 1;
 }
 
+.aurora-cover-toggle.is-cancelling { opacity: 1; }
+
 .aurora-cover-toggle:hover { filter: brightness(1.06); }
 
 .aurora-cover-toggle:focus-visible {
@@ -1022,6 +1059,13 @@ export default { name: 'AuroraHome' };
 
 .aurora-play:hover { filter: brightness(1.06); }
 .aurora-play:active { filter: brightness(0.96); }
+.aurora-play:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+  filter: none;
+  box-shadow: none;
+}
+.aurora-play:disabled:hover { filter: none; }
 
 .aurora-lyrics-link {
   border: 0;

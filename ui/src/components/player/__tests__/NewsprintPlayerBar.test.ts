@@ -148,15 +148,20 @@ describe('NewsprintPlayerBar', () => {
     expect(openLyricView).toHaveBeenCalledOnce();
   });
 
-  it('hides transport and quality when no track is loaded', () => {
+  it('keeps disabled icon transport visible when no track is loaded', () => {
     const ctrl = createStubController();
     const wrapper = mount(NewsprintPlayerBar, {
       props: { controller: ctrl },
     });
 
-    expect(wrapper.find('[data-test="newsprint-player-transport"]').exists()).toBe(false);
+    const transport = wrapper.get('[data-test="newsprint-player-transport"]');
+    expect(transport.findAll('button')).toHaveLength(4);
+    for (const button of transport.findAll('button')) {
+      expect(button.attributes('disabled')).toBeDefined();
+      expect(button.find('svg').exists()).toBe(true);
+    }
     expect(wrapper.find('[data-test="newsprint-player-quality"]').exists()).toBe(false);
-    expect(wrapper.find('[data-test="newsprint-player-empty-console"]').exists()).toBe(true);
+    expect(wrapper.find('[data-test="newsprint-player-empty-console"]').exists()).toBe(false);
   });
 
   it('renders loop, prev, play/pause, next controls (merged cycle button)', () => {

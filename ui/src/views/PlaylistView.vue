@@ -10,6 +10,7 @@ import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 const props = defineProps<{
   playlistId: string;
   playlistName: string;
+  playlistSource?: string;
 }>();
 
 const loading = ref(false);
@@ -21,10 +22,21 @@ const error = ref('');
 /** Bumps on every load so slower older responses cannot overwrite newer playlist/page state. */
 let playlistGeneration = 0;
 
+function isUserCollectionId(id: string): boolean {
+  return id.startsWith('collection_');
+}
+
 async function loadPlaylistTracks() {
   const gen = ++playlistGeneration;
   if (!props.playlistId) {
     loading.value = false;
+    return;
+  }
+  if (props.playlistSource === 'user' && !isUserCollectionId(props.playlistId)) {
+    loading.value = false;
+    error.value = '歌单标识无效（缺少 global_collection_id）';
+    songs.value = [];
+    totalCount.value = 0;
     return;
   }
   loading.value = true;

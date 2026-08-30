@@ -27,6 +27,9 @@ const sidebarNav = [
 type SidebarPlaylist = Pick<UserPlaylist, 'id' | 'name'>;
 
 const playlists = ref<SidebarPlaylist[]>([]);
+const playlistsLoading = ref(false);
+const playlistError = ref('');
+let playlistLoadGeneration = 0;
 
 // 自动更新提示：启动时静默 check() 一次；发现新版本才在 logo 下冒标记，点击去设置页安装。
 const updateAvailable = ref(false);
@@ -58,12 +61,36 @@ onMounted(async () => {
 
 async function loadUserPlaylists() {
   if (!userStore.isLoggedIn) {
+    playlistLoadGeneration += 1;
     playlists.value = [];
+    playlistsLoading.value = false;
+    playlistError.value = '';
     return;
   }
+  if (!userStore.deviceReady) {
+    playlistLoadGeneration += 1;
+    playlistsLoading.value = false;
+    return;
+  }
+  const generation = ++playlistLoadGeneration;
+  playlistsLoading.value = true;
   try {
     const res = await apiGet<any>('/user/playlist', { page: 1, pagesize: 100 });
-    playlists.value = normalizePlaylists(res);
+    if (generation !== playlistLoadGeneration) return;
+    if (res?.status !== 1) {
+      if (String(res?.error_code) === 'native_user_playlist_id_contract_invalid') {
+        throw new Error('歌单标识无效（缺少 global_collection_id）');
+      }
+      const code = res?.error_code;
+      throw new Error(code ? `酷狗错误码 ${code}` : '歌单接口返回失败');
+    }
+    const normalized = normalizePlaylists(res);
+    const skipped = Number(res?.data?.skipped_invalid_id_count || 0);
+    if (normalized.length === 0 && skipped > 0) {
+      throw new Error('歌单标识无效（缺少 global_collection_id）');
+    }
+    playlists.value = normalized;
+    playlistError.value = '';
 
     // The user_playlist response carries the real nickname + avatar URL on
     // every entry (list_create_username + create_user_pic). Backfill them
@@ -81,16 +108,26 @@ async function loadUserPlaylists() {
       }
     }
   } catch (e) {
+    if (generation !== playlistLoadGeneration) return;
     console.error('Failed to load user playlists', e);
-    playlists.value = [];
+    playlistError.value = e instanceof Error ? e.message : '歌单加载失败';
+  } finally {
+    if (generation === playlistLoadGeneration) {
+      playlistsLoading.value = false;
+    }
   }
 }
 
-watch(() => [userStore.isLoggedIn, userStore.userId] as const, ([isLoggedIn]) => {
-  if (isLoggedIn) {
+watch(
+  () => [userStore.isLoggedIn, userStore.userId, userStore.deviceReady] as const,
+  ([isLoggedIn, , deviceReady]) => {
+  if (isLoggedIn && deviceReady) {
     loadUserPlaylists();
-  } else {
+  } else if (!isLoggedIn) {
+    playlistLoadGeneration += 1;
     playlists.value = [];
+    playlistsLoading.value = false;
+    playlistError.value = '';
   }
 }, { immediate: true });
 
@@ -99,8 +136,7 @@ function handleNav(viewId: string) {
 }
 
 function handlePlaylist(playlist: { id: string; name: string }) {
-  // Navigate to playlist view
-  emit('navigate', 'playlist', { id: playlist.id, name: playlist.name });
+  emit('navigate', 'playlist', { id: playlist.id, name: playlist.name, source: 'user' });
 }
 </script>
 
@@ -184,13 +220,30 @@ function handlePlaylist(playlist: { id: string; name: string }) {
           <a
             v-for="pl in playlists"
             :key="pl.id"
+            data-test="sidebar-user-playlist"
             @click="handlePlaylist(pl)"
           >
             <span class="dot"></span>
             {{ pl.name }}
           </a>
         </template>
-        <div v-else class="playlist-placeholder">暂无歌单</div>
+        <div
+          v-if="playlistsLoading && playlists.length === 0"
+          class="playlist-placeholder"
+        >
+          正在读取歌单…
+        </div>
+        <button
+          v-else-if="playlistError"
+          type="button"
+          class="playlist-placeholder playlist-retry"
+          data-test="playlist-retry"
+          :title="playlistError"
+          @click="loadUserPlaylists"
+        >
+          歌单加载失败 · 重试
+        </button>
+        <div v-else-if="playlists.length === 0" class="playlist-placeholder">暂无歌单</div>
       </template>
       <div v-else class="playlist-placeholder" @click="handleNav('login')" style="cursor: pointer;">
         扫码登录后查看歌单
