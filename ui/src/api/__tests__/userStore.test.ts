@@ -19,7 +19,7 @@ import {
   logoutLocal,
   userStore,
 } from '../userStore';
-import { recentPlayedStore } from '../recentPlayedStore';
+import { recentPlayedStore } from '../../playback/data/recentPlayedStore';
 import type { Track } from '../normalizer';
 
 function mkTrack(): Track {

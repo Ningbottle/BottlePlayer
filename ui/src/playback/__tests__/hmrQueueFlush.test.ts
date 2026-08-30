@@ -56,7 +56,7 @@ describe('HMR queue flush: no stale snapshot across module reload', () => {
     oldStore.playerStore.queue = [trackB];
     oldStore.playerStore.currentIndex = 0;
 
-    const { saveQueue } = await import('../../api/playerPersistence');
+    const { saveQueue } = await import('../data/playerPersistence');
     saveQueue(); // schedules 500ms debounce timer
 
     // Confirm localStorage is still stale (debounce hasn't fired). Persistence
@@ -139,7 +139,7 @@ describe('HMR queue flush: no stale snapshot across module reload', () => {
     Object.defineProperty(audio, 'paused', { value: false, configurable: true, writable: true });
     Object.defineProperty(audio, 'ended', { value: false, configurable: true, writable: true });
 
-    const { saveQueue } = await import('../../api/playerPersistence');
+    const { saveQueue } = await import('../data/playerPersistence');
     saveQueue(); // schedules 500ms debounce
 
     // ── Phase 2: HMR — reset modules, new module evaluates ──

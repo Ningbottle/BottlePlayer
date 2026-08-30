@@ -9,9 +9,9 @@ import {
   type MediaRuntimeDeps,
 } from './runtime/mediaRuntime';
 import { PlaySessionTracker } from './playSessionTracker';
-import { recordPlay } from '../api/playStatsGateway';
+import { recordPlay } from './data/playStatsGateway';
 import { normalizeEqBands } from './eq/equalizerConfig';
-import { recentPlayedStore } from '../api/recentPlayedStore';
+import { recentPlayedStore } from './data/recentPlayedStore';
 import { playbackDiagnostics } from './playbackDiagnostics';
 import {
   PlaybackOrchestrator,
@@ -32,15 +32,15 @@ import {
   saveQueue,
   flushSaveQueue,
   loadQueueSnapshot,
-} from '../api/playerPersistence';
+} from './data/playerPersistence';
 import { appendPersonalFmRecommendations as appendFm, disposeFmSession } from './fm/fmSession';
 import { __resetQueueCommandChainForTests } from './playbackQueue';
 import {
   PlaybackCommandCoordinator,
   type PlaybackCommand,
 } from './commands/playbackCommandCoordinator';
-import { resolveTrack } from '../api/songUrlResolver';
-import { uploadPlayHistory } from '../api/playHistory';
+import { resolveTrack } from './data/songUrlGateway';
+import { uploadPlayHistory } from './data/playHistoryGateway';
 import { createPlayerEq } from './eq/usePlayerEq';
 import { disposeAudioLevelMonitor } from './runtime/audioLevelMonitor';
 

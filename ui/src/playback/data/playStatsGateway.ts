@@ -5,7 +5,7 @@
  * be affected by stats IPC failure.
  */
 import { invoke } from '@tauri-apps/api/core';
-import type { PlayRecord } from '../playback/playSessionTracker';
+import type { PlayRecord } from '../playSessionTracker';
 
 export function recordPlay(record: PlayRecord): void {
   try {

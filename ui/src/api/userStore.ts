@@ -1,7 +1,7 @@
 import { reactive } from 'vue';
 import { apiGet, apiPost, describeBackendError } from '../platform/tauri/nativeClient';
 import { resolveVip } from './vipResolver';
-import { recentPlayedStore } from './recentPlayedStore';
+import { recentPlayedStore } from '../playback/data/recentPlayedStore';
 import { favoriteStore } from './favoriteStore';
 
 interface UserState {

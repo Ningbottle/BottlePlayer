@@ -165,7 +165,7 @@ describe('playerPersistence: beforeunload listener removed (R4)', () => {
   });
 
   it('beforeunload does NOT flush — pagehide is the single flush owner', async () => {
-    const { bindQueuePersistence } = await import('../../api/playerPersistence');
+    const { bindQueuePersistence } = await import('../data/playerPersistence');
 
     const testQueue = [
       { FileHash: 'p-a', SongName: 'A' },
@@ -199,7 +199,7 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
   });
 
   it('flushSaveQueue writes queue + currentIndex as ONE atomic key (no split writes)', async () => {
-    const { bindQueuePersistence, flushSaveQueue } = await import('../../api/playerPersistence');
+    const { bindQueuePersistence, flushSaveQueue } = await import('../data/playerPersistence');
 
     const testQueue = [
       { FileHash: 'a', SongName: 'A' },
@@ -222,7 +222,7 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
   });
 
   it('flushSaveQueue returns false and does NOT throw when localStorage.setItem fails', async () => {
-    const { bindQueuePersistence, flushSaveQueue } = await import('../../api/playerPersistence');
+    const { bindQueuePersistence, flushSaveQueue } = await import('../data/playerPersistence');
 
     bindQueuePersistence(() => ({ queue: [{ FileHash: 'x' }] as any, currentIndex: 0 }));
 
@@ -239,7 +239,7 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
 
   it('saveQueue debounce callback does NOT throw when setItem fails', async () => {
     vi.useFakeTimers();
-    const { bindQueuePersistence, saveQueue } = await import('../../api/playerPersistence');
+    const { bindQueuePersistence, saveQueue } = await import('../data/playerPersistence');
 
     bindQueuePersistence(() => ({ queue: [{ FileHash: 'y' }] as any, currentIndex: 0 }));
 
@@ -261,7 +261,7 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
     localStorage.setItem('player_queue', JSON.stringify([{ FileHash: 'legacy' }]));
     localStorage.setItem('player_index', '0');
 
-    const { loadQueueSnapshot } = await import('../../api/playerPersistence');
+    const { loadQueueSnapshot } = await import('../data/playerPersistence');
     const snap = loadQueueSnapshot();
 
     expect(snap.queue).toHaveLength(1);
@@ -277,7 +277,7 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
       throw new Error('SecurityError: Access denied');
     });
 
-    const { loadQueueSnapshot } = await import('../../api/playerPersistence');
+    const { loadQueueSnapshot } = await import('../data/playerPersistence');
 
     // Must not throw — returns safe empty defaults.
     expect(() => loadQueueSnapshot()).not.toThrow();
@@ -318,7 +318,7 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
       }),
     );
 
-    const { loadQueueSnapshot } = await import('../../api/playerPersistence');
+    const { loadQueueSnapshot } = await import('../data/playerPersistence');
     const snap = loadQueueSnapshot();
 
     expect(snap.queue).toHaveLength(1);
@@ -331,7 +331,7 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
       localStorage.setItem('player_queue', JSON.stringify([{ FileHash: 'legacy-invalid-index' }]));
       localStorage.setItem('player_index', legacyIndex);
 
-      const { loadQueueSnapshot } = await import('../../api/playerPersistence');
+      const { loadQueueSnapshot } = await import('../data/playerPersistence');
       const snap = loadQueueSnapshot();
 
       expect(snap.queue).toHaveLength(1);

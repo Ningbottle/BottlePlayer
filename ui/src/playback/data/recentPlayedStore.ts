@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import type { Track } from './normalizer';
+import type { Track } from '../../api/normalizer';
 
 export interface RecentPlayedEntry {
   FileHash: string;

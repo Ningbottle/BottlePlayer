@@ -1,6 +1,6 @@
-import { apiPost } from '../platform/tauri/nativeClient';
-import type { Track } from './normalizer';
-import { userStore } from './userStore';
+import { apiPost } from '../../platform/tauri/nativeClient';
+import type { Track } from '../../api/normalizer';
+import { userStore } from '../../api/userStore';
 
 /** Upload play history to KuGou (silent failure). */
 export async function uploadPlayHistory(track: Track): Promise<void> {

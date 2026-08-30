@@ -18,7 +18,7 @@ vi.mock('../../api/userStore', () => ({
 }));
 
 import HistoryView from '../HistoryView.vue';
-import { recentPlayedStore } from '../../api/recentPlayedStore';
+import { recentPlayedStore } from '../../playback/data/recentPlayedStore';
 import type { Track } from '../../api/normalizer';
 
 function mkTrack(hash: string, name = hash): Track {
