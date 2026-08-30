@@ -33,7 +33,7 @@ import {
   flushSaveQueue,
   loadQueueSnapshot,
 } from '../api/playerPersistence';
-import { appendPersonalFmRecommendations as appendFm, disposeFmSession } from '../api/fmSession';
+import { appendPersonalFmRecommendations as appendFm, disposeFmSession } from './fm/fmSession';
 import { __resetQueueCommandChainForTests } from './playbackQueue';
 import {
   PlaybackCommandCoordinator,

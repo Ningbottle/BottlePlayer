@@ -17,7 +17,7 @@
 import { normalizeTrack, type Track } from '../../api/normalizer';
 import { flagsFromPhase, type PlaybackPhase } from '../playbackPhase';
 import type { QualityOption } from '../runtime/playbackOrchestrator';
-import type { PersonalFmAppendOptions, PersonalFmAppendSuccess } from '../../api/fmSession';
+import type { PersonalFmAppendOptions, PersonalFmAppendSuccess } from '../fm/fmSession';
 
 export type LoopMode = 'list' | 'single' | 'random';
 export type QueueMode = 'normal' | 'personalFm';

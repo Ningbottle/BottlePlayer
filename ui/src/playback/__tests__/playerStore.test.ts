@@ -42,7 +42,7 @@ import { getMediaRuntime, getOrCreateMediaRuntime } from '../runtime/mediaRuntim
 import { PlaybackCommandCoordinator } from '../commands/playbackCommandCoordinator';
 import type { Track } from '../../api/normalizer';
 import { playbackDiagnostics } from '../playbackDiagnostics';
-import { __resetFmSessionForTests } from '../../api/fmSession';
+import { __resetFmSessionForTests } from '../fm/fmSession';
 
 function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'A', Duration: 100 } as Track;

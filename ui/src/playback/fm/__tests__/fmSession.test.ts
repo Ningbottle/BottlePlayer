@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockApiGet = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: unknown[]) => mockApiGet(...args),
 }));
 
 // playbackDiagnostics is a no-op dependency for unit tests; stub it so the
 // fmSession module can be imported without dragging in the real recorder.
-vi.mock('../playbackDiagnostics', () => ({
+vi.mock('../../playbackDiagnostics', () => ({
   playbackDiagnostics: {
     recordEvent: vi.fn(),
     markActivity: vi.fn(),
@@ -22,7 +22,7 @@ import {
   disposeFmSession,
   __resetFmSessionForTests,
 } from '../fmSession';
-import type { Track } from '../normalizer';
+import type { Track } from '../../../api/normalizer';
 
 function mkTrack(hash: string): Track {
   return { FileHash: hash, SongName: hash, SingerName: 'A', Duration: 100 } as Track;

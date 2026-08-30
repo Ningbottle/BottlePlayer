@@ -23,7 +23,7 @@ import {
   __patchPlayerStateForTests,
 } from '../playerStore';
 import { getMediaRuntime, getOrCreateMediaRuntime } from '../runtime/mediaRuntime';
-import { __resetFmSessionForTests } from '../../api/fmSession';
+import { __resetFmSessionForTests } from '../fm/fmSession';
 
 /**
  * Seed a MediaRuntime-owned audio element (HMR-reuse scenario) without a
