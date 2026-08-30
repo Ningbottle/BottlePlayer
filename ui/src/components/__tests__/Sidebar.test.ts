@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import Sidebar from '../Sidebar.vue';
-import { apiGet } from '../../api/backend';
+import { apiGet } from '../../platform/tauri/nativeClient';
 import { userStore } from '../../api/userStore';
 import { useThemeStore, __resetForTest } from '../../api/themeStore';
 import { createAppRouter } from '../../navigation/router';
@@ -12,7 +12,7 @@ vi.mock('@tauri-apps/plugin-updater', () => ({
   check: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../../api/backend', () => ({
+vi.mock('../../platform/tauri/nativeClient', () => ({
   apiGet: vi.fn().mockResolvedValue({}),
 }));
 

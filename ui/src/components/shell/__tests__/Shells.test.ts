@@ -267,7 +267,7 @@ const homeFeedStoreMock = vi.hoisted(() => ({
   albums: { loading: false, refreshing: false, error: null, items: [] },
 }));
 
-vi.mock('../../../api/backend', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({
   backendHealth: vi.fn(),
   isCircuitOpen: () => false,
   ping: pingMock,

@@ -1,4 +1,4 @@
-import { apiPost } from './backend';
+import { apiPost } from '../platform/tauri/nativeClient';
 import { userStore } from './userStore';
 import type { Track } from './normalizer';
 

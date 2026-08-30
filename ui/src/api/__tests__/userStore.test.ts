@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
-vi.mock('../backend', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../backend')>();
+vi.mock('../../platform/tauri/nativeClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../platform/tauri/nativeClient')>();
   return {
     ...actual,
     apiGet: (...args: any[]) => mockApiGet(...args),

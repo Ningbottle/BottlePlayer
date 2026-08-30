@@ -1,5 +1,5 @@
 import { reactive, readonly } from 'vue';
-import { apiGet } from './backend';
+import { apiGet } from '../platform/tauri/nativeClient';
 import { normalizeTrack, type Track } from './normalizer';
 import {
   addTrackToPlaylist,

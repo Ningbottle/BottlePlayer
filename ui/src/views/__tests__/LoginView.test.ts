@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 import LoginView from '../LoginView.vue';
 
 const mockApiGet = vi.fn();
-vi.mock('../../api/backend', () => ({
+vi.mock('../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: any[]) => mockApiGet(...args),
 }));
 

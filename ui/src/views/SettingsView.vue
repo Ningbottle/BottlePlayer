@@ -1,6 +1,6 @@
 ﻿<script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { apiGet, apiPost } from '../api/backend';
+import { apiGet, apiPost } from '../platform/tauri/nativeClient';
 import { checkLoginStatus, ensureVipDeviceReady, formatVipClaimFailure } from '../api/userStore';
 import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';

@@ -1,4 +1,4 @@
-import { apiGet } from './backend';
+import { apiGet } from '../platform/tauri/nativeClient';
 import type { Track } from './normalizer';
 import type { ResolveTrackResult } from './playbackOrchestrator';
 

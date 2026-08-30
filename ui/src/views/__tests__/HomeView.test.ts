@@ -5,7 +5,7 @@ import { playAll, playPersonalFm, playTrack, playerStore } from '../../api/playe
 import { __resetHomeFeedForTest } from '../../api/homeFeedStore';
 
 const mockApiGet = vi.fn();
-vi.mock('../../api/backend', () => ({
+vi.mock('../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: any[]) => mockApiGet(...args),
 }));
 

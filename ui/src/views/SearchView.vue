@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
-import { apiGet, describeBackendError } from '../api/backend';
+import { apiGet, describeBackendError } from '../platform/tauri/nativeClient';
 import { playAll, playerStore } from '../api/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
 import AddToPlaylistModal from '../components/AddToPlaylistModal.vue';

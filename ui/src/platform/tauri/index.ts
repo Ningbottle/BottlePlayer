@@ -13,8 +13,8 @@ export {
   backendHealth,
   isCircuitOpen,
   describeBackendError,
-} from '../../api/backend';
-export type { CircuitBucket } from '../../api/backend';
+} from './nativeClient';
+export type { CircuitBucket } from './nativeClient';
 
 export { prepareAudioSourceUrl } from '../../api/audioProxy';
 

@@ -1,6 +1,6 @@
 import { computed, watch, onMounted, onScopeDispose, nextTick, type ComputedRef } from 'vue';
 import { playerStore, seek as storeSeek } from '../../api/playerStore';
-import { apiGet } from '../../api/backend';
+import { apiGet } from '../../platform/tauri/nativeClient';
 import { useLyricFollow } from '../../api/useLyricFollow';
 import { lyricFullscreen, setLyricFullscreen } from '../../api/lyricFullscreen';
 import type { Track } from '../../api/normalizer';

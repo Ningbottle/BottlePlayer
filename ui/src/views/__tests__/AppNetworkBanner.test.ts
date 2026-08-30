@@ -26,7 +26,7 @@ vi.mock('@tauri-apps/api/window', () => ({
   }),
 }));
 
-vi.mock('../../api/backend', () => ({
+vi.mock('../../platform/tauri/nativeClient', () => ({
   backendHealth: backendHealthMock,
   isCircuitOpen: () => true,
   ping: pingMock,

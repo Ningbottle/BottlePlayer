@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import QRCode from 'qrcode';
-import { apiGet, apiPost } from '../api/backend';
+import { apiGet, apiPost } from '../platform/tauri/nativeClient';
 import { userStore, checkLoginStatus, claimVip, logoutLocal } from '../api/userStore';
 import { useThemeStore } from '../api/themeStore';
 

@@ -6,7 +6,7 @@ vi.mock('@tauri-apps/plugin-updater', () => ({ check: vi.fn().mockResolvedValue(
 vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: vi.fn() }));
 vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
 const mockApiGet = vi.fn();
-vi.mock('../../api/backend', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
+vi.mock('../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
 vi.mock('../../api/userStore', () => ({
   checkLoginStatus: vi.fn().mockResolvedValue(undefined),
   ensureVipDeviceReady: vi.fn().mockResolvedValue({ ok: true }),

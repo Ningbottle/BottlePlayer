@@ -10,7 +10,7 @@ import {
 import { __resetForTest as __resetThemeForTest, useThemeStore } from '../../../api/themeStore';
 
 const mockApiGet = vi.fn();
-vi.mock('../../../api/backend', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: unknown[]) => mockApiGet(...args),
 }));
 

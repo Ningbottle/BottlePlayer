@@ -53,7 +53,7 @@ vi.mock('../../../api/playerStore', () => ({
   playTrack: playTrackMock,
   seek: vi.fn(),
 }));
-vi.mock('../../../api/backend', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: unknown[]) => lyricApiGetMock(...args),
 }));
 

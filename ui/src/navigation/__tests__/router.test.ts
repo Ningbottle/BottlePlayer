@@ -139,7 +139,7 @@ vi.mock('../../components/shell/NewsprintShell.vue', () => ({
 }));
 vi.mock('../../api/playerStore', () => ({ initPlayer: vi.fn(), initPlayerBackend: vi.fn() }));
 vi.mock('../../api/userStore', () => ({ checkLoginStatus: vi.fn() }));
-vi.mock('../../api/backend', () => ({ ping: vi.fn().mockResolvedValue(true) }));
+vi.mock('../../platform/tauri/nativeClient', () => ({ ping: vi.fn().mockResolvedValue(true) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(0) }));
 vi.mock('../../api/motion', () => ({ transitionEnter: vi.fn(), transitionLeave: vi.fn(), isReducedMotion: vi.fn(() => true) }));
 vi.mock('../../api/themeStore', async () => {

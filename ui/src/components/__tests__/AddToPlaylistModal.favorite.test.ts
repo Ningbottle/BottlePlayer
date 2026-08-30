@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
-vi.mock('../../api/backend', () => ({
+vi.mock('../../platform/tauri/nativeClient', () => ({
   apiGet: (...a: unknown[]) => mockApiGet(...a),
   apiPost: (...a: unknown[]) => mockApiPost(...a),
 }));

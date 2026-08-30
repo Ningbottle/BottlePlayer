@@ -1,4 +1,4 @@
-import { apiGet } from './backend';
+import { apiGet } from '../platform/tauri/nativeClient';
 
 export interface Track {
   FileHash: string;

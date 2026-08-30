@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import { apiGet } from './backend';
+import { apiGet } from '../platform/tauri/nativeClient';
 import { normalizeTrack, type Track } from './normalizer';
 
 export interface PlaylistInfo {

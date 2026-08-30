@@ -8,8 +8,8 @@ import {
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 
 const mockApiGet = vi.fn();
-vi.mock('../../api/backend', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../api/backend')>();
+vi.mock('../../platform/tauri/nativeClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../platform/tauri/nativeClient')>();
   return {
     ...actual,
     apiGet: (...args: any[]) => mockApiGet(...args),

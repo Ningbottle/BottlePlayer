@@ -38,7 +38,7 @@ vi.mock('gsap', () => ({
 }));
 
 const mockApiGet = vi.fn();
-vi.mock('../../api/backend', () => ({
+vi.mock('../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: any[]) => mockApiGet(...args),
 }));
 

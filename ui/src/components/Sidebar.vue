@@ -2,7 +2,7 @@
 import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { check } from '@tauri-apps/plugin-updater';
-import { apiGet } from '../api/backend';
+import { apiGet } from '../platform/tauri/nativeClient';
 import { userStore } from '../api/userStore';
 import { normalizePlaylists, type UserPlaylist } from '../api/favoriteStore';
 import { useSkippedVersion, getSkippedVersion } from '../api/skippedVersion';

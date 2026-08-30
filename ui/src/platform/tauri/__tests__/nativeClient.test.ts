@@ -5,7 +5,7 @@ import {
   pickBucket,
   describeBackendError,
   __resetCircuitBucketsForTests,
-} from '../backend';
+} from '../nativeClient';
 
 const mockInvoke = vi.fn();
 vi.mock('@tauri-apps/api/core', () => ({

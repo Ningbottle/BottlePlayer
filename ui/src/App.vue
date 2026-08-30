@@ -15,7 +15,7 @@ import PageRecoveryBoundary from './components/shell/PageRecoveryBoundary.vue';
 import { initPlayer, initPlayerBackend } from './api/playerStore';
 import { bindOsMediaBridge, unbindOsMediaBridge } from './api/osMediaBridge';
 import { checkLoginStatus } from './api/userStore';
-import { ping } from './api/backend';
+import { ping } from './platform/tauri/nativeClient';
 import { lyricFullscreen, setLyricFullscreen } from './api/lyricFullscreen';
 import { transitionEnter, transitionLeave, isReducedMotion } from './api/motion';
 import { startPlayerSyncHost } from './api/playerSync';
