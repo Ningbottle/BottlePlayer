@@ -38,7 +38,7 @@ import { __resetQueueCommandChainForTests } from './playbackQueue';
 import {
   PlaybackCommandCoordinator,
   type PlaybackCommand,
-} from '../api/playbackCommandCoordinator';
+} from './commands/playbackCommandCoordinator';
 import { resolveTrack } from '../api/songUrlResolver';
 import { uploadPlayHistory } from '../api/playHistory';
 import { createPlayerEq } from '../api/usePlayerEq';

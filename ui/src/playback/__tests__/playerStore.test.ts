@@ -39,7 +39,7 @@ import {
 } from '../playerStore';
 import { flagsFromPhase } from '../playbackPhase';
 import { getMediaRuntime, getOrCreateMediaRuntime } from '../../api/mediaRuntime';
-import { PlaybackCommandCoordinator } from '../../api/playbackCommandCoordinator';
+import { PlaybackCommandCoordinator } from '../commands/playbackCommandCoordinator';
 import type { Track } from '../../api/normalizer';
 import { playbackDiagnostics } from '../playbackDiagnostics';
 import { __resetFmSessionForTests } from '../../api/fmSession';

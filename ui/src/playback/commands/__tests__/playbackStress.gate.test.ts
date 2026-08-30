@@ -12,7 +12,7 @@ import {
   type CoordinatorDeps,
   type CoordinatorState,
 } from '../playbackCommandCoordinator';
-import type { Track } from '../normalizer';
+import type { Track } from '../../../api/normalizer';
 
 function mkTrack(i: number): Track {
   return {

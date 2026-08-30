@@ -14,10 +14,10 @@
  * never resolve a pending quality/select Promise.
  */
 
-import { normalizeTrack, type Track } from './normalizer';
-import { flagsFromPhase, type PlaybackPhase } from '../playback/playbackPhase';
-import type { QualityOption } from './playbackOrchestrator';
-import type { PersonalFmAppendOptions, PersonalFmAppendSuccess } from './fmSession';
+import { normalizeTrack, type Track } from '../../api/normalizer';
+import { flagsFromPhase, type PlaybackPhase } from '../playbackPhase';
+import type { QualityOption } from '../../api/playbackOrchestrator';
+import type { PersonalFmAppendOptions, PersonalFmAppendSuccess } from '../../api/fmSession';
 
 export type LoopMode = 'list' | 'single' | 'random';
 export type QueueMode = 'normal' | 'personalFm';
