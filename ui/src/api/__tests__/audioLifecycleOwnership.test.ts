@@ -134,3 +134,69 @@ describe('R3: disposeAudioLevelMonitor for HMR', () => {
     }
   });
 });
+
+// ── B1: single-owner invariants across HMR module generations ──
+
+describe('single-owner invariants across HMR module generations', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    localStorage.clear();
+    (window as any).__bottlemusic_audio__ = undefined;
+    (window as any).__bottlemusic_player_cleanup__ = undefined;
+    (window as any).__bottlemusic_pagehide__ = undefined;
+  });
+
+  afterEach(() => {
+    const handler = (window as any).__bottlemusic_pagehide__;
+    if (typeof handler === 'function') {
+      window.removeEventListener('pagehide', handler);
+    }
+    (window as any).__bottlemusic_audio__ = undefined;
+    (window as any).__bottlemusic_player_cleanup__ = undefined;
+    (window as any).__bottlemusic_pagehide__ = undefined;
+    vi.restoreAllMocks();
+  });
+
+  it('one live <audio> and one pagehide owner survive a module re-evaluation; pagehide flushes once', async () => {
+    const audioCtorSpy = vi.spyOn(window, 'Audio');
+
+    // Generation 1: creates THE audio element, binds persistence + pagehide.
+    const gen1 = await import('../playerStore');
+    gen1.initPlayer();
+    const sharedAudio = (window as any).__bottlemusic_audio__ as HTMLAudioElement;
+    expect(sharedAudio).toBeTruthy();
+    expect(audioCtorSpy).toHaveBeenCalledTimes(1);
+
+    gen1.playerStore.queue = [{ FileHash: 'gen-owner', SongName: 'gen-owner' }] as any;
+    gen1.playerStore.currentIndex = 0;
+
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+
+    // Generation 2 (HMR-style re-evaluation): must reuse the SAME element and
+    // REPLACE (not stack) the pagehide owner.
+    vi.resetModules();
+    const gen2 = await import('../playerStore');
+    gen2.initPlayer();
+
+    expect(audioCtorSpy).toHaveBeenCalledTimes(1);
+    expect((window as any).__bottlemusic_audio__).toBe(sharedAudio);
+    expect(gen2.playerStore.audio).toBe(sharedAudio);
+
+    const writesAfterHmr = setItemSpy.mock.calls.filter(
+      ([key]) => key === 'player_queue_snapshot',
+    ).length;
+
+    window.dispatchEvent(new Event('pagehide'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    const writesAfterPagehide = setItemSpy.mock.calls.filter(
+      ([key]) => key === 'player_queue_snapshot',
+    ).length;
+    // One pagehide owner → exactly one flush. A stacked handler would double this.
+    expect(writesAfterPagehide - writesAfterHmr).toBe(1);
+    const snap = JSON.parse(localStorage.getItem('player_queue_snapshot') || 'null');
+    expect(snap.queue).toEqual([expect.objectContaining({ FileHash: 'gen-owner' })]);
+
+    expect(audioCtorSpy).toHaveBeenCalledTimes(1);
+  });
+});

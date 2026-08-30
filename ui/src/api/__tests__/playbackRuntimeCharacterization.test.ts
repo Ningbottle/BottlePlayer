@@ -386,3 +386,72 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
     expect(audio.volume).toBe(0.25);
   });
 });
+
+// ── B1: orphan module after vi.resetModules must not take over runtime ownership ──
+
+describe('orphan playerStore module after vi.resetModules (single-owner invariant)', () => {
+  beforeEach(() => {
+    // Earlier tests in this file import ../playerStore after their own
+    // vi.resetModules(); reset again so `live` is a guaranteed-fresh instance
+    // (a cached instance may carry playerStore.audio from a previous test,
+    // which would make initPlayer() early-return).
+    vi.resetModules();
+    localStorage.clear();
+    (window as any).__bottlemusic_audio__ = undefined;
+    (window as any).__bottlemusic_player_cleanup__ = undefined;
+    (window as any).__bottlemusic_pagehide__ = undefined;
+  });
+
+  afterEach(() => {
+    const handler = (window as any).__bottlemusic_pagehide__;
+    if (typeof handler === 'function') {
+      window.removeEventListener('pagehide', handler);
+    }
+    (window as any).__bottlemusic_audio__ = undefined;
+    (window as any).__bottlemusic_player_cleanup__ = undefined;
+    (window as any).__bottlemusic_pagehide__ = undefined;
+    vi.restoreAllMocks();
+  });
+
+  it('a re-evaluated module that never calls initPlayer cannot take over audio/pagehide/persistence', async () => {
+    // Live generation: owns the audio, the pagehide handler, and the persistence snapshot.
+    const live = await import('../playerStore');
+    live.initPlayer();
+    const liveAudio = (window as any).__bottlemusic_audio__ as HTMLAudioElement;
+    expect(liveAudio).toBeTruthy();
+    expect(live.playerStore.audio).toBe(liveAudio);
+    const livePagehide = (window as any).__bottlemusic_pagehide__;
+    expect(typeof livePagehide).toBe('function');
+
+    live.playerStore.queue = [{ FileHash: 'live-owner', SongName: 'live-owner' }] as any;
+    live.playerStore.currentIndex = 0;
+
+    // Orphan generation: fresh module evaluation, initPlayer never called.
+    vi.resetModules();
+    const orphan = await import('../playerStore');
+    expect(orphan.playerStore).not.toBe(live.playerStore);
+    // It owns no audio and did not replace the global single-owner slots.
+    expect(orphan.playerStore.audio).toBeNull();
+    expect((window as any).__bottlemusic_audio__).toBe(liveAudio);
+    expect((window as any).__bottlemusic_pagehide__).toBe(livePagehide);
+
+    // A stale/empty orphan state must NOT be what pagehide persists.
+    orphan.playerStore.queue = [];
+    orphan.playerStore.currentIndex = -1;
+
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    window.dispatchEvent(new Event('pagehide'));
+    await new Promise((r) => setTimeout(r, 20));
+
+    const snapshotWrites = setItemSpy.mock.calls.filter(
+      ([key]) => key === 'player_queue_snapshot',
+    );
+    // Exactly one flush — the live module's snapshot, not the orphan's empty queue.
+    expect(snapshotWrites).toHaveLength(1);
+    const snap = JSON.parse(localStorage.getItem('player_queue_snapshot') || 'null');
+    expect(snap.queue).toEqual([expect.objectContaining({ FileHash: 'live-owner' })]);
+    expect(snap.currentIndex).toBe(0);
+    // The orphan still owns nothing after the flush.
+    expect(orphan.playerStore.audio).toBeNull();
+  });
+});

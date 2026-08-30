@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { nextTick } from 'vue';
 
 // Mock Tauri invoke (used by stats recording + native_request).
 const mockInvoke = vi.fn();
@@ -29,11 +30,14 @@ import {
   resumeAudioContext,
   __getActiveBackend,
   __getPlaySession,
+  __patchPlayerStateForTests,
   __resetWebAudioEqForTests,
   __resetPlaybackCoordinatorForTests,
   eqState,
   retryEq,
 } from '../playerStore';
+import { flagsFromPhase } from '../playbackPhase';
+import { PlaybackCommandCoordinator } from '../playbackCommandCoordinator';
 import type { Track } from '../normalizer';
 import { playbackDiagnostics } from '../playbackDiagnostics';
 import { __resetFmSessionForTests } from '../fmSession';
@@ -1196,6 +1200,38 @@ describe('playerStore integration', () => {
     expect(removeAttrSpy).not.toHaveBeenCalledWith('src');
   });
 
+  it('B1: HMR reuse keeps exactly one live <audio> and projects its src/currentTime/paused state', () => {
+    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    oldAudio.src = 'http://127.0.0.1:17631/audio/b1-single-live';
+    Object.defineProperty(oldAudio, 'paused', { value: false, configurable: true });
+    Object.defineProperty(oldAudio, 'ended', { value: false, configurable: true });
+    Object.defineProperty(oldAudio, 'currentTime', { value: 33, writable: true, configurable: true });
+
+    const audioCtorSpy = vi.spyOn(window, 'Audio');
+    try {
+      (window as any).__bottlemusic_audio__ = oldAudio;
+      (playerStore as any).audio = null;
+      playerStore.currentTime = 0;
+      playerStore.playbackPhase = 'idle';
+      playerStore.isPlaying = false;
+
+      initPlayer();
+
+      // Reuse path: no second <audio> is ever constructed.
+      expect(audioCtorSpy).not.toHaveBeenCalled();
+      // The global slot and the store point at the SAME single element.
+      expect((window as any).__bottlemusic_audio__).toBe(oldAudio);
+      expect(playerStore.audio).toBe(oldAudio);
+      // Current src / currentTime / paused state are reused, not reset.
+      expect(playerStore.audio!.src).toContain('/audio/b1-single-live');
+      expect(playerStore.currentTime).toBe(33);
+      expect(playerStore.playbackPhase).toBe('playing');
+      expect(playerStore.isPlaying).toBe(true);
+    } finally {
+      audioCtorSpy.mockRestore();
+    }
+  });
+
   it('HMR module cleanup detaches coordinator without pause or clearing shared audio src', async () => {
     // Full path: old module cleanup must not run dispose barrier on shared <audio>.
     initPlayer();
@@ -1269,6 +1305,60 @@ describe('playerStore integration', () => {
     await Promise.resolve();
   });
 
+  it('B1: one pagehide triggers exactly one queue flush, one coordinator shutdown, one backend shutdown', async () => {
+    initPlayer();
+    initPlayerBackend();
+    HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
+
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'audio_proxy_url') return 'http://127.0.0.1:17631/audio/x';
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({
+        status: 200,
+        headers: {},
+        body: { status: 1, url: 'http://127.0.0.1:17631/audio/b1-pagehide-once' },
+      });
+    });
+
+    const track = mkTrack('b1-pagehide-once');
+    track.Image = 'http://img/';
+    await playTrack(track);
+
+    const backend = __getActiveBackend()!;
+    expect(backend).toBeTruthy();
+    const coordShutdownSpy = vi
+      .spyOn(PlaybackCommandCoordinator.prototype, 'shutdown')
+      .mockResolvedValue(undefined);
+    const backendShutdownSpy = vi.spyOn(backend, 'shutdown');
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+    localStorage.removeItem('player_queue_snapshot');
+
+    window.dispatchEvent(new Event('pagehide'));
+    // disposePlayerRuntime is async; let the shutdown chain settle.
+    await Promise.resolve();
+    await Promise.resolve();
+    await new Promise((r) => setTimeout(r, 30));
+
+    const snapshotWrites = setItemSpy.mock.calls.filter(
+      ([key]) => key === 'player_queue_snapshot',
+    );
+    expect(snapshotWrites, 'queue flush must run exactly once per pagehide').toHaveLength(1);
+    expect(
+      coordShutdownSpy,
+      'coordinator shutdown must run exactly once per pagehide',
+    ).toHaveBeenCalledTimes(1);
+    expect(
+      backendShutdownSpy,
+      'backend shutdown must run exactly once per pagehide',
+    ).toHaveBeenCalledTimes(1);
+    const snap = JSON.parse(localStorage.getItem('player_queue_snapshot') || 'null');
+    expect(snap.queue).toEqual([expect.objectContaining({ FileHash: 'b1-pagehide-once' })]);
+
+    coordShutdownSpy.mockRestore();
+    backendShutdownSpy.mockRestore();
+    setItemSpy.mockRestore();
+  });
+
   it('HMR cleanup invalidates in-flight resolve so stale playUrl never runs', async () => {
     // Delay /song/url until after HMR detach; orphan switchTrack must not playUrl.
     initPlayer();
@@ -1336,6 +1426,35 @@ describe('playerStore integration', () => {
 
     expect(playerStore.audio).toBe(oldAudio);
     expect(playerStore.isPlaying).toBe(true);
+  });
+
+  it('B1: EQ attach → volume change → disconnect restores the Store volume preference', async () => {
+    const eqMocks = setupWorkletEqMocks();
+    __resetWebAudioEqForTests();
+    initPlayer();
+    await initPlayerBackend();
+
+    const audio = playerStore.audio!;
+    // Store preference before attach.
+    setVolume(0.6);
+    await nextTick();
+
+    await attachWebAudioEqSource(audio, true);
+    expect(eqState.available).toBe(true);
+    // While rerouted, the element is muted and the graph carries the volume.
+    expect(audio.volume).toBe(0);
+    expect(eqMocks.gainNode.gain.value).toBeCloseTo(0.6, 5);
+
+    // User changes volume while rerouted: gain follows, element stays leased.
+    setVolume(0.85);
+    await nextTick();
+    expect(eqMocks.gainNode.gain.value).toBeCloseTo(0.85, 5);
+    expect(audio.volume).toBe(0);
+
+    disconnectWebAudioEqSource();
+    // Disconnect hands volume back to the latest Store preference.
+    expect(audio.volume).toBeCloseTo(0.85, 5);
+    expect(playerStore.volume).toBe(0.85);
   });
 
   // ── Phase 4: retryEq failure count (spec §6.3) ──
@@ -1415,5 +1534,54 @@ describe('playerStore integration', () => {
 
       HTMLAudioElement.prototype.play = realPlay;
     });
+  });
+});
+
+// ── B1 characterization: phase is the single source of truth (R1/R2) ──
+describe('phase projection funnel', () => {
+  const ALL_PHASES = [
+    'idle',
+    'resolving',
+    'loading',
+    'playing',
+    'paused',
+    'recovering',
+    'error',
+  ] as const;
+
+  beforeEach(() => {
+    localStorage.clear();
+    resetStore();
+  });
+
+  it('patching playbackPhase projects isPlaying/isLoading exactly via flagsFromPhase', () => {
+    for (const phase of ALL_PHASES) {
+      __patchPlayerStateForTests({ playbackPhase: phase });
+      expect(playerStore.playbackPhase).toBe(phase);
+      expect(playerStore.isPlaying).toBe(flagsFromPhase(phase).isPlaying);
+      expect(playerStore.isLoading).toBe(flagsFromPhase(phase).isLoading);
+    }
+  });
+
+  it('bare flag writes never flip isPlaying/isLoading (patch funnel drops them)', () => {
+    __patchPlayerStateForTests({ playbackPhase: 'paused' });
+    expect(playerStore.isPlaying).toBe(false);
+    expect(playerStore.isLoading).toBe(false);
+
+    __patchPlayerStateForTests({ isPlaying: true, isLoading: true });
+    // Flags stay consistent with the authoritative phase — the bare write is dropped.
+    expect(playerStore.isPlaying).toBe(false);
+    expect(playerStore.isLoading).toBe(false);
+  });
+
+  it('a patch with a phase and conflicting flags derives flags from the phase', () => {
+    __patchPlayerStateForTests({ playbackPhase: 'playing', isLoading: true });
+    expect(playerStore.isPlaying).toBe(true);
+    expect(playerStore.isLoading).toBe(false);
+
+    __patchPlayerStateForTests({ playbackPhase: 'resolving', isPlaying: true });
+    expect(playerStore.playbackPhase).toBe('resolving');
+    expect(playerStore.isPlaying).toBe(false);
+    expect(playerStore.isLoading).toBe(true);
   });
 });

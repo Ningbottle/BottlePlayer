@@ -892,4 +892,26 @@ describe('WebAudioEq volume lease', () => {
     expect(audio2.volume).toBe(0);
     expect(audio1.volume).toBe(0.2);
   });
+
+  it('B1: each attach/disconnect lease restores the latest preference across EQ off→on cycles', async () => {
+    const { eq } = await makeEq();
+    const audio = makeMockAudio(() => mocks.captureStreamImpl() as MockStream);
+
+    // First lease: attach with preference 0.6, user raises volume while rerouted.
+    audio.volume = 0.6;
+    expect(eq.attachSource(audio, 0.6)).toBe(true);
+    expect(audio.volume).toBe(0);
+    eq.setVolume(0.9);
+    eq.disconnectSource();
+    expect(audio.volume).toBe(0.9);
+    expect(eq.isRerouted).toBe(false);
+
+    // Second lease after re-enable: attach passes the NEW preference; the
+    // previous lease's volume must not leak into the new lease restore.
+    audio.volume = 0.4;
+    expect(eq.attachSource(audio, 0.4)).toBe(true);
+    expect(audio.volume).toBe(0);
+    eq.disconnectSource();
+    expect(audio.volume).toBe(0.4);
+  });
 });
