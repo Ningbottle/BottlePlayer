@@ -1,6 +1,5 @@
 import type { PlayerBackend, PlaybackEvent, PlaybackState } from './playerBackend';
 import type { DiagEvent } from './playbackDiagnostics';
-import { loadNumber } from './safeStorage';
 
 export interface PreparedAudioSource {
   url: string;
@@ -8,6 +7,8 @@ export interface PreparedAudioSource {
 }
 
 export interface Html5AudioBackendOptions {
+  /** Starting element volume; persistence is owned by playerPersistence. */
+  initialVolume?: number;
   prepareSourceUrl?: (url: string) => Promise<PreparedAudioSource>;
   /** Called after audio.play() resolves — post-play attachSource (spec §5.2). */
   initEq?: (
@@ -29,6 +30,15 @@ interface SourceLease {
   readonly id: number;
 }
 
+/**
+ * HTMLMediaElement.volume rejects values outside [0, 1]; fall back to the
+ * historical default (0.7) for non-finite input and clamp otherwise.
+ */
+function normalizeInitialVolume(value: number | undefined): number {
+  if (!Number.isFinite(value)) return 0.7;
+  return Math.max(0, Math.min(1, value as number));
+}
+
 export class Html5AudioBackend implements PlayerBackend {
   readonly kind = 'html5' as const;
   private lastCrossOriginSafe = false;
@@ -38,7 +48,7 @@ export class Html5AudioBackend implements PlayerBackend {
     private audio: HTMLAudioElement,
     private readonly options: Html5AudioBackendOptions = {},
   ) {
-    this.audio.volume = loadNumber('player_volume', 0.7, 0, 1);
+    this.audio.volume = normalizeInitialVolume(this.options.initialVolume);
   }
 
   async initialize(): Promise<boolean> { return true; }
@@ -137,7 +147,6 @@ export class Html5AudioBackend implements PlayerBackend {
     } else {
       this.audio.volume = v;
     }
-    localStorage.setItem('player_volume', String(v));
   }
 
   async setRate(r: number): Promise<void> { this.audio.playbackRate = r; }

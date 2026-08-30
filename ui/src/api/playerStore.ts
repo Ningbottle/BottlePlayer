@@ -23,9 +23,11 @@ import {
   transitionPhase,
   type PlaybackPhase,
 } from './playbackPhase';
-import { loadNumber, safeGetItem, safeSetItem } from './safeStorage';
+import { safeGetItem, safeSetItem } from './safeStorage';
 import {
   loadJSON,
+  loadPlayerVolume,
+  savePlayerVolume,
   bindQueuePersistence,
   saveQueue,
   flushSaveQueue,
@@ -43,7 +45,6 @@ import { createPlayerEq } from './usePlayerEq';
 import { disposeAudioLevelMonitor } from './audioLevelMonitor';
 
 export type { Track };
-export { loadNumber } from './safeStorage';
 
 export type LoopMode = 'list' | 'single' | 'random';
 export type QueueMode = 'normal' | 'personalFm';
@@ -181,7 +182,7 @@ export const playerStore = reactive<PlayerState>({
   isPlaying: false,
   currentTime: 0,
   duration: 0,
-  volume: loadNumber('player_volume', 0.7, 0, 1),
+  volume: loadPlayerVolume(),
   queue: initialQueueSnapshot.queue,
   currentIndex: initialQueueSnapshot.currentIndex,
   loopMode: parseLoopMode(safeGetItem('player_loop_mode')),
@@ -225,10 +226,11 @@ const { closeWebAudioEq, makeBackendEqHooks, resetRetryState } = playerEq;
 function buildMediaRuntimeDeps(): MediaRuntimeDeps {
   return {
     initialVolume: () => playerStore.volume,
-    // initialVolume is accepted per plan but the Backend keeps reading its own
-    // persisted default until B4 wires the single persistence owner through.
-    createBackend: (audio, _initialVolume) =>
+    // initialVolume comes from deps.initialVolume() — the Store preference at
+    // runtime-creation time — making the Backend persistence-free.
+    createBackend: (audio, initialVolume) =>
       new Html5AudioBackend(audio, {
+        initialVolume,
         ...makeBackendEqHooks(),
         getAttachTransitionSeq: () => playbackOrchestrator.getTransitionSeq(),
         isAttachTransitionCurrent: (seq) => playbackOrchestrator.isTransitionCurrent(seq),
@@ -433,7 +435,7 @@ function handlePlaybackEvent(e: PlaybackEvent) {
 
 // Watch volume and queue to persist
 watch(() => playerStore.volume, (newVol) => {
-  safeSetItem('player_volume', String(newVol));
+  savePlayerVolume(newVol);
   setWebAudioEqVolume(newVol);
   const backend = moduleRuntime?.getBackend();
   if (backend) {

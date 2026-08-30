@@ -321,7 +321,7 @@ describe('playerStore integration', () => {
     ['5', 1],
     ['-1', 0],
   ] as const)(
-    'loadNumber clamps or falls back for player_volume=%j → %s',
+    'store restores volume preference via loadPlayerVolume for raw=%j → %s',
     async (raw, expected) => {
       vi.resetModules();
       localStorage.clear();
@@ -829,6 +829,8 @@ describe('playerStore integration', () => {
 
     const backend = __getActiveBackend()!;
     const setVolumeSpy = vi.spyOn(backend, 'setVolume');
+    // Only count the persistence key so unrelated Store writes don't interfere.
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
 
     await setVolume(0.42);
 
@@ -836,6 +838,12 @@ describe('playerStore integration', () => {
     expect(setVolumeSpy).toHaveBeenCalledTimes(1);
     expect(setVolumeSpy).toHaveBeenCalledWith(0.42);
     expect(playerStore.volume).toBe(0.42);
+    // Single persistence owner: exactly one player_volume write per change.
+    const persistedWrites = setItemSpy.mock.calls.filter(
+      ([key]) => key === 'player_volume',
+    );
+    expect(persistedWrites, 'player_volume must be written exactly once').toHaveLength(1);
+    setItemSpy.mockRestore();
   });
 
   it('turning EQ OFF during playback restores direct HTML5 output and releases the captured stream', async () => {

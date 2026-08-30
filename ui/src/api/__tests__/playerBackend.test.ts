@@ -342,6 +342,55 @@ describe('Html5AudioBackend', () => {
     expect(audio.volume).not.toBe(0.42);
   });
 
+  // ── B4: the Backend owns media volume only — persistence belongs to playerPersistence ──
+
+  it('does not read or write persisted volume', async () => {
+    // Seed a conflicting preference directly (before the setItem spy so the
+    // seed write itself is not counted).
+    localStorage.setItem('player_volume', '0.9');
+    const setItemSpy = vi.spyOn(Storage.prototype, 'setItem');
+
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    const backend = new Html5AudioBackend(audio, { initialVolume: 0.25 });
+
+    // Constructor must use options.initialVolume, not the stored 0.9.
+    expect(audio.volume).toBe(0.25);
+
+    await backend.setVolume(0.4);
+    expect(audio.volume).toBe(0.4);
+
+    const persistedWrites = setItemSpy.mock.calls.filter(
+      ([key]) => key === 'player_volume',
+    );
+    expect(
+      persistedWrites,
+      'Backend must never write player_volume (persistence is single-owner)',
+    ).toHaveLength(0);
+    setItemSpy.mockRestore();
+    localStorage.removeItem('player_volume');
+  });
+
+  it('defaults to 0.7 when no initialVolume option is provided', () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    new Html5AudioBackend(audio);
+    expect(audio.volume).toBe(0.7);
+  });
+
+  it.each([
+    [Number.NaN, 0.7],
+    [Number.POSITIVE_INFINITY, 0.7],
+    [1.5, 1],
+    [-0.25, 0],
+  ] as const)(
+    'clamps or falls back for out-of-range initialVolume %s → %s',
+    (raw, expected) => {
+      const audio = document.createElement('audio') as HTMLAudioElement;
+      new Html5AudioBackend(audio, { initialVolume: raw });
+      // HTMLMediaElement.volume must never receive an out-of-range value.
+      expect(audio.volume).toBe(expected);
+    },
+  );
+
   it('switchUrl waits for metadata before restoring position and respects autoplay false', async () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
     audio.play = vi.fn().mockResolvedValue(undefined);

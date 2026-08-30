@@ -1,5 +1,19 @@
 import type { Track } from './normalizer';
-import { safeGetItem } from './safeStorage';
+import { safeGetItem, loadNumber, safeSetItem } from './safeStorage';
+
+// ── Volume persistence (single owner since Task B4) ──
+// The Backend and the Store must never read or write player_volume directly;
+// both go through this module.
+
+export const PLAYER_VOLUME_KEY = 'player_volume';
+
+export function loadPlayerVolume(): number {
+  return loadNumber(PLAYER_VOLUME_KEY, 0.7, 0, 1);
+}
+
+export function savePlayerVolume(volume: number): void {
+  safeSetItem(PLAYER_VOLUME_KEY, String(volume));
+}
 
 export function loadJSON<T>(key: string, fallback: T): T {
   try {
