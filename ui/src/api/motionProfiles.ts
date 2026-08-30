@@ -1,5 +1,3 @@
-import type { SkinId } from './themeStore';
-
 export interface TweenSpec {
   duration: number;
   ease: string;
@@ -37,6 +35,8 @@ const newsprintProfile: MotionProfile = {
   vinyl: { enabled: false, spinSeconds: 0, rampSeconds: 0 },
 };
 
-export function getMotionProfile(skinId: SkinId): MotionProfile {
+export type MotionSkinId = 'aurora' | 'newsprint';
+
+export function getMotionProfile(skinId: MotionSkinId): MotionProfile {
   return skinId === 'aurora' ? auroraProfile : newsprintProfile;
 }

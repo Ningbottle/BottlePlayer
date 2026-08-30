@@ -26,9 +26,15 @@ import { useLyricFocusStore } from "./api/lyricFocusStore";
 import { disposePlayerRuntime } from "./playback/playerStore";
 import { installPageLifecycle } from "./app/lifecycle/pageLifecycle";
 import { router } from "./navigation/router";
+import { configureMotionProfileProvider } from "./api/motionPrimitives";
 
-useThemeStore().init();
+const themeStore = useThemeStore();
+themeStore.init();
 useLyricFocusStore().init();
+
+// The neutral motion module reads the live skin through this provider — no
+// second skin source of truth, no watcher. Configured before app.mount.
+configureMotionProfileProvider(() => themeStore.skinId.value);
 
 // Application composition owns the page lifecycle: the single pagehide
 // listener lives in app/lifecycle and calls the player's public shutdown
