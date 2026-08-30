@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockApiGet = vi.fn();
-vi.mock('../backend', () => ({
+vi.mock('../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: unknown[]) => mockApiGet(...args),
 }));
 

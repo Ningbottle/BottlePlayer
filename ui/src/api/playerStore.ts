@@ -23,7 +23,7 @@ import {
   transitionPhase,
   type PlaybackPhase,
 } from './playbackPhase';
-import { safeGetItem, safeSetItem } from './safeStorage';
+import { safeGetItem, safeSetItem } from '../platform/storage/safeStorage';
 import {
   loadJSON,
   loadPlayerVolume,

@@ -1,5 +1,5 @@
 import type { Track } from './normalizer';
-import { safeGetItem, loadNumber, safeSetItem } from './safeStorage';
+import { safeGetItem, loadNumber, safeSetItem } from '../platform/storage/safeStorage';
 
 // ── Volume persistence (single owner since Task B4) ──
 // The Backend and the Store must never read or write player_volume directly;
