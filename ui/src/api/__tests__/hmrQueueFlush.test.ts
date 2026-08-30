@@ -17,6 +17,7 @@
  * module evaluation (not just reusing the same store reference).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { getMediaRuntime } from '../mediaRuntime';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../motion', () => ({ isReducedMotion: vi.fn(() => false) }));
@@ -34,8 +35,7 @@ vi.stubGlobal('webkitAudioContext', undefined);
 describe('HMR queue flush: no stale snapshot across module reload', () => {
   beforeEach(() => {
     localStorage.clear();
-    (window as any).__bottlemusic_audio__ = undefined;
-    (window as any).__bottlemusic_player_cleanup__ = undefined;
+    (window as any).__bottlemusic_media_runtime__ = undefined;
   });
 
   afterEach(() => {
@@ -93,7 +93,7 @@ describe('HMR queue flush: no stale snapshot across module reload', () => {
     oldStore.initPlayer();
 
     // Verify the duration listener is wired (set up by initPlayer).
-    const audio = oldStore.playerStore.audio!;
+    const audio = getMediaRuntime()!.audio;
     expect(audio).toBeTruthy();
     Object.defineProperty(audio, 'duration', { value: 200, configurable: true, writable: true });
     audio.dispatchEvent(new Event('durationchange'));
@@ -108,13 +108,13 @@ describe('HMR queue flush: no stale snapshot across module reload', () => {
     });
 
     // Call cleanup directly — flushSaveQueue is isolated, must not throw.
-    const cleanup = (window as any).__bottlemusic_player_cleanup__;
-    expect(typeof cleanup).toBe('function');
-    expect(() => cleanup()).not.toThrow();
+    const runtime = getMediaRuntime();
+    expect(runtime).toBeTruthy();
+    expect(() => runtime!.detachForHmr()).not.toThrow();
 
     // Proof teardown completed PAST flushSaveQueue: the duration listener was
-    // removed (initListenerCleanup ran, which is after flushSaveQueue in the
-    // cleanup body). Dispatching durationchange again must NOT update duration.
+    // removed (MediaRuntime.detachForHmr ran after beforeHmrDetach in the
+    // cleanup path). Dispatching durationchange again must NOT update duration.
     Object.defineProperty(audio, 'duration', { value: 300, configurable: true, writable: true });
     audio.dispatchEvent(new Event('durationchange'));
     expect(oldStore.playerStore.duration).toBe(0); // listener removed, no update
@@ -134,7 +134,7 @@ describe('HMR queue flush: no stale snapshot across module reload', () => {
     oldStore.playerStore.currentIndex = 0;
 
     // Simulate audio is playing track B (src set, not paused).
-    const audio = oldStore.playerStore.audio!;
+    const audio = getMediaRuntime()!.audio;
     audio.src = 'http://test/B';
     Object.defineProperty(audio, 'paused', { value: false, configurable: true, writable: true });
     Object.defineProperty(audio, 'ended', { value: false, configurable: true, writable: true });
@@ -158,7 +158,7 @@ describe('HMR queue flush: no stale snapshot across module reload', () => {
     expect(newStore.playerStore.currentIndex).toBe(0);
     expect((newStore.playerStore.currentTrack as any)?.FileHash).toBe('B');
     // audio src must NOT be cleared by HMR cleanup.
-    expect(newStore.playerStore.audio?.src).toContain('B');
+    expect(getMediaRuntime()!.audio.src).toContain('B');
     // phase must reflect the audio's live playing state.
     expect(newStore.playerStore.playbackPhase).toBe('playing');
     expect(newStore.playerStore.isPlaying).toBe(true);

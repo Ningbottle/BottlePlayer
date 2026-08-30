@@ -41,7 +41,7 @@ vi.mock('../audioProxy', () => ({
   prepareAudioSourceUrl: vi.fn(async (url: string) => ({ url, crossOriginSafe: true })),
 }));
 
-import { createPlayerEq, type PlayerEqStoreSlice } from '../usePlayerEq';
+import { createPlayerEq, type PlayerEqDeps } from '../usePlayerEq';
 
 function makeAudio(src = 'http://127.0.0.1:9/audio/x'): HTMLAudioElement {
   return {
@@ -53,7 +53,7 @@ function makeAudio(src = 'http://127.0.0.1:9/audio/x'): HTMLAudioElement {
 }
 
 describe('createPlayerEq attach lease', () => {
-  let store: PlayerEqStoreSlice;
+  let eqDeps: PlayerEqDeps;
   let eq: ReturnType<typeof createPlayerEq>;
 
   beforeEach(() => {
@@ -68,13 +68,13 @@ describe('createPlayerEq attach lease', () => {
       rerouted = true;
       return true;
     });
-    store = {
-      eqEnabled: true,
-      eqBands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
-      volume: 0.7,
-      audio: null,
+    eqDeps = {
+      getAudio: () => null,
+      getVolume: () => 0.7,
+      getEqEnabled: () => true,
+      getEqBands: () => [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
     };
-    eq = createPlayerEq(() => store);
+    eq = createPlayerEq(eqDeps);
   });
 
   it('CORS-unsafe sources restore store.volume and do not attach', async () => {

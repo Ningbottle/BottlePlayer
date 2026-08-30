@@ -7,6 +7,7 @@ import { gsap } from 'gsap';
 import type { HomeEnterMode } from '../../api/homeEnterSession';
 import { animateStagger, isReducedMotion } from '../../api/motion';
 import { playerStore, togglePlay as storeTogglePlay } from '../../api/playerStore';
+import { getMediaRuntime } from '../../api/mediaRuntime';
 import { createAudioLevelMonitor, type AudioLevelMonitor } from '../../api/audioLevelMonitor';
 import { flyCoverToDock } from '../../api/coverFlight';
 import { extractDominantColor, type RGB } from '../../api/coverColor';
@@ -70,12 +71,15 @@ const coverTint = ref<RGB | null>(null);
 let tintToken = 0;
 
 function bootLevelMonitor(): void {
-  if (levelMonitor || !playerStore.audio) return;
-  levelMonitor = createAudioLevelMonitor(playerStore.audio);
+  const audio = getMediaRuntime()?.audio;
+  if (levelMonitor || !audio) return;
+  levelMonitor = createAudioLevelMonitor(audio);
   levelMonitor.start();
 }
 
-watch(() => playerStore.audio, () => bootLevelMonitor());
+// hasAudio is the store's reactive projection of MediaRuntime audio
+// availability (the element itself is not reactive state).
+watch(() => playerStore.hasAudio, () => bootLevelMonitor());
 
 const recommendationEls = ref<HTMLElement[]>([]);
 /** Stage + stagger enter handles (killed on re-enter). */

@@ -2,25 +2,29 @@
  * Web Audio EQ leaf extracted from playerStore.
  * Owns eqState, graph lifecycle, and Html5 backend EQ hooks.
  * playerStore remains the stable barrel for public exports.
+ *
+ * EQ consumes explicit ports (PlayerEqDeps) instead of a Store slice: it has
+ * no import on playerStore, and the audio element comes from MediaRuntime via
+ * the getAudio port rather than from reactive state.
  */
 import { reactive } from 'vue';
 import { WebAudioEq } from './webAudioEq';
 import { prepareAudioSourceUrl } from './audioProxy';
 import { playbackDiagnostics } from './playbackDiagnostics';
 
-export type PlayerEqStoreSlice = {
-  eqEnabled: boolean;
-  eqBands: number[];
-  volume: number;
-  audio: HTMLAudioElement | null;
-};
+export interface PlayerEqDeps {
+  getAudio: () => HTMLAudioElement | null;
+  getVolume: () => number;
+  getEqEnabled: () => boolean;
+  getEqBands: () => number[];
+}
 
 const EQ_UNAVAILABLE_REASON =
   '当前音源直连播放，未经过本地音频处理链路，EQ 暂不可用。';
 const EQ_DEGRADED_REASON = 'EQ 暂不可用，点击重试';
 
-function getAudioSource(audio: HTMLAudioElement): string {
-  return audio.getAttribute('src') || audio.currentSrc || audio.src || '';
+function getAudioSource(element: HTMLAudioElement): string {
+  return element.getAttribute('src') || element.currentSrc || element.src || '';
 }
 
 function isLocalAudioProxySource(src: string): boolean {
@@ -39,9 +43,10 @@ function isLocalAudioProxySource(src: string): boolean {
 
 /**
  * Factory keeps EQ free of a hard import on playerStore (avoids circular init).
- * Wire with createPlayerEq(() => playerStore) after playerStore exists.
+ * Wire with createPlayerEq({ getAudio, getVolume, getEqEnabled, getEqBands })
+ * after playerStore and the MediaRuntime binding exist.
  */
-export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
+export function createPlayerEq(deps: PlayerEqDeps) {
   // Routes <audio> through a BiquadFilter chain. KuGou CDN has no CORS;
   // only proxy-backed 127.0.0.1 media is rerouted (see webAudioEq.ts).
   const webAudioEq = new WebAudioEq(() => {
@@ -75,7 +80,7 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
   }
 
   async function preparePlaybackAudioSourceUrl(url: string) {
-    if (!getStore().eqEnabled) {
+    if (!deps.getEqEnabled()) {
       return { url, crossOriginSafe: false };
     }
     return prepareAudioSourceUrl(url);
@@ -84,8 +89,8 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
   /** Build the long-lived worklet graph once at app startup (spec §5.1). */
   function initWebAudioEQ() {
     webAudioEq.init({
-      enabled: getStore().eqEnabled,
-      bands: getStore().eqBands,
+      enabled: deps.getEqEnabled(),
+      bands: deps.getEqBands(),
       onDegraded: () => {
         eqState.available = false;
         eqState.reason = EQ_DEGRADED_REASON;
@@ -96,8 +101,8 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
     });
   }
 
-  function restoreElementVolume(audio: HTMLAudioElement) {
-    audio.volume = getStore().volume;
+  function restoreElementVolume(element: HTMLAudioElement) {
+    element.volume = deps.getVolume();
   }
 
   function recordEqEvent(
@@ -113,33 +118,33 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
 
   /** Post-play attach: captureStream → worklet (spec §5.2). Skips when not CORS-safe. */
   async function attachWebAudioEqSource(
-    audio: HTMLAudioElement,
+    element: HTMLAudioElement,
     crossOriginSafe = false,
     isCurrent: () => boolean = () => true,
   ) {
     if (!isCurrent()) return;
-    currentEqSafeSource = crossOriginSafe ? getAudioSource(audio) : '';
+    currentEqSafeSource = crossOriginSafe ? getAudioSource(element) : '';
     if (!crossOriginSafe) {
       eqState.available = false;
       eqState.reason = EQ_UNAVAILABLE_REASON;
-      restoreElementVolume(audio);
-      recordEqEvent('noop', `cors_unsafe volume=${getStore().volume}`);
+      restoreElementVolume(element);
+      recordEqEvent('noop', `cors_unsafe volume=${deps.getVolume()}`);
       return;
     }
 
     await webAudioEq.awaitReady();
     if (!isCurrent()) return;
 
-    const volumeBefore = audio.volume;
+    const volumeBefore = element.volume;
     try {
       await webAudioEq.resume();
     } catch (e) {
       eqState.available = false;
       eqState.reason = EQ_DEGRADED_REASON;
-      restoreElementVolume(audio);
+      restoreElementVolume(element);
       recordEqEvent(
         'fail',
-        `resume_reject ctx=${webAudioEq.contextState} volume_before=${volumeBefore} volume_after=${audio.volume} err=${e instanceof Error ? e.message : String(e)}`,
+        `resume_reject ctx=${webAudioEq.contextState} volume_before=${volumeBefore} volume_after=${element.volume} err=${e instanceof Error ? e.message : String(e)}`,
       );
       return;
     }
@@ -147,18 +152,18 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
     if (webAudioEq.contextState !== 'running') {
       eqState.available = false;
       eqState.reason = EQ_DEGRADED_REASON;
-      restoreElementVolume(audio);
-      recordEqEvent('fail', `ctx_not_running ctx=${webAudioEq.contextState} volume=${audio.volume}`);
+      restoreElementVolume(element);
+      recordEqEvent('fail', `ctx_not_running ctx=${webAudioEq.contextState} volume=${element.volume}`);
       return;
     }
 
-    const attached = webAudioEq.attachSource(audio, getStore().volume);
+    const attached = webAudioEq.attachSource(element, deps.getVolume());
     const leaseId = webAudioEq.currentLeaseId;
     if (!attached) {
-      restoreElementVolume(audio);
+      restoreElementVolume(element);
       eqState.available = false;
       eqState.reason = EQ_DEGRADED_REASON;
-      recordEqEvent('fail', `attach_false lease=${leaseId} volume=${audio.volume}`);
+      recordEqEvent('fail', `attach_false lease=${leaseId} volume=${element.volume}`);
       return;
     }
     if (!isCurrent()) {
@@ -172,10 +177,10 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
       recordEqEvent('noop', `stale_after_sync released_lease=${leaseId}`);
       return;
     }
-    setWebAudioEqVolume(getStore().volume);
+    setWebAudioEqVolume(deps.getVolume());
     recordEqEvent(
       'ok',
-      `attached lease=${leaseId} proxy=${isLocalAudioProxySource(getAudioSource(audio))} ctx=${webAudioEq.contextState} volume_before=${volumeBefore} volume_after=${audio.volume}`,
+      `attached lease=${leaseId} proxy=${isLocalAudioProxySource(getAudioSource(element))} ctx=${webAudioEq.contextState} volume_before=${volumeBefore} volume_after=${element.volume}`,
     );
   }
 
@@ -192,19 +197,19 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
   }
 
   function setWebAudioEqBand(index: number, gainDb: number) {
-    webAudioEq.setBand(index, gainDb, getStore().eqEnabled);
+    webAudioEq.setBand(index, gainDb, deps.getEqEnabled());
   }
 
   function setWebAudioEqEnabled(enabled: boolean) {
-    const store = getStore();
-    webAudioEq.setEnabled(enabled, store.eqBands);
+    webAudioEq.setEnabled(enabled, deps.getEqBands());
     if (!enabled) {
       webAudioEq.disconnectSource();
-      if (store.audio) store.audio.volume = store.volume;
+      const audio = deps.getAudio();
+      if (audio) audio.volume = deps.getVolume();
       syncEqAvailabilityFromReroute();
       return;
     }
-    const audio = store.audio;
+    const audio = deps.getAudio();
     const source = audio ? getAudioSource(audio) : '';
     const sourceSafe =
       !!source
@@ -219,25 +224,25 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
   /** Resume the AudioContext after a user gesture (autoplay policy). */
   function resumeAudioContext() {
     void webAudioEq.resume().then(() => {
+      const audio = deps.getAudio();
       if (webAudioEq.contextState !== 'running') {
-        const store = getStore();
-        if (store.audio) {
+        if (audio) {
           eqState.available = false;
           eqState.reason = EQ_DEGRADED_REASON;
-          store.audio.volume = store.volume;
+          audio.volume = deps.getVolume();
           if (webAudioEq.isRerouted) {
-            webAudioEq.enterDegradation(store.audio, store.volume);
+            webAudioEq.enterDegradation(audio, deps.getVolume());
           }
         }
       }
     }).catch(() => {
-      const store = getStore();
-      if (store.audio) {
+      const audio = deps.getAudio();
+      if (audio) {
         eqState.available = false;
         eqState.reason = EQ_DEGRADED_REASON;
-        store.audio.volume = store.volume;
+        audio.volume = deps.getVolume();
         if (webAudioEq.isRerouted) {
-          webAudioEq.enterDegradation(store.audio, store.volume);
+          webAudioEq.enterDegradation(audio, deps.getVolume());
         }
       }
     });
@@ -245,20 +250,23 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
 
   /** Retry EQ after suspend degradation (spec §4.4, §6.3). */
   async function retryEq() {
-    const store = getStore();
-    if (eqState.retryDisabled || !store.audio) return;
+    if (eqState.retryDisabled || !deps.getAudio()) return;
     try {
       await webAudioEq.resume();
       if (webAudioEq.contextState !== 'running') {
         throw new Error('AudioContext not running');
       }
-      const recovered = webAudioEq.recoverFromDegradation(store.audio, store.volume);
+      const audio = deps.getAudio();
+      const recovered = audio
+        ? webAudioEq.recoverFromDegradation(audio, deps.getVolume())
+        : false;
       if (!recovered) throw new Error('eq recover failed');
       eqState.available = true;
       eqState.reason = '';
       eqState.retryFailCount = 0;
     } catch {
-      store.audio.volume = store.volume;
+      const audio = deps.getAudio();
+      if (audio) audio.volume = deps.getVolume();
       eqState.retryFailCount++;
       if (eqState.retryFailCount >= 3) {
         eqState.retryDisabled = true;
@@ -274,22 +282,22 @@ export function createPlayerEq(getStore: () => PlayerEqStoreSlice) {
     return {
       prepareSourceUrl: preparePlaybackAudioSourceUrl,
       initEq: async (
-        audio: HTMLAudioElement,
+        element: HTMLAudioElement,
         crossOriginSafe: boolean,
         isCurrent: () => boolean,
       ) => {
         if (!isCurrent()) return;
-        if (!getStore().eqEnabled) {
+        if (!deps.getEqEnabled()) {
           if (!isCurrent()) return;
-          currentEqSafeSource = crossOriginSafe ? getAudioSource(audio) : '';
+          currentEqSafeSource = crossOriginSafe ? getAudioSource(element) : '';
           if (!isCurrent()) return;
           eqState.available = false;
           eqState.reason = EQ_UNAVAILABLE_REASON;
           if (!isCurrent()) return;
-          audio.volume = getStore().volume;
+          element.volume = deps.getVolume();
           return;
         }
-        await attachWebAudioEqSource(audio, crossOriginSafe, isCurrent);
+        await attachWebAudioEqSource(element, crossOriginSafe, isCurrent);
       },
       disconnectEq: disconnectWebAudioEqSource,
       isEqRerouted: () => webAudioEq.isRerouted,

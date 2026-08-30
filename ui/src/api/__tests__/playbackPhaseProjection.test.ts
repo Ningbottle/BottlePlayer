@@ -22,7 +22,26 @@ import {
   __resetPlaybackCoordinatorForTests,
   __patchPlayerStateForTests,
 } from '../playerStore';
+import { getMediaRuntime, getOrCreateMediaRuntime } from '../mediaRuntime';
 import { __resetFmSessionForTests } from '../fmSession';
+
+/**
+ * Seed a MediaRuntime-owned audio element (HMR-reuse scenario) without a
+ * backend. Replaces the old `window.__bottlemusic_audio__` seeding.
+ */
+function seedMediaRuntime(): HTMLAudioElement {
+  const runtime = getOrCreateMediaRuntime({
+    initialVolume: () => 0.7,
+    createBackend: () => {
+      throw new Error('seed runtime must not create a backend');
+    },
+    onBackendEvent: () => {},
+    onDuration: () => {},
+    onFirstPlay: () => {},
+    beforeHmrDetach: () => {},
+  });
+  return runtime.audio;
+}
 
 function resetStore() {
   playerStore.queue = [];
@@ -35,9 +54,7 @@ function resetStore() {
   playerStore.duration = 0;
   playerStore.errorMsg = '';
   playerStore.playbackPhase = 'idle';
-  (playerStore as any).audio = null;
-  (window as any).__bottlemusic_audio__ = undefined;
-  (window as any).__bottlemusic_player_cleanup__ = undefined;
+  (window as any).__bottlemusic_media_runtime__ = undefined;
   __resetWebAudioEqForTests();
   __resetPlaybackCoordinatorForTests();
   __resetFmSessionForTests();
@@ -140,26 +157,24 @@ describe('R2: initPlayer HMR reuse derives phase from audio state', () => {
   afterEach(() => vi.useRealTimers());
 
   it('sets playbackPhase=playing (not just isPlaying) when reused audio is mid-play', () => {
-    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    const oldAudio = seedMediaRuntime();
     oldAudio.src = 'http://127.0.0.1:17631/audio/hmr-playing';
     Object.defineProperty(oldAudio, 'paused', { value: false, configurable: true });
     Object.defineProperty(oldAudio, 'ended', { value: false, configurable: true });
 
-    (window as any).__bottlemusic_audio__ = oldAudio;
-    (playerStore as any).audio = null;
     playerStore.isPlaying = false;
     playerStore.playbackPhase = 'idle';
 
     initPlayer();
 
-    expect(playerStore.audio).toBe(oldAudio);
+    expect(getMediaRuntime()!.audio).toBe(oldAudio);
     expect(playerStore.isPlaying).toBe(true);
     // R2: phase must be set, not just isPlaying — phase is the source of truth.
     expect(playerStore.playbackPhase).toBe('playing');
   });
 
   it('sets playbackPhase=paused when reused audio is paused and a track is restored', () => {
-    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    const oldAudio = seedMediaRuntime();
     oldAudio.src = 'http://127.0.0.1:17631/audio/hmr-paused';
     Object.defineProperty(oldAudio, 'paused', { value: true, configurable: true });
     Object.defineProperty(oldAudio, 'ended', { value: false, configurable: true });
@@ -170,26 +185,22 @@ describe('R2: initPlayer HMR reuse derives phase from audio state', () => {
     playerStore.currentIndex = 0;
     playerStore.currentTrack = track;
 
-    (window as any).__bottlemusic_audio__ = oldAudio;
-    (playerStore as any).audio = null;
     playerStore.isPlaying = true;
     playerStore.playbackPhase = 'idle';
 
     initPlayer();
 
-    expect(playerStore.audio).toBe(oldAudio);
+    expect(getMediaRuntime()!.audio).toBe(oldAudio);
     expect(playerStore.isPlaying).toBe(false);
     expect(playerStore.playbackPhase).toBe('paused');
   });
 
   it('leaves playbackPhase=idle when reused audio is paused but no track is restored', () => {
-    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    const oldAudio = seedMediaRuntime();
     oldAudio.src = '';
     Object.defineProperty(oldAudio, 'paused', { value: true, configurable: true });
     Object.defineProperty(oldAudio, 'ended', { value: false, configurable: true });
 
-    (window as any).__bottlemusic_audio__ = oldAudio;
-    (playerStore as any).audio = null;
     playerStore.queue = [];
     playerStore.currentIndex = -1;
     playerStore.currentTrack = null;
@@ -209,20 +220,22 @@ describe('R2: initPlayer HMR reuse derives phase from audio state', () => {
     // the queue, THEN project phase=paused. If phase projection happens before
     // restoration, phase stays idle while currentTrack is non-null — the
     // inconsistency the reviewer flagged.
-    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    const oldAudio = seedMediaRuntime();
     oldAudio.src = 'http://127.0.0.1:17631/audio/hmr-paused-realorder';
     Object.defineProperty(oldAudio, 'paused', { value: true, configurable: true });
     Object.defineProperty(oldAudio, 'ended', { value: false, configurable: true });
 
     const track = { FileHash: 'h-real', SongName: 'Real', Duration: 200 } as any;
-    // Simulate persisted state: queue + index restored from localStorage at
-    // reactive() init time, but currentTrack is NOT yet derived from them.
+    // Persisted state only: the HMR re-read path restores queue + index from
+    // localStorage; currentTrack is NOT yet derived from them.
+    localStorage.setItem(
+      'player_queue_snapshot',
+      JSON.stringify({ queue: [track], currentIndex: 0 }),
+    );
     playerStore.queue = [track];
     playerStore.currentIndex = 0;
     playerStore.currentTrack = null; // ← NOT pre-set; initPlayer must restore it
 
-    (window as any).__bottlemusic_audio__ = oldAudio;
-    (playerStore as any).audio = null;
     playerStore.playbackPhase = 'idle';
 
     initPlayer();

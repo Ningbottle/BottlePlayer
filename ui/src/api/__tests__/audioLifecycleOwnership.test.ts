@@ -7,10 +7,41 @@
  * Fix commit: `refactor(audio): add analyser AudioContext dispose for HMR`.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { getMediaRuntime, type MediaRuntimeDeps } from '../mediaRuntime';
 
 vi.mock('../motion', () => ({
   isReducedMotion: vi.fn(() => false),
 }));
+
+/** Fake backend + deps for MediaRuntime contract tests (no real Html5AudioBackend). */
+function makeRuntimeDeps() {
+  const unsubSpy = vi.fn();
+  const backend = {
+    kind: 'html5' as const,
+    initialize: vi.fn(async () => true),
+    playUrl: vi.fn(async () => true),
+    switchUrl: vi.fn(async () => true),
+    hasSource: vi.fn(() => false),
+    pause: vi.fn(async () => {}),
+    resume: vi.fn(async () => {}),
+    stop: vi.fn(async () => {}),
+    seek: vi.fn(async () => {}),
+    setVolume: vi.fn(async () => {}),
+    setRate: vi.fn(async () => {}),
+    getState: vi.fn(async () => ({ state: 'stopped', position: 0, duration: 0 })),
+    shutdown: vi.fn(async () => {}),
+    onEvent: vi.fn(() => unsubSpy),
+  };
+  const deps: MediaRuntimeDeps = {
+    initialVolume: vi.fn(() => 0.7),
+    createBackend: vi.fn(() => backend),
+    onBackendEvent: vi.fn(),
+    onDuration: vi.fn(),
+    onFirstPlay: vi.fn(),
+    beforeHmrDetach: vi.fn(),
+  };
+  return { deps, backend, unsubSpy };
+}
 
 // ── Mocks for audioLevelMonitor (analyser context) ──
 
@@ -141,8 +172,7 @@ describe('single-owner invariants across HMR module generations', () => {
   beforeEach(() => {
     vi.resetModules();
     localStorage.clear();
-    (window as any).__bottlemusic_audio__ = undefined;
-    (window as any).__bottlemusic_player_cleanup__ = undefined;
+    (window as any).__bottlemusic_media_runtime__ = undefined;
     (window as any).__bottlemusic_pagehide__ = undefined;
   });
 
@@ -151,8 +181,7 @@ describe('single-owner invariants across HMR module generations', () => {
     if (typeof handler === 'function') {
       window.removeEventListener('pagehide', handler);
     }
-    (window as any).__bottlemusic_audio__ = undefined;
-    (window as any).__bottlemusic_player_cleanup__ = undefined;
+    (window as any).__bottlemusic_media_runtime__ = undefined;
     (window as any).__bottlemusic_pagehide__ = undefined;
     vi.restoreAllMocks();
   });
@@ -163,7 +192,7 @@ describe('single-owner invariants across HMR module generations', () => {
     // Generation 1: creates THE audio element, binds persistence + pagehide.
     const gen1 = await import('../playerStore');
     gen1.initPlayer();
-    const sharedAudio = (window as any).__bottlemusic_audio__ as HTMLAudioElement;
+    const sharedAudio = getMediaRuntime()!.audio as HTMLAudioElement;
     expect(sharedAudio).toBeTruthy();
     expect(audioCtorSpy).toHaveBeenCalledTimes(1);
 
@@ -179,8 +208,8 @@ describe('single-owner invariants across HMR module generations', () => {
     gen2.initPlayer();
 
     expect(audioCtorSpy).toHaveBeenCalledTimes(1);
-    expect((window as any).__bottlemusic_audio__).toBe(sharedAudio);
-    expect(gen2.playerStore.audio).toBe(sharedAudio);
+    expect((window as any).__bottlemusic_media_runtime__?.audio).toBe(sharedAudio);
+    expect(getMediaRuntime()!.audio).toBe(sharedAudio);
 
     const writesAfterHmr = setItemSpy.mock.calls.filter(
       ([key]) => key === 'player_queue_snapshot',
@@ -198,5 +227,122 @@ describe('single-owner invariants across HMR module generations', () => {
     expect(snap.queue).toEqual([expect.objectContaining({ FileHash: 'gen-owner' })]);
 
     expect(audioCtorSpy).toHaveBeenCalledTimes(1);
+  });
+});
+
+// ── B2: MediaRuntime is the single audio/backend/listener owner ──
+
+describe('mediaRuntime: single global owner contract', () => {
+  beforeEach(() => {
+    vi.resetModules();
+    localStorage.clear();
+    (window as any).__bottlemusic_media_runtime__ = undefined;
+  });
+
+  afterEach(() => {
+    (window as any).__bottlemusic_media_runtime__ = undefined;
+    vi.restoreAllMocks();
+  });
+
+  it('creates one audio and publishes the single owner slot, but no backend before ensureBackend', async () => {
+    const { getOrCreateMediaRuntime, getMediaRuntime } = await import('../mediaRuntime');
+    expect(getMediaRuntime()).toBeNull();
+
+    const { deps } = makeRuntimeDeps();
+    const runtime = getOrCreateMediaRuntime(deps);
+
+    expect(getMediaRuntime()).toBe(runtime);
+    expect(runtime.audio).toBeTruthy();
+    // Lazy backend: creating the runtime must NOT create a Backend.
+    expect(deps.createBackend).not.toHaveBeenCalled();
+    expect(runtime.getBackend()).toBeNull();
+  });
+
+  it('ensureBackend() synchronously builds the backend with initialVolume and subscribes backend events', async () => {
+    const { getOrCreateMediaRuntime } = await import('../mediaRuntime');
+    const { deps, backend, unsubSpy } = makeRuntimeDeps();
+    const runtime = getOrCreateMediaRuntime(deps);
+
+    // Sync contract: callers read the backend on the same call stack.
+    const wired = runtime.ensureBackend();
+    expect(wired).toBe(backend);
+    expect(deps.createBackend).toHaveBeenCalledTimes(1);
+    expect(deps.createBackend).toHaveBeenCalledWith(runtime.audio, 0.7);
+    expect(deps.initialVolume).toHaveBeenCalledTimes(1);
+    expect(backend.onEvent).toHaveBeenCalledTimes(1);
+    expect(backend.onEvent).toHaveBeenCalledWith(deps.onBackendEvent);
+
+    // Idempotent: a second ensure reuses the same instance.
+    expect(runtime.ensureBackend()).toBe(backend);
+    expect(deps.createBackend).toHaveBeenCalledTimes(1);
+    expect(unsubSpy).not.toHaveBeenCalled();
+  });
+
+  it('HMR rebind reuses the SAME audio, runs beforeHmrDetach exactly once, drops the backend ref without pause/src-clear/load', async () => {
+    const { getOrCreateMediaRuntime, getMediaRuntime } = await import('../mediaRuntime');
+    const gen1 = makeRuntimeDeps();
+    const first = getOrCreateMediaRuntime(gen1.deps);
+    const audio = first.audio;
+    audio.src = 'http://127.0.0.1:17631/audio/hmr-runtime';
+    Object.defineProperty(audio, 'currentTime', { value: 42, writable: true, configurable: true });
+    const pauseSpy = vi.spyOn(audio, 'pause').mockImplementation(() => {});
+    const loadSpy = vi.spyOn(audio, 'load').mockImplementation(() => {});
+
+    first.ensureBackend();
+
+    const gen2 = makeRuntimeDeps();
+    const second = getOrCreateMediaRuntime(gen2.deps);
+
+    // Old generation teardown ran exactly once; new runtime owns the SAME element.
+    expect(gen1.deps.beforeHmrDetach).toHaveBeenCalledTimes(1);
+    expect(second.audio).toBe(audio);
+    expect(getMediaRuntime()).toBe(second);
+    // Old backend ref dropped together with its event subscription.
+    expect(second.getBackend()).toBeNull();
+    expect(gen1.unsubSpy).toHaveBeenCalledTimes(1);
+    // New runtime does not create a backend until ensureBackend.
+    expect(gen2.deps.createBackend).not.toHaveBeenCalled();
+    // The element was never paused, reloaded, or scrubbed.
+    expect(pauseSpy).not.toHaveBeenCalled();
+    expect(loadSpy).not.toHaveBeenCalled();
+    expect(audio.src).toContain('/audio/hmr-runtime');
+    expect(audio.currentTime).toBe(42);
+    // Old media listeners are gone: duration metadata only reaches the new deps.
+    Object.defineProperty(audio, 'duration', { value: 200, configurable: true });
+    audio.dispatchEvent(new Event('durationchange'));
+    expect(gen1.deps.onDuration).not.toHaveBeenCalled();
+    expect(gen2.deps.onDuration).toHaveBeenCalledTimes(1);
+    expect(gen2.deps.onDuration).toHaveBeenCalledWith(200);
+  });
+
+  it('detachForHmr is idempotent: beforeHmrDetach runs exactly once even across repeated rebinds', async () => {
+    const { getOrCreateMediaRuntime } = await import('../mediaRuntime');
+    const gen1 = makeRuntimeDeps();
+    const first = getOrCreateMediaRuntime(gen1.deps);
+    first.detachForHmr();
+    first.detachForHmr();
+    expect(gen1.deps.beforeHmrDetach).toHaveBeenCalledTimes(1);
+
+    const gen2 = makeRuntimeDeps();
+    getOrCreateMediaRuntime(gen2.deps);
+    // The already-detached old runtime must not run its cleanup a second time.
+    expect(gen1.deps.beforeHmrDetach).toHaveBeenCalledTimes(1);
+    expect(gen2.deps.beforeHmrDetach).not.toHaveBeenCalled();
+  });
+
+  it('shutdown retires the backend exactly once (pagehide) and is safe to repeat', async () => {
+    const { getOrCreateMediaRuntime } = await import('../mediaRuntime');
+    const { deps, backend, unsubSpy } = makeRuntimeDeps();
+    const runtime = getOrCreateMediaRuntime(deps);
+    runtime.ensureBackend();
+
+    await runtime.shutdown('pagehide');
+
+    expect(backend.shutdown).toHaveBeenCalledTimes(1);
+    expect(unsubSpy).toHaveBeenCalledTimes(1);
+    expect(runtime.getBackend()).toBeNull();
+
+    await runtime.shutdown('shutdown');
+    expect(backend.shutdown).toHaveBeenCalledTimes(1);
   });
 });

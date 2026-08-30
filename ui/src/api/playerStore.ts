@@ -2,6 +2,12 @@ import { reactive, watch } from 'vue';
 import { Track, fetchCoverImage } from './normalizer';
 import { Html5AudioBackend } from './html5Backend';
 import type { PlayerBackend, PlaybackEvent } from './playerBackend';
+import {
+  getMediaRuntime,
+  getOrCreateMediaRuntime,
+  type MediaRuntime,
+  type MediaRuntimeDeps,
+} from './mediaRuntime';
 import { invoke } from '@tauri-apps/api/core';
 import { PlaySessionTracker, type PlayRecord } from './playSessionTracker';
 import { normalizeEqBands } from './equalizerConfig';
@@ -78,7 +84,8 @@ interface PlayerState {
   currentIndex: number;
   loopMode: LoopMode;
   queueMode: QueueMode;
-  audio: HTMLAudioElement | null;
+  /** UI projection: a MediaRuntime-owned <audio> is available (see initPlayer). */
+  hasAudio: boolean;
   isLoading: boolean;
   errorMsg: string;
   isPreview: boolean;
@@ -96,15 +103,16 @@ interface PlayerState {
 }
 
 type BottleMusicAudioGlobal = Window & {
-  __bottlemusic_audio__?: HTMLAudioElement;
-  __bottlemusic_player_cleanup__?: () => void;
   /** Single-owner pagehide handler; replaced on HMR/re-import. */
   __bottlemusic_pagehide__?: (event: Event) => void;
 };
 
-let activeBackend: PlayerBackend | null = null;
-export let eventUnsub: (() => void) | null = null;
-let initListenerCleanup: (() => void) | null = null;
+/**
+ * This module generation's MediaRuntime binding. The <audio> element and the
+ * PlayerBackend instance are owned by MediaRuntime (mediaRuntime.ts); the
+ * store only holds this client-side reference and feeds it callbacks/commands.
+ */
+let moduleRuntime: MediaRuntime | null = null;
 let playbackCoordinator: PlaybackCommandCoordinator | null = null;
 
 function audioGlobal(): BottleMusicAudioGlobal {
@@ -151,18 +159,17 @@ function cleanupCurrentModuleForHmr() {
   // internal try/catch), so teardown below always runs even if localStorage
   // is over quota / unavailable.
   flushSaveQueue();
-  initListenerCleanup?.();
-  initListenerCleanup = null;
-  eventUnsub?.();
-  eventUnsub = null;
   // Detach first (invalidate orchestrator) while backend ref still exists for
   // any in-flight path that needs consistent deps; do not barrier-stop audio.
   detachCoordinatorForHmr();
   // Cancel any pending FM retry timer and invalidate the in-flight FM fetch so
   // neither can append to / save a queue that belongs to a dying module.
   disposeFmSession();
-  activeBackend = null;
-  if (playerStore.audio) playerStore.audio.volume = playerStore.volume;
+  // Media-side resources (audio listeners, backend event subscription, backend
+  // ref) belong to MediaRuntime and are torn down by its detachForHmr() —
+  // never duplicated here. Restore the element volume the EQ graph was holding.
+  const audio = getMediaRuntime()?.audio;
+  if (audio) audio.volume = playerStore.volume;
   closeWebAudioEq();
   // R3: dispose the analyser AudioContext so HMR cycles don't leak module-level
   // singletons. Dev-only — production pagehide does NOT call this (preserves
@@ -170,13 +177,9 @@ function cleanupCurrentModuleForHmr() {
   disposeAudioLevelMonitor();
 }
 
-function publishPlayerCleanup() {
-  audioGlobal().__bottlemusic_player_cleanup__ = cleanupCurrentModuleForHmr;
-}
-
 /** Test-only seam: the wired playback backend. */
 export function __getActiveBackend(): PlayerBackend | null {
-  return activeBackend;
+  return moduleRuntime?.getBackend() ?? null;
 }
 
 /** Test-only seam: the play-session tracker (for ordering assertions). */
@@ -199,7 +202,7 @@ export const playerStore = reactive<PlayerState>({
   currentIndex: initialQueueSnapshot.currentIndex,
   loopMode: parseLoopMode(safeGetItem('player_loop_mode')),
   queueMode: parseQueueMode(safeGetItem('player_queue_mode')),
-  audio: null,
+  hasAudio: false,
   isLoading: false,
   errorMsg: '',
   isPreview: false,
@@ -213,8 +216,24 @@ export const playerStore = reactive<PlayerState>({
   activePreset: safeGetItem('player_eq_preset') || 'Flat',
 });
 
+// Compatibility view (transitional, Phase B): PlaybackCommandCoordinator's
+// no-backend stop barrier still reads `getState().audio`, and the Coordinator
+// is out of Phase B scope. This read-only getter projects the MediaRuntime-
+// owned element without making the store its owner: it is not reactive state,
+// has no setter, and disappears when the Coordinator deps migrate off
+// store.audio.
+Object.defineProperty(playerStore, 'audio', {
+  get: () => moduleRuntime?.audio ?? null,
+  configurable: true,
+});
+
 // ── EQ leaf (usePlayerEq) — barrel re-exports keep public API stable ──
-const playerEq = createPlayerEq(() => playerStore);
+const playerEq = createPlayerEq({
+  getAudio: () => moduleRuntime?.audio ?? null,
+  getVolume: () => playerStore.volume,
+  getEqEnabled: () => playerStore.eqEnabled,
+  getEqBands: () => playerStore.eqBands,
+});
 export const {
   eqState,
   __resetWebAudioEqForTests,
@@ -229,51 +248,69 @@ export const {
 } = playerEq;
 const { closeWebAudioEq, makeBackendEqHooks, resetRetryState } = playerEq;
 
-// Setup audio listeners
+/** MediaRuntimeDeps: the only channel through which the Runtime reaches Store state. */
+function buildMediaRuntimeDeps(): MediaRuntimeDeps {
+  return {
+    initialVolume: () => playerStore.volume,
+    // initialVolume is accepted per plan but the Backend keeps reading its own
+    // persisted default until B4 wires the single persistence owner through.
+    createBackend: (audio, _initialVolume) =>
+      new Html5AudioBackend(audio, {
+        ...makeBackendEqHooks(),
+        getAttachTransitionSeq: () => playbackOrchestrator.getTransitionSeq(),
+        isAttachTransitionCurrent: (seq) => playbackOrchestrator.isTransitionCurrent(seq),
+        recordDiagnostic: (e) => playbackDiagnostics.recordEvent(e),
+      }),
+    onBackendEvent: handlePlaybackEvent,
+    onDuration: (duration) => {
+      if (Number.isFinite(duration) && duration > 0) {
+        playerStore.duration = duration;
+      }
+    },
+    // Resume the AudioContext on the first user-driven play (autoplay policy).
+    onFirstPlay: () => {
+      resumeAudioContext();
+    },
+    beforeHmrDetach: cleanupCurrentModuleForHmr,
+  };
+}
+
+// Setup the media runtime (audio element + listeners) and page bindings
 export function initPlayer() {
   // ── 僵尸音频防护 (Zombie Audio，见 PROJECT_LOGIC §13) ──
-  // Vite HMR 热重载会重新求值本模块、生成全新的 playerStore（其 audio 为 null），
-  // 而上一个模块实例创建的 <audio> 仍可能在播放。HMR 时复用同一个元素，
-  // 只清理旧模块监听/Worklet，避免把当前 src 卸掉导致暂停和 00:00。
-  const g = audioGlobal();
-  const reusableAudio = g.__bottlemusic_audio__;
+  // Vite HMR 热重载会重新求值本模块、生成全新的 playerStore（其 runtime 为 null），
+  // 而上一个模块实例的 MediaRuntime 仍持有可能正在播放的 <audio>。HMR 时通过
+  // getOrCreateMediaRuntime 复用同一个元素，只清理旧模块监听/Worklet，避免把
+  // 当前 src 卸掉导致暂停和 00:00。
+  if (moduleRuntime && getMediaRuntime() === moduleRuntime) return;
 
-  if (playerStore.audio) return;
-
-  let audio: HTMLAudioElement;
-  if (reusableAudio) {
-    const hadOldCleanup = typeof g.__bottlemusic_player_cleanup__ === 'function';
-    try {
-      g.__bottlemusic_player_cleanup__?.();
-    } catch { /* ignore */ }
-    audio = reusableAudio;
+  const existing = getMediaRuntime();
+  if (existing) {
+    // Reuse path: getOrCreateMediaRuntime runs the previous generation's
+    // captured beforeHmrDetach (queue flush, coordinator detach, FM/EQ/
+    // analyser dispose) exactly once, drops the old backend ref WITHOUT
+    // pausing or clearing the element, and rebinds the SAME <audio>.
+    moduleRuntime = getOrCreateMediaRuntime(buildMediaRuntimeDeps());
     // HMR queue resync: the old module's cleanup just flushed its in-memory
     // queue to localStorage (flushSaveQueue in cleanupCurrentModuleForHmr).
     // But THIS module's playerStore was created at module-eval time from
     // STALE localStorage (the 500ms saveQueue debounce hadn't fired yet).
     // Re-read now so queue/currentIndex match the actual playing track,
     // not the pre-switch snapshot that was on disk when this module loaded.
-    // Guard: only re-read when a real old-module cleanup ran. In fresh init
-    // (no old module), the module-eval localStorage read is already correct.
-    if (hadOldCleanup) {
-      const snapshot = loadQueueSnapshot();
-      playerStore.queue = snapshot.queue;
-      playerStore.currentIndex = snapshot.currentIndex;
-    }
+    const snapshot = loadQueueSnapshot();
+    playerStore.queue = snapshot.queue;
+    playerStore.currentIndex = snapshot.currentIndex;
   } else {
-    if (activeBackend) {
-      try {
-        eventUnsub?.();
-        eventUnsub = null;
-        activeBackend.shutdown().catch(() => {});
-      } catch { /* ignore */ }
-      activeBackend = null;
+    if (moduleRuntime) {
+      // This generation's runtime lost global ownership (fresh re-init after
+      // the global owner was reset): retire its backend side before a new
+      // element is created, so no zombie backend outlives the slot.
+      void moduleRuntime.shutdown('shutdown');
     }
-    audio = new Audio();
-    g.__bottlemusic_audio__ = audio;
+    moduleRuntime = getOrCreateMediaRuntime(buildMediaRuntimeDeps());
   }
-
-  playerStore.audio = audio;
+  playerStore.hasAudio = true;
+  const audio = moduleRuntime.audio;
   // R2: phase is the single source of truth. Derive isPlaying/isLoading from
   // playbackPhase (via applyStorePhase) instead of writing isPlaying directly.
   // On HMR reuse, the audio element's paused/ended state reflects the live
@@ -309,37 +346,12 @@ export function initPlayer() {
     playerStore.duration = audio.duration;
   }
 
-  // Event ownership (#2): the backend (initPlayerBackend → onEvent) is the
-  // SOLE source of play/pause/timeupdate/ended/error events. Only duration
-  // metadata listeners live here (EQ-irrelevant, and the backend doesn't
-  // surface them). This eliminates the double-'ended' handler that double-
-  // fetched /song/url on every natural song end.
-  const onDurationChange = () => {
-    if (Number.isFinite(audio.duration) && audio.duration > 0) {
-      playerStore.duration = audio.duration;
-    }
-  };
-
-  const onLoadedMetadata = () => {
-    if (Number.isFinite(audio.duration) && audio.duration > 0) {
-      playerStore.duration = audio.duration;
-    }
-  };
-
-  // Resume the AudioContext on the first user-driven play (autoplay policy).
-  const onPlay = () => {
-    resumeAudioContext();
-  };
-
-  audio.addEventListener('durationchange', onDurationChange);
-  audio.addEventListener('loadedmetadata', onLoadedMetadata);
-  audio.addEventListener('play', onPlay);
-  initListenerCleanup = () => {
-    audio.removeEventListener('durationchange', onDurationChange);
-    audio.removeEventListener('loadedmetadata', onLoadedMetadata);
-    audio.removeEventListener('play', onPlay);
-  };
-  publishPlayerCleanup();
+  // Event ownership (#2): the backend (ensureBackend → onEvent) is the SOLE
+  // source of play/pause/timeupdate/ended/error events. The duration metadata
+  // listeners and the first-play AudioContext resume now live in MediaRuntime
+  // via deps.onDuration/deps.onFirstPlay.
+  // This eliminates the double-'ended' handler that double-fetched /song/url
+  // on every natural song end.
 
   // Bind the persistence snapshot to THIS module's playerStore. Done in
   // initPlayer (not at module top level) so a re-evaluated orphan module (HMR /
@@ -371,25 +383,19 @@ export function initPlayer() {
 }
 
 export async function initPlayerBackend() {
-  if (activeBackend) return;
+  if (!moduleRuntime) {
+    console.error('No HTML5 audio element available');
+    return;
+  }
+  if (moduleRuntime.getBackend()) return;
 
   // MFS native playback is disabled — topology resolution + deadlock issues.
   // Fall back to HTML5 audio which works reliably.
   // TODO(s4-fix): re-enable native after fixing BuildTopology + deadlock.
-  if (!playerStore.audio) {
-    console.error('No HTML5 audio element available');
-    return;
-  }
   initWebAudioEQ();
-  activeBackend = new Html5AudioBackend(playerStore.audio, {
-    ...makeBackendEqHooks(),
-    getAttachTransitionSeq: () => playbackOrchestrator.getTransitionSeq(),
-    isAttachTransitionCurrent: (seq) => playbackOrchestrator.isTransitionCurrent(seq),
-    recordDiagnostic: (e) => playbackDiagnostics.recordEvent(e),
-  });
+  // Synchronous by contract: callers read the backend on the same call stack.
+  moduleRuntime.ensureBackend();
   playerStore.backend = 'html5';
-
-  eventUnsub = activeBackend.onEvent(handlePlaybackEvent);
 }
 
 /**
@@ -471,10 +477,11 @@ function handlePlaybackEvent(e: PlaybackEvent) {
 watch(() => playerStore.volume, (newVol) => {
   safeSetItem('player_volume', String(newVol));
   setWebAudioEqVolume(newVol);
-  if (activeBackend) {
-    activeBackend.setVolume(newVol).catch(() => {});
-  } else if (playerStore.audio) {
-    playerStore.audio.volume = newVol;
+  const backend = moduleRuntime?.getBackend();
+  if (backend) {
+    backend.setVolume(newVol).catch(() => {});
+  } else if (moduleRuntime) {
+    moduleRuntime.audio.volume = newVol;
   }
 });
 
@@ -487,7 +494,7 @@ watch(() => playerStore.queueMode, (newMode) => {
 });
 
 const playbackOrchestrator = new PlaybackOrchestrator({
-  backend: () => activeBackend!,
+  backend: () => moduleRuntime!.getBackend()!,
   playSession,
   resolveTrack,
   fetchCover: fetchCoverImage,
@@ -503,7 +510,7 @@ const playbackOrchestrator = new PlaybackOrchestrator({
 async function playTrackCore(track: Track) {
   resetRetryState();
   initPlayer();
-  if (!activeBackend) initPlayerBackend();
+  if (!moduleRuntime?.getBackend()) initPlayerBackend();
   return playbackOrchestrator.switchTrack(track);
 }
 
@@ -515,25 +522,26 @@ function ensureCoordinator(): PlaybackCommandCoordinator {
       saveQueue,
       playTrack: async (track) => playTrackCore(track),
       switchQuality: async (quality) => {
-        if (!activeBackend) initPlayerBackend();
+        if (!moduleRuntime?.getBackend()) initPlayerBackend();
         return playbackOrchestrator.switchQuality(quality);
       },
       seek: async (seconds) => {
-        if (!activeBackend) initPlayerBackend();
-        await activeBackend!.seek(seconds);
+        if (!moduleRuntime?.getBackend()) initPlayerBackend();
+        await moduleRuntime!.getBackend()!.seek(seconds);
       },
       pause: async () => {
-        if (activeBackend) await activeBackend.pause();
+        const backend = moduleRuntime?.getBackend();
+        if (backend) await backend.pause();
       },
       resumeOrReload: async () => {
-        if (!activeBackend) initPlayerBackend();
+        if (!moduleRuntime?.getBackend()) initPlayerBackend();
         return playbackOrchestrator.resumeOrReloadCurrent();
       },
       invalidatePlaybackIntent: () => playbackOrchestrator.invalidatePlaybackIntent(),
       detachPlaybackIntent: () => playbackOrchestrator.detachPlaybackIntent(),
       stopInvalidatedPlayback: (seq) => playbackOrchestrator.stopInvalidatedPlayback(seq),
       skipSession: () => playSession.skip(),
-      hasBackend: () => !!activeBackend,
+      hasBackend: () => !!moduleRuntime?.getBackend(),
       appendPersonalFm: async (options) =>
         appendFm({
           getState: () => playerStore,
@@ -546,7 +554,7 @@ function ensureCoordinator(): PlaybackCommandCoordinator {
 
 function readyForPlayback() {
   initPlayer();
-  if (!activeBackend) initPlayerBackend();
+  if (!moduleRuntime?.getBackend()) initPlayerBackend();
   return ensureCoordinator();
 }
 
@@ -631,6 +639,9 @@ export function clearQueue() {
 /**
  * App exit / pagehide: persist queue first, then stop media WITHOUT clearing
  * the queue. Do not use for HMR (use module cleanup → detach).
+ *
+ * Shutdown orchestration stays here (Store/composition side): flush queue →
+ * dispose FM → shutdown Coordinator → MediaRuntime.shutdown() → close EQ.
  */
 export async function disposePlayerRuntime(): Promise<void> {
   // Critical: flush current queue before any stop so we never persist [].
@@ -638,19 +649,11 @@ export async function disposePlayerRuntime(): Promise<void> {
   flushSaveQueue();
   // Cancel FM retry timer / in-flight fetch so it cannot append after unload.
   disposeFmSession();
-  // Keep activeBackend until after stop so backend.stop is available.
+  // Keep the backend reachable until after coordinator stop (backend.stop is
+  // part of the stop barrier), then let the runtime retire it.
   await shutdownCoordinatorInstance();
-  initListenerCleanup?.();
-  initListenerCleanup = null;
-  eventUnsub?.();
-  eventUnsub = null;
-  if (activeBackend) {
-    try {
-      await activeBackend.shutdown();
-    } catch {
-      /* ignore */
-    }
-    activeBackend = null;
+  if (moduleRuntime) {
+    await moduleRuntime.shutdown('pagehide');
   }
   closeWebAudioEq();
 }

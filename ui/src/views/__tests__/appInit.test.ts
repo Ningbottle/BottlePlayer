@@ -8,7 +8,8 @@ vi.mock('@tauri-apps/api/event', () => ({
   listen: vi.fn().mockResolvedValue(() => {}),
 }));
 
-import { initPlayerBackend, playerStore } from '../../api/playerStore';
+import { initPlayer, initPlayerBackend, playerStore } from '../../api/playerStore';
+import { getMediaRuntime } from '../../api/mediaRuntime';
 import appSource from '../../App.vue?raw';
 import { routeNames } from '../../navigation/routes';
 import { createAppRouter } from '../../navigation/router';
@@ -27,7 +28,7 @@ async function waitForHistoryNavigation(router: ReturnType<typeof createAppRoute
 describe('initPlayerBackend HTML5 fallback', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    playerStore.audio = document.createElement('audio');
+    initPlayer();
     playerStore.backend = null;
   });
 
@@ -35,7 +36,7 @@ describe('initPlayerBackend HTML5 fallback', () => {
     await initPlayerBackend();
 
     expect(playerStore.backend).toBe('html5');
-    expect(playerStore.audio).toBeTruthy();
+    expect(getMediaRuntime()?.audio).toBeTruthy();
   });
 
   it('uses the router history for back and forward without an app-owned stack', async () => {

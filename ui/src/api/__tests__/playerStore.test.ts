@@ -37,6 +37,7 @@ import {
   retryEq,
 } from '../playerStore';
 import { flagsFromPhase } from '../playbackPhase';
+import { getMediaRuntime, getOrCreateMediaRuntime } from '../mediaRuntime';
 import { PlaybackCommandCoordinator } from '../playbackCommandCoordinator';
 import type { Track } from '../normalizer';
 import { playbackDiagnostics } from '../playbackDiagnostics';
@@ -44,6 +45,29 @@ import { __resetFmSessionForTests } from '../fmSession';
 
 function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'A', Duration: 100 } as Track;
+}
+
+/**
+ * Seed a MediaRuntime-owned audio element (HMR-reuse scenario) without a
+ * backend. Replaces the old `window.__bottlemusic_audio__` seeding.
+ */
+function seedMediaRuntime(): HTMLAudioElement {
+  const runtime = getOrCreateMediaRuntime({
+    initialVolume: () => 0.7,
+    createBackend: () => {
+      throw new Error('seed runtime must not create a backend');
+    },
+    onBackendEvent: () => {},
+    onDuration: () => {},
+    onFirstPlay: () => {},
+    beforeHmrDetach: () => {},
+  });
+  return runtime.audio;
+}
+
+/** The single MediaRuntime-owned <audio> of the live generation. */
+function liveAudio(): HTMLAudioElement {
+  return getMediaRuntime()!.audio;
 }
 
 /** Mock AudioContext + captureStream for Phase 2/3 worklet EQ in integration tests. */
@@ -159,11 +183,10 @@ function resetStore() {
   playerStore.duration = 0;
   playerStore.errorMsg = '';
   playerStore.playbackPhase = 'idle';
-  (playerStore as any).audio = null;
-  // Clear the zombie-audio sentinel so initPlayer() doesn't run its teardown
-  // path (which nulls activeBackend) and skip re-creating the backend.
-  (window as any).__bottlemusic_audio__ = undefined;
-  (window as any).__bottlemusic_player_cleanup__ = undefined;
+  // Clear the global runtime owner so initPlayer() takes the fresh path
+  // (retires the previous test's backend, creates a new element) instead of
+  // reusing the previous test's audio.
+  (window as any).__bottlemusic_media_runtime__ = undefined;
   __resetWebAudioEqForTests();
   __resetPlaybackCoordinatorForTests();
   __resetFmSessionForTests();
@@ -189,7 +212,7 @@ describe('playerStore integration', () => {
     initPlayer();
 
     // Spy on addEventListener to count 'ended' registrations.
-    const audio = (playerStore as any).audio as HTMLAudioElement;
+    const audio = liveAudio();
     const addSpy = vi.spyOn(audio, 'addEventListener');
     initPlayerBackend();
 
@@ -270,7 +293,7 @@ describe('playerStore integration', () => {
     playerStore.isPlaying = true;
     playerStore.playbackPhase = 'playing';
 
-    (playerStore.audio as HTMLAudioElement).dispatchEvent(new Event('error'));
+    liveAudio().dispatchEvent(new Event('error'));
 
     expect(playerStore.isPlaying).toBe(false);
     expect(playerStore.playbackPhase).toBe('error');
@@ -494,7 +517,7 @@ describe('playerStore integration', () => {
       return JSON.stringify({ status: 200, headers: {}, body: { status: 1 } });
     });
 
-    const audio = playerStore.audio as HTMLAudioElement;
+    const audio = liveAudio();
     audio.dispatchEvent(new Event('ended'));
 
     await vi.waitFor(() => {
@@ -565,7 +588,7 @@ describe('playerStore integration', () => {
     playerStore.queue = [track];
     playerStore.currentIndex = 0;
     playerStore.isPlaying = false;
-    const audio = (playerStore as any).audio as HTMLAudioElement;
+    const audio = liveAudio();
     audio.removeAttribute('src');
 
     // Stub playUrl on the prototype so jsdom's rejecting audio.play() is bypassed.
@@ -600,7 +623,7 @@ describe('playerStore integration', () => {
     playerStore.queue = [track];
     playerStore.currentIndex = 0;
     playerStore.isPlaying = false;
-    const audio = (playerStore as any).audio as HTMLAudioElement;
+    const audio = liveAudio();
     // Simulate a mid-load state: src is set but readyState is HAVE_NOTHING.
     audio.src = 'http://x/loading.mp3';
     Object.defineProperty(audio, 'readyState', { value: 0, writable: true, configurable: true });
@@ -661,10 +684,10 @@ describe('playerStore integration', () => {
     });
     const playUrlStarted = new Promise<void>((resolve) => {
       backend.playUrl = async (url: string) => {
-        (playerStore.audio as HTMLAudioElement).src = url;
+        liveAudio().src = url;
         resolve();
         await playUrlCanFinish;
-        (playerStore.audio as HTMLAudioElement).dispatchEvent(new Event('play'));
+        liveAudio().dispatchEvent(new Event('play'));
         return true;
       };
     });
@@ -689,7 +712,7 @@ describe('playerStore integration', () => {
     }
 
     expect(playerStore.isPlaying, 'canceling during load must not let delayed playUrl flip back to playing').toBe(false);
-    expect((playerStore.audio as HTMLAudioElement).paused).toBe(true);
+    expect(liveAudio().paused).toBe(true);
     expect(playerStore.errorMsg).toBe('');
   });
 
@@ -801,7 +824,7 @@ describe('playerStore integration', () => {
     initPlayer();
     initPlayerBackend();
     HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
-    await attachWebAudioEqSource(playerStore.audio!, true);
+    await attachWebAudioEqSource(liveAudio(), true);
 
     const backend = __getActiveBackend()!;
     const setVolumeSpy = vi.spyOn(backend, 'setVolume');
@@ -822,7 +845,7 @@ describe('playerStore integration', () => {
     initPlayerBackend();
     playerStore.volume = 0.57;
 
-    const audio = playerStore.audio!;
+    const audio = liveAudio();
     await attachWebAudioEqSource(audio, true);
     const streamTrack = allStreams[0]!.getAudioTracks()[0]!;
 
@@ -839,7 +862,7 @@ describe('playerStore integration', () => {
 
     initPlayer();
     initPlayerBackend();
-    const audio = playerStore.audio!;
+    const audio = liveAudio();
     audio.src = 'http://127.0.0.1:17631/audio/eq-live';
     await attachWebAudioEqSource(audio, true);
     const firstTrack = allStreams[0]!.getAudioTracks()[0]!;
@@ -906,7 +929,7 @@ describe('playerStore integration', () => {
 
     initPlayer();
     initWebAudioEQ();
-    const audio = playerStore.audio!;
+    const audio = liveAudio();
     audio.src = 'http://127.0.0.1:17631/audio/safe-before-direct';
     await attachWebAudioEqSource(audio, true);
     expect(captureStream).toHaveBeenCalledTimes(1);
@@ -931,7 +954,7 @@ describe('playerStore integration', () => {
     initWebAudioEQ();
     await vi.waitFor(() => expect(mockCtx.audioWorklet.addModule).toHaveBeenCalled());
 
-    const audio = playerStore.audio!;
+    const audio = liveAudio();
     playerStore.volume = 0.55;
     HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
     await attachWebAudioEqSource(audio, true);
@@ -959,7 +982,7 @@ describe('playerStore integration', () => {
 
     await vi.waitFor(() => expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1));
 
-    const audio = playerStore.audio!;
+    const audio = liveAudio();
     HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
     await attachWebAudioEqSource(audio, true);
 
@@ -974,7 +997,7 @@ describe('playerStore integration', () => {
 
     initPlayer();
     initWebAudioEQ();
-    const audio = playerStore.audio!;
+    const audio = liveAudio();
     await attachWebAudioEqSource(audio, true);
 
     disconnectWebAudioEqSource();
@@ -989,7 +1012,7 @@ describe('playerStore integration', () => {
 
     initPlayer();
     initWebAudioEQ();
-    await attachWebAudioEqSource(playerStore.audio!, true);
+    await attachWebAudioEqSource(liveAudio(), true);
 
     setWebAudioEqVolume(0.55);
     expect(gainNode.gain.value).toBe(0.55);
@@ -1055,7 +1078,7 @@ describe('playerStore integration', () => {
     expect(captureStream).not.toHaveBeenCalled();
     expect(eqState.available).toBe(false);
     expect(eqState.reason).toBeTruthy();
-    expect(playerStore.audio!.src).toContain('song.mp3');
+    expect(liveAudio().src).toContain('song.mp3');
     expect(playerStore.errorMsg).toBe('');
 
     HTMLAudioElement.prototype.play = realPlay;
@@ -1085,8 +1108,8 @@ describe('playerStore integration', () => {
     expect(captureStream, 'EQ OFF should not reroute audio through AudioWorklet').not.toHaveBeenCalled();
     expect(mockInvoke.mock.calls.some((c) => c[0] === 'audio_proxy_url')).toBe(false);
     expect(eqState.available).toBe(false);
-    expect(playerStore.audio!.volume).toBeCloseTo(0.64);
-    expect(playerStore.audio!.src).toContain('https://fs.wbpz.kugou.com/song.mp3');
+    expect(liveAudio().volume).toBeCloseTo(0.64);
+    expect(liveAudio().src).toContain('https://fs.wbpz.kugou.com/song.mp3');
 
     HTMLAudioElement.prototype.play = realPlay;
   });
@@ -1162,10 +1185,10 @@ describe('playerStore integration', () => {
     expect(getCloseCalls(), 'song 1 must not have closed the context').toBe(0);
 
     // Song 2: playTrack → initPlayer. WITHOUT the fix, the zombie teardown
-    // would fire here (g.__bottlemusic_audio__ is set), close the context,
+    // would fire here (a reusable element is published), close the context,
     // and break the long-lived worklet graph. WITH the fix, the teardown does
-    // NOT fire (because playerStore.audio is set), so the graph stays alive
-    // and re-attaches via captureStream (no InvalidStateError).
+    // NOT fire (initPlayer early-returns for the live runtime owner), so the
+    // graph stays alive and re-attaches via captureStream (no InvalidStateError).
     await playTrack(t2);
 
     expect(getCloseCalls(), 'song 2 must NOT close the WebAudio context (zombie teardown must not fire)').toBe(0);
@@ -1176,7 +1199,7 @@ describe('playerStore integration', () => {
   });
 
   it('reuses the existing audio element across HMR without unloading the current source', () => {
-    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    const oldAudio = seedMediaRuntime();
     oldAudio.src = 'http://127.0.0.1:17631/audio/hmr-live';
     Object.defineProperty(oldAudio, 'duration', { value: 227, configurable: true });
     Object.defineProperty(oldAudio, 'currentTime', { value: 42, writable: true, configurable: true });
@@ -1184,15 +1207,13 @@ describe('playerStore integration', () => {
     const loadSpy = vi.spyOn(oldAudio, 'load').mockImplementation(() => {});
     const removeAttrSpy = vi.spyOn(oldAudio, 'removeAttribute');
 
-    (window as any).__bottlemusic_audio__ = oldAudio;
-    (playerStore as any).audio = null;
     playerStore.currentTime = 0;
     playerStore.duration = 0;
 
     initPlayer();
 
-    expect(playerStore.audio).toBe(oldAudio);
-    expect(playerStore.audio!.src).toContain('/audio/hmr-live');
+    expect(getMediaRuntime()!.audio).toBe(oldAudio);
+    expect(liveAudio().src).toContain('/audio/hmr-live');
     expect(playerStore.currentTime).toBe(42);
     expect(playerStore.duration).toBe(227);
     expect(pauseSpy).not.toHaveBeenCalled();
@@ -1201,7 +1222,7 @@ describe('playerStore integration', () => {
   });
 
   it('B1: HMR reuse keeps exactly one live <audio> and projects its src/currentTime/paused state', () => {
-    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    const oldAudio = seedMediaRuntime();
     oldAudio.src = 'http://127.0.0.1:17631/audio/b1-single-live';
     Object.defineProperty(oldAudio, 'paused', { value: false, configurable: true });
     Object.defineProperty(oldAudio, 'ended', { value: false, configurable: true });
@@ -1209,8 +1230,6 @@ describe('playerStore integration', () => {
 
     const audioCtorSpy = vi.spyOn(window, 'Audio');
     try {
-      (window as any).__bottlemusic_audio__ = oldAudio;
-      (playerStore as any).audio = null;
       playerStore.currentTime = 0;
       playerStore.playbackPhase = 'idle';
       playerStore.isPlaying = false;
@@ -1219,11 +1238,11 @@ describe('playerStore integration', () => {
 
       // Reuse path: no second <audio> is ever constructed.
       expect(audioCtorSpy).not.toHaveBeenCalled();
-      // The global slot and the store point at the SAME single element.
-      expect((window as any).__bottlemusic_audio__).toBe(oldAudio);
-      expect(playerStore.audio).toBe(oldAudio);
+      // The global runtime owner and the live binding point at the SAME element.
+      expect(getMediaRuntime()!.audio).toBe(oldAudio);
+      expect(liveAudio()).toBe(oldAudio);
       // Current src / currentTime / paused state are reused, not reset.
-      expect(playerStore.audio!.src).toContain('/audio/b1-single-live');
+      expect(liveAudio().src).toContain('/audio/b1-single-live');
       expect(playerStore.currentTime).toBe(33);
       expect(playerStore.playbackPhase).toBe('playing');
       expect(playerStore.isPlaying).toBe(true);
@@ -1253,14 +1272,14 @@ describe('playerStore integration', () => {
     await playTrack(track);
     const skipSpy = vi.spyOn(__getPlaySession(), 'skip');
 
-    const audio = playerStore.audio!;
+    const audio = liveAudio();
     expect(audio.src).toBeTruthy();
     const srcBefore = audio.src;
     const pauseSpy = vi.spyOn(audio, 'pause');
 
-    const cleanup = (window as any).__bottlemusic_player_cleanup__ as (() => void) | undefined;
-    expect(cleanup, 'HMR cleanup must be published').toEqual(expect.any(Function));
-    cleanup!();
+    const runtime = getMediaRuntime();
+    expect(runtime, 'MediaRuntime must be the published single owner').toBeTruthy();
+    runtime!.detachForHmr();
 
     // Allow any async detach/dispose microtasks to settle.
     await Promise.resolve();
@@ -1273,12 +1292,15 @@ describe('playerStore integration', () => {
     expect(audio.src).not.toMatch(/about:blank|^$/);
     expect(skipSpy, 'HMR must not finalize the live session as skipped').not.toHaveBeenCalled();
 
-    // New module instance reuses the same element without unload.
-    (playerStore as any).audio = null;
-    (window as any).__bottlemusic_audio__ = audio;
-    initPlayer();
-    expect(playerStore.audio).toBe(audio);
-    expect(playerStore.audio!.src).toBe(srcBefore);
+    // New module generation reuses the same element without unload.
+    // Drop the EQ-mock global stubs first: the resetModules + dynamic import
+    // below goes through Vite's module runner, which needs the real URL.
+    vi.unstubAllGlobals();
+    vi.resetModules();
+    const gen2 = await import('../playerStore');
+    gen2.initPlayer();
+    expect(getMediaRuntime()!.audio).toBe(audio);
+    expect(getMediaRuntime()!.audio.src).toBe(srcBefore);
   });
 
   it('pagehide flushes the current queue without persisting an empty session', async () => {
@@ -1394,9 +1416,9 @@ describe('playerStore integration', () => {
     await vi.waitFor(() => expect(resolveEntered).toBe(true));
     expect(playUrlSpy).not.toHaveBeenCalled();
 
-    const cleanup = (window as any).__bottlemusic_player_cleanup__ as (() => void) | undefined;
-    expect(cleanup).toEqual(expect.any(Function));
-    cleanup!();
+    const runtime = getMediaRuntime();
+    expect(runtime).toEqual(expect.anything());
+    runtime!.detachForHmr();
 
     releaseResolve();
     await Promise.allSettled([playP]);
@@ -1407,24 +1429,22 @@ describe('playerStore integration', () => {
       'after HMR detach, late URL resolve must not start playUrl on shared audio',
     ).not.toHaveBeenCalled();
 
-    const audio = playerStore.audio!;
+    const audio = liveAudio();
     // Should not have been loaded with the stale URL
     expect(audio.src).not.toContain('stale-after-hmr');
   });
 
   it('syncs playing state from a reused audio element after HMR', () => {
-    const oldAudio = document.createElement('audio') as HTMLAudioElement;
+    const oldAudio = seedMediaRuntime();
     oldAudio.src = 'http://127.0.0.1:17631/audio/hmr-playing';
     Object.defineProperty(oldAudio, 'paused', { value: false, configurable: true });
     Object.defineProperty(oldAudio, 'ended', { value: false, configurable: true });
 
-    (window as any).__bottlemusic_audio__ = oldAudio;
-    (playerStore as any).audio = null;
     playerStore.isPlaying = false;
 
     initPlayer();
 
-    expect(playerStore.audio).toBe(oldAudio);
+    expect(getMediaRuntime()!.audio).toBe(oldAudio);
     expect(playerStore.isPlaying).toBe(true);
   });
 
@@ -1434,7 +1454,7 @@ describe('playerStore integration', () => {
     initPlayer();
     await initPlayerBackend();
 
-    const audio = playerStore.audio!;
+    const audio = liveAudio();
     // Store preference before attach.
     setVolume(0.6);
     await nextTick();
@@ -1469,7 +1489,7 @@ describe('playerStore integration', () => {
     });
 
     it('success: resume resolves → recoverFromDegradation → eqState.available=true, retryFailCount=0', async () => {
-      const audio = playerStore.audio!;
+      const audio = liveAudio();
       await attachWebAudioEqSource(audio, true);
 
       eqMocks.mockCtx.state = 'suspended';

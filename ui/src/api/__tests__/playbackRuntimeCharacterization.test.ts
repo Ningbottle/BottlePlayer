@@ -12,6 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { nextTick } from 'vue';
+import { getMediaRuntime } from '../mediaRuntime';
 
 // ── audioLevelMonitor: never-close invariant ──
 // Module-level singletons (sharedCtx etc.) persist across tests, so each test
@@ -374,8 +375,9 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
   it('volume updates the audio backend fallback when persistence writes fail', async () => {
     vi.resetModules();
     const mod = await import('../playerStore');
-    const audio = new Audio();
-    mod.playerStore.audio = audio;
+    const { getMediaRuntime } = await import('../mediaRuntime');
+    mod.initPlayer();
+    const audio = getMediaRuntime()!.audio;
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
       throw new Error('QuotaExceededError');
     });
@@ -393,12 +395,17 @@ describe('orphan playerStore module after vi.resetModules (single-owner invarian
   beforeEach(() => {
     // Earlier tests in this file import ../playerStore after their own
     // vi.resetModules(); reset again so `live` is a guaranteed-fresh instance
-    // (a cached instance may carry playerStore.audio from a previous test,
+    // (a cached instance may hold a runtime binding from a previous test,
     // which would make initPlayer() early-return).
     vi.resetModules();
     localStorage.clear();
-    (window as any).__bottlemusic_audio__ = undefined;
-    (window as any).__bottlemusic_player_cleanup__ = undefined;
+    // Drop any pagehide handler a prior test's generation registered before
+    // clearing the slot, so the live generation below is the single owner.
+    const prior = (window as any).__bottlemusic_pagehide__;
+    if (typeof prior === 'function') {
+      window.removeEventListener('pagehide', prior);
+    }
+    (window as any).__bottlemusic_media_runtime__ = undefined;
     (window as any).__bottlemusic_pagehide__ = undefined;
   });
 
@@ -407,8 +414,7 @@ describe('orphan playerStore module after vi.resetModules (single-owner invarian
     if (typeof handler === 'function') {
       window.removeEventListener('pagehide', handler);
     }
-    (window as any).__bottlemusic_audio__ = undefined;
-    (window as any).__bottlemusic_player_cleanup__ = undefined;
+    (window as any).__bottlemusic_media_runtime__ = undefined;
     (window as any).__bottlemusic_pagehide__ = undefined;
     vi.restoreAllMocks();
   });
@@ -417,9 +423,10 @@ describe('orphan playerStore module after vi.resetModules (single-owner invarian
     // Live generation: owns the audio, the pagehide handler, and the persistence snapshot.
     const live = await import('../playerStore');
     live.initPlayer();
-    const liveAudio = (window as any).__bottlemusic_audio__ as HTMLAudioElement;
+    const liveRuntime = getMediaRuntime();
+    const liveAudio = liveRuntime!.audio as HTMLAudioElement;
     expect(liveAudio).toBeTruthy();
-    expect(live.playerStore.audio).toBe(liveAudio);
+    expect(liveRuntime).toBeTruthy();
     const livePagehide = (window as any).__bottlemusic_pagehide__;
     expect(typeof livePagehide).toBe('function');
 
@@ -430,9 +437,9 @@ describe('orphan playerStore module after vi.resetModules (single-owner invarian
     vi.resetModules();
     const orphan = await import('../playerStore');
     expect(orphan.playerStore).not.toBe(live.playerStore);
-    // It owns no audio and did not replace the global single-owner slots.
-    expect(orphan.playerStore.audio).toBeNull();
-    expect((window as any).__bottlemusic_audio__).toBe(liveAudio);
+    // It owns no audio and did not replace the global runtime owner.
+    expect(getMediaRuntime()).toBe(liveRuntime);
+    expect((window as any).__bottlemusic_media_runtime__?.audio).toBe(liveAudio);
     expect((window as any).__bottlemusic_pagehide__).toBe(livePagehide);
 
     // A stale/empty orphan state must NOT be what pagehide persists.
@@ -452,6 +459,6 @@ describe('orphan playerStore module after vi.resetModules (single-owner invarian
     expect(snap.queue).toEqual([expect.objectContaining({ FileHash: 'live-owner' })]);
     expect(snap.currentIndex).toBe(0);
     // The orphan still owns nothing after the flush.
-    expect(orphan.playerStore.audio).toBeNull();
+    expect(getMediaRuntime()!.audio).toBe(liveAudio);
   });
 });
