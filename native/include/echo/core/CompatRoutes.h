@@ -31,7 +31,9 @@ CompatResponse HandleUserVipDetail(
 CompatResponse HandleUserPlaylist(
     storage::Database& database,
     const QueryMap& query,
-    const std::function<nlohmann::json(std::string, std::string, int, int)>& handler);
+    const std::function<nlohmann::json(
+        const DeviceInfo&, std::string, std::string, int, int)>& handler,
+    const std::function<std::string(const DeviceInfo&, std::string, std::string, std::string*)>& registerHandler = {});
 CompatResponse HandleUserHistory(storage::Database& database, const QueryMap& query);
 CompatResponse HandleUserCloud(storage::Database& database, const QueryMap& query);
 CompatResponse HandlePlayHistoryUpload(storage::Database& database, const QueryMap& query);

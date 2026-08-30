@@ -4,9 +4,14 @@
 #include <cassert>
 #include <filesystem>
 #include <iostream>
+#include <vector>
 
 #include "echo/core/CompatApi.h"
+#include "echo/core/CompatApiUtils.h"
+#include "echo/core/Dto.h"
 #include "echo/storage/Database.h"
+#include "echo/storage/DeviceRepository.h"
+#include "echo/storage/SessionRepository.h"
 
 #if defined(_MSC_VER)
 #include <crtdbg.h>
@@ -31,7 +36,27 @@ int main() {
 #if defined(_MSC_VER)
   _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
   _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+  _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
+
+  std::cout << "[RouteContract] Testing redacted device diagnostics..." << std::endl;
+  {
+    echo::core::DeviceInfo device;
+    device.dfid = "super-secret-dfid";
+    device.mid = "123456789012345678901234567890123456789";
+    device.uuid = "super-secret-uuid";
+    device.guid = "super-secret-guid";
+    device.registered = true;
+    const auto summary = echo::core::DescribeDeviceIdentity(device);
+    assert(summary.find(device.dfid) == std::string::npos);
+    assert(summary.find(device.mid) == std::string::npos);
+    assert(summary.find(device.uuid) == std::string::npos);
+    assert(summary.find(device.guid) == std::string::npos);
+    assert(summary.find("dfid_fp=") != std::string::npos);
+    assert(summary.find("dfid_len=17") != std::string::npos);
+    assert(summary.find("mid_kind=android") != std::string::npos);
+    assert(summary.find("guid_present=Y") != std::string::npos);
+  }
 
   // ── IsKnownCompatRoute: all documented routes must be recognised ──────
   std::cout << "[RouteContract] Testing IsKnownCompatRoute..." << std::endl;
@@ -269,6 +294,196 @@ int main() {
     assert(plResp.body["id"] == "42");
 
     std::cout << "  [ok] /song/url, /search, /playlist/track/all dispatch to injected handlers" << std::endl;
+  }
+
+  // ── /user/vip/detail: upstream failure must not become authoritative is_vip=0
+  std::cout << "[RouteContract] Testing VIP detail failure is not a fake no-VIP snapshot..." << std::endl;
+  {
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    echo::storage::SessionRepository repo(db);
+    echo::core::SessionInfo session;
+    session.userId = "42";
+    session.token = "tok";
+    session.nickname = "Bottle";
+    repo.Save(session);
+
+    echo::core::CompatApiHandlers handlers;
+    handlers.userVip = [](std::string, std::string) -> nlohmann::json {
+      return {
+          {"status", 0},
+          {"error_code", 51002},
+          {"error", "activity rejected"},
+          {"data", nullptr},
+      };
+    };
+    echo::core::CompatApi api(db, handlers);
+    auto resp = api.Handle("GET", "/user/vip/detail", {}, {}, "");
+    assert(resp.httpStatus == 200);
+    assert(resp.body.value("status", 1) == 0);
+    assert(resp.body.contains("authoritative"));
+    assert(resp.body["authoritative"] == false);
+    assert(resp.body.value("error_code", 0) == 51002);
+    assert(resp.body.value("error", std::string{}) == "activity rejected");
+    assert(resp.body["data"].is_null());
+    assert(!resp.body.contains("is_vip"));
+    if (resp.body.contains("data") && resp.body["data"].is_object()) {
+      assert(resp.body["data"].value("is_vip", -1) != 0 ||
+             resp.body.value("authoritative", true) == false);
+    }
+    std::cout << "  [ok] VIP detail failure stays status=0 authoritative=false" << std::endl;
+  }
+
+  {
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    echo::core::CompatApi api(db);
+    auto resp = api.Handle("GET", "/user/vip/detail", {}, {}, "");
+    assert(resp.body.value("status", 1) == 0);
+    assert(resp.body.contains("authoritative"));
+    assert(resp.body["authoritative"] == false);
+    assert(resp.body["data"].is_null());
+    const auto code = resp.body.contains("error_code") ? resp.body["error_code"].dump() : "";
+    assert(code.find("native_vip_no_session") != std::string::npos ||
+           resp.body.value("error", std::string{}).find("not logged in") != std::string::npos);
+    std::cout << "  [ok] VIP detail without session is non-authoritative" << std::endl;
+  }
+
+  std::cout << "[RouteContract] Testing /user/playlist 20017 retries once..." << std::endl;
+  {
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    echo::storage::SessionRepository repo(db);
+    echo::core::SessionInfo session;
+    session.userId = "42";
+    session.token = "tok";
+    repo.Save(session);
+    echo::storage::DeviceRepository devices(db);
+    echo::core::DeviceInfo device;
+    device.registered = true;
+    device.dfid = "abcdefghijklmnopqrstuvwx";
+    device.guid = "registered-device-guid";
+    device.appid = "3116";
+    device.clientver = "11440";
+    devices.Save(device);
+
+    int playlistCalls = 0;
+    int registerCalls = 0;
+    std::vector<std::string> playlistDfids;
+    echo::core::CompatApiHandlers handlers;
+    handlers.userPlaylist = [&](const echo::core::DeviceInfo& requestDevice,
+                                std::string, std::string, int, int) {
+      playlistCalls += 1;
+      playlistDfids.push_back(requestDevice.dfid);
+      if (playlistCalls == 1) {
+        return nlohmann::json{
+            {"status", 0},
+            {"errcode", 20017},
+            {"data", {{"list", nlohmann::json::array()}}},
+        };
+      }
+      return nlohmann::json{{"status", 1}, {"errcode", 0}};
+    };
+    handlers.registerDevice = [&](const echo::core::DeviceInfo&, std::string, std::string,
+                                  std::string*) {
+      registerCalls += 1;
+      return std::string{"newdfidnewdfidnewdfidnewd"};
+    };
+
+    echo::core::CompatApi api(db, handlers);
+    auto resp = api.Handle("GET", "/user/playlist", {{"page", "1"}, {"pagesize", "30"}}, {}, "");
+    assert(resp.body.value("status", 0) == 1);
+    assert(playlistCalls == 2);
+    assert(registerCalls == 1);
+    assert(playlistDfids.size() == 2);
+    assert(playlistDfids[0] == "abcdefghijklmnopqrstuvwx");
+    assert(playlistDfids[1] == "newdfidnewdfidnewdfidnewd");
+    std::cout << "  [ok] errcode 20017 refreshes registration once then succeeds" << std::endl;
+  }
+
+  {
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    echo::storage::SessionRepository repo(db);
+    echo::core::SessionInfo session;
+    session.userId = "42";
+    session.token = "tok";
+    repo.Save(session);
+    echo::storage::DeviceRepository devices(db);
+    echo::core::DeviceInfo device;
+    device.registered = true;
+    device.dfid = "abcdefghijklmnopqrstuvwx";
+    device.guid = "registered-device-guid";
+    device.appid = "3116";
+    device.clientver = "11440";
+    devices.Save(device);
+
+    int playlistCalls = 0;
+    int registerCalls = 0;
+    echo::core::CompatApiHandlers handlers;
+    handlers.userPlaylist = [&](const echo::core::DeviceInfo&,
+                                std::string, std::string, int, int) {
+      playlistCalls += 1;
+      return nlohmann::json{{"status", 0}, {"error_code", 20017}, {"data", {{"list", nlohmann::json::array()}}}};
+    };
+    handlers.registerDevice = [&](const echo::core::DeviceInfo&, std::string, std::string,
+                                  std::string*) {
+      registerCalls += 1;
+      return std::string{"newdfidnewdfidnewdfidnewd"};
+    };
+    echo::core::CompatApi api(db, handlers);
+    auto resp = api.Handle("GET", "/user/playlist", {}, {}, "");
+    assert(resp.body.value("status", 1) == 0);
+    assert(echo::core::IsKuGouErrorCode(resp.body, 20017));
+    assert(playlistCalls == 2);
+    assert(registerCalls == 1);
+    std::cout << "  [ok] error_code 20017 retries once and stops" << std::endl;
+  }
+
+  {
+    echo::storage::Database db;
+    db.Open(TestDbPath());
+    db.Initialize();
+    echo::storage::SessionRepository repo(db);
+    echo::core::SessionInfo session;
+    session.userId = "42";
+    session.token = "tok";
+    repo.Save(session);
+    echo::storage::DeviceRepository devices(db);
+    echo::core::DeviceInfo device;
+    device.registered = true;
+    device.dfid = "abcdefghijklmnopqrstuvwx";
+    device.guid = "registered-device-guid";
+    device.appid = "3116";
+    device.clientver = "11440";
+    devices.Save(device);
+
+    int playlistCalls = 0;
+    int registerCalls = 0;
+    echo::core::CompatApiHandlers handlers;
+    handlers.userPlaylist = [&](const echo::core::DeviceInfo&,
+                                std::string, std::string, int, int) {
+      playlistCalls += 1;
+      return nlohmann::json{{"status", 0}, {"errcode", 20017}};
+    };
+    handlers.registerDevice = [&](const echo::core::DeviceInfo&, std::string, std::string,
+                                  std::string* error) {
+      registerCalls += 1;
+      if (error) *error = "register failed";
+      return std::string{};
+    };
+    echo::core::CompatApi api(db, handlers);
+    auto resp = api.Handle("GET", "/user/playlist", {}, {}, "");
+    assert(resp.body.value("status", 1) == 0);
+    assert(resp.body.value("error_code", "") == "device_registration_failed");
+    assert(resp.body.value("upstream_error_code", 0) == 20017);
+    assert(playlistCalls == 1);
+    assert(registerCalls == 1);
+    std::cout << "  [ok] failed refresh returns device_registration_failed without second playlist" << std::endl;
   }
 
   std::cout << "[RouteContract] All tests passed!" << std::endl;

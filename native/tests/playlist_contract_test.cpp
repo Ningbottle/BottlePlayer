@@ -7,18 +7,54 @@
 #include <unordered_map>
 
 #include "echo/core/PlaylistService.h"
+#include "echo/core/CompatApiUtils.h"
+#include "echo/core/Crypto.h"
 #include "echo/core/HttpClient.h"
 
 #if defined(_MSC_VER)
 #include <crtdbg.h>
 #endif
 
+namespace {
+
+std::string QueryValue(const std::string& url, const std::string& key) {
+  const auto marker = key + "=";
+  const auto start = url.find(marker);
+  if (start == std::string::npos) return {};
+  const auto valueStart = start + marker.size();
+  const auto end = url.find('&', valueStart);
+  return url.substr(valueStart, end == std::string::npos ? std::string::npos : end - valueStart);
+}
+
+}  // namespace
+
 int main() {
   std::cout << "[PlaylistContract] started" << std::endl;
 #if defined(_MSC_VER)
   _CrtSetReportMode(_CRT_ASSERT, _CRTDBG_MODE_FILE);
   _CrtSetReportFile(_CRT_ASSERT, _CRTDBG_FILE_STDERR);
+  _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
+
+  // ── error_code / errcode helper ─────────────────────────────────────
+  std::cout << "[PlaylistContract] Testing ReadKuGouErrorCode..." << std::endl;
+  {
+    using echo::core::IsKuGouErrorCode;
+    using echo::core::ReadKuGouErrorCode;
+    assert(ReadKuGouErrorCode({{"error_code", 20017}}) == 20017);
+    assert(ReadKuGouErrorCode({{"error_code", "20017"}}) == 20017);
+    assert(ReadKuGouErrorCode({{"errcode", 20017}}) == 20017);
+    assert(ReadKuGouErrorCode({{"errcode", "20017"}}) == 20017);
+    assert(ReadKuGouErrorCode({{"error_code", 0}}) == 0);
+    assert(!ReadKuGouErrorCode(nlohmann::json::object()).has_value());
+    assert(!ReadKuGouErrorCode({{"error_code", "not-a-number"}}).has_value());
+    const auto conflict = ReadKuGouErrorCode({{"error_code", 20017}, {"errcode", 20018}});
+    assert(conflict == 20017);
+    assert(IsKuGouErrorCode({{"errcode", 20017}}, 20017));
+    assert(IsKuGouErrorCode({{"error_code", "20017"}}, 20017));
+    assert(!IsKuGouErrorCode({{"errcode", 0}}, 20017));
+    std::cout << "  [ok] ReadKuGouErrorCode int/string/conflict table" << std::endl;
+  }
 
   // ── GetTracks output shape contract ─────────────────────────────────
   std::cout << "[PlaylistContract] Testing GetTracks output shape..." << std::endl;
@@ -53,10 +89,12 @@ int main() {
   // ── GetUserPlaylists output shape + id/listid/global_collection_id ───
   std::cout << "[PlaylistContract] Testing GetUserPlaylists output shape..." << std::endl;
   {
-    auto mockPost = [](const std::string&,
-                       const std::string&,
-                       const std::unordered_map<std::string, std::string>&) -> echo::core::HttpResult {
-      return {200, R"({"errcode":0,"data":{"lists":[{"global_collection_id":"c_1","listid":"1","listname":"P1","songcount":5,"img":"img.jpg"}],"total":1}})", ""};
+    std::string capturedUrl;
+    auto mockPost = [&](const std::string& url,
+                        const std::string&,
+                        const std::unordered_map<std::string, std::string>&) -> echo::core::HttpResult {
+      capturedUrl = url;
+      return {200, R"({"errcode":0,"data":{"lists":[{"global_collection_id":"collection_3_42_98765_0","listid":"98765","listname":"收藏歌单","songcount":5,"img":"img.jpg"}],"total":1}})", ""};
     };
 
     echo::core::PlaylistService svc(
@@ -65,7 +103,34 @@ int main() {
         },
         mockPost);
 
-    const auto userLists = svc.GetUserPlaylists("42", "tok", 1, 30);
+    echo::core::DeviceInfo device;
+    device.dfid = "abcdefghijklmnopqrstuvwx";
+    device.mid = "123456789012345678901234567890123456789";
+    device.uuid = "0123456789abcdef0123456789abcdef";
+    device.guid = "12345678-1234-1234-1234-123456789abc";
+
+    const auto userLists = svc.GetUserPlaylists(device, "42", "tok", 1, 30);
+    const std::unordered_map<std::string, std::string> signedParams = {
+        {"appid", QueryValue(capturedUrl, "appid")},
+        {"clientver", QueryValue(capturedUrl, "clientver")},
+        {"clienttime", QueryValue(capturedUrl, "clienttime")},
+        {"dfid", QueryValue(capturedUrl, "dfid")},
+        {"mid", QueryValue(capturedUrl, "mid")},
+        {"uuid", QueryValue(capturedUrl, "uuid")},
+        {"plat", QueryValue(capturedUrl, "plat")},
+        {"userid", QueryValue(capturedUrl, "userid")},
+        {"token", QueryValue(capturedUrl, "token")},
+    };
+    // BottleMusic is a Concept deployment. The live Standard profile returns
+    // business error 20017 for this registered Concept device, while the
+    // Concept profile returns the user's real collection list.
+    assert(QueryValue(capturedUrl, "appid") == "3116");
+    assert(QueryValue(capturedUrl, "clientver") == "11440");
+    assert(QueryValue(capturedUrl, "uuid") == "-");
+    assert(QueryValue(capturedUrl, "signature") ==
+           echo::core::SignatureAndroidParams(
+               signedParams, R"({"page":1,"pagesize":30,"token":"tok","total_ver":979,"type":2,"userid":42})",
+                echo::core::KuGouSaltKind::Lite));
     assert(userLists.contains("status"));
     assert(userLists["status"] == 1);
     assert(userLists.contains("data"));
@@ -80,11 +145,99 @@ int main() {
     assert(pl.contains("name"));
     assert(pl.contains("songcount"));
     assert(pl.contains("img"));
-    assert(pl["id"] == "c_1");
-    assert(pl["listid"] == "1");
-    assert(pl["global_collection_id"] == "c_1");
+    assert(pl["id"] == "collection_3_42_98765_0");
+    assert(pl["listid"] == "98765");
+    assert(pl["global_collection_id"] == "collection_3_42_98765_0");
+    assert(pl["id"] != pl["listid"]);
+    assert(!pl.contains("specialid") || pl["specialid"] != pl["id"]);
 
     std::cout << "  [ok] GetUserPlaylists output shape + id contract" << std::endl;
+  }
+
+  // ── Non-zero errcode must not become status=1 just because lists exist ─
+  std::cout << "[PlaylistContract] Testing error code beats non-empty lists..." << std::endl;
+  {
+    auto mockPost = [](const std::string&, const std::string&,
+                       const std::unordered_map<std::string, std::string>&) {
+      return echo::core::HttpResult{200,
+          R"({"errcode":20017,"data":{"lists":[{"global_collection_id":"collection_3_42_98765_0","listid":"98765","listname":"P1"}],"total":1}})",
+          ""};
+    };
+    echo::core::PlaylistService svc(
+        [](const std::string&, const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{200, "{}", ""};
+        },
+        mockPost);
+    echo::core::DeviceInfo device;
+    const auto userLists = svc.GetUserPlaylists(device, "42", "tok", 1, 30);
+    assert(userLists.value("status", 1) == 0);
+    assert(echo::core::ReadKuGouErrorCode(userLists) == 20017);
+    assert(userLists["data"]["list"].is_array());
+    std::cout << "  [ok] non-zero errcode keeps status=0" << std::endl;
+  }
+
+  // ── Mixed/invalid user playlist IDs ─────────────────────────────────
+  std::cout << "[PlaylistContract] Testing invalid user playlist IDs are skipped..." << std::endl;
+  {
+    auto mockPost = [](const std::string&, const std::string&,
+                       const std::unordered_map<std::string, std::string>&) {
+      return echo::core::HttpResult{200,
+          R"({"errcode":0,"data":{"lists":[
+            {"global_collection_id":"collection_3_42_1_0","listid":"1","listname":"valid"},
+            {"listid":"2","listname":"missing-gid"},
+            {"global_collection_id":"collection_3_42_3_0","listname":"missing-listid"}
+          ],"total":3}})",
+          ""};
+    };
+    echo::core::PlaylistService svc(
+        [](const std::string&, const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{200, "{}", ""};
+        },
+        mockPost);
+    echo::core::DeviceInfo device;
+    const auto userLists = svc.GetUserPlaylists(device, "42", "tok", 1, 30);
+    assert(userLists.value("status", 0) == 1);
+    assert(userLists["data"]["list"].size() == 1);
+    assert(userLists["data"]["list"][0]["id"] == "collection_3_42_1_0");
+    assert(userLists["data"].value("skipped_invalid_id_count", 0) == 2);
+    std::cout << "  [ok] mixed valid/invalid IDs" << std::endl;
+  }
+
+  {
+    auto mockPost = [](const std::string&, const std::string&,
+                       const std::unordered_map<std::string, std::string>&) {
+      return echo::core::HttpResult{200,
+          R"({"errcode":0,"data":{"lists":[{"listid":"2","listname":"missing-gid"}],"total":1}})",
+          ""};
+    };
+    echo::core::PlaylistService svc(
+        [](const std::string&, const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{200, "{}", ""};
+        },
+        mockPost);
+    echo::core::DeviceInfo device;
+    const auto userLists = svc.GetUserPlaylists(device, "42", "tok", 1, 30);
+    assert(userLists.value("status", 1) == 0);
+    assert(userLists.value("error_code", "") == "native_user_playlist_id_contract_invalid");
+    assert(userLists["data"]["list"].empty());
+    std::cout << "  [ok] all-invalid IDs are a contract error, not empty success" << std::endl;
+  }
+
+  {
+    auto mockPost = [](const std::string&, const std::string&,
+                       const std::unordered_map<std::string, std::string>&) {
+      return echo::core::HttpResult{200, R"({"errcode":0,"data":{"lists":[],"total":0}})", ""};
+    };
+    echo::core::PlaylistService svc(
+        [](const std::string&, const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{200, "{}", ""};
+        },
+        mockPost);
+    echo::core::DeviceInfo device;
+    const auto userLists = svc.GetUserPlaylists(device, "42", "tok", 1, 30);
+    assert(userLists.value("status", 0) == 1);
+    assert(userLists["data"]["list"].empty());
+    std::cout << "  [ok] true empty success stays status=1" << std::endl;
   }
 
   // ── Empty/invalid playlist id returns empty result ────────────────────
@@ -103,6 +256,44 @@ int main() {
     assert(empty2["data"]["songs"].empty());
 
     std::cout << "  [ok] Empty/0/null id returns empty tracks" << std::endl;
+  }
+
+  // ── GetTracks branch exclusivity ────────────────────────────────────
+  std::cout << "[PlaylistContract] Testing GetTracks URL branches..." << std::endl;
+  {
+    std::string capturedUrl;
+    auto mockGet = [&](const std::string& url,
+                       const std::unordered_map<std::string, std::string>&)
+        -> echo::core::HttpResult {
+      capturedUrl = url;
+      return {200,
+              R"({"status":1,"data":{"info":[{"hash":"h1","filename":"A - Song","duration":240,"album_audio_id":1,"audio_id":2,"album_id":3,"privilege":10,"pay_type":3}],"total":1}})",
+              ""};
+    };
+    echo::core::PlaylistService svc(mockGet);
+    echo::core::DeviceInfo device;
+    device.dfid = "abcdefghijklmnopqrstuvwx";
+    device.mid = "123456789012345678901234567890123456789";
+    device.guid = "12345678-1234-1234-1234-123456789abc";
+
+    const auto collection = svc.GetTracks(device, "collection_3_42_98765_0", 1, 10);
+    assert(capturedUrl.find("https://pubsongs.kugou.com/v2/get_other_list_file_nofilt") == 0);
+    assert(capturedUrl.find("special/song") == std::string::npos);
+    assert(QueryValue(capturedUrl, "global_collection_id") == "collection_3_42_98765_0");
+    assert(QueryValue(capturedUrl, "appid") == "3116");
+    assert(QueryValue(capturedUrl, "clientver") == "11440");
+    assert(collection["data"].contains("list"));
+    assert(collection["data"]["list"].is_array());
+    assert(collection["data"]["list"].size() == 1);
+
+    const auto pub = svc.GetTracks(device, "12345", 1, 10);
+    assert(capturedUrl.find("http://mobilecdn.kugou.com/api/v3/special/song") == 0);
+    assert(capturedUrl.find("pubsongs") == std::string::npos);
+    assert(QueryValue(capturedUrl, "specialid") == "12345");
+    assert(pub["data"].contains("list"));
+    assert(pub["data"]["list"].size() == 1);
+
+    std::cout << "  [ok] pubsongs vs special/song are exclusive" << std::endl;
   }
 
   std::cout << "[PlaylistContract] All tests passed!" << std::endl;

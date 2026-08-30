@@ -160,6 +160,11 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoRouteContractTest PRIVATE EchoCore EchoStorage)
   add_test(NAME EchoRouteContractTest COMMAND EchoRouteContractTest)
 
+  add_executable(EchoDeviceIdentityContractTest tests/device_identity_contract_test.cpp)
+  target_include_directories(EchoDeviceIdentityContractTest PRIVATE include)
+  target_link_libraries(EchoDeviceIdentityContractTest PRIVATE EchoCore EchoStorage)
+  add_test(NAME EchoDeviceIdentityContractTest COMMAND EchoDeviceIdentityContractTest)
+
   add_executable(EchoSongUrlContractTest tests/songurl_contract_test.cpp)
   target_include_directories(EchoSongUrlContractTest PRIVATE include)
   target_link_libraries(EchoSongUrlContractTest PRIVATE EchoCore)
@@ -169,6 +174,16 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_include_directories(EchoPlaylistContractTest PRIVATE include)
   target_link_libraries(EchoPlaylistContractTest PRIVATE EchoCore)
   add_test(NAME EchoPlaylistContractTest COMMAND EchoPlaylistContractTest)
+
+  add_executable(EchoYouthVipContractTest tests/youth_vip_contract_test.cpp)
+  target_include_directories(EchoYouthVipContractTest PRIVATE include)
+  target_link_libraries(EchoYouthVipContractTest PRIVATE EchoCore)
+  add_test(NAME EchoYouthVipContractTest COMMAND EchoYouthVipContractTest)
+
+  add_executable(EchoLoginContractTest tests/login_contract_test.cpp)
+  target_include_directories(EchoLoginContractTest PRIVATE include)
+  target_link_libraries(EchoLoginContractTest PRIVATE EchoCore)
+  add_test(NAME EchoLoginContractTest COMMAND EchoLoginContractTest)
 
   add_executable(EchoProfileSignatureContractTest tests/profile_signature_contract_test.cpp)
   target_include_directories(EchoProfileSignatureContractTest PRIVATE include)
@@ -211,8 +226,11 @@ if(ECHO_NATIVE_BUILD_TESTS)
   set(ECHO_NATIVE_TESTS
     EchoNativeSmokeTests
     EchoRouteContractTest
+    EchoDeviceIdentityContractTest
     EchoSongUrlContractTest
     EchoPlaylistContractTest
+    EchoYouthVipContractTest
+    EchoLoginContractTest
     EchoProfileSignatureContractTest
     EchoHomeContractTest
     EchoHttpClientResilienceTest

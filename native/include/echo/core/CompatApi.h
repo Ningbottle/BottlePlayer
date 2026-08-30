@@ -30,7 +30,13 @@ struct CompatApiHandlers {
   std::function<nlohmann::json(const DeviceInfo& device)> loginQrKey;
   std::function<nlohmann::json(const DeviceInfo& device, std::string key)> loginQrCheck;
   std::function<nlohmann::json(std::string id, std::string userId, std::string token)> playlistDetail;
-  std::function<nlohmann::json(std::string userId, std::string token, int page, int pageSize)> userPlaylist;
+  std::function<nlohmann::json(
+      const DeviceInfo& device,
+      std::string userId,
+      std::string token,
+      int page,
+      int pageSize)> userPlaylist;
+  std::function<std::string(const DeviceInfo& device, std::string userId, std::string token, std::string* error)> registerDevice;
   // New: user profile, VIP, and home discovery handlers.
   std::function<nlohmann::json(std::string userId, std::string token)> userDetail;
   std::function<nlohmann::json(std::string userId, std::string token)> userVip;

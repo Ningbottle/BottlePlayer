@@ -1,12 +1,16 @@
 #pragma once
 
+#include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <optional>
+#include <sstream>
 #include <string>
 #include <unordered_set>
 #include <vector>
 
 #include "echo/core/CompatApi.h"
+#include "echo/core/Crypto.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 
 namespace echo::core {
@@ -58,18 +62,115 @@ inline int QueryInt(const QueryMap& query, const std::string& key, int fallback)
   }
 }
 
-inline bool IsKuGouErrorCode(const nlohmann::json& body, int code) {
-  if (!body.is_object() || !body.contains("error_code")) return false;
-  const auto& value = body.at("error_code");
-  if (value.is_number_integer()) return value.get<int>() == code;
-  if (value.is_string()) {
-    try {
-      return std::stoi(value.get<std::string>()) == code;
-    } catch (...) {
-      return false;
+// VIP detail: upstream failure must stay non-authoritative. Never invent is_vip=0.
+inline nlohmann::json NormalizeUserVipDetailResponse(nlohmann::json vip) {
+  if (vip.is_object() && vip.value("status", 0) == 1 && vip.contains("data") &&
+      vip["data"].is_object()) {
+    vip["authoritative"] = true;
+    return vip;
+  }
+
+  nlohmann::json out = {
+      {"status", 0},
+      {"authoritative", false},
+      {"data", nullptr},
+  };
+
+  if (vip.is_object() && vip.contains("error_code")) {
+    out["error_code"] = vip["error_code"];
+  } else if (vip.is_object() && vip.contains("errcode")) {
+    out["error_code"] = vip["errcode"];
+    out["errcode"] = vip["errcode"];
+  } else {
+    out["error_code"] = "native_vip_detail_failed";
+  }
+
+  std::string message;
+  if (vip.is_object()) {
+    for (const char* key : {"error", "error_msg", "msg", "message"}) {
+      if (vip.contains(key) && vip[key].is_string() && !vip[key].get<std::string>().empty()) {
+        message = vip[key].get<std::string>();
+        break;
+      }
+    }
+    if (vip.contains("error_msg")) {
+      out["error_msg"] = vip["error_msg"];
+    }
+    if (vip.contains("errcode") && !out.contains("errcode")) {
+      out["errcode"] = vip["errcode"];
     }
   }
-  return false;
+  if (message.empty()) {
+    message = "vip detail failed";
+  }
+  out["error"] = message;
+  if (!out.contains("error_msg")) {
+    out["error_msg"] = message;
+  }
+  return out;
+}
+
+inline std::optional<int> ReadKuGouErrorCodeValue(const nlohmann::json& value) {
+  if (value.is_number_integer()) return value.get<int>();
+  if (value.is_number_unsigned()) return static_cast<int>(value.get<unsigned int>());
+  if (value.is_string()) {
+    const auto& text = value.get<std::string>();
+    if (text.empty()) return std::nullopt;
+    try {
+      std::size_t idx = 0;
+      const int parsed = std::stoi(text, &idx);
+      if (idx == text.size()) return parsed;
+    } catch (...) {
+    }
+  }
+  return std::nullopt;
+}
+
+// Top-level only. Prefer error_code when both exist and conflict.
+inline std::optional<int> ReadKuGouErrorCode(const nlohmann::json& body) {
+  if (!body.is_object()) return std::nullopt;
+  std::optional<int> errorCode;
+  std::optional<int> errcode;
+  if (body.contains("error_code")) {
+    errorCode = ReadKuGouErrorCodeValue(body.at("error_code"));
+  }
+  if (body.contains("errcode")) {
+    errcode = ReadKuGouErrorCodeValue(body.at("errcode"));
+  }
+  if (errorCode && errcode && *errorCode != *errcode) {
+    ECHO_LOG("CompatApi", "error_code/errcode conflict, preferring error_code");
+    return errorCode;
+  }
+  if (errorCode) return errorCode;
+  return errcode;
+}
+
+inline bool IsKuGouErrorCode(const nlohmann::json& body, int code) {
+  const auto actual = ReadKuGouErrorCode(body);
+  return actual.has_value() && *actual == code;
+}
+
+inline std::string DescribeDeviceIdentity(const DeviceInfo& device) {
+  const bool hasDfid = !device.dfid.empty() && device.dfid != "-";
+  const bool androidMid =
+      (device.mid.size() == 38 || device.mid.size() == 39) &&
+      std::all_of(device.mid.begin(), device.mid.end(),
+                  [](unsigned char c) { return std::isdigit(c); });
+  const auto dfidFingerprint = hasDfid
+                                   ? CalculateMd5(device.dfid).substr(0, 8)
+                                   : std::string{"-"};
+
+  std::ostringstream out;
+  out << "registered=" << (device.registered ? "Y" : "N")
+      << " dfid_fp=" << dfidFingerprint
+      << " dfid_len=" << (hasDfid ? device.dfid.size() : 0)
+      << " mid_kind=" << (androidMid ? "android" : (device.mid.empty() ? "empty" : "other"))
+      << " mid_len=" << device.mid.size()
+      << " uuid_len=" << device.uuid.size()
+      << " guid_present=" << (device.guid.empty() ? "N" : "Y")
+      << " appid=" << device.appid
+      << " clientver=" << device.clientver;
+  return out.str();
 }
 
 inline bool IsCredentialKey(const std::string& key) {

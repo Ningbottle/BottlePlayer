@@ -46,7 +46,8 @@ class SongUrlService {
       std::string ppageId,
       std::string userId,
       std::string token,
-      const DeviceInfo& device) const;
+      const DeviceInfo& device,
+      std::string vipToken = "") const;
 
   // Convenience overload for tests / simple callers — uses empty quality/auth/device defaults.
   nlohmann::json Resolve(std::string hash, std::string albumId, std::string albumAudioId) const;

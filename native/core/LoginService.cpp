@@ -51,15 +51,19 @@ LoginService::LoginService()
 LoginService::LoginService(LoginHttpGet httpGet) : httpGet_(std::move(httpGet)) {}
 
 nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
+  const auto profile = GetKuGouProfile(KuGouEdition::Standard);
   // For /v2/qrcode, KuGou expects appid=1001 or 1014 in the GET parameters,
-  // but we MUST hardcode appid=1005 in the qrcode_txt payload so the mobile app
+  // but qrcode_txt must carry the standard Android app id so the mobile app
   // authorizes the token for standard Android endpoints (like /v7/get_all_list).
+  // 注意：曾实验切换 Concept(3116) 以兑现概念版 VIP，但该假设未经隔离验证，
+  // 且会导致老 Standard token 与新 Concept token 行为分裂——回退为已验证的 Standard。
   std::unordered_map<std::string, std::string> params = {
       {"appid", QrLoginAppId},
-      {"clientver", device.clientver},
+      {"clientver", profile.clientver},
       {"type", "1"},
       {"plat", "4"},
-      {"qrcode_txt", "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=1005&"},
+      {"qrcode_txt", "https://h5.kugou.com/apps/loginQRCode/html/index.html?appid=" +
+                         profile.appid + "&"},
       {"srcappid", "2919"},
       {"clienttime", std::to_string(std::time(nullptr))},
       {"mid", ResolveAndroidMid(device)},
@@ -101,11 +105,11 @@ nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
 }
 
 nlohmann::json LoginService::PollQrLogin(const DeviceInfo& device, const std::string& key) const {
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  const auto profile = GetKuGouProfile(KuGouEdition::Standard);
   std::unordered_map<std::string, std::string> params = {
       {"plat", "4"},
       {"appid", profile.appid},
-      {"clientver", device.clientver},
+      {"clientver", profile.clientver},
       {"qrcode", key},
       {"srcappid", "2919"},
       {"clienttime", std::to_string(std::time(nullptr))},

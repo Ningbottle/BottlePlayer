@@ -29,6 +29,9 @@ struct SessionInfo {
   std::string t1;
   std::string nickname;
   std::string pic;
+  // 概念版 VIP 令牌：登录/刷新响应里的 vip_token。
+  // tracker v6/priv_url 的 tracker_param.viptoken 需要它来判断 VIP 试听 vs 完整流。
+  std::string vipToken;
 };
 
 struct AppSettings {

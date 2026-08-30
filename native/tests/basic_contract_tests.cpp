@@ -371,6 +371,10 @@ int main() {
     echo::storage::Database vipDb;
     vipDb.Open(TestDbPath());
     vipDb.Initialize();
+    echo::core::SessionInfo vipSession;
+    vipSession.userId = "vip-user";
+    vipSession.token = "vip-session-token";
+    echo::storage::SessionRepository(vipDb).Save(vipSession);
     echo::core::CompatApiHandlers vipHandlers;
     vipHandlers.userVip = [](std::string, std::string) {
       return nlohmann::json{
@@ -395,7 +399,8 @@ int main() {
     credDb.Open(TestDbPath());
     credDb.Initialize();
     echo::core::CompatApiHandlers credHandlers;
-    credHandlers.userPlaylist = [](std::string, std::string, int, int) {
+    credHandlers.userPlaylist = [](const echo::core::DeviceInfo&,
+                                   std::string, std::string, int, int) {
       return nlohmann::json{
           {"status", 1},
           {"data",
@@ -1894,7 +1899,7 @@ int main() {
     auto mockPost = [](const std::string&,
                        const std::string&,
                        const std::unordered_map<std::string, std::string>&) -> echo::core::HttpResult {
-      return {200, R"({"errcode":0,"data":{"lists":[{"global_collection_id":"c_1","listid":"1","listname":"P1","songcount":5,"img":"img.jpg"}],"total":1}})", ""};
+      return {200, R"({"errcode":0,"data":{"lists":[{"global_collection_id":"collection_3_42_1_0","listid":"1","listname":"P1","songcount":5,"img":"img.jpg"}],"total":1}})", ""};
     };
 
     echo::core::PlaylistService userPlaylistContractSvc(
@@ -1918,7 +1923,7 @@ int main() {
     assert(pl.contains("name"));
     assert(pl.contains("songcount"));
     assert(pl.contains("img"));
-    assert(pl["id"] == "c_1");
+    assert(pl["id"] == "collection_3_42_1_0");
     assert(pl["listid"] == "1");
     std::cout << "  [ok] PlaylistService::GetUserPlaylists output shape contract" << std::endl;
   }

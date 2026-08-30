@@ -48,8 +48,10 @@ CompatResponse DispatchSongUrl(const RouteContext& ctx, const std::string&) {
 
   const auto album_id = QueryValue(ctx.query, "album_id");
   const auto album_audio_id = QueryValue(ctx.query, "album_audio_id");
+  const auto& session = reqCtx.Session();
+  const std::string vipToken = (session && !session->vipToken.empty()) ? session->vipToken : "";
   SongUrlService songUrl;
-  auto result = songUrl.Resolve(hash, album_id, album_audio_id, quality, ppageId, userId, token, device);
+  auto result = songUrl.Resolve(hash, album_id, album_audio_id, quality, ppageId, userId, token, device, vipToken);
   return JsonResponse(result);
 }
 
@@ -122,7 +124,7 @@ const std::unordered_map<std::string, RouteHandlerFn>& GetRouteTable() {
       // User
       {"/user/detail",     [](const RouteContext& ctx, const std::string&) { return HandleUserDetail(ctx.database, ctx.handlers.userDetail); }},
       {"/user/vip/detail", [](const RouteContext& ctx, const std::string&) { return HandleUserVipDetail(ctx.database, ctx.handlers.userVip); }},
-      {"/user/playlist",   [](const RouteContext& ctx, const std::string&) { return HandleUserPlaylist(ctx.database, ctx.query, ctx.handlers.userPlaylist); }},
+      {"/user/playlist",   [](const RouteContext& ctx, const std::string&) { return HandleUserPlaylist(ctx.database, ctx.query, ctx.handlers.userPlaylist, ctx.handlers.registerDevice); }},
       {"/user/history",    [](const RouteContext& ctx, const std::string&) { return HandleUserHistory(ctx.database, ctx.query); }},
       {"/user/cloud",      [](const RouteContext& ctx, const std::string&) { return HandleUserCloud(ctx.database, ctx.query); }},
       {"/user/cloud/url",  nullptr},  // not yet ported

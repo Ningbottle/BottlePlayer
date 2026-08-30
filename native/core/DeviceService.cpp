@@ -89,8 +89,20 @@ DeviceInfo DeviceService::EnsureDeviceReady() {
   }
 
   // Normalize in-memory before returning to business code.
-  // Old records with random mid/uuid are overwritten here; the db is NOT modified.
+  // Old records with random mid/uuid are overwritten here.
   NormalizeDeviceInfo(device);
+
+  // Records created before guid persistence used uuid as the encrypted
+  // registration fingerprint, while ResolveAndroidMid fell back to an
+  // unrelated legacy mid. Backfill the same stable uuid as guid so both the
+  // fingerprint and Android mid share one identity bloodline. Persist the
+  // migration and require a fresh KuGou registration before protected APIs
+  // trust the old dfid again.
+  if (device.guid.empty() && !device.uuid.empty()) {
+    device.guid = device.uuid;
+    device.registered = false;
+    devices_.Save(device);
+  }
 
   return device;
 }

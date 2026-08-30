@@ -1,4 +1,4 @@
-﻿#include "echo/core/C_API.h"
+#include "echo/core/C_API.h"
 #include "echo/core/CompatApi.h"
 #include "echo/core/HttpClient.h"
 #include "echo/core/RequestDeadlines.h"
@@ -8,6 +8,12 @@
 #include "echo/diagnostics/EchoDiagnostics.h"
 #include "echo/stats/PlayStatsService.h"
 #include <nlohmann/json.hpp>
+#include <exception>
+#include <typeinfo>
+#include <cstdlib>
+#if defined(_MSC_VER) && defined(_DEBUG)
+#include <crtdbg.h>
+#endif
 #include <atomic>
 #include <chrono>
 #include <memory>
@@ -318,6 +324,38 @@ void EchoSetLogCallback(EchoLogCallback cb, void* user_data) {
     // so assign directly. If either ever drifts this stops compiling (intended)
     // instead of silently becoming UB behind a reinterpret_cast.
     echo::diagnostics::SetLogCallback(cb, user_data);
+
+    // 未捕获异常 -> terminate 时记录异常类型与 what()，再交给默认终止流程。
+    // 排查后台线程静默 exit(3)（terminate 不落日志）的最后一公里。
+    std::set_terminate([] {
+        std::string what = "unknown";
+        if (auto ep = std::current_exception()) {
+            try {
+                std::rethrow_exception(ep);
+            } catch (const std::exception& e) {
+                what = std::string(typeid(e).name()) + ": " + e.what();
+            } catch (...) {
+                what = "non-std::exception";
+            }
+        } else {
+            what = "terminate called without active exception";
+        }
+        ECHO_LOG("CRASH", std::string("terminate: ") + what);
+        std::abort();
+    });
+
+#if defined(_MSC_VER) && defined(_DEBUG)
+    // CRT 错误报告（含 RTC 栈损坏 Run-Time Check Failure）默认弹模态对话框，
+    // 无人值守时表现为静默 exit(3)。挂钩后改落日志：消息含源文件与行号。
+    _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL,
+        [](int reportType, char* message, int* returnValue) -> int {
+            if (reportType == _CRT_ERROR || reportType == _CRT_ASSERT) {
+                ECHO_LOG("CRASH", std::string("crt report: ") + (message ? message : "<empty>"));
+            }
+            *returnValue = 0; // 继续默认流程（仍可能弹窗/终止）
+            return 0;
+        });
+#endif
 }
 
 // ─── Stats C API ─────────────────────────────────────────────────────────────

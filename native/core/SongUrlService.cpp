@@ -260,7 +260,9 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
   }
 
   // ── 1. Build signed URL via KAR ──────────────────────────────────────────
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  // v6/priv_url 与参考实现(song_url_new.js)同约：Standard(appid=1005) + Lite key salt
+  // (参考硬编码 185672dd… 即使 appid=1005) + 会话 Cookie。
+  const auto profile = GetKuGouProfile(KuGouEdition::Standard);
   KuGouAndroidRequest req;
   req.endpoint = "http://tracker.kugou.com/v6/priv_url";
   req.profile = profile;
@@ -282,7 +284,9 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
   const auto collectTimeMs = std::chrono::duration_cast<std::chrono::milliseconds>(
       std::chrono::system_clock::now().time_since_epoch()).count();
   const std::string albumAudioIdStr = albumAudioId.empty() ? "0" : albumAudioId;
-  const std::string key = SignKey(hash, mid, userId, profile.appid, profile.saltKind);
+  // tracker_param.key 参照 MakcRe song_url_new.js：盐硬编码为 Lite(185672dd…)，
+  // 即使 appid=1005(Standard) 也不用 Standard 盐——否则 tracker 报 20010 key invalid。
+  const std::string key = SignKey(hash, mid, userId, profile.appid, KuGouSaltKind::Lite);
   // MakcRe sends userid as a number (Number(userid)), defaulting to 0
   const int useridNum = userId.empty() ? 0 : [userId] {
     try { return std::stoi(userId); } catch (...) { return 0; }
@@ -339,6 +343,9 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
           {"kg-thash", "5d816a0"},
           {"kg-rec", "1"},
           {"kg-rf", "B9EDA08A64250DEFFBCADDEE00F8F25F"},
+          // 参照 MakcRe song_url_new.js：v6/priv_url 携带会话 cookie（dfid+token+userid），
+          // 与 VIP 领取修复一致；缺失时 tracker 返回 token api error(20018)。
+          {"Cookie", "token=" + token + ";userid=" + userId + ";KugooID=" + userId},
       });
 
   // Diagnostic log — 脱敏：body/resp 可能携带 token 与签名 play_url，
@@ -399,9 +406,23 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
     for (const auto& item : upstream["data"]) {
       if (!item.is_object()) continue;
       
-      // 提取 URL
-      const auto itemUrl = ReadString(item, "url");
-      const auto itemBackup = ReadString(item, "backupUrl");
+      // 提取 URL：v6 真实字段 tracker_url / tracker_backup_url（数组）位于 info 对象内；
+      // 兼容旧字段 url / backupUrl（可能在 item 顶层）。
+      auto readFirstUrl = [](const nlohmann::json& obj, const char* key) -> std::string {
+        if (!obj.contains(key)) return {};
+        const auto& v = obj[key];
+        if (v.is_array() && !v.empty() && v[0].is_string()) return v[0].get<std::string>();
+        if (v.is_string()) return v.get<std::string>();
+        return {};
+      };
+      std::string itemUrl = readFirstUrl(item, "url");
+      std::string itemBackup = readFirstUrl(item, "backupUrl");
+      if (item.contains("info") && item["info"].is_object()) {
+        if (itemUrl.empty()) itemUrl = readFirstUrl(item["info"], "tracker_url");
+        if (itemBackup.empty()) itemBackup = readFirstUrl(item["info"], "tracker_backup_url");
+        // en_tracker_url 是加密流（"en"=encrypted，实测内容不可 demux）——
+        // 客户端无法解密，不能当作可播放 URL，刻意忽略让 v6 判失败后回落 v5。
+      }
       
       // 提取音质信息从 info 对象
       if (item.contains("info") && item["info"].is_object()) {
@@ -558,7 +579,8 @@ nlohmann::json SongUrlService::Resolve(
     std::string ppageId,
     std::string userId,
     std::string token,
-    const DeviceInfo& device) const {
+    const DeviceInfo& device,
+    std::string vipToken) const {
   hash = NormalizeHash(std::move(hash));
   quality = Trim(std::move(quality));
   ppageId = Trim(std::move(ppageId));
@@ -570,7 +592,7 @@ nlohmann::json SongUrlService::Resolve(
   // ── Try v6/priv_url first (VIP-aware endpoint) ──────────────────────────
   if (httpPost_) {
     auto v6 = ResolveV6PrivUrl(hash, albumAudioId, userId, token,
-                                /*vipToken=*/"", /*vipType=*/0, device);
+                                std::move(vipToken), /*vipType=*/0, device);
     if (v6.value("status", 0) == 1) {
       if (!quality.empty() && v6.contains("data") && v6["data"].is_object()) {
         auto& data = v6["data"];

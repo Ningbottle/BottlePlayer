@@ -88,6 +88,14 @@ CompatResponse HandleLoginQrCheck(
     session.userId = ExtractUserId(*loginData, "userid");
     session.nickname = FirstNonEmptyString({"nickname", "username", "name"});
     session.pic = FirstNonEmptyString({"pic", "headphoto", "avatar", "headerurl", "userpic"});
+    // 概念版登录响应可能直接下发 vip_token / t1；留空则后续由刷新链路补齐。
+    session.vipToken = FirstNonEmptyString({"vip_token", "viptoken"});
+    session.t1 = FirstNonEmptyString({"t1"});
+    if (!session.vipToken.empty()) {
+      ECHO_LOG("CompatApi", "QR login issued vip_token (len=" + std::to_string(session.vipToken.size()) + ")");
+    } else {
+      ECHO_LOG("CompatApi", "QR login issued no vip_token");
+    }
     if (!session.token.empty() && !session.userId.empty()) {
       storage::SessionRepository sessionRepo(database);
       sessionRepo.Save(session);

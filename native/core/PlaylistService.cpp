@@ -1,10 +1,12 @@
 #include "echo/core/PlaylistService.h"
+#include "echo/core/CompatApiUtils.h"
 #include "echo/core/Crypto.h"
 #include "echo/core/DeviceService.h"
 #include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
 #include "echo/core/SafeStoll.h"
 #include "echo/core/StringUtils.h"
+#include "echo/diagnostics/EchoDiagnostics.h"
 
 #include <windows.h>
 #include <wincrypt.h>
@@ -299,21 +301,25 @@ nlohmann::json NormalizePlaylistMeta(const nlohmann::json& raw) {
   return item;
 }
 
-std::string UserPlaylistId(const nlohmann::json& raw) {
-  return ReadFirstString(
-      raw,
-      {
-          "global_collection_id",
-          "global_collectionid",
-          "listid",
-          "list_id",
-          "specialid",
-          "special_id",
-          "id",
-          "list_create_listid",
-          "collection_id",
-          "gid",
-      });
+bool IsNumericListId(const std::string& text) {
+  return !text.empty() && text.find_first_not_of("0123456789") == std::string::npos;
+}
+
+bool IsUserCollectionId(const std::string& text) {
+  return text.rfind("collection_", 0) == 0;
+}
+
+std::string UserPlaylistGlobalCollectionId(const nlohmann::json& raw) {
+  const auto id = ReadFirstString(raw, {"global_collection_id", "global_collectionid", "gid"});
+  if (IsUserCollectionId(id)) return id;
+  const auto collectionId = ReadFirstString(raw, {"collection_id"});
+  if (IsUserCollectionId(collectionId)) return collectionId;
+  return {};
+}
+
+std::string UserPlaylistListId(const nlohmann::json& raw) {
+  const auto id = ReadFirstString(raw, {"listid", "list_id", "list_create_listid"});
+  return IsNumericListId(id) ? id : std::string{};
 }
 
 std::string UserPlaylistName(const nlohmann::json& raw) {
@@ -332,12 +338,16 @@ std::string UserPlaylistName(const nlohmann::json& raw) {
 }
 
 bool LooksLikeUserPlaylist(const nlohmann::json& raw) {
-  return raw.is_object() && (!UserPlaylistId(raw).empty() || !UserPlaylistName(raw).empty());
+  if (!raw.is_object()) return false;
+  return !UserPlaylistName(raw).empty() ||
+         !UserPlaylistGlobalCollectionId(raw).empty() ||
+         !ReadFirstString(raw, {"listid", "list_id", "list_create_listid"}).empty();
 }
 
 nlohmann::json NormalizeUserPlaylistMeta(const nlohmann::json& raw) {
   nlohmann::json item = raw;
-  const auto id = UserPlaylistId(raw);
+  const auto gid = UserPlaylistGlobalCollectionId(raw);
+  const auto listid = UserPlaylistListId(raw);
   const auto name = UserPlaylistName(raw);
   const auto image = ReadFirstString(
       raw,
@@ -351,14 +361,12 @@ nlohmann::json NormalizeUserPlaylistMeta(const nlohmann::json& raw) {
           "sizable_pic",
       });
 
-  item["id"] = id;
-  item["global_collection_id"] = id;
-  const auto listid = ReadFirstString(raw, {"listid", "list_id"});
-  item["listid"] = listid.empty() ? id : listid;
-  item["specialid"] = id;
+  item["id"] = gid;
+  item["global_collection_id"] = gid;
+  item["listid"] = listid;
+  item.erase("specialid");
   item["name"] = name.empty() ? "无标题歌单" : name;
   item["listname"] = item["name"];
-  item["specialname"] = item["name"];
   item["title"] = item["name"];
   item["imgurl"] = image;
   item["cover"] = image;
@@ -371,10 +379,19 @@ nlohmann::json NormalizeUserPlaylistMeta(const nlohmann::json& raw) {
 void PushUserPlaylist(
     const nlohmann::json& raw,
     nlohmann::json& playlists,
-    std::unordered_set<std::string>& seen) {
-  const auto id = UserPlaylistId(raw);
-  if (id.empty() || seen.contains(id)) return;
-  seen.insert(id);
+    std::unordered_set<std::string>& seen,
+    int& skipped) {
+  const auto gid = UserPlaylistGlobalCollectionId(raw);
+  const auto listid = UserPlaylistListId(raw);
+  if (gid.empty() || listid.empty()) {
+    if (LooksLikeUserPlaylist(raw)) {
+      skipped += 1;
+      ECHO_LOG("UserPlaylist", "skipped playlist item missing global_collection_id or numeric listid");
+    }
+    return;
+  }
+  if (seen.contains(gid)) return;
+  seen.insert(gid);
   playlists.push_back(NormalizeUserPlaylistMeta(raw));
 }
 
@@ -382,6 +399,7 @@ void CollectUserPlaylists(
     const nlohmann::json& node,
     nlohmann::json& playlists,
     std::unordered_set<std::string>& seen,
+    int& skipped,
     int depth = 0) {
   if (depth > 5 || node.is_null()) return;
 
@@ -396,13 +414,13 @@ void CollectUserPlaylists(
 
     if (hasPlaylistItems) {
       for (const auto& item : node) {
-        if (LooksLikeUserPlaylist(item)) PushUserPlaylist(item, playlists, seen);
+        if (LooksLikeUserPlaylist(item)) PushUserPlaylist(item, playlists, seen, skipped);
       }
       return;
     }
 
     for (const auto& item : node) {
-      CollectUserPlaylists(item, playlists, seen, depth + 1);
+      CollectUserPlaylists(item, playlists, seen, skipped, depth + 1);
     }
     return;
   }
@@ -410,7 +428,7 @@ void CollectUserPlaylists(
   if (!node.is_object()) return;
 
   if (LooksLikeUserPlaylist(node)) {
-    PushUserPlaylist(node, playlists, seen);
+    PushUserPlaylist(node, playlists, seen, skipped);
   }
 
   constexpr std::array<std::string_view, 10> keys = {
@@ -427,7 +445,7 @@ void CollectUserPlaylists(
   };
   for (const auto key : keys) {
     if (node.contains(key)) {
-      CollectUserPlaylists(node.at(key), playlists, seen, depth + 1);
+      CollectUserPlaylists(node.at(key), playlists, seen, skipped, depth + 1);
     }
   }
 }
@@ -444,14 +462,29 @@ int ReadTotal(const nlohmann::json& upstream, const nlohmann::json& playlists) {
 nlohmann::json NormalizeUserPlaylistsResponse(nlohmann::json upstream, int page, int pageSize) {
   nlohmann::json playlists = nlohmann::json::array();
   std::unordered_set<std::string> seen;
-  CollectUserPlaylists(upstream, playlists, seen);
+  int skipped = 0;
+  CollectUserPlaylists(upstream, playlists, seen, skipped);
 
-  int status = ReadInt(upstream, "status", playlists.empty() ? 0 : 1);
-  if (ReadInt(upstream, "errcode", -1) == 0 || ReadInt(upstream, "error_code", -1) == 0) {
+  const auto code = ReadKuGouErrorCode(upstream);
+  const bool hasStatus = upstream.contains("status");
+  const int rawStatus = hasStatus ? ReadInt(upstream, "status", -1) : -1;
+
+  int status = 0;
+  if (code && *code != 0) {
+    status = 0;
+  } else if (hasStatus && rawStatus == 0) {
+    status = 0;
+  } else if ((code && *code == 0) || (hasStatus && rawStatus == 1)) {
     status = 1;
+  } else {
+    status = playlists.empty() ? 0 : 1;
   }
-  if (!playlists.empty()) {
-    status = 1;
+
+  if (status == 1 && playlists.empty() && skipped > 0) {
+    status = 0;
+    upstream["error_code"] = "native_user_playlist_id_contract_invalid";
+    upstream["error"] = "user playlist items missing global_collection_id or numeric listid";
+    upstream["error_msg"] = upstream["error"];
   }
 
   if (!upstream.contains("data") || !upstream["data"].is_object()) {
@@ -464,6 +497,7 @@ nlohmann::json NormalizeUserPlaylistsResponse(nlohmann::json upstream, int page,
   data["total"] = ReadTotal(upstream, playlists);
   data["page"] = page;
   data["pagesize"] = pageSize;
+  data["skipped_invalid_id_count"] = skipped;
   upstream["status"] = status;
   return upstream;
 }
@@ -513,9 +547,8 @@ nlohmann::json PlaylistService::GetTracks(
 
   // User-collection playlists from /user/playlist come back as
   // "collection_3_<userid>_<listid>_0" (a global_collection_id). The
-  // legacy mobilecdn/special/song endpoint doesn't accept these 鈥?it
-  // returns "鍙傛暟涓嶅悎娉? (invalid params). Use the modern signed pubsongs
-  // endpoint with `global_collection_id` for those.
+  // legacy mobilecdn/special/song endpoint rejects those ids; use the
+  // signed pubsongs endpoint with `global_collection_id` instead.
   const bool isUserCollection = id.rfind("collection_", 0) == 0;
   if (isUserCollection) {
     const auto beginIdx = std::to_string((page - 1) * pageSize);
@@ -800,10 +833,15 @@ nlohmann::json PlaylistService::GetUserPlaylists(
 
   KuGouAndroidRequest req;
   req.endpoint = "https://gateway.kugou.com/v7/get_all_list";
+  // This request follows the running product edition. A Standard signature
+  // (1005/20489) is accepted syntactically but returns business error 20017
+  // for a dfid registered by the Concept client. Keep the profile aligned
+  // with DeviceRegisterService and the Concept deployment.
   req.profile = GetKuGouProfile(KuGouEdition::Concept);
   req.device = device;
   req.body = body;
   req.params["clienttime"] = clienttime;
+  req.params["uuid"] = "-";
   req.params["plat"] = "1";
   req.params["userid"] = userId;
   req.params["token"] = token;
@@ -813,6 +851,10 @@ nlohmann::json PlaylistService::GetUserPlaylists(
   // backend service to proxy to. Hitting cloudlist.service.kugou.com
   // directly gives WinHttp 12175 (SSL certificate validation failure).
   const auto url = BuildSignedUrl(req);
+
+  ECHO_LOG("UserPlaylist", std::string("request_profile=concept appid=") +
+                               req.profile.appid + " clientver=" + req.profile.clientver +
+                               " uuid=- " + DescribeDeviceIdentity(device));
 
   const auto result = httpPost_(
       url,
@@ -836,7 +878,22 @@ nlohmann::json PlaylistService::GetUserPlaylists(
   }
 
   try {
-    return NormalizeUserPlaylistsResponse(nlohmann::json::parse(result.body), page, pageSize);
+    auto upstream = nlohmann::json::parse(result.body);
+    auto normalized = NormalizeUserPlaylistsResponse(upstream, page, pageSize);
+    if (normalized.value("status", 0) != 1) {
+      const auto errorCode = upstream.contains("error_code")
+                                 ? upstream["error_code"].dump()
+                                 : (upstream.contains("errcode") ? upstream["errcode"].dump() : "missing");
+      const auto message = ReadFirstString(upstream, {"error_msg", "error", "msg", "message"});
+      std::ostringstream diagnostic;
+      diagnostic << "upstream status=" << upstream.value("status", 0)
+                 << " error_code=" << errorCode
+                 << " message=" << (message.empty() ? "<empty>" : message)
+                 << " data_type="
+                 << (upstream.contains("data") ? upstream["data"].type_name() : "missing");
+      ECHO_LOG("UserPlaylist", diagnostic.str());
+    }
+    return normalized;
   } catch (const nlohmann::json::exception& e) {
     return {{"status", 0}, {"error", std::string("JSON parse error: ") + e.what()}, {"data", {{"list", nlohmann::json::array()}, {"total", 0}}}};
   }

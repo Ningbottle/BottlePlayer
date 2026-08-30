@@ -13,20 +13,30 @@ CompatResponse HandleRegisterDev(storage::Database& database, const QueryMap& qu
 
   if (force || !device.registered) {
     if (ctx.HasLogin()) {
+      ECHO_LOG("DeviceRegister", std::string("registration_attempt=") +
+                                     (force ? "force " : "initial ") +
+                                     DescribeDeviceIdentity(device));
       const auto& session = ctx.Session();
       DeviceRegisterService registerSvc;
       std::string regError;
       const auto newDfid = registerSvc.Register(device, session->userId, session->token, &regError);
       if (!newDfid.empty()) {
+        const bool dfidChanged = newDfid != device.dfid;
         device.dfid = newDfid;
         device.registered = true;
         ctx.SaveDevice(device);
+        ECHO_LOG("DeviceRegister", std::string("registration_result=success dfid_changed=") +
+                                       (dfidChanged ? "Y " : "N ") +
+                                       DescribeDeviceIdentity(device));
       } else {
         ECHO_LOG("CompatApi", std::string("/register/dev upgrade failed: ") + regError);
+        const auto message = regError.empty() ? "device registration failed" : regError;
         return JsonResponse({
-            {"status", 1},
+            {"status", 0},
             {"data", ToJson(device)},
-            {"register_error", regError},
+            {"error", message},
+            {"error_msg", message},
+            {"error_code", "device_registration_failed"},
         });
       }
     }

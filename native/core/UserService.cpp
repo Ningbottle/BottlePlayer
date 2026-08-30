@@ -158,6 +158,7 @@ nlohmann::json UserService::GetUserVip(
         {"token", token},
         // get_union_vip 只认 busi_type；product_type/opt_product_types 会被上游判 params invalid
         {"clienttime", clienttime},
+        {"uuid", uuid},
     };
     req.device = device;
 
@@ -225,19 +226,25 @@ nlohmann::json UserService::GetUserVip(
     }
   };
 
-  auto conceptResult = DoGetVip(GetKuGouProfile(KuGouEdition::Standard));
+  // 实测（2026-08-04，本账户）：Standard profile 被上游 20017(params invalid) 拒绝，
+  // Concept 正常返回；参考实现的默认 Standard 配置实测同样被拒。
+  // busi_type=concept 与 Concept clientver 配套，按实测证据保留 Concept。
+  auto conceptResult = DoGetVip(GetKuGouProfile(KuGouEdition::Concept));
   if (conceptResult.value("status", 0) == 1) {
     bool hasVipFields = false;
     if (conceptResult.contains("data") && conceptResult["data"].is_object()) {
       auto& d = conceptResult["data"];
       hasVipFields = d.contains("is_vip") || d.contains("busi_vip") || d.contains("vip_type");
 
-      // 修正顶层 is_vip：busi_vip list 里有 is_vip=1 且未过期的记录时，data.is_vip 应为 1
+      // 修正顶层 is_vip：busi_vip list 里有 is_vip=1 且未过期的记录时，data.is_vip 应为 1。
+      // 只认解锁歌曲的产品（svip/music/musicpack）；tvip 是听书权益，对音乐 App 不算 VIP。
       if (hasVipFields && d.contains("busi_vip") && d["busi_vip"].is_array()) {
         const auto now = std::time(nullptr);
         bool realVip = false;
         for (const auto& item : d["busi_vip"]) {
           if (item.value("is_vip", 0) != 1) continue;
+          const std::string product = item.value("product_type", "");
+          if (product != "svip" && product != "music" && product != "musicpack") continue;
           const std::string endTime = item.value("vip_end_time", "");
           if (endTime.empty()) {
             realVip = true;
