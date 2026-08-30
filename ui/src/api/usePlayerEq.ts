@@ -9,7 +9,7 @@
  */
 import { reactive } from 'vue';
 import { WebAudioEq } from './webAudioEq';
-import { prepareAudioSourceUrl } from './audioProxy';
+import { prepareAudioSourceUrl } from '../platform/tauri/audioProxy';
 import { playbackDiagnostics } from './playbackDiagnostics';
 
 export interface PlayerEqDeps {

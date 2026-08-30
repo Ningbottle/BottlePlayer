@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import type { PreparedAudioSource } from './html5Backend';
+import type { PreparedAudioSource } from '../../api/html5Backend';
 
 function isHttpUrl(url: string): boolean {
   return /^https?:\/\//i.test(url);

@@ -37,7 +37,7 @@ vi.mock('../webAudioEq', () => ({
   },
 }));
 
-vi.mock('../audioProxy', () => ({
+vi.mock('../../platform/tauri/audioProxy', () => ({
   prepareAudioSourceUrl: vi.fn(async (url: string) => ({ url, crossOriginSafe: true })),
 }));
 

@@ -16,7 +16,7 @@ export {
 } from './nativeClient';
 export type { CircuitBucket } from './nativeClient';
 
-export { prepareAudioSourceUrl } from '../../api/audioProxy';
+export { prepareAudioSourceUrl } from './audioProxy';
 
 export {
   SNAP_MARGIN,
