@@ -9,7 +9,7 @@ import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../pla
 import type { Track } from '../../api/normalizer';
 import type { LyricStageModel } from './useLyricStage';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
-import PlayerProgress from '../../components/player/PlayerProgress.vue';
+import PlayerProgress from '../../playback/components/player/PlayerProgress.vue';
 import FullscreenWindowControls from '../../components/shell/FullscreenWindowControls.vue';
 import { useAutoHideControls } from './useAutoHideControls';
 

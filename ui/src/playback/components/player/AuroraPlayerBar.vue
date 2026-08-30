@@ -19,8 +19,8 @@ import {
 } from '@phosphor-icons/vue';
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
-import { pressBounceDown, pressBounceUp, attachMagnet } from '../../api/motion';
-import { toggleOverlay } from '../../platform/tauri/windows';
+import { pressBounceDown, pressBounceUp, attachMagnet } from '../../../api/motion';
+import { toggleOverlay } from '../../../platform/tauri/windows';
 
 /** Overlay toggles surface failures on-screen (the windows themselves can't toast). */
 async function onToggleOverlay(kind: 'island' | 'lyric'): Promise<void> {
@@ -32,7 +32,7 @@ async function onToggleOverlay(kind: 'island' | 'lyric'): Promise<void> {
     }, 2600);
   }
 }
-import { flyCoverToElement } from '../../api/coverFlight';
+import { flyCoverToElement } from '../coverFlight';
 
 const props = defineProps<{
   controller: PlayerController;

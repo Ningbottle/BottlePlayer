@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { useThemeStore } from '../api/themeStore';
+import { useThemeStore } from '../../api/themeStore';
 import { usePlayerControls } from './player/usePlayerControls';
 import AuroraPlayerBar from './player/AuroraPlayerBar.vue';
 import NewsprintPlayerBar from './player/NewsprintPlayerBar.vue';
-import AddToPlaylistModal from './AddToPlaylistModal.vue';
+import AddToPlaylistModal from '../../components/AddToPlaylistModal.vue';
 
 const props = defineProps<{
   navigate?: (view: string) => void | boolean | Promise<void | boolean>;

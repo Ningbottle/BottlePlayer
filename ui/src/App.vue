@@ -5,8 +5,8 @@ import { gsap } from 'gsap';
 
 import Sidebar from './components/Sidebar.vue';
 import Topbar from './components/Topbar.vue';
-import PlayerBar from './components/PlayerBar.vue';
-import QueuePanel from './components/QueuePanel.vue';
+import PlayerBar from './playback/components/PlayerBar.vue';
+import QueuePanel from './playback/components/QueuePanel.vue';
 import AuroraShell from './components/shell/AuroraShell.vue';
 import NewsprintShell from './components/shell/NewsprintShell.vue';
 import FullscreenWindowControls from './components/shell/FullscreenWindowControls.vue';

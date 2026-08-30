@@ -110,7 +110,7 @@ vi.mock('../../components/Topbar.vue', () => ({
     template: '<header><button data-test="topbar-search" @click="$emit(\'search\', \'jazz\')" /><button data-test="topbar-settings" @click="$emit(\'navigate\', \'settings\')" /><button data-test="topbar-back" @click="$emit(\'back\')" /><button data-test="topbar-forward" @click="$emit(\'forward\')" /></header>',
   },
 }));
-vi.mock('../../components/PlayerBar.vue', () => ({
+vi.mock('../../playback/components/PlayerBar.vue', () => ({
   default: {
     name: 'PlayerBar',
     props: ['navigate'],
@@ -118,7 +118,7 @@ vi.mock('../../components/PlayerBar.vue', () => ({
     template: '<footer><button data-test="player-lyric" @click="navigate ? navigate(\'lyric\') : $emit(\'navigate\', \'lyric\')" /><button data-test="player-queue" @click="$emit(\'toggle-queue\')" /></footer>',
   },
 }));
-vi.mock('../../components/QueuePanel.vue', () => ({
+vi.mock('../../playback/components/QueuePanel.vue', () => ({
   default: { name: 'QueuePanel', template: '<aside data-test="queue-panel" />' },
 }));
 vi.mock('../../components/shell/FullscreenWindowControls.vue', () => ({

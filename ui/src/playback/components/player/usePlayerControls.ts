@@ -7,16 +7,16 @@ import {
   seek as storeSeek,
   setVolume as storeSetVolume,
   setQuality as storeSetQuality,
-} from '../../playback/playerStore';
-import { setLyricFullscreen } from '../../api/lyricFullscreen';
+} from '../../playerStore';
+import { setLyricFullscreen } from '../../../api/lyricFullscreen';
 import {
   isFavoriteMarker,
   markFavorite,
   reloadFavoriteMarkers,
-} from '../../api/favoriteMarkers';
-import { favoriteStore } from '../../api/favoriteStore';
-import type { Track } from '../../api/normalizer';
-import type { LoopMode } from '../../playback/playerStore';
+} from '../../../api/favoriteMarkers';
+import { favoriteStore } from '../../../api/favoriteStore';
+import type { Track } from '../../../api/normalizer';
+import type { LoopMode } from '../../playerStore';
 
 export interface PlayerController {
   readonly currentTrack: Track | null;

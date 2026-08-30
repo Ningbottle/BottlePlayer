@@ -1,10 +1,10 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
-import { playerStore } from '../../playback/playerStore';
+import { playerStore } from '../../playerStore';
 
 const mockFetchCoverImage = vi.fn();
 
-vi.mock('../../api/normalizer', () => ({
+vi.mock('../../../api/normalizer', () => ({
   fetchCoverImage: (...args: unknown[]) => mockFetchCoverImage(...args),
 }));
 

@@ -282,7 +282,7 @@ vi.mock('../../../api/motion', () => ({
   isReducedMotion: vi.fn(() => true),
 }));
 
-vi.mock('../../../api/coverFlight', () => ({
+vi.mock('../../../playback/components/coverFlight', () => ({
   flyCoverToDock: vi.fn(),
 }));
 
@@ -333,8 +333,8 @@ vi.mock('../../../components/Topbar.vue', () => ({
     template: '<header><button data-test="edit-search" @click="$emit(\'update:searchQuery\', \'typed\')" /></header>',
   },
 }));
-vi.mock('../../../components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
-vi.mock('../../../components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
+vi.mock('../../../playback/components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
+vi.mock('../../../playback/components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../../../views/SearchView.vue', () => ({ default: { props: ['query'], template: '<main data-test="search-view" />' } }));
 vi.mock('../../../views/PlaylistView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../../../views/LyricView.vue', () => ({ default: { template: '<main />' } }));

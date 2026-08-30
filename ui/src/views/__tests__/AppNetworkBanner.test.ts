@@ -86,8 +86,8 @@ vi.mock('../../components/Topbar.vue', () => ({
     template: '<header><button data-test="edit-search" @click="$emit(\'update:searchQuery\', \'typed\')" /><button data-test="go-back" @click="$emit(\'back\')" /></header>',
   },
 }));
-vi.mock('../../components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
-vi.mock('../../components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
+vi.mock('../../playback/components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
+vi.mock('../../playback/components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../SearchView.vue', () => ({ default: { props: ['query'], template: '<main data-test="search-view" />' } }));
 vi.mock('../PlaylistView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../LyricView.vue', () => ({ default: { template: '<main />' } }));

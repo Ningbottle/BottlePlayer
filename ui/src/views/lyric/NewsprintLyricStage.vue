@@ -5,7 +5,7 @@ import { Disc3, Maximize2, Pause, Play } from '@lucide/vue';
 import { isReducedMotion } from '../../api/motion';
 import { getMotionProfile } from '../../api/motionProfiles';
 import { togglePlay as storeTogglePlay } from '../../playback/playerStore';
-import PlayerProgress from '../../components/player/PlayerProgress.vue';
+import PlayerProgress from '../../playback/components/player/PlayerProgress.vue';
 import type { LyricStageModel } from './useLyricStage';
 import { useAutoHideControls } from './useAutoHideControls';
 

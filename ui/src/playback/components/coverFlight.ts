@@ -7,7 +7,7 @@
  */
 import { gsap } from 'gsap';
 import { Flip } from 'gsap/Flip';
-import { isReducedMotion } from './motion';
+import { isReducedMotion } from '../../api/motion';
 
 gsap.registerPlugin(Flip);
 

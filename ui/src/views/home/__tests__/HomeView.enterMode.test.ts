@@ -37,7 +37,7 @@ vi.mock('../../../api/motion', () => ({
   isReducedMotion: vi.fn(() => true),
 }));
 
-vi.mock('../../../api/coverFlight', () => ({
+vi.mock('../../../playback/components/coverFlight', () => ({
   flyCoverToDock: vi.fn(),
 }));
 

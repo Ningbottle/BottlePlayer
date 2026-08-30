@@ -8,7 +8,7 @@ import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
 import type { PlaybackPhase } from '../../../playback/playbackPhase';
 import { animateStagger } from '../../../api/motion';
 import { playerStore, togglePlay } from '../../../playback/playerStore';
-import { flyCoverToDock } from '../../../api/coverFlight';
+import { flyCoverToDock } from '../../../playback/components/coverFlight';
 
 vi.mock('gsap', () => {
   const fromTo = vi.fn(() => ({ kill: vi.fn() }));
@@ -33,7 +33,7 @@ vi.mock('../../../playback/playerStore', async () => {
   };
 });
 
-vi.mock('../../../api/coverFlight', () => ({
+vi.mock('../../../playback/components/coverFlight', () => ({
   flyCoverToDock: vi.fn(),
 }));
 

@@ -9,7 +9,7 @@ import { animateStagger, isReducedMotion } from '../../api/motion';
 import { playerStore, togglePlay as storeTogglePlay } from '../../playback/playerStore';
 import { getMediaRuntime } from '../../playback/runtime/mediaRuntime';
 import { createAudioLevelMonitor, type AudioLevelMonitor } from '../../playback/runtime/audioLevelMonitor';
-import { flyCoverToDock } from '../../api/coverFlight';
+import { flyCoverToDock } from '../../playback/components/coverFlight';
 import { extractDominantColor, type RGB } from '../../api/coverColor';
 import { PhPause, PhPlay } from '@phosphor-icons/vue';
 import AuroraAtmosphere from './AuroraAtmosphere.vue';

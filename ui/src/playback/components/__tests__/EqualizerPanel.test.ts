@@ -7,8 +7,8 @@ vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
 }));
 
-vi.mock('../../playback/playerStore', async () => {
-  const actual = await vi.importActual<typeof import('../../playback/playerStore')>('../../playback/playerStore');
+vi.mock('../../playerStore', async () => {
+  const actual = await vi.importActual<typeof import('../../playerStore')>('../../playerStore');
   return {
     ...actual,
     setWebAudioEqBand: vi.fn(),
@@ -17,7 +17,7 @@ vi.mock('../../playback/playerStore', async () => {
   };
 });
 
-import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState, retryEq } from '../../playback/playerStore';
+import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState, retryEq } from '../../playerStore';
 
 describe('EqualizerPanel', () => {
   beforeEach(() => {

@@ -15,7 +15,7 @@ import { onPlayerState, sendPlayerCommand, applySyncedTheme, type PlayerSyncStat
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay } from '../../platform/tauri/windows';
 import { startVinylSpin } from '../../api/motion';
 import type { VinylSpinHandle } from '../../api/motion';
-import PlayerProgress from '../../components/player/PlayerProgress.vue';
+import PlayerProgress from '../../playback/components/player/PlayerProgress.vue';
 
 const COLLAPSED_SIZE = { width: 236, height: 40 };
 const EXPANDED_SIZE = { width: 360, height: 128 };

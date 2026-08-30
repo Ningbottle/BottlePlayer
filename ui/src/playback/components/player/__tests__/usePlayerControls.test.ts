@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Track } from '../../../api/normalizer';
-import { __resetFavoriteMarkersForTests } from '../../../api/favoriteMarkers';
+import type { Track } from '../../../../api/normalizer';
+import { __resetFavoriteMarkersForTests } from '../../../../api/favoriteMarkers';
 
 // ── Mock playerStore module ──
 const mocks = vi.hoisted(() => ({
@@ -14,7 +14,7 @@ const mocks = vi.hoisted(() => ({
   store: null as any,
 }));
 
-vi.mock('../../../playback/playerStore', async () => {
+vi.mock('../../../playerStore', async () => {
   const { reactive } = await import('vue');
   mocks.store = reactive({
     currentTrack: null,
@@ -40,7 +40,7 @@ vi.mock('../../../playback/playerStore', async () => {
   };
 });
 
-vi.mock('../../../api/lyricFullscreen', () => ({
+vi.mock('../../../../api/lyricFullscreen', () => ({
   lyricFullscreen: { value: false },
   setLyricFullscreen: (...args: unknown[]) => mocks.setLyricFullscreen(...args),
 }));

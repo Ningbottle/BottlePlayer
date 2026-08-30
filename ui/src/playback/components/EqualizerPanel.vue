@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue';
-import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState, retryEq } from '../playback/playerStore';
+import { playerStore, setWebAudioEqBand, setWebAudioEqEnabled, eqState, retryEq } from '../playerStore';
 import {
   EQ_BANDS,
   EQ_MAX_GAIN_DB,
@@ -9,7 +9,7 @@ import {
   EQ_PRESETS,
   FLAT_EQ_BANDS,
   normalizeEqBands,
-} from '../playback/eq/equalizerConfig';
+} from '../eq/equalizerConfig';
 
 const props = withDefaults(defineProps<{
   modelValue?: boolean;

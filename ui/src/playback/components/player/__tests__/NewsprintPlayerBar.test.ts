@@ -3,9 +3,9 @@ import { mount } from '@vue/test-utils';
 import { reactive } from 'vue';
 import NewsprintPlayerBar from '../NewsprintPlayerBar.vue';
 import type { PlayerController } from '../usePlayerControls';
-import type { Track } from '../../../api/normalizer';
+import type { Track } from '../../../../api/normalizer';
 
-vi.mock('../../../api/motion', () => ({
+vi.mock('../../../../api/motion', () => ({
   animateElement: vi.fn(),
   isReducedMotion: vi.fn(() => true),
 }));
