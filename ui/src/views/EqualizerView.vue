@@ -8,8 +8,8 @@ import {
   EQ_PRESETS,
   normalizeEqBands,
 } from '../playback/eq/equalizerConfig';
-import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
-import SkinButton from '../components/primitives/SkinButton.vue';
+import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
+import SkinButton from '../shared/ui/SkinButton.vue';
 
 const eqExpanded = ref(true);
 

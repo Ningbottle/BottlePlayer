@@ -10,9 +10,9 @@ import { setSkippedVersion } from '../app/update/skippedVersion';
 import { playbackDiagnostics, type DiagEvent } from '../playback/playbackDiagnostics';
 import { crossfadeTheme } from '../shared/motion/motion';
 import { transitionEnter, transitionLeave } from '../app/navigation/pageTransitions';
-import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
-import SkinButton from '../components/primitives/SkinButton.vue';
-import SkinEmptyState from '../components/primitives/SkinEmptyState.vue';
+import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
+import SkinButton from '../shared/ui/SkinButton.vue';
+import SkinEmptyState from '../shared/ui/SkinEmptyState.vue';
 
 const appearanceStore = useAppearanceStore();
 appearanceStore.init();

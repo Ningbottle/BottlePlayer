@@ -5,8 +5,8 @@ import { playAll, playerStore } from '../playback/playerStore';
 import { normalizeTrack } from '../api/normalizer';
 import { userStore } from '../api/userStore';
 import { recentPlayedStore, type RecentPlayedEntry } from '../playback/data/recentPlayedStore';
-import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
-import SkinEmptyState from '../components/primitives/SkinEmptyState.vue';
+import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
+import SkinEmptyState from '../shared/ui/SkinEmptyState.vue';
 
 const loading = ref(false);
 const remoteError = ref('');

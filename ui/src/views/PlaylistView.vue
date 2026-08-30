@@ -4,7 +4,7 @@ import { apiGet, describeBackendError } from '../platform/tauri/nativeClient';
 import { playAll, playerStore } from '../playback/playerStore';
 import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
 import { favoriteStore, isLikedPlaylistName } from '../api/favoriteStore';
-import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
+import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
 
 
 const props = defineProps<{
