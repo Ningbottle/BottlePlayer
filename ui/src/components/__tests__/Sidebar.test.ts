@@ -38,7 +38,7 @@ vi.mock('../../api/favoriteStore', async () => {
   };
 });
 
-vi.mock('../../api/skippedVersion', async () => {
+vi.mock('../../app/update/skippedVersion', async () => {
   const { ref } = await vi.importActual<typeof import('vue')>('vue');
   return {
     useSkippedVersion: () => ref(''),

@@ -5,7 +5,7 @@ import { check } from '@tauri-apps/plugin-updater';
 import { apiGet } from '../platform/tauri/nativeClient';
 import { userStore } from '../api/userStore';
 import { normalizePlaylists, type UserPlaylist } from '../api/favoriteStore';
-import { useSkippedVersion, getSkippedVersion } from '../api/skippedVersion';
+import { useSkippedVersion, getSkippedVersion } from '../app/update/skippedVersion';
 import { useThemeStore } from '../app/appearance/themeStore';
 
 const emit = defineEmits<{

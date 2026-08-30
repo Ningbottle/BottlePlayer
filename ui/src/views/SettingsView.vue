@@ -6,7 +6,7 @@ import { check } from '@tauri-apps/plugin-updater';
 import { relaunch } from '@tauri-apps/plugin-process';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useAppearanceStore, type AppearanceSettings } from '../app/appearance/appearanceStore';
-import { setSkippedVersion } from '../api/skippedVersion';
+import { setSkippedVersion } from '../app/update/skippedVersion';
 import { playbackDiagnostics, type DiagEvent } from '../playback/playbackDiagnostics';
 import { crossfadeTheme } from '../shared/motion/motion';
 import { transitionEnter, transitionLeave } from '../app/navigation/pageTransitions';

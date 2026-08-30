@@ -13,7 +13,7 @@ vi.mock('../../api/userStore', () => ({
   formatVipClaimFailure: vi.fn((result: any) =>
     result?.error_code ? `领取失败：酷狗返回错误码 ${result.error_code}` : '领取失败：酷狗未返回具体原因'),
 }));
-vi.mock('../../api/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
+vi.mock('../../app/update/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
 
 import SettingsView from '../SettingsView.vue';
 import { openUrl } from '@tauri-apps/plugin-opener';
