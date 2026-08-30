@@ -73,5 +73,5 @@ Write-Host "[backend:build] building EchoCAPI.dll..."
 Invoke-VsDevCmd "`"$cmake`" --build `"$buildDir`" --config $config --target EchoCAPI"
 if ($LASTEXITCODE -ne 0) { throw "cmake build failed (exit $LASTEXITCODE)" }
 
-# 3. 同步 DLL（由 sync-backend.ps1 处理）
-& (Join-Path $PSScriptRoot 'sync-backend.ps1')
+# 3. 同步 DLL（由 sync-backend.ps1 处理；必须传入本次构建 preset，禁止静默回退）
+& (Join-Path $PSScriptRoot 'sync-backend.ps1') -Preset $preset
