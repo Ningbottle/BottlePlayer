@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Track } from '../normalizer';
+import type { Track } from '../../../api/normalizer';
 import {
   PlaybackOrchestrator,
   type PlaybackStateSlice,
 } from '../playbackOrchestrator';
-import type { ResolveTrackResult } from '../../playback/types';
+import type { ResolveTrackResult } from '../../types';
 import { Html5AudioBackend } from '../html5Backend';
-import type { DiagEvent } from '../../playback/playbackDiagnostics';
+import type { DiagEvent } from '../../playbackDiagnostics';
 
 function mkTrack(hash: string, name = hash): Track {
   return {

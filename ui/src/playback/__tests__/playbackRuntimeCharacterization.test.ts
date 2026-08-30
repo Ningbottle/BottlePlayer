@@ -12,7 +12,7 @@
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { nextTick } from 'vue';
-import { getMediaRuntime } from '../../api/mediaRuntime';
+import { getMediaRuntime } from '../runtime/mediaRuntime';
 
 // ── audioLevelMonitor: never-close invariant ──
 // Module-level singletons (sharedCtx etc.) persist across tests, so each test
@@ -110,7 +110,7 @@ describe('audioLevelMonitor: never-close invariant (R3/R5)', () => {
 
   it('stop() does NOT close the shared AudioContext', async () => {
     const mocks = setupAudioLevelMocks();
-    const { createAudioLevelMonitor } = await import('../../api/audioLevelMonitor');
+    const { createAudioLevelMonitor } = await import('../runtime/audioLevelMonitor');
     const monitor = createAudioLevelMonitor(mocks.capturableAudio);
 
     monitor.start();
@@ -122,7 +122,7 @@ describe('audioLevelMonitor: never-close invariant (R3/R5)', () => {
 
   it('start() after stop() reuses the same AudioContext (no new context created)', async () => {
     const mocks = setupAudioLevelMocks();
-    const { createAudioLevelMonitor } = await import('../../api/audioLevelMonitor');
+    const { createAudioLevelMonitor } = await import('../runtime/audioLevelMonitor');
     const monitor = createAudioLevelMonitor(mocks.capturableAudio);
 
     monitor.start();
@@ -137,7 +137,7 @@ describe('audioLevelMonitor: never-close invariant (R3/R5)', () => {
 
   it('two monitors on the same audio element share the same AudioContext', async () => {
     const mocks = setupAudioLevelMocks();
-    const { createAudioLevelMonitor } = await import('../../api/audioLevelMonitor');
+    const { createAudioLevelMonitor } = await import('../runtime/audioLevelMonitor');
 
     const monitor1 = createAudioLevelMonitor(mocks.capturableAudio);
     monitor1.start();
@@ -375,7 +375,7 @@ describe('playerPersistence: atomic single-key write + non-throwing flush', () =
   it('volume updates the audio backend fallback when persistence writes fail', async () => {
     vi.resetModules();
     const mod = await import('../playerStore');
-    const { getMediaRuntime } = await import('../../api/mediaRuntime');
+    const { getMediaRuntime } = await import('../runtime/mediaRuntime');
     mod.initPlayer();
     const audio = getMediaRuntime()!.audio;
     vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {

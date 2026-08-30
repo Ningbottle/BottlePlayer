@@ -1,11 +1,11 @@
-import { normalizeTrack, type Track } from './normalizer';
-import type { DiagEvent } from '../playback/playbackDiagnostics';
+import { normalizeTrack, type Track } from '../../api/normalizer';
+import type { DiagEvent } from '../playbackDiagnostics';
 import {
   canTransition,
   flagsFromPhase,
   type PlaybackPhase,
-} from '../playback/playbackPhase';
-import type { ResolveTrackResult } from '../playback/types';
+} from '../playbackPhase';
+import type { ResolveTrackResult } from '../types';
 
 export interface QualityOption {
   quality: string;

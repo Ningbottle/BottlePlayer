@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { Html5AudioBackend } from '../html5Backend';
+import { Html5AudioBackend } from '../../playback/runtime/html5Backend';
 import { WebAudioEq, type EqOptions } from '../webAudioEq';
 
 /**

@@ -6,14 +6,14 @@
  * Patterns mirror playbackOrchestrator.test.ts.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Track } from '../normalizer';
+import type { Track } from '../../../api/normalizer';
 import {
   PlaybackOrchestrator,
   type PlaybackStateSlice,
 } from '../playbackOrchestrator';
-import type { ResolveTrackResult } from '../../playback/types';
-import { transitionPhase } from '../../playback/playbackPhase';
-import type { DiagEvent } from '../../playback/playbackDiagnostics';
+import type { ResolveTrackResult } from '../../types';
+import { transitionPhase } from '../../playbackPhase';
+import type { DiagEvent } from '../../playbackDiagnostics';
 
 function mkTrack(hash: string, name = hash): Track {
   return {

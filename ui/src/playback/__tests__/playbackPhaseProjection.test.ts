@@ -22,7 +22,7 @@ import {
   __resetPlaybackCoordinatorForTests,
   __patchPlayerStateForTests,
 } from '../playerStore';
-import { getMediaRuntime, getOrCreateMediaRuntime } from '../../api/mediaRuntime';
+import { getMediaRuntime, getOrCreateMediaRuntime } from '../runtime/mediaRuntime';
 import { __resetFmSessionForTests } from '../../api/fmSession';
 
 /**

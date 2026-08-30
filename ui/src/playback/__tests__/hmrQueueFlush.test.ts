@@ -17,7 +17,7 @@
  * module evaluation (not just reusing the same store reference).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { getMediaRuntime } from '../../api/mediaRuntime';
+import { getMediaRuntime } from '../runtime/mediaRuntime';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
 vi.mock('../../api/motion', () => ({ isReducedMotion: vi.fn(() => false) }));

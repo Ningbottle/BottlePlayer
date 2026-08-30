@@ -184,7 +184,7 @@ describe('single-owner invariants across HMR module generations', () => {
     const audioCtorSpy = vi.spyOn(window, 'Audio');
 
     // Generation 1: creates THE audio element and binds persistence.
-    const gen1 = await import('../../playback/playerStore');
+    const gen1 = await import('../../playerStore');
     gen1.initPlayer();
     const sharedAudio = getMediaRuntime()!.audio as HTMLAudioElement;
     expect(sharedAudio).toBeTruthy();
@@ -198,7 +198,7 @@ describe('single-owner invariants across HMR module generations', () => {
     // Generation 2 (HMR-style re-evaluation): must reuse the SAME element.
     // (Pagehide single-owner/replace behavior now lives in pageLifecycle.test.ts.)
     vi.resetModules();
-    const gen2 = await import('../../playback/playerStore');
+    const gen2 = await import('../../playerStore');
     gen2.initPlayer();
 
     expect(audioCtorSpy).toHaveBeenCalledTimes(1);

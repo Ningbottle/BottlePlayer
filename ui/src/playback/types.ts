@@ -6,7 +6,7 @@
  */
 import type { Track } from '../api/normalizer';
 import type { LoopMode, QueueMode } from './playerStore';
-import type { QualityOption } from '../api/playbackOrchestrator';
+import type { QualityOption } from './runtime/playbackOrchestrator';
 
 export type { Track };
 export type { LoopMode };

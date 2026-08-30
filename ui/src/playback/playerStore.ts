@@ -1,13 +1,13 @@
 import { reactive, watch } from 'vue';
 import { Track, fetchCoverImage } from '../api/normalizer';
-import { Html5AudioBackend } from '../api/html5Backend';
-import type { PlayerBackend, PlaybackEvent } from '../api/playerBackend';
+import { Html5AudioBackend } from './runtime/html5Backend';
+import type { PlayerBackend, PlaybackEvent } from './runtime/playerBackend';
 import {
   getMediaRuntime,
   getOrCreateMediaRuntime,
   type MediaRuntime,
   type MediaRuntimeDeps,
-} from '../api/mediaRuntime';
+} from './runtime/mediaRuntime';
 import { PlaySessionTracker } from './playSessionTracker';
 import { recordPlay } from '../api/playStatsGateway';
 import { normalizeEqBands } from '../api/equalizerConfig';
@@ -16,7 +16,7 @@ import { playbackDiagnostics } from './playbackDiagnostics';
 import {
   PlaybackOrchestrator,
   type QualityOption,
-} from '../api/playbackOrchestrator';
+} from './runtime/playbackOrchestrator';
 import {
   canTransition,
   flagsFromPhase,
@@ -42,7 +42,7 @@ import {
 import { resolveTrack } from '../api/songUrlResolver';
 import { uploadPlayHistory } from '../api/playHistory';
 import { createPlayerEq } from '../api/usePlayerEq';
-import { disposeAudioLevelMonitor } from '../api/audioLevelMonitor';
+import { disposeAudioLevelMonitor } from './runtime/audioLevelMonitor';
 
 export type { Track };
 
