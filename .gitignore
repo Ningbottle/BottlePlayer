@@ -13,6 +13,7 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 # Dependency directories
 node_modules
 /client/node_modules
+/.pnpm-store/
 
 # Build outputs
 dist
@@ -117,6 +118,19 @@ AGENTS.md
 PROJECT_EVALUATION.md
 IMPROVEMENT_PLAN.md
 INITIALIZATION_SUMMARY.md
+/0829-bug-fix-plan.md
+/0830-architecture-remediation-plan.md
+/0830-plan-corrections.md
+/0830-post-fix-audit.md
+/adr-006r-global-style-governance.md
+/adr-007-style-governance.md
+/report_next_0830.md
+/ara/
+/outputs/
+
+# 本地临时凭据/签名中间产物（禁止提交）
+/.s64
+/.tok
 # AI 工具指针文件（指向本地 AGENTS.md，随之保留本地）
 CLAUDE.md
 .cursorrules
