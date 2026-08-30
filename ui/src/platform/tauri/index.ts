@@ -1,10 +1,10 @@
 /**
- * Platform/Tauri public API (C1 transitional facade).
+ * Platform/Tauri public API.
  *
- * Explicit re-exports of the production adapters still living in ../../api/*
- * (they physically move here in Task C2). Callers are not yet migrated — this
- * file only establishes the future public surface. Test seams and circuit
- * breaker internals are deliberately NOT exported.
+ * nativeClient, audioProxy and windows are owned here in platform/tauri/;
+ * this facade explicitly re-exports the production API that Features may use.
+ * Feature callers finish migrating onto this typed gateway surface in Task
+ * C7. Test seams and circuit breaker internals are deliberately NOT exported.
  */
 export {
   apiGet,
