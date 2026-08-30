@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core';
-import { CircuitBreaker } from '../../api/circuitBreaker';
+import { CircuitBreaker } from './circuitBreaker';
 
 // 前端 → C++ 后端的统一入口。
 //
