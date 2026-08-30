@@ -6,7 +6,7 @@ import { isReducedMotion, startVinylSpin } from '../../shared/motion/motion';
 import type { VinylSpinHandle } from '../../shared/motion/motion';
 import { useLyricFocusStore } from '../../api/lyricFocusStore';
 import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../playback/playerStore';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 import type { LyricStageModel } from './useLyricStage';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
 import PlayerProgress from '../../playback/components/player/PlayerProgress.vue';

@@ -1,5 +1,5 @@
 import { apiGet } from '../../platform/tauri/nativeClient';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 import type { ResolveTrackResult } from '../types';
 
 export function resolveTrack(

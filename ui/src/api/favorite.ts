@@ -1,6 +1,6 @@
 import { apiPost } from '../platform/tauri/nativeClient';
 import { userStore } from './userStore';
-import type { Track } from './normalizer';
+import type { Track } from '../shared/music/track';
 
 /**
  * favorite.ts is ONLY the /playlist/tracks/add and /playlist/tracks/del adapter.

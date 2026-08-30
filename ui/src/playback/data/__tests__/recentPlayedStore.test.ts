@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { RecentPlayedStore, type RecentPlayedEntry } from '../recentPlayedStore';
-import type { Track } from '../../../api/normalizer';
+import type { Track } from '../../../shared/music/track';
 
 function mkTrack(partial: Partial<Track> = {}): Track {
   return {

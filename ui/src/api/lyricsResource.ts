@@ -1,5 +1,5 @@
 import { reactive } from 'vue';
-import type { Track } from './normalizer';
+import type { Track } from '../shared/music/track';
 
 export interface LyricLine {
   time: number;

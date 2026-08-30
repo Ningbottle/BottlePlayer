@@ -1,5 +1,6 @@
 import { reactive, watch } from 'vue';
-import { Track, fetchCoverImage } from '../api/normalizer';
+import { Track } from '../shared/music/track';
+import { fetchCoverImage } from '../playback/data/coverGateway';
 import { Html5AudioBackend } from './runtime/html5Backend';
 import type { PlayerBackend, PlaybackEvent } from './runtime/playerBackend';
 import {

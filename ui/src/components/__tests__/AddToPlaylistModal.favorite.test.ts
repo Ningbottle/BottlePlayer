@@ -29,7 +29,7 @@ import AddToPlaylistModal from '../AddToPlaylistModal.vue';
 import { userStore } from '../../api/userStore';
 import { favoriteStore, __resetFavoriteStoreForTests } from '../../api/favoriteStore';
 import { __resetFavoriteRepositoryForTests } from '../../api/favoriteRepository';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 
 const track = {
   FileHash: 'modal-1',

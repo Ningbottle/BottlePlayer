@@ -2,7 +2,7 @@
 import { ref, computed, onMounted } from 'vue';
 import { apiGet } from '../platform/tauri/nativeClient';
 import { playAll, playerStore } from '../playback/playerStore';
-import { normalizeTrack } from '../api/normalizer';
+import { normalizeTrack } from '../shared/music/track';
 import { userStore } from '../api/userStore';
 import { recentPlayedStore, type RecentPlayedEntry } from '../playback/data/recentPlayedStore';
 import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';

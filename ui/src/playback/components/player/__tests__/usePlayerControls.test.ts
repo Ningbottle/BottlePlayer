@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { Track } from '../../../../api/normalizer';
+import type { Track } from '../../../../shared/music/track';
 import { __resetFavoriteMarkersForTests } from '../../../../api/favoriteMarkers';
 
 // ── Mock playerStore module ──

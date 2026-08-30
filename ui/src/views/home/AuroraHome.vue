@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onBeforeUpdate, onMounted, onActivated, onDeactivated, onUnmounted, nextTick } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 import type { PlaylistInfo } from '../../api/homeFeedStore';
 import { gsap } from 'gsap';
 import type { HomeEnterMode } from '../../api/homeEnterSession';

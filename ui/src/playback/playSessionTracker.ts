@@ -1,4 +1,4 @@
-import type { Track } from '../api/normalizer';
+import type { Track } from '../shared/music/track';
 
 /**
  * A play-stats record to send to the native stats service.

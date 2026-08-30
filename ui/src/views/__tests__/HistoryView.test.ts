@@ -19,7 +19,7 @@ vi.mock('../../api/userStore', () => ({
 
 import HistoryView from '../HistoryView.vue';
 import { recentPlayedStore } from '../../playback/data/recentPlayedStore';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 
 function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'Artist ' + hash, Duration: 200, Image: 'http://img/' + hash } as Track;

@@ -6,7 +6,7 @@ import {
   type PlaylistInfo,
 } from '../../api/homeFeedStore';
 import { playerStore } from '../../playback/playerStore';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 import type { PlaybackPhase } from '../../playback/playbackPhase';
 
 export interface HomeSectionError {

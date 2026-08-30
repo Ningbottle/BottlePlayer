@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { Track } from '../../../api/normalizer';
+import type { Track } from '../../../shared/music/track';
 import {
   PlaybackOrchestrator,
   type PlaybackStateSlice,

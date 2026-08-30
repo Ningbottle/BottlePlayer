@@ -4,7 +4,7 @@ import { playerStore } from '../../playerStore';
 
 const mockFetchCoverImage = vi.fn();
 
-vi.mock('../../../api/normalizer', () => ({
+vi.mock('../../data/coverGateway', () => ({
   fetchCoverImage: (...args: unknown[]) => mockFetchCoverImage(...args),
 }));
 

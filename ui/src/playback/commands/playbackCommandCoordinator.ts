@@ -14,7 +14,7 @@
  * never resolve a pending quality/select Promise.
  */
 
-import { normalizeTrack, type Track } from '../../api/normalizer';
+import { normalizeTrack, type Track } from '../../shared/music/track';
 import { flagsFromPhase, type PlaybackPhase } from '../playbackPhase';
 import type { QualityOption } from '../runtime/playbackOrchestrator';
 import type { PersonalFmAppendOptions, PersonalFmAppendSuccess } from '../fm/fmSession';

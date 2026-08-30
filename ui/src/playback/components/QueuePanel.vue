@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
 import { playerStore, playTrack } from '../playerStore';
-import { fetchCoverImage } from '../../api/normalizer';
+import { fetchCoverImage } from '../../playback/data/coverGateway';
 
 defineProps<{
   show: boolean;

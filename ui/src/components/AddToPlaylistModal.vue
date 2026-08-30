@@ -3,7 +3,7 @@ import { ref, watch } from 'vue';
 import { gsap } from 'gsap';
 import { addTrackToPlaylist, type UserPlaylist } from '../api/favorite';
 import { getUserPlaylists, favoriteStore } from '../api/favoriteStore';
-import { Track } from '../api/normalizer';
+import { Track } from '../shared/music/track';
 import { userStore } from '../api/userStore';
 import { transitionEnter, transitionLeave } from '../app/navigation/pageTransitions';
 

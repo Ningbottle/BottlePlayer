@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { PlaySessionTracker } from '../playSessionTracker';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 
 function mkTrack(partial: Partial<Track> = {}): Track {
   return {

@@ -20,7 +20,7 @@ import {
   userStore,
 } from '../userStore';
 import { recentPlayedStore } from '../../playback/data/recentPlayedStore';
-import type { Track } from '../normalizer';
+import type { Track } from '../../shared/music/track';
 
 function mkTrack(): Track {
   return {

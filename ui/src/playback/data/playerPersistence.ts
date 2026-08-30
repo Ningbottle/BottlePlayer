@@ -1,4 +1,4 @@
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 import { safeGetItem, loadNumber, safeSetItem } from '../../platform/storage/safeStorage';
 
 // ── Volume persistence (single owner since Task B4) ──

@@ -15,7 +15,7 @@ import {
 } from '../favoriteStore';
 import * as favoriteRepository from '../favoriteRepository';
 import { __resetFavoriteRepositoryForTests } from '../favoriteRepository';
-import type { Track } from '../normalizer';
+import type { Track } from '../../shared/music/track';
 
 function mkTrack(hash: string, audioId = ''): Track {
   return {

@@ -1,4 +1,4 @@
-import { normalizeTrack, type Track } from '../api/normalizer';
+import { normalizeTrack, type Track } from '../shared/music/track';
 import type { QualityOption } from './runtime/playbackOrchestrator';
 import type { PlaybackPhase } from './playbackPhase';
 

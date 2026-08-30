@@ -3,7 +3,7 @@ import { playerStore, seek as storeSeek } from '../../playback/playerStore';
 import { apiGet } from '../../platform/tauri/nativeClient';
 import { useLyricFollow } from '../../api/useLyricFollow';
 import { lyricFullscreen, setLyricFullscreen } from '../../api/lyricFullscreen';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 import { LyricsResource, type LyricLine } from '../../api/lyricsResource';
 
 export type { LyricLine } from '../../api/lyricsResource';

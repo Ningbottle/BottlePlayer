@@ -15,7 +15,7 @@ import {
   reloadFavoriteMarkers,
 } from '../../../api/favoriteMarkers';
 import { favoriteStore } from '../../../api/favoriteStore';
-import type { Track } from '../../../api/normalizer';
+import type { Track } from '../../../shared/music/track';
 import type { LoopMode } from '../../playerStore';
 
 export interface PlayerController {

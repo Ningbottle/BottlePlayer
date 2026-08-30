@@ -22,7 +22,7 @@ import {
   disposeFmSession,
   __resetFmSessionForTests,
 } from '../fmSession';
-import type { Track } from '../../../api/normalizer';
+import type { Track } from '../../../shared/music/track';
 
 function mkTrack(hash: string): Track {
   return { FileHash: hash, SongName: hash, SingerName: 'A', Duration: 100 } as Track;

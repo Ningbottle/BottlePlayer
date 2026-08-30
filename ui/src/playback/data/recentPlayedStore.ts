@@ -1,5 +1,5 @@
 import { ref } from 'vue';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 
 export interface RecentPlayedEntry {
   FileHash: string;

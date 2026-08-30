@@ -1,5 +1,5 @@
 import { apiGet } from '../../platform/tauri/nativeClient';
-import { normalizeTrack, type Track } from '../../api/normalizer';
+import { normalizeTrack, type Track } from '../../shared/music/track';
 import { playbackDiagnostics } from '../playbackDiagnostics';
 
 export type FmState = {

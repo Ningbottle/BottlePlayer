@@ -1,6 +1,6 @@
 import { reactive } from 'vue';
 import { apiGet } from '../platform/tauri/nativeClient';
-import { normalizeTrack, type Track } from './normalizer';
+import { normalizeTrack, type Track } from '../shared/music/track';
 
 export interface PlaylistInfo {
   specialid: number;

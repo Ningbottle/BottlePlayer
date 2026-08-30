@@ -4,7 +4,7 @@
  * by their legacy api/ modules; ResolveTrackResult has its single actual
  * definition here (moved from playbackOrchestrator.ts in C3).
  */
-import type { Track } from '../api/normalizer';
+import type { Track } from '../shared/music/track';
 import type { LoopMode, QueueMode } from './playerStore';
 import type { QualityOption } from './runtime/playbackOrchestrator';
 

@@ -40,7 +40,7 @@ import {
 import { flagsFromPhase } from '../playbackPhase';
 import { getMediaRuntime, getOrCreateMediaRuntime } from '../runtime/mediaRuntime';
 import { PlaybackCommandCoordinator } from '../commands/playbackCommandCoordinator';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 import { playbackDiagnostics } from '../playbackDiagnostics';
 import { __resetFmSessionForTests } from '../fm/fmSession';
 

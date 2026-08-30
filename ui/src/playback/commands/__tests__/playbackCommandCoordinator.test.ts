@@ -4,7 +4,7 @@ import {
   type CoordinatorDeps,
   type CoordinatorState,
 } from '../playbackCommandCoordinator';
-import type { Track } from '../../../api/normalizer';
+import type { Track } from '../../../shared/music/track';
 import type { PlaybackPhase } from '../../playbackPhase';
 
 function mkTrack(hash: string, name = hash): Track {

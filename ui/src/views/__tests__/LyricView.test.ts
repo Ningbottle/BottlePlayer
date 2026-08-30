@@ -45,7 +45,7 @@ vi.mock('../../platform/tauri/nativeClient', () => ({
 import LyricView from '../LyricView.vue';
 import { playerStore } from '../../playback/playerStore';
 import { lyricFullscreen, setLyricFullscreen } from '../../api/lyricFullscreen';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 
 function mkTrack(hash: string): Track {
   return { FileHash: hash, SongName: hash, SingerName: 'A', Duration: 100, Image: 'http://img/' } as Track;

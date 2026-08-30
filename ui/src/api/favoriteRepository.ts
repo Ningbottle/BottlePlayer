@@ -1,4 +1,4 @@
-import type { Track } from './normalizer';
+import type { Track } from '../shared/music/track';
 
 /**
  * Persistence layer for the favorite domain. All keys are scoped per-user so

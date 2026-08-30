@@ -2,7 +2,7 @@
 import { ref, onMounted, watch } from 'vue';
 import { apiGet, describeBackendError } from '../platform/tauri/nativeClient';
 import { playAll, playerStore } from '../playback/playerStore';
-import { Track as SongInfo, normalizeTrack } from '../api/normalizer';
+import { Track as SongInfo, normalizeTrack } from '../shared/music/track';
 import { favoriteStore, isLikedPlaylistName } from '../api/favoriteStore';
 import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
 

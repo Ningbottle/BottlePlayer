@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 import type { HomeSection, PlaylistInfo } from '../../api/homeFeedStore';
 import { ArrowRight } from '@lucide/vue';
 

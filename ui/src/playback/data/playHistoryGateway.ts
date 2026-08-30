@@ -1,5 +1,5 @@
 import { apiPost } from '../../platform/tauri/nativeClient';
-import type { Track } from '../../api/normalizer';
+import type { Track } from '../../shared/music/track';
 import { userStore } from '../../api/userStore';
 
 /** Upload play history to KuGou (silent failure). */

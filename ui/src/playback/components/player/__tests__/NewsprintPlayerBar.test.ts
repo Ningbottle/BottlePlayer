@@ -3,7 +3,7 @@ import { mount } from '@vue/test-utils';
 import { reactive } from 'vue';
 import NewsprintPlayerBar from '../NewsprintPlayerBar.vue';
 import type { PlayerController } from '../usePlayerControls';
-import type { Track } from '../../../../api/normalizer';
+import type { Track } from '../../../../shared/music/track';
 
 vi.mock('../../../../../../shared/motion/motion', () => ({
   animateElement: vi.fn(),
