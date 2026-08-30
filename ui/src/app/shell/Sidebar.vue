@@ -2,11 +2,11 @@
 import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { check } from '@tauri-apps/plugin-updater';
-import { apiGet } from '../platform/tauri/nativeClient';
-import { userStore } from '../api/userStore';
-import { normalizePlaylists, type UserPlaylist } from '../api/favoriteStore';
-import { useSkippedVersion, getSkippedVersion } from '../app/update/skippedVersion';
-import { useThemeStore } from '../app/appearance/themeStore';
+import { apiGet } from '../../platform/tauri/nativeClient';
+import { userStore } from '../../api/userStore';
+import { normalizePlaylists, type UserPlaylist } from '../../api/favoriteStore';
+import { useSkippedVersion, getSkippedVersion } from '../update/skippedVersion';
+import { useThemeStore } from '../appearance/themeStore';
 
 const emit = defineEmits<{
   (e: 'navigate', view: string, params?: any): void;

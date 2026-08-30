@@ -2,10 +2,10 @@
 import { onErrorCaptured, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
-import { cancelPageTransition } from '../../app/navigation/navigationLifecycle';
+import { cancelPageTransition } from '../navigation/navigationLifecycle';
 import { clearLyricFullscreenUnlessOnLyric } from '../../api/lyricFullscreen';
-import { settleActiveTransitionSessions } from '../../app/navigation/transitionSession';
-import { useThemeStore, type SkinId } from '../../app/appearance/themeStore';
+import { settleActiveTransitionSessions } from '../navigation/transitionSession';
+import { useThemeStore, type SkinId } from '../appearance/themeStore';
 
 interface PageFailure {
   routeFullPath: string;

@@ -10,7 +10,7 @@ import type { Track } from '../../api/normalizer';
 import type { LyricStageModel } from './useLyricStage';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
 import PlayerProgress from '../../playback/components/player/PlayerProgress.vue';
-import FullscreenWindowControls from '../../components/shell/FullscreenWindowControls.vue';
+import FullscreenWindowControls from '../../app/shell/FullscreenWindowControls.vue';
 import { useAutoHideControls } from './useAutoHideControls';
 
 const props = defineProps<{ model: LyricStageModel }>();

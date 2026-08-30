@@ -3,14 +3,14 @@ import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue';
 import { RouterView, useRouter } from 'vue-router';
 import { gsap } from 'gsap';
 
-import Sidebar from './components/Sidebar.vue';
-import Topbar from './components/Topbar.vue';
+import Sidebar from './app/shell/Sidebar.vue';
+import Topbar from './app/shell/Topbar.vue';
 import PlayerBar from './playback/components/PlayerBar.vue';
 import QueuePanel from './playback/components/QueuePanel.vue';
-import AuroraShell from './components/shell/AuroraShell.vue';
-import NewsprintShell from './components/shell/NewsprintShell.vue';
-import FullscreenWindowControls from './components/shell/FullscreenWindowControls.vue';
-import PageRecoveryBoundary from './components/shell/PageRecoveryBoundary.vue';
+import AuroraShell from './app/shell/AuroraShell.vue';
+import NewsprintShell from './app/shell/NewsprintShell.vue';
+import FullscreenWindowControls from './app/shell/FullscreenWindowControls.vue';
+import PageRecoveryBoundary from './app/shell/PageRecoveryBoundary.vue';
 
 import { initPlayer, initPlayerBackend } from './playback/playerStore';
 import { bindOsMediaBridge, unbindOsMediaBridge } from './playback/sync/osMediaBridge';

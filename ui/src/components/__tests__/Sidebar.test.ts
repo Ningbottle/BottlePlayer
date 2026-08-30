@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import Sidebar from '../Sidebar.vue';
+import Sidebar from '../../app/shell/Sidebar.vue';
 import { apiGet } from '../../platform/tauri/nativeClient';
 import { userStore } from '../../api/userStore';
 import { useThemeStore, __resetForTest } from '../../app/appearance/themeStore';

@@ -100,10 +100,10 @@ vi.mock('../../../views/SettingsView.vue', () => ({
   default: { name: 'SettingsView', template: '<div data-test="page-settings" />' },
 }));
 
-vi.mock('../../../components/Sidebar.vue', () => ({
+vi.mock('../../shell/Sidebar.vue', () => ({
   default: { name: 'Sidebar', emits: ['navigate'], template: '<nav><button data-test="sidebar-search" @click="$emit(\'navigate\', \'search\')" /></nav>' },
 }));
-vi.mock('../../../components/Topbar.vue', () => ({
+vi.mock('../../shell/Topbar.vue', () => ({
   default: {
     name: 'Topbar',
     emits: ['search', 'navigate', 'back', 'forward'],
@@ -121,17 +121,17 @@ vi.mock('../../../playback/components/PlayerBar.vue', () => ({
 vi.mock('../../../playback/components/QueuePanel.vue', () => ({
   default: { name: 'QueuePanel', template: '<aside data-test="queue-panel" />' },
 }));
-vi.mock('../../components/shell/FullscreenWindowControls.vue', () => ({
+vi.mock('../../shell/FullscreenWindowControls.vue', () => ({
   default: { name: 'FullscreenWindowControls', template: '<div />' },
 }));
 
-vi.mock('../../components/shell/AuroraShell.vue', () => ({
+vi.mock('../../shell/AuroraShell.vue', () => ({
   default: {
     name: 'AuroraShell',
     template: '<div><slot name="sidebar"/><slot name="topbar"/><slot/><slot name="extras"/><slot name="playerbar"/></div>',
   },
 }));
-vi.mock('../../components/shell/NewsprintShell.vue', () => ({
+vi.mock('../../shell/NewsprintShell.vue', () => ({
   default: {
     name: 'NewsprintShell',
     template: '<div><slot name="sidebar"/><slot name="topbar"/><slot/><slot name="extras"/><slot name="playerbar"/></div>',

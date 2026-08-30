@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { userStore } from '../api/userStore';
-import { useThemeStore } from '../app/appearance/themeStore';
+import { userStore } from '../../api/userStore';
+import { useThemeStore } from '../appearance/themeStore';
 
 const emit = defineEmits<{
   (e: 'update:searchQuery', val: string): void;

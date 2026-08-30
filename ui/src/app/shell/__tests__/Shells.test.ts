@@ -320,13 +320,13 @@ vi.mock('../../../api/userStore', () => ({
   },
 }));
 
-vi.mock('../../../components/Sidebar.vue', () => ({
+vi.mock('../Sidebar.vue', () => ({
   default: {
     emits: ['navigate'],
     template: '<aside><button data-test="go-search" @click="$emit(\'navigate\', \'search\')" /></aside>',
   },
 }));
-vi.mock('../../../components/Topbar.vue', () => ({
+vi.mock('../Topbar.vue', () => ({
   default: {
     props: ['searchQuery'],
     emits: ['update:searchQuery', 'back'],
@@ -344,10 +344,10 @@ vi.mock('../../../views/HistoryView.vue', () => ({ default: { template: '<main /
 vi.mock('../../../views/StatsView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../../../views/EqualizerView.vue', () => ({ default: { template: '<main />' } }));
 
-import { useThemeStore, __resetForTest } from '../../../app/appearance/themeStore';
+import { useThemeStore, __resetForTest } from '../../appearance/themeStore';
 import App from '../../../App.vue';
-import { createAppRouter } from '../../../app/navigation/router';
-import { routeNames } from '../../../app/navigation/routes';
+import { createAppRouter } from '../../navigation/router';
+import { routeNames } from '../../navigation/routes';
 
 async function mountApp() {
   const router = createAppRouter();

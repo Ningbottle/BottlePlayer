@@ -76,13 +76,13 @@ vi.mock('../../api/userStore', () => ({
   },
 }));
 
-vi.mock('../../components/Sidebar.vue', () => ({
+vi.mock('../../app/shell/Sidebar.vue', () => ({
   default: {
     emits: ['navigate'],
     template: '<aside><button data-test="go-search" @click="$emit(\'navigate\', \'search\')" /><button data-test="go-stats" @click="$emit(\'navigate\', \'stats\')" /></aside>',
   },
 }));
-vi.mock('../../components/Topbar.vue', () => ({
+vi.mock('../../app/shell/Topbar.vue', () => ({
   default: {
     props: ['searchQuery'],
     emits: ['update:searchQuery', 'back'],
