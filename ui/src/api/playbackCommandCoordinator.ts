@@ -55,7 +55,6 @@ export type CoordinatorState = {
   playbackPhase: PlaybackPhase;
   queueMode: QueueMode;
   loopMode: LoopMode;
-  audio: HTMLAudioElement | null;
 };
 
 export type CoordinatorDeps = {
@@ -74,6 +73,8 @@ export type CoordinatorDeps = {
   stopInvalidatedPlayback: (seq: number) => Promise<void>;
   skipSession: () => void;
   hasBackend: () => boolean;
+  /** Physical media stop for the no-backend fallback (owned by MediaRuntime). */
+  stopAndClearMedia: () => void;
   /** Optional: personal FM append when at end of personalFm queue. */
   appendPersonalFm?: (options?: PersonalFmAppendOptions) => Promise<boolean>;
 };
@@ -518,15 +519,7 @@ export class PlaybackCommandCoordinator {
         if (this.deps.hasBackend()) {
           await this.deps.stopInvalidatedPlayback(seq);
         } else {
-          const audio = this.deps.getState().audio;
-          if (audio) {
-            try {
-              audio.pause();
-              audio.src = '';
-            } catch {
-              /* ignore */
-            }
-          }
+          this.deps.stopAndClearMedia();
         }
         this.deps.saveQueue();
         this.epoch += 1;
@@ -931,13 +924,8 @@ export class PlaybackCommandCoordinator {
         clearResiduals(this.deps.getState(), this.deps.patchState);
         if (this.deps.hasBackend()) {
           await this.deps.stopInvalidatedPlayback(seq);
-        } else if (state.audio) {
-          try {
-            state.audio.pause();
-            state.audio.src = '';
-          } catch {
-            /* ignore */
-          }
+        } else {
+          this.deps.stopAndClearMedia();
         }
         this.epoch += 1;
         this.endedEpochHandled = this.epoch;

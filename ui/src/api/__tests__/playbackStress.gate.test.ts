@@ -39,7 +39,6 @@ function createHarness() {
     playbackPhase: 'playing',
     queueMode: 'normal',
     loopMode: 'list',
-    audio: null,
   };
 
   let playCount = 0;
@@ -89,6 +88,7 @@ function createHarness() {
     },
     skipSession: () => {},
     hasBackend: () => true,
+    stopAndClearMedia: () => {},
   };
 
   const coordinator = new PlaybackCommandCoordinator(deps);

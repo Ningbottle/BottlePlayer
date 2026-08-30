@@ -345,4 +345,45 @@ describe('mediaRuntime: single global owner contract', () => {
     await runtime.shutdown('shutdown');
     expect(backend.shutdown).toHaveBeenCalledTimes(1);
   });
+
+  it('stopAndClearMedia pauses and clears src without load() or currentTime changes', async () => {
+    const { getOrCreateMediaRuntime } = await import('../mediaRuntime');
+    const { deps } = makeRuntimeDeps();
+    const runtime = getOrCreateMediaRuntime(deps);
+    const audio = runtime.audio;
+    audio.src = 'http://127.0.0.1:17631/audio/stop-clear';
+    Object.defineProperty(audio, 'currentTime', { value: 87, writable: true, configurable: true });
+    const pauseSpy = vi.spyOn(audio, 'pause').mockImplementation(() => {});
+    const loadSpy = vi.spyOn(audio, 'load').mockImplementation(() => {});
+
+    runtime.stopAndClearMedia();
+
+    expect(pauseSpy).toHaveBeenCalledTimes(1);
+    // jsdom resolves an empty src property against the base URL, so assert
+    // the content attribute the setter actually wrote.
+    expect(audio.getAttribute('src')).toBe('');
+    expect(loadSpy).not.toHaveBeenCalled();
+    expect(audio.currentTime).toBe(87);
+  });
+
+  it('stopAndClearMedia swallows internal media errors (caller commands must not break)', async () => {
+    const { getOrCreateMediaRuntime } = await import('../mediaRuntime');
+    const { deps } = makeRuntimeDeps();
+    const runtime = getOrCreateMediaRuntime(deps);
+    const audio = runtime.audio;
+    vi.spyOn(audio, 'pause').mockImplementation(() => {
+      throw new Error('pause rejected');
+    });
+    // Also make the src setter itself throw: property must be assignable via
+    // the accessor path without letting the error escape stopAndClearMedia.
+    Object.defineProperty(audio, 'src', {
+      set: () => {
+        throw new Error('src set rejected');
+      },
+      get: () => '',
+      configurable: true,
+    });
+
+    expect(() => runtime.stopAndClearMedia()).not.toThrow();
+  });
 });

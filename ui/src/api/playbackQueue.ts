@@ -9,7 +9,6 @@ export type QueueState = {
   isPlaying: boolean;
   isLoading: boolean;
   queueMode: 'normal' | 'personalFm';
-  audio: HTMLAudioElement | null;
   /** Optional; when present on extended store state, residual cleanup clears it. */
   errorMsg?: string;
   currentTime?: number;
@@ -29,6 +28,8 @@ export type PlaybackQueueDeps = {
   invalidatePlaybackIntent: () => number;
   stopInvalidatedPlayback: (seq: number) => Promise<void>;
   hasBackend: () => boolean;
+  /** Physical media stop for the no-backend fallback (owned by MediaRuntime). */
+  stopAndClearMedia: () => void;
 };
 
 /**
@@ -146,13 +147,8 @@ export function removeFromQueue(deps: PlaybackQueueDeps, index: number): Promise
         clearPlaybackResiduals(state);
         if (deps.hasBackend()) {
           await deps.stopInvalidatedPlayback(stopSeq);
-        } else if (state.audio) {
-          try {
-            state.audio.pause();
-            state.audio.src = '';
-          } catch {
-            /* ignore */
-          }
+        } else {
+          deps.stopAndClearMedia();
         }
       } else {
         state.currentIndex = state.currentIndex % state.queue.length;
@@ -176,13 +172,8 @@ export function clearQueue(deps: PlaybackQueueDeps): Promise<void> {
     clearPlaybackResiduals(state);
     if (deps.hasBackend()) {
       await deps.stopInvalidatedPlayback(clearSeq);
-    } else if (state.audio) {
-      try {
-        state.audio.pause();
-        state.audio.src = '';
-      } catch {
-        /* ignore */
-      }
+    } else {
+      deps.stopAndClearMedia();
     }
     deps.saveQueue();
   });

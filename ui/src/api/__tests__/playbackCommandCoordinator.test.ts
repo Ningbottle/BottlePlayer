@@ -42,7 +42,6 @@ function makeState(partial: Partial<CoordinatorState> = {}): CoordinatorState {
     playbackPhase: 'idle' as PlaybackPhase,
     queueMode: 'normal',
     loopMode: 'list',
-    audio: null,
     ...partial,
   };
 }
@@ -104,6 +103,7 @@ describe('PlaybackCommandCoordinator', () => {
       }),
       skipSession: vi.fn(),
       hasBackend: () => true,
+      stopAndClearMedia: vi.fn(),
     };
     coord = new PlaybackCommandCoordinator(deps);
   });
@@ -220,6 +220,53 @@ describe('PlaybackCommandCoordinator', () => {
     expect(state.duration).toBe(0);
     expect(state.vipRequired).toBe(false);
     expect(deps.stopInvalidatedPlayback).toHaveBeenCalled();
+  });
+
+  it('clearQueue without a backend routes the physical stop through stopAndClearMedia exactly once', async () => {
+    state.queue = [mkTrack('a')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.isPlaying = true;
+    state.playbackPhase = 'playing';
+    deps.hasBackend = () => false;
+
+    await coord.dispatch({ type: 'clearQueue' });
+
+    expect(state.queue).toEqual([]);
+    expect(state.currentIndex).toBe(-1);
+    expect(state.currentTrack).toBeNull();
+    expect(deps.stopAndClearMedia).toHaveBeenCalledTimes(1);
+    expect(deps.stopInvalidatedPlayback).not.toHaveBeenCalled();
+  });
+
+  it('removing the last track without a backend routes the physical stop through stopAndClearMedia exactly once', async () => {
+    state.queue = [mkTrack('a')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.isPlaying = true;
+    state.playbackPhase = 'playing';
+    deps.hasBackend = () => false;
+
+    await coord.dispatch({ type: 'removeTrack', index: 0 });
+
+    expect(state.queue).toEqual([]);
+    expect(state.currentIndex).toBe(-1);
+    expect(state.currentTrack).toBeNull();
+    expect(deps.stopAndClearMedia).toHaveBeenCalledTimes(1);
+    expect(deps.stopInvalidatedPlayback).not.toHaveBeenCalled();
+  });
+
+  it('with a backend present, clear does NOT call the physical stopAndClearMedia fallback', async () => {
+    state.queue = [mkTrack('a')];
+    state.currentIndex = 0;
+    state.currentTrack = state.queue[0];
+    state.isPlaying = true;
+    state.playbackPhase = 'playing';
+
+    await coord.dispatch({ type: 'clearQueue' });
+
+    expect(deps.stopInvalidatedPlayback).toHaveBeenCalledTimes(1);
+    expect(deps.stopAndClearMedia).not.toHaveBeenCalled();
   });
 
   it('UI next and OS-style next share the same coalesce order', async () => {

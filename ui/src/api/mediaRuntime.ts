@@ -29,6 +29,8 @@ export interface MediaRuntime {
   readonly audio: HTMLAudioElement;
   getBackend(): PlayerBackend | null;
   ensureBackend(): PlayerBackend;
+  /** Physical media stop for no-backend queue fallbacks (pause + clear src). */
+  stopAndClearMedia(): void;
   detachForHmr(): void;
   shutdown(reason: MediaRuntimeShutdownReason): Promise<void>;
 }
@@ -83,6 +85,17 @@ function createMediaRuntime(audio: HTMLAudioElement, deps: MediaRuntimeDeps): Me
         backendUnsub = backend.onEvent(deps.onBackendEvent);
       }
       return backend;
+    },
+    // Physical fallback used by queue commands when no backend exists:
+    // pause + clear src. Never load(), never touch currentTime. Errors are
+    // swallowed so a media failure cannot break clear/remove queue commands.
+    stopAndClearMedia: () => {
+      try {
+        audio.pause();
+        audio.src = '';
+      } catch {
+        /* ignore */
+      }
     },
     detachForHmr: () => {
       if (hmrDetached) return;

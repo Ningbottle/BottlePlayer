@@ -216,17 +216,6 @@ export const playerStore = reactive<PlayerState>({
   activePreset: safeGetItem('player_eq_preset') || 'Flat',
 });
 
-// Compatibility view (transitional, Phase B): PlaybackCommandCoordinator's
-// no-backend stop barrier still reads `getState().audio`, and the Coordinator
-// is out of Phase B scope. This read-only getter projects the MediaRuntime-
-// owned element without making the store its owner: it is not reactive state,
-// has no setter, and disappears when the Coordinator deps migrate off
-// store.audio.
-Object.defineProperty(playerStore, 'audio', {
-  get: () => moduleRuntime?.audio ?? null,
-  configurable: true,
-});
-
 // ── EQ leaf (usePlayerEq) — barrel re-exports keep public API stable ──
 const playerEq = createPlayerEq({
   getAudio: () => moduleRuntime?.audio ?? null,
@@ -542,6 +531,8 @@ function ensureCoordinator(): PlaybackCommandCoordinator {
       stopInvalidatedPlayback: (seq) => playbackOrchestrator.stopInvalidatedPlayback(seq),
       skipSession: () => playSession.skip(),
       hasBackend: () => !!moduleRuntime?.getBackend(),
+      // Physical no-backend fallback stays behind the MediaRuntime boundary.
+      stopAndClearMedia: () => moduleRuntime?.stopAndClearMedia(),
       appendPersonalFm: async (options) =>
         appendFm({
           getState: () => playerStore,

@@ -33,7 +33,6 @@ function makeState(partial: Partial<QueueState> = {}): QueueState {
     isPlaying: false,
     isLoading: false,
     queueMode: 'normal',
-    audio: null,
     errorMsg: '',
     ...partial,
   };
@@ -48,6 +47,7 @@ function makeDeps(state: QueueState, overrides: Partial<PlaybackQueueDeps> = {})
     invalidatePlaybackIntent: vi.fn(() => 1),
     stopInvalidatedPlayback: vi.fn(async () => undefined),
     hasBackend: () => true,
+    stopAndClearMedia: vi.fn(),
     ...overrides,
   };
 }
@@ -200,7 +200,6 @@ describe('playbackQueue serial commands + residuals', () => {
       isPlaying: true,
       isLoading: true,
       errorMsg: 'load failed',
-      audio: null,
       currentTime: 24,
       duration: 100,
       isPreview: true,
@@ -228,6 +227,70 @@ describe('playbackQueue serial commands + residuals', () => {
     expect(deps.invalidatePlaybackIntent).toHaveBeenCalled();
     expect(deps.stopInvalidatedPlayback).toHaveBeenCalled();
     expect(deps.playTrack).not.toHaveBeenCalled();
+  });
+
+  it('clearQueue without a backend routes the physical stop through stopAndClearMedia exactly once', async () => {
+    const a = mkTrack('a');
+    const state = makeState({
+      queue: [a],
+      currentIndex: 0,
+      currentTrack: a,
+      isPlaying: true,
+      isLoading: true,
+    });
+    const deps = makeDeps(state, { hasBackend: () => false });
+
+    await clearQueue(deps);
+
+    expect(state.queue).toEqual([]);
+    expect(state.currentIndex).toBe(-1);
+    expect(state.currentTrack).toBeNull();
+    expect(state.isPlaying).toBe(false);
+    expect(deps.invalidatePlaybackIntent).toHaveBeenCalled();
+    expect(deps.stopAndClearMedia).toHaveBeenCalledTimes(1);
+    expect(deps.stopInvalidatedPlayback).not.toHaveBeenCalled();
+    expect(deps.saveQueue).toHaveBeenCalled();
+  });
+
+  it('remove current last track without a backend routes the physical stop through stopAndClearMedia exactly once', async () => {
+    const a = mkTrack('a');
+    const state = makeState({
+      queue: [a],
+      currentIndex: 0,
+      currentTrack: a,
+      isPlaying: true,
+      isLoading: true,
+    });
+    const deps = makeDeps(state, { hasBackend: () => false });
+
+    await removeFromQueue(deps, 0);
+
+    expect(state.queue).toEqual([]);
+    expect(state.currentIndex).toBe(-1);
+    expect(state.currentTrack).toBeNull();
+    expect(state.isPlaying).toBe(false);
+    expect(deps.skipSession).toHaveBeenCalled();
+    expect(deps.invalidatePlaybackIntent).toHaveBeenCalled();
+    expect(deps.stopAndClearMedia).toHaveBeenCalledTimes(1);
+    expect(deps.stopInvalidatedPlayback).not.toHaveBeenCalled();
+    expect(deps.saveQueue).toHaveBeenCalled();
+  });
+
+  it('with a backend present, queue clear does NOT call the physical stopAndClearMedia fallback', async () => {
+    const a = mkTrack('a');
+    const state = makeState({
+      queue: [a],
+      currentIndex: 0,
+      currentTrack: a,
+      isPlaying: true,
+      isLoading: true,
+    });
+    const deps = makeDeps(state);
+
+    await clearQueue(deps);
+
+    expect(deps.stopInvalidatedPlayback).toHaveBeenCalledTimes(1);
+    expect(deps.stopAndClearMedia).not.toHaveBeenCalled();
   });
 
   it('remove current when queue non-empty plays next via playTrack on serial path', async () => {
