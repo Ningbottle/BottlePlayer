@@ -7,10 +7,10 @@
  */
 import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { watch } from 'vue';
-import { playerStore, togglePlay, next, prev, seek, setVolume } from '../playback/playerStore';
-import { useThemeStore } from './themeStore';
-import { useAppearanceStore } from './appearanceStore';
-import { isTauriRuntime } from '../platform/tauri/windows';
+import { playerStore, togglePlay, next, prev, seek, setVolume } from '../playerStore';
+import { useThemeStore } from '../../api/themeStore';
+import { useAppearanceStore } from '../../api/appearanceStore';
+import { isTauriRuntime } from '../../platform/tauri/windows';
 
 export interface PlayerSyncState {
   hash: string;

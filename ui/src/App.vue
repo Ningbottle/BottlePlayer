@@ -13,12 +13,12 @@ import FullscreenWindowControls from './components/shell/FullscreenWindowControl
 import PageRecoveryBoundary from './components/shell/PageRecoveryBoundary.vue';
 
 import { initPlayer, initPlayerBackend } from './playback/playerStore';
-import { bindOsMediaBridge, unbindOsMediaBridge } from './api/osMediaBridge';
+import { bindOsMediaBridge, unbindOsMediaBridge } from './playback/sync/osMediaBridge';
 import { checkLoginStatus } from './api/userStore';
 import { ping } from './platform/tauri/nativeClient';
 import { lyricFullscreen, setLyricFullscreen } from './api/lyricFullscreen';
 import { transitionEnter, transitionLeave, isReducedMotion } from './api/motion';
-import { startPlayerSyncHost } from './api/playerSync';
+import { startPlayerSyncHost } from './playback/sync/playerSync';
 import { registerPageTransition, unregisterPageTransition } from './navigation/navigationLifecycle';
 import { routeNames, type AppRouteName } from './navigation/routes';
 import { useThemeStore } from './api/themeStore';

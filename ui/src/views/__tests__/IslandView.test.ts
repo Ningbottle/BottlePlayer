@@ -7,7 +7,7 @@ const syncState = reactive({
   cb: null as null | ((s: Record<string, unknown>) => void),
 });
 
-vi.mock('../../api/playerSync', () => ({
+vi.mock('../../playback/sync/playerSync', () => ({
   onPlayerState: vi.fn(async (cb: (s: Record<string, unknown>) => void) => {
     syncState.cb = cb;
     return () => {};
@@ -66,7 +66,7 @@ vi.mock('@tauri-apps/api/dpi', () => ({
 }));
 
 import IslandView from '../overlay/IslandView.vue';
-import { sendPlayerCommand } from '../../api/playerSync';
+import { sendPlayerCommand } from '../../playback/sync/playerSync';
 import { isTauriRuntime, settleCurrentOverlay } from '../../platform/tauri/windows';
 import { startVinylSpin } from '../../api/motion';
 import type { Mock } from 'vitest';

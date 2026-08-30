@@ -6,7 +6,7 @@ const syncState = reactive({
   cb: null as null | ((s: Record<string, unknown>) => void),
 });
 
-vi.mock('../../api/playerSync', () => ({
+vi.mock('../../playback/sync/playerSync', () => ({
   onPlayerState: vi.fn(async (cb: (s: Record<string, unknown>) => void) => {
     syncState.cb = cb;
     return () => {};

@@ -5,7 +5,7 @@
 import { watch, type WatchStopHandle } from 'vue';
 import { invoke } from '@tauri-apps/api/core';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
-import { playerStore, togglePlay, next, prev } from '../playback/playerStore';
+import { playerStore, togglePlay, next, prev } from '../playerStore';
 
 export type OsMediaButton = 'Play' | 'Pause' | 'PlayPause' | 'Next' | 'Prev';
 
