@@ -47,7 +47,7 @@ function installCanvasMock(): FakeCtx {
     globalAlpha: 1,
   };
   vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(ctx as unknown as CanvasRenderingContext2D);
-  vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
+  rectSpy = vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
     width: 400,
     height: 300,
     top: 0,
@@ -59,6 +59,14 @@ function installCanvasMock(): FakeCtx {
     toJSON: () => ({}),
   });
   return ctx;
+}
+
+/** The prototype-level getBoundingClientRect spy installed by installCanvasMock. */
+let rectSpy: Mock = vi.fn();
+let devicePixelRatioValue = 1;
+
+function setDpr(dpr: number): void {
+  devicePixelRatioValue = dpr;
 }
 
 describe('AuroraAtmosphere', () => {
@@ -83,6 +91,8 @@ describe('AuroraAtmosphere', () => {
     rafIdSeq = 1;
     observers = [];
     openWrappers.length = 0;
+    rectSpy = vi.fn();
+    devicePixelRatioValue = 1;
 
     requestSpy = vi.fn((cb: FrameRequestCallback) => {
       const id = rafIdSeq++;
@@ -113,6 +123,11 @@ describe('AuroraAtmosphere', () => {
     Object.defineProperty(document, 'visibilityState', {
       configurable: true,
       get: () => visibilityState,
+    });
+
+    Object.defineProperty(window, 'devicePixelRatio', {
+      configurable: true,
+      get: () => devicePixelRatioValue,
     });
 
     installCanvasMock();
@@ -146,6 +161,19 @@ describe('AuroraAtmosphere', () => {
   function setVisibility(state: DocumentVisibilityState): void {
     visibilityState = state;
     document.dispatchEvent(new Event('visibilitychange'));
+  }
+
+  /** Fire the first live ResizeObserver with a minimal ResizeObserverEntry. */
+  function emitResize(width: number, height: number): void {
+    const observer = observers[0];
+    expect(observer).toBeTruthy();
+    const target = document.createElement('canvas');
+    const entry = { target, contentRect: { width, height } } as unknown as ResizeObserverEntry;
+    observer.callback([entry], observer as unknown as ResizeObserver);
+  }
+
+  function rectCallCount(): number {
+    return rectSpy.mock.calls.length;
   }
 
   it('mounts a dedicated canvas behind stage content', () => {
@@ -297,5 +325,117 @@ describe('AuroraAtmosphere', () => {
     track(mount(AuroraAtmosphere, { props: { isPlaying: true } }));
     expect(getContextSpy).toHaveBeenCalled();
     expect(getContextSpy.mock.calls.every((c) => c[0] === '2d')).toBe(true);
+  });
+
+  // ── B5: rAF must never read layout; ResizeObserver owns size via contentRect ──
+
+  it('B5: active rAF frames do not add getBoundingClientRect calls after mount', () => {
+    track(mount(AuroraAtmosphere, { props: { isPlaying: false } }));
+    // Mount does exactly one initial layout measurement.
+    const callsAfterMount = rectCallCount();
+    expect(callsAfterMount).toBe(1);
+
+    flushFrames(2);
+
+    // Running animation frames must not read layout.
+    expect(rectCallCount()).toBe(callsAfterMount);
+  });
+
+  it('B5: reduced-motion resize applies contentRect backing size before the early return', () => {
+    isReducedMotionMock.mockReturnValue(true);
+    setDpr(2);
+    const wrapper = track(mount(AuroraAtmosphere, { props: { isPlaying: true } }));
+    const canvas = wrapper.get('[data-test="aurora-atmosphere"]').element as HTMLCanvasElement;
+    expect(requestSpy).not.toHaveBeenCalled();
+
+    const callsBefore = rectCallCount();
+    emitResize(250, 120);
+
+    // Backing store updated from the observer entry, without layout reads.
+    expect(canvas.width).toBe(500);
+    expect(canvas.height).toBe(240);
+    expect(rectCallCount()).toBe(callsBefore);
+    // Reduced-motion branch stays static: no rAF loop started.
+    expect(requestSpy).not.toHaveBeenCalled();
+  });
+
+  it('B5: hidden resize updates cached size without restarting the loop or reading layout', () => {
+    const wrapper = track(mount(AuroraAtmosphere, { props: { isPlaying: false } }));
+    const callsAfterMount = rectCallCount();
+    const scheduledId = requestSpy.mock.results[0]?.value as number;
+
+    setVisibility('hidden');
+    expect(cancelSpy).toHaveBeenCalledWith(scheduledId);
+    const callsWhileHidden = requestSpy.mock.calls.length;
+
+    emitResize(320, 200);
+    const canvas = wrapper.get('[data-test="aurora-atmosphere"]').element as HTMLCanvasElement;
+
+    expect(canvas.width).toBe(320);
+    expect(canvas.height).toBe(200);
+    // No new rAF and no layout read while hidden.
+    expect(requestSpy.mock.calls.length).toBe(callsWhileHidden);
+    expect(rectCallCount()).toBe(callsAfterMount);
+
+    wrapper.unmount();
+  });
+
+  it('B5: KeepAlive inactive resize updates cached size without starting a loop; repaint uses it after reactivation', async () => {
+    const current = ref<'atm' | 'other'>('atm');
+    const Host = defineComponent({
+      setup() {
+        return () =>
+          h(KeepAlive, null, {
+            default: () =>
+              current.value === 'atm'
+                ? h(AuroraAtmosphere, { key: 'atm', isPlaying: true })
+                : h('div', { key: 'other', 'data-test': 'other' }, 'other'),
+          });
+      },
+    });
+    const wrapper = track(mount(Host));
+    await nextTick();
+    const callsAfterMount = rectCallCount();
+    // Hold the element reference before deactivation: KeepAlive removes the
+    // component from the rendered tree, so findComponent cannot reach it.
+    const canvas = (wrapper.findComponent(AuroraAtmosphere).element as HTMLCanvasElement);
+
+    current.value = 'other';
+    await nextTick();
+
+    emitResize(600, 240);
+    expect(canvas.width).toBe(600);
+    expect(canvas.height).toBe(240);
+    // Deactivated tree must not start a loop or read layout.
+    expect(requestSpy.mock.calls.length).toBeLessThanOrEqual(1);
+    expect(rectCallCount()).toBe(callsAfterMount);
+
+    // Reactivation repaints with the updated cached size (no extra rect read).
+    const callsBeforeReactivate = rectCallCount();
+    current.value = 'atm';
+    await nextTick();
+    expect(rectCallCount()).toBe(callsBeforeReactivate);
+    flushFrames(1);
+    expect(rectCallCount()).toBe(callsBeforeReactivate);
+
+    wrapper.unmount();
+  });
+
+  it('B5: DPR-only change resizes the backing store from cached CSS size without layout reads', () => {
+    setDpr(1);
+    const wrapper = track(mount(AuroraAtmosphere, { props: { isPlaying: false } }));
+    const canvas = wrapper.get('[data-test="aurora-atmosphere"]').element as HTMLCanvasElement;
+    expect(canvas.width).toBe(400);
+    expect(canvas.height).toBe(300);
+    const callsAfterMount = rectCallCount();
+    expect(callsAfterMount).toBe(1);
+
+    // DPR changes without a ResizeObserver event.
+    setDpr(2);
+    flushFrames(2);
+
+    expect(canvas.width).toBe(800);
+    expect(canvas.height).toBe(600);
+    expect(rectCallCount()).toBe(callsAfterMount);
   });
 });

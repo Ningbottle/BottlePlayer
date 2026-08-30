@@ -85,19 +85,41 @@ function stopLoop(): void {
   }
 }
 
-function syncCanvasSize(): void {
+function currentDpr(): number {
+  return Math.min(window.devicePixelRatio || 1, DPR_CAP);
+}
+
+/**
+ * Backing-store application from a known CSS size. The single place that
+ * writes canvas.width/height: pure with respect to layout (no rect reads,
+ * no paint, no loop control, no props).
+ */
+function applyCanvasSize(width: number, height: number, dpr: number): void {
   const canvas = canvasRef.value;
   if (!canvas) return;
-  const rect = canvas.getBoundingClientRect();
-  cssW = Math.max(1, rect.width);
-  cssH = Math.max(1, rect.height);
-  const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+  cssW = Math.max(1, width);
+  cssH = Math.max(1, height);
   const w = Math.max(1, Math.floor(cssW * dpr));
   const h = Math.max(1, Math.floor(cssH * dpr));
   if (canvas.width !== w || canvas.height !== h) {
     canvas.width = w;
     canvas.height = h;
   }
+}
+
+/** Mount-time initial measurement — the ONLY getBoundingClientRect in this file. */
+function measureInitialCanvasSize(): void {
+  const canvas = canvasRef.value;
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  applyCanvasSize(rect.width, rect.height, currentDpr());
+}
+
+/** rAF-safe DPR sync from cached CSS size. Returns the DPR for setTransform. */
+function syncDprOnly(): number {
+  const dpr = currentDpr();
+  applyCanvasSize(cssW, cssH, dpr);
+  return dpr;
 }
 
 /** Cone wash — apex glow + axis band. Breaths: slow phase + live loudness. */
@@ -132,8 +154,7 @@ function paint(ts?: number): void {
   const ctx = canvas?.getContext('2d');
   if (!canvas || !ctx) return;
 
-  syncCanvasSize();
-  const dpr = Math.min(window.devicePixelRatio || 1, DPR_CAP);
+  const dpr = syncDprOnly();
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, cssW, cssH);
 
@@ -191,12 +212,24 @@ function attachObservers(): void {
   const canvas = canvasRef.value;
   if (!canvas) return;
   if (!resizeObserver && typeof ResizeObserver !== 'undefined') {
-    resizeObserver = new ResizeObserver(() => {
+    resizeObserver = new ResizeObserver((entries) => {
+      // Size must be updated BEFORE any reduced/hidden/inactive early return,
+      // from the entry's contentRect (never a layout read).
+      const entry = entries[0];
+      if (entry) {
+        applyCanvasSize(
+          entry.contentRect.width,
+          entry.contentRect.height,
+          currentDpr(),
+        );
+      } else {
+        syncDprOnly();
+      }
+
       if (isReducedMotion() || !treeActive || document.visibilityState === 'hidden') {
         paint();
         return;
       }
-      syncCanvasSize();
       if (frameId === null) {
         startLoop();
       }
@@ -216,9 +249,10 @@ function detachObservers(): void {
 
 function boot(): void {
   treeActive = true;
-  syncCanvasSize();
+  measureInitialCanvasSize();
   attachObservers();
   // Always paint once so the canvas is never empty on first frame.
+  // paint() is DPR-only now, so mount reads layout exactly once (above).
   paint();
   startLoop();
 }
