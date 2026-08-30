@@ -21,7 +21,7 @@ import { transitionEnter, transitionLeave, isReducedMotion } from './api/motion'
 import { startPlayerSyncHost } from './playback/sync/playerSync';
 import { registerPageTransition, unregisterPageTransition } from './navigation/navigationLifecycle';
 import { routeNames, type AppRouteName } from './navigation/routes';
-import { useThemeStore } from './api/themeStore';
+import { useThemeStore } from './app/appearance/themeStore';
 
 const themeStore = useThemeStore();
 const appRouter = useRouter();

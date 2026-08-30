@@ -2,7 +2,7 @@
 import { ref, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { userStore } from '../api/userStore';
-import { useThemeStore } from '../api/themeStore';
+import { useThemeStore } from '../app/appearance/themeStore';
 
 const emit = defineEmits<{
   (e: 'update:searchQuery', val: string): void;

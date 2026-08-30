@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useThemeStore } from '../api/themeStore';
+import { useThemeStore } from '../app/appearance/themeStore';
 import { useLyricStage } from './lyric/useLyricStage';
 import AuroraLyricStage from './lyric/AuroraLyricStage.vue';
 import NewsprintLyricStage from './lyric/NewsprintLyricStage.vue';

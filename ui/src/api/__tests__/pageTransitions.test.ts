@@ -14,7 +14,7 @@ vi.mock('gsap', () => {
   return { gsap: { to, fromTo, set, killTweensOf } };
 });
 
-vi.mock('../../api/themeStore', () => {
+vi.mock('../../app/appearance/themeStore', () => {
   const skinId = { value: 'aurora' };
   const useThemeStore = () => ({ skinId });
   return { useThemeStore };
@@ -61,7 +61,7 @@ vi.mock('../transitionSession', () => {
 
 import { transitionEnter, transitionLeave } from '../pageTransitions';
 import { navigationDirection } from '../../navigation/direction';
-import { useThemeStore } from '../../api/themeStore';
+import { useThemeStore } from '../../app/appearance/themeStore';
 
 describe('pageTransitions (navigation adapter)', () => {
   beforeEach(async () => {

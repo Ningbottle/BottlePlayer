@@ -98,7 +98,7 @@ vi.mock('../StatsView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../EqualizerView.vue', () => ({ default: { template: '<main />' } }));
 
 import App from '../../App.vue';
-import { useThemeStore, __resetForTest as resetTheme } from '../../api/themeStore';
+import { useThemeStore, __resetForTest as resetTheme } from '../../app/appearance/themeStore';
 import { createAppRouter } from '../../navigation/router';
 import { routeNames } from '../../navigation/routes';
 

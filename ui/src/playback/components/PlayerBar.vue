@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { useThemeStore } from '../../api/themeStore';
+import { useThemeStore } from '../../app/appearance/themeStore';
 import { usePlayerControls } from './player/usePlayerControls';
 import AuroraPlayerBar from './player/AuroraPlayerBar.vue';
 import NewsprintPlayerBar from './player/NewsprintPlayerBar.vue';

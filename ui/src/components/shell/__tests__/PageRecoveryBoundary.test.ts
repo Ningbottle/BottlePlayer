@@ -20,7 +20,7 @@ vi.mock('../../../navigation/navigationLifecycle', () => ({
 
 import PageRecoveryBoundary from '../PageRecoveryBoundary.vue';
 import { lyricFullscreen, setLyricFullscreen } from '../../../api/lyricFullscreen';
-import { useThemeStore, __resetForTest as resetTheme } from '../../../api/themeStore';
+import { useThemeStore, __resetForTest as resetTheme } from '../../../app/appearance/themeStore';
 import { beginTransitionSession } from '../../../api/transitionSession';
 
 function mountHarness(page: Component) {

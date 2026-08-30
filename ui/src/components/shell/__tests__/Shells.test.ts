@@ -344,7 +344,7 @@ vi.mock('../../../views/HistoryView.vue', () => ({ default: { template: '<main /
 vi.mock('../../../views/StatsView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../../../views/EqualizerView.vue', () => ({ default: { template: '<main />' } }));
 
-import { useThemeStore, __resetForTest } from '../../../api/themeStore';
+import { useThemeStore, __resetForTest } from '../../../app/appearance/themeStore';
 import App from '../../../App.vue';
 import { createAppRouter } from '../../../navigation/router';
 import { routeNames } from '../../../navigation/routes';

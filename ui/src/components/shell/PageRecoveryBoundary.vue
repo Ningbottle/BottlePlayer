@@ -5,7 +5,7 @@ import { useRoute, useRouter } from 'vue-router';
 import { cancelPageTransition } from '../../navigation/navigationLifecycle';
 import { clearLyricFullscreenUnlessOnLyric } from '../../api/lyricFullscreen';
 import { settleActiveTransitionSessions } from '../../api/transitionSession';
-import { useThemeStore, type SkinId } from '../../api/themeStore';
+import { useThemeStore, type SkinId } from '../../app/appearance/themeStore';
 
 interface PageFailure {
   routeFullPath: string;

@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import { PhCrosshairSimple } from '@phosphor-icons/vue';
 import { LocateFixed } from '@lucide/vue';
-import { useThemeStore } from '../../api/themeStore';
+import { useThemeStore } from '../../app/appearance/themeStore';
 
 const props = defineProps<{ autoFollowing: boolean }>();
 defineEmits<{ (e: 'resume'): void }>();

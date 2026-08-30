@@ -7,7 +7,7 @@ import {
   __resetHomeEnterSessionForTest,
   nextHomeEnterMode,
 } from '../../../api/homeEnterSession';
-import { __resetForTest as __resetThemeForTest, useThemeStore } from '../../../api/themeStore';
+import { __resetForTest as __resetThemeForTest, useThemeStore } from '../../../app/appearance/themeStore';
 
 const mockApiGet = vi.fn();
 vi.mock('../../../platform/tauri/nativeClient', () => ({

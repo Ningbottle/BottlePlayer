@@ -1,5 +1,5 @@
 import { gsap } from 'gsap';
-import { useThemeStore } from './themeStore';
+import { useThemeStore } from '../app/appearance/themeStore';
 import { getMotionProfile } from '../shared/motion/motionProfiles';
 import { beginTransitionSession } from './transitionSession';
 import { navigationDirection } from '../navigation/direction';

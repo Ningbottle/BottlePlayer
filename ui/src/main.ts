@@ -21,7 +21,7 @@ import "./styles/progress.css";
 import "./style.css";
 import "./styles/skins/aurora.css";
 import "./styles/skins/newsprint.css";
-import { useThemeStore } from "./api/themeStore";
+import { useThemeStore } from "./app/appearance/themeStore";
 import { useLyricFocusStore } from "./api/lyricFocusStore";
 import { disposePlayerRuntime } from "./playback/playerStore";
 import { installPageLifecycle } from "./app/lifecycle/pageLifecycle";

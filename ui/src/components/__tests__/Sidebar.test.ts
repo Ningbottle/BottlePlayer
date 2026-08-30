@@ -4,7 +4,7 @@ import { nextTick } from 'vue';
 import Sidebar from '../Sidebar.vue';
 import { apiGet } from '../../platform/tauri/nativeClient';
 import { userStore } from '../../api/userStore';
-import { useThemeStore, __resetForTest } from '../../api/themeStore';
+import { useThemeStore, __resetForTest } from '../../app/appearance/themeStore';
 import { createAppRouter } from '../../navigation/router';
 import { routeNames } from '../../navigation/routes';
 

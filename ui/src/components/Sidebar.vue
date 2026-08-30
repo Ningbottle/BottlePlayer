@@ -6,7 +6,7 @@ import { apiGet } from '../platform/tauri/nativeClient';
 import { userStore } from '../api/userStore';
 import { normalizePlaylists, type UserPlaylist } from '../api/favoriteStore';
 import { useSkippedVersion, getSkippedVersion } from '../api/skippedVersion';
-import { useThemeStore } from '../api/themeStore';
+import { useThemeStore } from '../app/appearance/themeStore';
 
 const emit = defineEmits<{
   (e: 'navigate', view: string, params?: any): void;

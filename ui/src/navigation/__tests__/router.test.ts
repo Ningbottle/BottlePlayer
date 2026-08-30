@@ -142,7 +142,7 @@ vi.mock('../../api/userStore', () => ({ checkLoginStatus: vi.fn() }));
 vi.mock('../../platform/tauri/nativeClient', () => ({ ping: vi.fn().mockResolvedValue(true) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(0) }));
 vi.mock('../../api/motion', () => ({ transitionEnter: vi.fn(), transitionLeave: vi.fn(), isReducedMotion: vi.fn(() => true) }));
-vi.mock('../../api/themeStore', async () => {
+vi.mock('../../app/appearance/themeStore', async () => {
   const { ref } = await import('vue');
   const skinId = ref('aurora');
   return { useThemeStore: () => ({ skinId }) };
