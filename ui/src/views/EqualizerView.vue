@@ -7,7 +7,7 @@ import {
   EQ_PRESET_LABELS,
   EQ_PRESETS,
   normalizeEqBands,
-} from '../api/equalizerConfig';
+} from '../playback/eq/equalizerConfig';
 import SkinPageHeader from '../components/primitives/SkinPageHeader.vue';
 import SkinButton from '../components/primitives/SkinButton.vue';
 

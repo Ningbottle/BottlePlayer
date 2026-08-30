@@ -10,7 +10,7 @@ import {
 } from './runtime/mediaRuntime';
 import { PlaySessionTracker } from './playSessionTracker';
 import { recordPlay } from '../api/playStatsGateway';
-import { normalizeEqBands } from '../api/equalizerConfig';
+import { normalizeEqBands } from './eq/equalizerConfig';
 import { recentPlayedStore } from '../api/recentPlayedStore';
 import { playbackDiagnostics } from './playbackDiagnostics';
 import {
@@ -41,7 +41,7 @@ import {
 } from './commands/playbackCommandCoordinator';
 import { resolveTrack } from '../api/songUrlResolver';
 import { uploadPlayHistory } from '../api/playHistory';
-import { createPlayerEq } from '../api/usePlayerEq';
+import { createPlayerEq } from './eq/usePlayerEq';
 import { disposeAudioLevelMonitor } from './runtime/audioLevelMonitor';
 
 export type { Track };

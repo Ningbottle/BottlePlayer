@@ -9,8 +9,8 @@
  */
 import { reactive } from 'vue';
 import { WebAudioEq } from './webAudioEq';
-import { prepareAudioSourceUrl } from '../platform/tauri/audioProxy';
-import { playbackDiagnostics } from '../playback/playbackDiagnostics';
+import { prepareAudioSourceUrl } from '../../platform/tauri/audioProxy';
+import { playbackDiagnostics } from '../playbackDiagnostics';
 
 export interface PlayerEqDeps {
   getAudio: () => HTMLAudioElement | null;

@@ -9,7 +9,7 @@ import {
   EQ_PRESETS,
   FLAT_EQ_BANDS,
   normalizeEqBands,
-} from '../api/equalizerConfig';
+} from '../playback/eq/equalizerConfig';
 
 const props = withDefaults(defineProps<{
   modelValue?: boolean;
