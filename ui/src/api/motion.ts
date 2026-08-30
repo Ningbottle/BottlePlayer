@@ -14,6 +14,6 @@ export {
   attachMagnet,
   startVinylSpin,
   isReducedMotion,
-} from './motionPrimitives';
-export type { CountUpOptions, MotionHandle, StaggerOverrides, VinylSpinHandle } from './motionPrimitives';
+} from '../shared/motion/motion';
+export type { CountUpOptions, MotionHandle, StaggerOverrides, VinylSpinHandle } from '../shared/motion/motion';
 export { transitionEnter, transitionLeave } from './pageTransitions';

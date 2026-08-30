@@ -26,7 +26,7 @@ import { useLyricFocusStore } from "./api/lyricFocusStore";
 import { disposePlayerRuntime } from "./playback/playerStore";
 import { installPageLifecycle } from "./app/lifecycle/pageLifecycle";
 import { router } from "./navigation/router";
-import { configureMotionProfileProvider } from "./api/motionPrimitives";
+import { configureMotionProfileProvider } from "./shared/motion/motion";
 
 const themeStore = useThemeStore();
 themeStore.init();

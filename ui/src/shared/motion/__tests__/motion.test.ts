@@ -39,7 +39,7 @@ import {
   pressBounceUp,
   configureMotionProfileProvider,
   resetMotionProfileProviderForTests,
-} from '../motionPrimitives';
+} from '../motion';
 
 describe('motionPrimitives', () => {
   beforeEach(async () => {

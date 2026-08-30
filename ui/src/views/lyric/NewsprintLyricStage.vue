@@ -3,7 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { gsap } from 'gsap';
 import { Disc3, Maximize2, Pause, Play } from '@lucide/vue';
 import { isReducedMotion } from '../../api/motion';
-import { getMotionProfile } from '../../api/motionProfiles';
+import { getMotionProfile } from '../../shared/motion/motionProfiles';
 import { togglePlay as storeTogglePlay } from '../../playback/playerStore';
 import PlayerProgress from '../../playback/components/player/PlayerProgress.vue';
 import type { LyricStageModel } from './useLyricStage';

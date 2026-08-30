@@ -1,9 +1,9 @@
 import { gsap } from 'gsap';
 import { useThemeStore } from './themeStore';
-import { getMotionProfile } from './motionProfiles';
+import { getMotionProfile } from '../shared/motion/motionProfiles';
 import { beginTransitionSession } from './transitionSession';
 import { navigationDirection } from '../navigation/direction';
-import { isReducedMotion } from './motionPrimitives';
+import { isReducedMotion } from '../shared/motion/motion';
 
 function currentProfile() {
   return getMotionProfile(useThemeStore().skinId.value);
