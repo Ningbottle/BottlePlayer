@@ -1,4 +1,4 @@
-import { apiGet } from '../../platform/tauri/nativeClient';
+import { fetchPersonalFm, type PersonalFmResponse } from './fmGateway';
 import { normalizeTrack, type Track } from '../../shared/music/track';
 import { playbackDiagnostics } from '../playbackDiagnostics';
 
@@ -180,8 +180,8 @@ function scheduleRetry(
 
 async function fetchPersonalFmRecommendations(
   query: Record<string, string | number>,
-): Promise<any> {
-  return apiGet<any>('/personal/fm', query);
+): Promise<PersonalFmResponse> {
+  return fetchPersonalFm(query);
 }
 
 /**
