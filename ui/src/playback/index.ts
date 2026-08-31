@@ -57,6 +57,7 @@ import {
   bindOsMediaBridge,
   unbindOsMediaBridge,
 } from './sync/osMediaBridge';
+import { configurePlayHistoryPolicy } from './data/playHistoryGateway';
 import { flyCoverToDock } from './components/coverFlight';
 import { createPlaybackAudioLevelMonitor } from './audioLevel';
 import type { AudioLevelMonitor } from './audioLevel';
@@ -112,6 +113,8 @@ export {
   // OS media bridge lifecycle (composition root)
   bindOsMediaBridge,
   unbindOsMediaBridge,
+  // History upload policy (composition root binds it to account state)
+  configurePlayHistoryPolicy,
   // Cover flight animation (home)
   flyCoverToDock,
   // UI-safe audio level adapter (home atmosphere)

@@ -19,16 +19,18 @@ import {
   logoutLocal,
   userStore,
 } from '../userStore';
-import { recentPlayedStore } from '../../playback/data/recentPlayedStore';
-import type { Track } from '../../shared/music/track';
+import {
+  configureAccountEffects,
+  __resetAccountEffectsForTests,
+  type AccountEffects,
+} from '../../features/account/accountEffects';
 
-function mkTrack(): Track {
+function makeFakeEffects() {
   return {
-    FileHash: 'recent-hash',
-    SongName: 'Recent Song',
-    SingerName: 'Recent Artist',
-    Duration: 180,
-  };
+    onAccountReady: vi.fn(),
+    onAccountCleared: vi.fn(),
+    onLocalLogout: vi.fn(),
+  } satisfies AccountEffects & Record<string, ReturnType<typeof vi.fn>>;
 }
 
 function resetUserStore() {
@@ -55,12 +57,16 @@ function mockReadyDevice() {
 }
 
 describe('userStore login refresh', () => {
+  let effects: ReturnType<typeof makeFakeEffects>;
+
   beforeEach(() => {
     mockApiGet.mockReset();
     mockApiPost.mockReset();
     mockApiPost.mockResolvedValue({ status: 1 });
     resetUserStore();
-    recentPlayedStore.reset();
+    __resetAccountEffectsForTests();
+    effects = makeFakeEffects();
+    configureAccountEffects(effects);
   });
 
   // Restore spies even if an assertion throws mid-test, so a failure here
@@ -156,13 +162,82 @@ describe('userStore login refresh', () => {
     })).toBe('今天已经领过了');
   });
 
-  it('clears device-local recent history on logout so it is not shown to the next account', () => {
-    recentPlayedStore.recordRecentPlayed(mkTrack());
-    expect(recentPlayedStore.entries.value).toHaveLength(1);
+  it('notifies account ready exactly once after device registration succeeds', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockReadyDevice();
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/user/detail') {
+        return { status: 1, data: { userid: 42, nickname: 'Bottle' } };
+      }
+      if (path === '/user/vip/detail') {
+        return { status: 1, data: {} };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
 
+    await checkLoginStatus();
+
+    expect(effects.onAccountReady).toHaveBeenCalledTimes(1);
+    expect(effects.onAccountReady).toHaveBeenCalledWith('42');
+    expect(warnSpy).not.toHaveBeenCalledWith('Device upgrade failed', expect.anything());
+  });
+
+  it('does not notify account ready when device registration fails', async () => {
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    mockApiPost.mockResolvedValue({ status: 1, data: { registered: false, dfid: '-' } });
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/user/detail') {
+        return { status: 1, data: { userid: 42, nickname: 'Bottle' } };
+      }
+      if (path === '/user/vip/detail') {
+        return { status: 1, data: {} };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    await checkLoginStatus();
+
+    expect(effects.onAccountReady).not.toHaveBeenCalled();
+    expect(userStore.isLoggedIn).toBe(true);
+    warnSpy.mockRestore();
+  });
+
+  it('notifies account cleared when the session is invalid', async () => {
+    mockApiGet.mockResolvedValue({ status: 0 });
+    await checkLoginStatus();
+    expect(effects.onAccountCleared).toHaveBeenCalledTimes(1);
+    expect(effects.onAccountReady).not.toHaveBeenCalled();
+  });
+
+  it('notifies account cleared when the login check throws', async () => {
+    const errSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    mockApiGet.mockRejectedValue(new Error('offline'));
+    await checkLoginStatus();
+    expect(effects.onAccountCleared).toHaveBeenCalledTimes(1);
+    errSpy.mockRestore();
+  });
+
+  it('claimVip still notifies ready only after registration succeeds', async () => {
+    userStore.isLoggedIn = true;
+    userStore.userId = '42';
+    mockReadyDevice();
+    mockApiGet.mockResolvedValue({ status: 1 });
+
+    await claimVip();
+
+    expect(effects.onAccountReady).toHaveBeenCalledTimes(1);
+    expect(effects.onAccountReady).toHaveBeenCalledWith('42');
+    expect(mockApiPost).toHaveBeenCalledWith('/register/dev');
+  });
+
+  it('logoutLocal orders cleared before localLogout', () => {
     logoutLocal();
 
-    expect(recentPlayedStore.entries.value).toEqual([]);
+    expect(effects.onAccountCleared).toHaveBeenCalledTimes(1);
+    expect(effects.onLocalLogout).toHaveBeenCalledTimes(1);
+    const clearedOrder = effects.onAccountCleared.mock.invocationCallOrder[0];
+    const logoutOrder = effects.onLocalLogout.mock.invocationCallOrder[0];
+    expect(clearedOrder).toBeLessThan(logoutOrder);
   });
 });
 
@@ -171,6 +246,7 @@ describe('ensureVipDeviceReady', () => {
     mockApiGet.mockReset();
     mockApiPost.mockReset();
     resetUserStore();
+    __resetAccountEffectsForTests();
   });
 
   it('treats registered=true and a non-dash dfid as ready', async () => {
@@ -236,6 +312,8 @@ describe('claimVip snapshot overlay', () => {
     mockApiGet.mockReset();
     mockApiPost.mockReset();
     resetUserStore();
+    __resetAccountEffectsForTests();
+    configureAccountEffects({ onAccountReady: vi.fn(), onAccountCleared: vi.fn(), onLocalLogout: vi.fn() });
     userStore.isLoggedIn = true;
     userStore.userId = '42';
     mockReadyDevice();

@@ -23,7 +23,16 @@ import "./styles/skins/aurora.css";
 import "./styles/skins/newsprint.css";
 import { useThemeStore } from "./app/appearance/themeStore";
 import { useLyricFocusStore } from "./api/lyricFocusStore";
-import { disposePlayerRuntime } from "./playback/index";
+import { favoriteStore } from "./api/favoriteStore";
+import { userStore } from "./api/userStore";
+import {
+  disposePlayerRuntime,
+  recentPlayedStore,
+  configurePlayHistoryPolicy,
+} from "./playback/index";
+import {
+  configureAccountEffects,
+} from "./features/account/accountEffects";
 import { installPageLifecycle } from "./app/lifecycle/pageLifecycle";
 import { router } from "./app/navigation/router";
 import { configureMotionProfileProvider } from "./shared/motion/motion";
@@ -35,6 +44,19 @@ useLyricFocusStore().init();
 // The neutral motion module reads the live skin through this provider — no
 // second skin source of truth, no watcher. Configured before app.mount.
 configureMotionProfileProvider(() => themeStore.skinId.value);
+
+// Cross-module wiring lives here and only here: the account store emits
+// notifications, the composition root decides what they do (Library
+// reconciliation + device-local history reset), and the play-history upload
+// policy follows the account's login state.
+configureAccountEffects({
+  onAccountReady: (userId) => favoriteStore.onLogin(userId),
+  onAccountCleared: () => favoriteStore.onLogout(),
+  onLocalLogout: () => recentPlayedStore.reset(),
+});
+configurePlayHistoryPolicy({
+  isUploadEnabled: () => userStore.isLoggedIn,
+});
 
 // Application composition owns the page lifecycle: the single pagehide
 // listener lives in app/lifecycle and calls the player's public shutdown

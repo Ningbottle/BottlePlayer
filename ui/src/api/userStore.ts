@@ -1,8 +1,11 @@
 import { reactive } from 'vue';
 import { apiGet, apiPost, describeBackendError } from '../platform/tauri/nativeClient';
 import { resolveVip } from './vipResolver';
-import { recentPlayedStore } from '../playback/index';
-import { favoriteStore } from './favoriteStore';
+import {
+  notifyAccountReady,
+  notifyAccountCleared,
+  notifyLocalLogout,
+} from '../features/account/accountEffects';
 
 interface UserState {
   isLoggedIn: boolean;
@@ -46,10 +49,10 @@ function resetLoginState() {
   userStore.username = '未登录';
   userStore.avatar = '';
   resetVipState();
-  // Reconcile favorites: dropping the session clears the in-memory favorite
-  // set so the next account starts clean (persisted outbox/liked are retained
-  // per-user in case the same account logs back in).
-  favoriteStore.onLogout();
+  // Account dropped: the composition-configured effects reconcile Library
+  // state (clearing the in-memory favorite set) without the account store
+  // knowing about it.
+  notifyAccountCleared();
 }
 
 interface VipDeviceResult {
@@ -177,7 +180,7 @@ export async function checkLoginStatus() {
       } else {
         // Playlist-backed favorites use the same registered-device contract.
         // Publish login first, then reconcile after registration has completed.
-        void favoriteStore.onLogin(userStore.userId);
+        void notifyAccountReady(userStore.userId);
       }
 
       // VIP 解析抽到 vipResolver.resolveVip（纯函数，有单元测试覆盖）。
@@ -220,7 +223,7 @@ export async function claimVip() {
       userStore.claimMessage = formatDeviceGateFailure(deviceResult);
       return;
     }
-    void favoriteStore.onLogin(userStore.userId);
+    void notifyAccountReady(userStore.userId);
     const listen = await apiGet<any>('/youth/listen/song');
 
     // 关键：listen_song 成功响应是 {status:1, data:"", error_msg:""} —— 不携带到期时间。
@@ -267,8 +270,8 @@ export async function claimVip() {
 }
 
 export function logoutLocal() {
-  // Local clear
+  // Local clear: resetLoginState already emits accountCleared.
   resetLoginState();
   userStore.claimMessage = '';
-  recentPlayedStore.reset();
+  notifyLocalLogout();
 }
