@@ -800,91 +800,6 @@ svg { display:block; }
   100% { transform: rotate(360deg); }
 }
 
-/* Lyric detail page */
-/* Lyric meta chrome — skins own sizing. Do NOT hard-lock cover to 240px
-   (that blocked Aurora large covers for months of CSS edits). */
-.lyric-meta {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  min-width: 0;
-}
-.lyric-meta .big-cover {
-  border: 1px solid var(--rule);
-  box-shadow: 0 10px 30px rgba(40, 28, 12, 0.2);
-  background: var(--paper-2);
-}
-.lyric-meta .big-cover img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-}
-.lyric-meta .big-cover svg {
-  width: 100%;
-  height: 100%;
-}
-.lyric-meta h2 {
-  font-size: 24px;
-  font-weight: 600;
-  margin: 0 0 8px;
-}
-.lyric-meta p {
-  font-family: "EB Garamond", serif;
-  font-style: italic;
-  color: var(--ink-soft);
-  margin: 0;
-  font-size: 16px;
-}
-.lyric-right {
-  flex: 1;
-  overflow-y: auto;
-  padding-right: 8px;
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  mask-image: linear-gradient(to bottom, transparent, white 20%, white 80%, transparent);
-  -webkit-mask-image: linear-gradient(to bottom, transparent, white 20%, white 80%, transparent);
-  scrollbar-width: thin;
-  scrollbar-color: rgba(34,27,18,0.15) transparent;
-}
-.lyric-right::-webkit-scrollbar {
-  width: 4px;
-}
-.lyric-right::-webkit-scrollbar-thumb {
-  background: rgba(34,27,18,0.15);
-  border-radius: 4px;
-}
-.lyric-right::-webkit-scrollbar-track {
-  background: transparent;
-}
-.lyric-scroll {
-  padding: 40% 0;
-  display: flex;
-  flex-direction: column;
-  gap: 16px;
-  align-items: center;
-}
-.lyric-line {
-  width: 100%;
-  font-size: 16px;
-  color: var(--ink-mute);
-  transition:
-    color 0.3s var(--ease-spa),
-    opacity 0.3s var(--ease-spa),
-    transform 0.3s var(--ease-spa),
-    font-size 0.3s var(--ease-spa);
-  text-align: center;
-  font-family: var(--font-serif);
-  line-height: 1.6;
-}
-.lyric-line.active {
-  color: var(--accent);
-  font-size: 20px;
-  font-weight: 600;
-  transform: scale(1.05);
-}
-
 /* ---------- Custom Titlebar ---------- */
 .titlebar {
   grid-row: 1 / 2;
@@ -966,19 +881,6 @@ html.compact .lyric-scroll {
 }
 
 /* ---------- Lyric alignment ---------- */
-html.lyric-left .lyric-line {
-  width: 100%;
-  text-align: left;
-  padding-left: 24px;
-}
-
-/* Lyric scrollbar dark mode */
-:root[data-mode="dark"] .lyric-right {
-  scrollbar-color: rgba(255,255,255,0.12) transparent;
-}
-:root[data-mode="dark"] .lyric-right::-webkit-scrollbar-thumb {
-  background: rgba(255,255,255,0.12);
-}
 
 /* ---------- Dark mode overrides (VS Code Dark+ style) ---------- */
 
@@ -1044,9 +946,6 @@ html.lyric-left .lyric-line {
 }
 :root[data-mode="dark"] .toast-2 {
   box-shadow: 0 20px 50px -10px rgba(0,0,0,0.55);
-}
-:root[data-mode="dark"] .lyric-meta .big-cover {
-  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
 
 /* Inline SVG hardcoded colors */

@@ -148,7 +148,15 @@ describe('feature style ownership (Task E3b)', () => {
             readFileSync(ownerFiles.lyrics, 'utf8'),
           );
           expect(hasSelector(ownerPreludes, selector)).toBe(true);
-          expect(hasSelector(globalPreludes, selector)).toBe(false);
+          // The shared compact-mode group keeps html.compact .lyric-scroll in
+          // style.css (style-ownership §3), so only a bare .lyric-scroll
+          // prelude would mean the feature rule was left behind.
+          const bareSelectorLeft =
+            selector === '.lyric-scroll' &&
+            globalPreludes.some((prelude) => prelude.trim() === '.lyric-scroll');
+          expect(bareSelectorLeft || hasSelector(globalPreludes, selector)).toBe(
+            selector === '.lyric-scroll',
+          );
         },
       );
 
