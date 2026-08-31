@@ -24,15 +24,12 @@ import "./styles/skins/newsprint.css";
 import { useThemeStore } from "./app/appearance/themeStore";
 import { useLyricFocusStore } from "./features/lyrics";
 import { favoriteStore } from "./features/library";
-import { userStore } from "./features/account";
+import { userStore, configureAccountEffects } from "./features/account";
 import {
   disposePlayerRuntime,
   recentPlayedStore,
   configurePlayHistoryPolicy,
 } from "./playback/index";
-import {
-  configureAccountEffects,
-} from "./features/account/accountEffects";
 import { installPageLifecycle } from "./app/lifecycle/pageLifecycle";
 import { router } from "./app/navigation/router";
 import { configureMotionProfileProvider } from "./shared/motion/motion";
