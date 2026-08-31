@@ -9,7 +9,7 @@ import { describe, expect, it } from 'vitest';
 // Owner files are read unconditionally: a missing owner stylesheet must fail
 // the gate, and so must a broken main.ts import order (cascade contract).
 const uiRoot = resolve(__dirname, '../../..');
-const globalCss = readFileSync(resolve(uiRoot, 'src/style.css'), 'utf8');
+const globalCss = readFileSync(resolve(uiRoot, 'src/styles/base.css'), 'utf8');
 const settingsCss = readFileSync(
   resolve(uiRoot, 'src/features/settings/settings.css'),
   'utf8',
@@ -49,8 +49,8 @@ function hasSelector(preludes: string[], selector: string): boolean {
 const globalPreludes = selectorPreludes(globalCss);
 
 describe('feature style ownership (Task E3b)', () => {
-  it('loads the owner stylesheets between style.css and the skins, once each', () => {
-    // main.ts decides the cascade; the owner files must sit after style.css
+  it('loads the owner stylesheets between base.css and the skins, once each', () => {
+    // main.ts decides the cascade; the owner files must sit after base.css
     // and before both skin stylesheets, exactly once each.
     const cssImportOrder: string[] = [];
     for (const match of mainTs.matchAll(/^import\s+"(\.\/[^"]+\.css)";?/gm)) {
@@ -59,7 +59,7 @@ describe('feature style ownership (Task E3b)', () => {
     expect(cssImportOrder).toEqual([
       './styles/tokens.css',
       './styles/progress.css',
-      './style.css',
+      './styles/base.css',
       './app/shell/shell.css',
       './features/settings/settings.css',
       './app/shell/pageRecovery.css',
@@ -104,7 +104,7 @@ describe('feature style ownership (Task E3b)', () => {
     ];
 
     it.each(ownerSelectors)(
-      '%s is owned by settings.css and gone from style.css',
+      '%s is owned by settings.css and gone from base.css',
       (selector) => {
         expect(hasSelector(ownerPreludes, selector)).toBe(true);
         expect(hasSelector(globalPreludes, selector)).toBe(false);
@@ -135,7 +135,7 @@ describe('feature style ownership (Task E3b)', () => {
     ];
 
     it.each(ownerSelectors)(
-      '%s is owned by pageRecovery.css and gone from style.css',
+      '%s is owned by pageRecovery.css and gone from base.css',
       (selector) => {
         expect(hasSelector(ownerPreludes, selector)).toBe(true);
         expect(hasSelector(globalPreludes, selector)).toBe(false);
@@ -146,7 +146,7 @@ describe('feature style ownership (Task E3b)', () => {
   describe('app/shell owns shell chrome (Task E3c)', () => {
     const ownerPreludes = selectorPreludes(shellCss);
     // Each entry: the bare/owned prelude that must live in shell.css.
-    // html.compact .playlists a stays in style.css with the shared compact
+    // html.compact .playlists a stays in base.css with the shared compact
     // group (style-ownership §3), so bare preludes are asserted instead of
     // substring matching which would also hit the compound selectors.
     const ownerSelectors = [
@@ -177,11 +177,11 @@ describe('feature style ownership (Task E3b)', () => {
     ];
 
     it.each(ownerSelectors)(
-      '%s is owned by shell.css and gone from style.css',
+      '%s is owned by shell.css and gone from base.css',
       (selector) => {
         expect(hasSelector(ownerPreludes, selector)).toBe(true);
         // The shared compact-mode group keeps html.compact .playlists a in
-        // style.css (style-ownership §3), so only a bare .playlists prelude
+        // base.css (style-ownership §3), so only a bare .playlists prelude
         // would mean the shell rule was left behind.
         const bareSelectorLeft =
           selector === '.playlists' &&
@@ -211,10 +211,8 @@ describe('feature style ownership (Task E3b)', () => {
       }
     });
 
-    it('keeps the aurora paper-layer hiding in style.css (shell background, §3)', () => {
-      expect(globalCss).toContain(
-        ':root[data-skin="aurora"] .paper-base',
-      );
+    it('keeps the aurora paper-layer hiding in base.css (shell background, §3)', () => {
+      expect(globalCss).toContain(':root[data-skin="aurora"] .paper-base');
       expect(shellCss).not.toContain(':root[data-skin="aurora"] .paper-base');
     });
   });
@@ -229,11 +227,11 @@ describe('feature style ownership (Task E3b)', () => {
     ];
 
     it.each(ownerSelectors)(
-      '%s is owned by lyrics.css and gone from style.css',
+      '%s is owned by lyrics.css and gone from base.css',
       (selector) => {
         expect(hasSelector(ownerPreludes, selector)).toBe(true);
         // The shared compact-mode group keeps html.compact .lyric-scroll in
-        // style.css (style-ownership §3), so only a bare .lyric-scroll
+        // base.css (style-ownership §3), so only a bare .lyric-scroll
         // prelude would mean the feature rule was left behind.
         const bareSelectorLeft =
           selector === '.lyric-scroll' &&

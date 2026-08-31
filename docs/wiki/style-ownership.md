@@ -4,7 +4,9 @@
 
 > **E3a 执行更正（2026-08-31）**：已删除本清单证明为零引用的 17 个 selector family 与 9 个 token 名称；删除死规则后又暴露并删除了 0 使用的 `--accent-deep`。原清单把 `.artists/.artist/.ah` 整组判死是错误的：精确类名 `.artist` 正被 Search / History / Playlist / Stats 使用，因此整组保留，等待跨 Feature owner 收敛。下文行号与数量仍是 E1 基线口径，E3a 结果以本注记及 §4.2/§4.6/§7 的更正为准。
 
-> **E3b 执行更正（2026-08-31，HEAD `3edd059f`）**：三组 owner 规则已从 style.css **原样迁出**到 Feature/shell-local CSS（声明值、选择器名、顺序均不变；skin 变体随本体同迁）。本文下文凡称 §4.5 Settings / §4.1 `.page-recovery*` / §4.3 Lyrics 规则"住在 style.css"的行号与陈述均已失效，以本注记和下方 §0.1 现状为准。观察项：`.lyric-right` 在当前生产 Vue 模板中 0 引用（a659a915 舞台重建时孤儿化，§4.3 原使用证据有误），仅观察、不删除。
+> **E3b 执行更正（2026-08-31，HEAD `3edd059f`）**：Settings/PageRecovery/Lyrics 三组 owner 规则已从 style.css **原样迁出**到 Feature/shell-local CSS（声明值、选择器名、顺序均不变；skin 变体随本体同迁）。
+>
+> **E3c/E3d/E4 执行更正（2026-08-31，最终状态）**：E3c 将 shell chrome 迁入 `app/shell/shell.css`；E3d 将 Newsprint Home 组迁入 `NewsprintHome.vue` scoped、`.recent` 迁入 `QueuePanel.vue` scoped、删除经生产引用 + 截图前后对比证明的死规则（`.artists`/`.artist .ah`/`.artist .nm`/dark `.toast`/`.toast-2`），裸 `.artist` 为跨 Feature 活跃共享选择器保留于 shared；`.page-head` 全家为 NewsprintHome + LoginView 双调用方的共享 page chrome，保留 global。E4 在 style.css 只剩 tokens + shared 时执行：`git mv` 为 **`ui/src/styles/base.css`**。§4 各表行号全部为 E1 存档口径。观察项：`.lyric-right` 生产模板 0 引用（a659a915 孤儿化），仅观察、不删除。
 
 ## 0. 目录现状
 
@@ -35,31 +37,40 @@ CSS 载入顺序（`ui/src/main.ts:19-23`，cascade 事实基础）：
 
 `ui/index.html:8-22` 的内联 FOUC 脚本在任何 CSS 加载前设置 `data-skin`（默认 `aurora`）与 `data-mode`（默认 `light`），因此所有 `[data-skin]/[data-mode]` 限定块自首次绘制即生效。
 
-### 0.1 E3b 后 tree 与载入顺序（2026-08-31，权威现状）
+### 0.1 Phase E 完成后 tree 与载入顺序（2026-08-31，权威现状）
 
 ```text
 ui/src/
-├── style.css                              1033 行：legacy tokens + shared rules + shell chrome + Newsprint Home + cross-feature selectors（E3b 剩余，待 E3c/E3d 处理）
 ├── styles/
-│   ├── tokens.css / progress.css          （不变）
-│   └── skins/aurora.css / newsprint.css   （不变）
-├── app/shell/pageRecovery.css             69 行：.page-recovery* 全家（原 style.css §4.1 条目）
+│   ├── base.css                           370 行：legacy tokens + reset + scrollbar + paper + .scroll +
+│   │                                        .page-head（shared page chrome）+ svg + .artist（跨 Feature 共享）+
+│   │                                        .list-view/.song-row/.spinner + html.compact + reduced-motion
+│   ├── tokens.css                         semantic tokens（不变）
+│   ├── progress.css                       PlayerProgress（不变）
+│   └── skins/aurora.css / newsprint.css   skin overrides（不变）
+├── app/shell/
+│   ├── shell.css                          388 行：.app/.sidebar 全家/.topbar 组/.titlebar 全家/
+│   │                                        .app.lyric-fullscreen-active + dark shell 份额
+│   └── pageRecovery.css                   69 行：.page-recovery* 全家
 └── features/
-    ├── settings/settings.css              61 行：.settings-*/.diag-*/.status-list + 两 skin 变体（原 §4.5）
-    └── lyrics/lyrics.css                  107 行：.lyric-* 全家 + html.lyric-left + lyric dark overrides（原 §4.3）
-```
+    ├── settings/settings.css              61 行：.settings-*/.diag-*/.status-list + 两 skin 变体
+    ├── lyrics/lyrics.css                  107 行：.lyric-* 全家 + html.lyric-left + lyric dark overrides
+    ├── home/NewsprintHome.vue (scoped)    .feature/.hero/.side-list/.section-bar/.grid/.card 全家 +
+    │                                      dark 份额（既有 warm side-list dark 规则保留为唯一来源）
+    └── playback/QueuePanel.vue (scoped)   .recent 全家 + dark hover + html.compact 两条
 
-CSS 载入顺序（`ui/src/main.ts`，E3b 后 8 项；import-order 契约由 `styleOwnership.test.ts` 锁定）：
+CSS 载入顺序（`ui/src/main.ts`，最终 9 项；import-order 契约由 `styleOwnership.test.ts` 锁定）：
 
 ```text
 1. ./styles/tokens.css
 2. ./styles/progress.css
-3. ./style.css
-4. ./features/settings/settings.css
-5. ./app/shell/pageRecovery.css
-6. ./features/lyrics/lyrics.css
-7. ./styles/skins/aurora.css
-8. ./styles/skins/newsprint.css
+3. ./styles/base.css          ← E4 rename（原 style.css）
+4. ./app/shell/shell.css
+5. ./features/settings/settings.css
+6. ./app/shell/pageRecovery.css
+7. ./features/lyrics/lyrics.css
+8. ./styles/skins/aurora.css
+9. ./styles/skins/newsprint.css
 ```
 
 ## 1. 五类清点总览
@@ -78,7 +89,7 @@ usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确�
 
 ## 2. Token 逐项清单
 
-### 2.1 Legacy tokens（style.css 拥有，E3 目标：并入 `styles/base.css` 或按 E3 决议迁移）
+### 2.1 Legacy tokens（E4 后由 `styles/base.css` 拥有；逐项替换须按 §2.3 逐皮肤 QA）
 
 `:root` 基础块（style.css:3-50）定义 25 个名称；其中 17 个在 aurora / aurora-dark / dark 变体块重定义。逐项：
 
@@ -179,7 +190,7 @@ usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确�
 
 复算：`rg -n -F -e '--border:' ui/src`（0 命中）vs `rg -n -F -e 'var(--border' ui/src`（1 命中）。
 
-## 3. Shared selectors（style.css，owner = 全局，E3 目标 `styles/base.css`）
+## 3. Shared selectors（E4 后由 `styles/base.css` 拥有，owner = 全局）
 
 | 组 | style.css 行 | 使用证据 | 状态 |
 | :--- | :--- | :--- | :--- |
@@ -268,7 +279,9 @@ E3a 已删除经精确模板 class、动态 class 与 DOM selector 三路检索�
 
 ## 7. E3 输入摘要（E3a/E3b 执行后存档）
 
-> **E3b 完成记录（2026-08-31，4 commit）**：`f8049c45` Settings → `features/settings/settings.css`；`4996e399` PageRecovery → `app/shell/pageRecovery.css`（PageRecoveryBoundary 测试同步改读 owner 文件）；`9cf52203` Lyrics → `features/lyrics/lyrics.css`；`3edd059f` SettingsView 死 fallback 收敛。三文件在 main.ts 中紧接 style.css、两 skin CSS 之前导入（§0.1）；source-level gate `ui/src/test/__tests__/styleOwnership.test.ts` 锁定 selector 归属与 import-order 契约。视觉验证：Aurora 6/6 + Newsprint 2/2 PNG hash 与 E2 基线一致。E3b 共 4 个实现 commit，随后 `77952d9f` 为 gate/doc correction（无条件 readFileSync 加固 + import-order 契约 + 本文档 E3b 记录）。**剩余工作顺序**：E3c Shell chrome 迁移 → E3d Newsprint Home 与 `.page-head`/`.recent`/`.artist` ownership 收敛 → shared/token 收敛 → E4 `style.css` → `styles/base.css`（rename，验收不设行数阈值）。style.css 现仍承载 legacy tokens、shared rules、shell chrome、Newsprint Home 与跨 Feature selectors（§0.1），并非只剩 shared。
+> **E3b 完成记录（2026-08-31，4 commit）**：`f8049c45` Settings → `features/settings/settings.css`；`4996e399` PageRecovery → `app/shell/pageRecovery.css`（PageRecoveryBoundary 测试同步改读 owner 文件）；`9cf52203` Lyrics → `features/lyrics/lyrics.css`；`3edd059f` SettingsView 死 fallback 收敛。三文件在 main.ts 中紧接 style.css、两 skin CSS 之前导入（§0.1）；source-level gate `ui/src/test/__tests__/styleOwnership.test.ts` 锁定 selector 归属与 import-order 契约。视觉验证：Aurora 6/6 + Newsprint 2/2 PNG hash 与 E2 基线一致。E3b 共 4 个实现 commit，随后 `77952d9f` 为 gate/doc correction（无条件 readFileSync 加固 + import-order 契约 + 本文档 E3b 记录）。**全部已完成**：E3c（shell chrome）→ E3d（home/.recent/.artist 收敛）→ shared 收敛 + E4 rename（最终顺序见 §0.1）。Phase E 结束时 base.css 仅含 tokens 与 shared 规则。
+
+> **E3c/E3d/E4 完成记录（2026-08-31）**：`c35915f0` refactor(shell): colocate shell chrome styles（shell.css 388 行 + gate shell suite + import-order 9 项契约）；`a61e0252` refactor(home): colocate Newsprint Home styles and converge cross-feature selectors（NewsprintHome/QueuePanel scoped 迁移 + 死规则删除 + `.artist` 归 shared）；E4 rename commit `git mv ui/src/style.css ui/src/styles/base.css` + main.ts/测试/本文档引用更新。E4 门禁核验：迁移后 style.css 仅含 `:root` token 块、reset、scrollbar、paper、`.scroll`、`.page-head`（shared page chrome）、`svg`、`.artist`（跨 Feature 共享）、`.list-view`/`.song-row`/`.spinner`、`html.compact`（compact 组含 `.playlists a`/`.lyric-scroll` 留守）、`@media prefers-reduced-motion`——无任何 Feature/shell 专属选择器。legacy tokens 因 §2.3 映射表 dark 组合值不同而全部保留于 base.css（替换须逐皮肤×模式 QA，超出本批次授权）。
 
 1. **E3a 已完成**：§4.4 死 playback 组与 §4.6 经复核的死组（`.btn-*`/`.dim`/`.lyric-container`/`.func*`）已经删除；`.artists*` 因 `.artist` 活跃而撤销删除结论。
 2. **需先拆共用**：`.page-head`（3 个调用方跨 feature）、`.recent`（NewsprintHome + QueuePanel）——先决定 owner 再动。

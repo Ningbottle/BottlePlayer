@@ -17,7 +17,7 @@ describe('Aurora font assets', () => {
   });
 
   it('Aurora --font-sans uses Noto Serif SC (serif), not SF Pro / MiSans', () => {
-    const css = readFileSync(resolve(uiRoot, 'src', 'style.css'), 'utf8');
+    const css = readFileSync(resolve(uiRoot, 'src', 'styles', 'base.css'), 'utf8');
     const auroraBlock = css.slice(css.indexOf('[data-skin="aurora"]'));
     const sansDecl = auroraBlock.slice(
       auroraBlock.indexOf('--font-sans'),

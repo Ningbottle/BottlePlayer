@@ -18,7 +18,7 @@ import "@fontsource/noto-serif-sc/400.css";
 import "@fontsource/noto-serif-sc/700.css";
 import "./styles/tokens.css";
 import "./styles/progress.css";
-import "./style.css";
+import "./styles/base.css";
 import "./app/shell/shell.css";
 import "./features/settings/settings.css";
 import "./app/shell/pageRecovery.css";

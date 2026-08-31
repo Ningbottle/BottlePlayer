@@ -3,7 +3,7 @@ import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const uiRoot = resolve(__dirname, '../../..');
-const globalCss = readFileSync(resolve(uiRoot, 'src/style.css'), 'utf8');
+const globalCss = readFileSync(resolve(uiRoot, 'src/styles/base.css'), 'utf8');
 const skinCss = [
   readFileSync(resolve(uiRoot, 'src/styles/skins/aurora.css'), 'utf8'),
   readFileSync(resolve(uiRoot, 'src/styles/skins/newsprint.css'), 'utf8'),
