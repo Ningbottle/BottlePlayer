@@ -113,15 +113,14 @@ async function downloadAndInstall() {
       return;
     }
     await update.downloadAndInstall((event) => {
-      const progressData = event.data as { contentLength?: number; chunkLength?: number } | undefined;
       switch (event.event) {
         case 'Started':
-          totalBytes = progressData?.contentLength || 0;
+          totalBytes = event.data.contentLength || 0;
           downloadedBytes = 0;
           updateProgress.value = 0;
           break;
         case 'Progress':
-          downloadedBytes += progressData!.chunkLength!;
+          downloadedBytes += event.data.chunkLength;
           if (totalBytes > 0) {
             updateProgress.value = Math.round((downloadedBytes / totalBytes) * 100);
           }

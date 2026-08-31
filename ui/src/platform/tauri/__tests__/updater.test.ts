@@ -25,6 +25,37 @@ const checkMock = check as unknown as ReturnType<typeof vi.fn>;
 const relaunchMock = relaunch as unknown as ReturnType<typeof vi.fn>;
 const openUrlMock = openUrl as unknown as ReturnType<typeof vi.fn>;
 
+// ── Compile-time event contract ─────────────────────────────────────────
+// The plugin event is a discriminated union: only `Progress` requires
+// `data.chunkLength`. These top-level satisfies checks make vue-tsc enforce
+// that shape; the @ts-expect-error below is consumed by a real type error on
+// the old loose interface (which wrongly accepted a data-less Progress).
+const validStartedEvent = {
+  event: 'Started',
+  data: { contentLength: 1000 },
+} satisfies UpdateDownloadEvent;
+
+const validProgressEvent = {
+  event: 'Progress',
+  data: { chunkLength: 250 },
+} satisfies UpdateDownloadEvent;
+
+const validFinishedEvent = {
+  event: 'Finished',
+} satisfies UpdateDownloadEvent;
+
+void validStartedEvent;
+void validProgressEvent;
+void validFinishedEvent;
+
+const invalidProgressWithoutChunk = {
+  event: 'Progress',
+  // @ts-expect-error Progress events must carry chunkLength.
+  data: {},
+} satisfies UpdateDownloadEvent;
+
+void invalidProgressWithoutChunk;
+
 describe('platform/tauri updater adapter', () => {
   beforeEach(() => {
     checkMock.mockReset();
@@ -67,8 +98,8 @@ describe('platform/tauri updater adapter', () => {
     await update!.downloadAndInstall((e) => events.push(e));
 
     expect(events.map((e) => e.event)).toEqual(['Started', 'Progress', 'Finished']);
-    expect(events[0].data).toEqual({ contentLength: 1000 });
-    expect(events[1].data).toEqual({ chunkLength: 250 });
+    expect(events[0]).toEqual({ event: 'Started', data: { contentLength: 1000 } });
+    expect(events[1]).toEqual({ event: 'Progress', data: { chunkLength: 250 } });
   });
 
   it('checkForUpdate rejects when the plugin throws (caller keeps its UI error path)', async () => {
