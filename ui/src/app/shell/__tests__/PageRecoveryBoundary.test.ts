@@ -389,7 +389,7 @@ describe('PageRecoveryBoundary', () => {
   });
 
   it('keeps the recovery state unframed', () => {
-    const styleSource = readFileSync(resolve(__dirname, '../../../style.css'), 'utf8');
+    const styleSource = readFileSync(resolve(__dirname, '../pageRecovery.css'), 'utf8');
     const panelRule = styleSource.match(/\.page-recovery__panel\s*\{([\s\S]*?)\}/)?.[1] ?? '';
     expect(panelRule).toMatch(/width/);
     expect(panelRule).not.toMatch(/background|box-shadow|border|border-radius/);
