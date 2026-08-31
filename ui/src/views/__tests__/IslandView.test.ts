@@ -20,11 +20,15 @@ vi.mock('../../playback/sync/playerSync', () => ({
   }),
 }));
 
-vi.mock('../../platform/tauri/windows', () => ({
-  isTauriRuntime: vi.fn(() => false),
-  settleCurrentOverlay: vi.fn(async () => {}),
-  moveCurrentOverlayTo: vi.fn(async () => {}),
-}));
+vi.mock('../../platform/tauri/windows', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../platform/tauri/windows')>();
+  return {
+    ...actual,
+    isTauriRuntime: vi.fn(() => false),
+    settleCurrentOverlay: vi.fn(async () => {}),
+    moveCurrentOverlayTo: vi.fn(async () => {}),
+  };
+});
 
 vi.mock('../../shared/motion/motion', () => ({
   isReducedMotion: vi.fn(() => true),

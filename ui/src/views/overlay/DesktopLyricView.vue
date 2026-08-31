@@ -7,7 +7,7 @@
  * 时间轴经 playerSync 同步。窗口固定在屏幕顶部，可横向拖放或选择锚点。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { closeCurrentWindow, onCurrentWindowResized, readCurrentWindowFrame } from '../../platform/tauri/windows';
 import { PhGear, PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
 import { onPlayerState, sendPlayerCommand, applySyncedTheme, pinOverlayThemeDark, type PlayerSyncState } from '../../playback/index';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay, loadLyricPrefs, saveLyricPrefs, saveLyricSize } from '../../platform/tauri/windows';
@@ -106,7 +106,7 @@ function onDragRelease(): void {
 
 async function closeBar(): Promise<void> {
   if (isTauriRuntime()) {
-    await getCurrentWindow().close();
+    await closeCurrentWindow();
   }
 }
 
@@ -120,12 +120,11 @@ onMounted(async () => {
   document.addEventListener('mouseup', onDragRelease);
 
   if (isTauriRuntime()) {
-    const win = getCurrentWindow();
-    resizeUnlisten = await win.onResized(({ payload }) => {
+    resizeUnlisten = await onCurrentWindowResized(({ payload }) => {
       window.clearTimeout(sizeTimer);
       sizeTimer = window.setTimeout(() => {
-        void win.scaleFactor().then((factor) => {
-          saveLyricSize(payload.width / (factor || 1));
+        void readCurrentWindowFrame().then(({ scaleFactor }) => {
+          saveLyricSize(payload.width / (scaleFactor || 1));
         });
       }, 300);
     });

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { minimizeCurrentWindow } from '../../platform/tauri/windows';
 import { Minimize2, Minus } from '@lucide/vue';
 import { setLyricFullscreen } from '../../api/lyricFullscreen';
 
@@ -17,7 +17,7 @@ const props = withDefaults(
 );
 
 async function minimize(): Promise<void> {
-  try { await getCurrentWindow().minimize(); } catch (e) { console.warn('Tauri window minimize failed', e); }
+  try { await minimizeCurrentWindow(); } catch (e) { console.warn('Tauri window minimize failed', e); }
 }
 
 function exitFullscreen(): void {

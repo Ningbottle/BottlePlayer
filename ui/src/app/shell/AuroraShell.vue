@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { toggleMaximizeCurrentWindow } from '../../platform/tauri/windows';
 import WindowControls from './WindowControls.vue';
 
 withDefaults(defineProps<{
@@ -11,7 +11,7 @@ withDefaults(defineProps<{
 function handleTitlebarDoubleClick(event: MouseEvent): void {
   const target = event.target;
   if (target instanceof HTMLElement && target.closest('.titlebar-controls')) return;
-  getCurrentWindow().toggleMaximize().catch(() => {});
+  toggleMaximizeCurrentWindow().catch(() => {});
 }
 </script>
 

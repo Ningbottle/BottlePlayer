@@ -7,9 +7,13 @@
  * 右键选择左/中/右锚点并记忆位置。
  */
 import { computed, onBeforeUnmount, onMounted, ref, nextTick } from 'vue';
-import { getCurrentWindow } from '@tauri-apps/api/window';
-import { getCurrentWebview } from '@tauri-apps/api/webview';
-import { LogicalSize, PhysicalPosition } from '@tauri-apps/api/dpi';
+import {
+  readCurrentWindowFrame,
+  setCurrentWindowLogicalSize,
+  setCurrentWindowPhysicalPosition,
+  makeCurrentOverlayTransparent,
+  closeCurrentWindow,
+} from '../../platform/tauri/windows';
 import { PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
 import { onPlayerState, sendPlayerCommand, applySyncedTheme, type PlayerSyncState } from '../../playback/index';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay } from '../../platform/tauri/windows';
@@ -51,37 +55,24 @@ let nativeReady: Promise<void> = Promise.resolve();
 
 async function applyWindowSize(size: { width: number; height: number }): Promise<void> {
   if (!isTauriRuntime()) return;
-  const win = getCurrentWindow();
-  const [pos, old, scaleFactor] = await Promise.all([
-    win.outerPosition(),
-    win.outerSize(),
-    win.scaleFactor(),
-  ]);
+  const { position: pos, size: old, scaleFactor } = await readCurrentWindowFrame();
   // Expand downward from the pill: top edge unchanged, card centered on the pill.
   // Position APIs use physical pixels while setSize uses logical pixels.
   const cx = pos.x + old.width / 2;
   const targetPhysicalWidth = size.width * scaleFactor;
-  await win.setSize(new LogicalSize(size.width, size.height));
-  await win.setPosition(new PhysicalPosition(
+  await setCurrentWindowLogicalSize(size.width, size.height);
+  await setCurrentWindowPhysicalPosition(
     Math.round(cx - targetPhysicalWidth / 2),
     TOP_Y,
-  ));
+  );
 }
 
 async function prepareNativeWindow(): Promise<void> {
   if (!isTauriRuntime()) return;
 
-  const win = getCurrentWindow();
-  await Promise.allSettled([
-    win.setBackgroundColor([0, 0, 0, 0]),
-    getCurrentWebview().setBackgroundColor([0, 0, 0, 0]),
-  ]);
+  await makeCurrentOverlayTransparent();
 
-  const [pos, size, scaleFactor] = await Promise.all([
-    win.outerPosition(),
-    win.outerSize(),
-    win.scaleFactor(),
-  ]);
+  const { position: pos, size, scaleFactor } = await readCurrentWindowFrame();
   const compactWidth = Math.round(COLLAPSED_SIZE.width * scaleFactor);
   const compactHeight = Math.round(COLLAPSED_SIZE.height * scaleFactor);
   const staleExpandedWindow =
@@ -93,7 +84,7 @@ async function prepareNativeWindow(): Promise<void> {
   if (staleExpandedWindow) {
     await applyWindowSize(COLLAPSED_SIZE);
   } else if (pos.y !== TOP_Y) {
-    await win.setPosition(new PhysicalPosition(pos.x, TOP_Y));
+    await setCurrentWindowPhysicalPosition(pos.x, TOP_Y);
   }
   windowExpanded = false;
 }
@@ -235,7 +226,7 @@ async function pickAnchor(anchor: string): Promise<void> {
 
 async function closeIsland(): Promise<void> {
   if (isTauriRuntime()) {
-    await getCurrentWindow().close();
+    await closeCurrentWindow();
   }
 }
 

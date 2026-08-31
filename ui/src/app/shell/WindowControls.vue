@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { getCurrentWindow } from '@tauri-apps/api/window';
+import { minimizeCurrentWindow, toggleMaximizeCurrentWindow, closeCurrentWindow } from '../../platform/tauri/windows';
 
 withDefaults(defineProps<{
   showMaximize?: boolean;
@@ -8,15 +8,15 @@ withDefaults(defineProps<{
 });
 
 async function minimize(): Promise<void> {
-  try { await getCurrentWindow().minimize(); } catch (e) { console.warn('Tauri window minimize failed', e); }
+  try { await minimizeCurrentWindow(); } catch (e) { console.warn('Tauri window minimize failed', e); }
 }
 
 async function toggleMaximize(): Promise<void> {
-  try { await getCurrentWindow().toggleMaximize(); } catch (e) { console.warn('Tauri window toggle maximize failed', e); }
+  try { await toggleMaximizeCurrentWindow(); } catch (e) { console.warn('Tauri window toggle maximize failed', e); }
 }
 
 async function close(): Promise<void> {
-  try { await getCurrentWindow().close(); } catch (e) { console.warn('Tauri window close failed', e); }
+  try { await closeCurrentWindow(); } catch (e) { console.warn('Tauri window close failed', e); }
 }
 </script>
 

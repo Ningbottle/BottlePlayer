@@ -7,7 +7,77 @@
  */
 import { WebviewWindow } from '@tauri-apps/api/webviewWindow';
 import { getCurrentWindow, currentMonitor } from '@tauri-apps/api/window';
-import { PhysicalPosition } from '@tauri-apps/api/dpi';
+import { getCurrentWebview } from '@tauri-apps/api/webview';
+import { PhysicalPosition, LogicalSize } from '@tauri-apps/api/dpi';
+
+// ── Neutral window action adapters ──────────────────────────────────────
+// Feature/App/View code consumes these; raw Tauri window/webview objects
+// and dpi types never leave this module.
+
+export type Unlisten = () => void;
+
+export interface WindowPosition { x: number; y: number; }
+export interface WindowSize { width: number; height: number; }
+export interface WindowFrame {
+  position: WindowPosition;
+  size: WindowSize;
+  scaleFactor: number;
+}
+
+/** Error semantics live with the caller (shell buttons warn, overlays swallow). */
+export async function minimizeCurrentWindow(): Promise<void> {
+  await getCurrentWindow().minimize();
+}
+
+export async function toggleMaximizeCurrentWindow(): Promise<void> {
+  await getCurrentWindow().toggleMaximize();
+}
+
+export async function closeCurrentWindow(): Promise<void> {
+  await getCurrentWindow().close();
+}
+
+export async function readCurrentWindowFrame(): Promise<WindowFrame> {
+  const win = getCurrentWindow();
+  const [position, outer, scaleFactor] = await Promise.all([
+    win.outerPosition(),
+    win.outerSize(),
+    win.scaleFactor(),
+  ]);
+  return {
+    position: { x: position.x, y: position.y },
+    size: { width: outer.width, height: outer.height },
+    scaleFactor,
+  };
+}
+
+export async function setCurrentWindowLogicalSize(width: number, height: number): Promise<void> {
+  await getCurrentWindow().setSize(new LogicalSize(width, height));
+}
+
+export async function setCurrentWindowPhysicalPosition(x: number, y: number): Promise<void> {
+  await getCurrentWindow().setPosition(new PhysicalPosition(x, y));
+}
+
+export async function makeCurrentOverlayTransparent(): Promise<void> {
+  await Promise.allSettled([
+    getCurrentWindow().setBackgroundColor([0, 0, 0, 0]),
+    getCurrentWebview().setBackgroundColor([0, 0, 0, 0]),
+  ]);
+}
+
+/**
+ * Resized handler receives PHYSICAL pixels (as Tauri reports them). Callers
+ * that need logical units read the scale factor via readCurrentWindowFrame()
+ * or the current window's scaleFactor — no raw window handle is handed out.
+ */
+export async function onCurrentWindowResized(
+  handler: (event: { payload: WindowSize }) => void,
+): Promise<Unlisten> {
+  return getCurrentWindow().onResized((event) => {
+    handler({ payload: { width: event.payload.width, height: event.payload.height } });
+  });
+}
 
 export type OverlayKind = 'island' | 'lyric';
 export type OverlayToggleResult = 'opened' | 'closed' | 'failed';
