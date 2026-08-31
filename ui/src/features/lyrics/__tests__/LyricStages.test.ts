@@ -922,7 +922,7 @@ describe('Aurora lyric focus modes', () => {
     isReducedMotionMock.mockReturnValue(false);
   });
 
-  it('fullscreen keeps lightweight playback controls available', () => {
+  it('fullscreen keeps lightweight playback controls available', async () => {
     const fullscreen = mount(AuroraLyricStage, {
       props: { model: createModel({ fullscreen: true, duration: 240 }) },
     });
@@ -962,6 +962,9 @@ describe('Aurora lyric focus modes', () => {
     expect(
       fullscreen.find('[data-test="lyric-content-column"] [data-test="aurora-fs-controls"]').exists(),
     ).toBe(false);
+
+    await exitRow.find('[data-test="fs-exit-fullscreen"]').trigger('click');
+    expect(fullscreen.emitted('exit-fullscreen')).toHaveLength(1);
   });
 
   it('clicking a lyric line emits seek-line with that line timestamp', async () => {

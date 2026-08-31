@@ -449,7 +449,11 @@ onBeforeUnmount(() => {
         @click.stop
         @dblclick.stop
       >
-        <FullscreenWindowControls :show-minimize="false" :show-exit="true" />
+        <FullscreenWindowControls
+          :show-minimize="false"
+          :show-exit="true"
+          @exit="emit('exit-fullscreen')"
+        />
       </div>
     </div>
 

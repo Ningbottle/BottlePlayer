@@ -226,6 +226,7 @@ onUnmounted(() => {
     v-if="lyricFullscreen"
     class="fs-controls-overlay"
     :show-exit="themeStore.skinId.value !== 'aurora'"
+    @exit="setLyricFullscreen(false)"
   />
 </template>
 

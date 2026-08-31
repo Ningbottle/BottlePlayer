@@ -12,16 +12,8 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 import FullscreenWindowControls from '../FullscreenWindowControls.vue';
-import { lyricFullscreen, setLyricFullscreen } from '../../../features/lyrics';
 
 describe('FullscreenWindowControls', () => {
-  beforeEach(() => {
-    setLyricFullscreen(true);
-  });
-
-  afterEach(() => {
-    setLyricFullscreen(false);
-  });
 
   it('renders exactly 2 buttons by default', () => {
     const wrapper = mount(FullscreenWindowControls);
@@ -69,10 +61,16 @@ describe('FullscreenWindowControls', () => {
     expect(wrapper.find('.close').exists()).toBe(false);
   });
 
-  it('exit-fullscreen button sets lyricFullscreen to false', async () => {
+  it('exit-fullscreen button emits exit event', async () => {
     const wrapper = mount(FullscreenWindowControls);
     await wrapper.find('[data-test="fs-exit-fullscreen"]').trigger('click');
-    expect(lyricFullscreen.value).toBe(false);
+    expect(wrapper.emitted('exit')).toHaveLength(1);
+  });
+
+  it('minimize button emits minimize event and calls window minimize', async () => {
+    const wrapper = mount(FullscreenWindowControls);
+    await wrapper.find('[data-test="fs-minimize"]').trigger('click');
+    expect(wrapper.emitted('minimize')).toHaveLength(1);
   });
 
   it('keeps the button-only overlay out of the native drag region', () => {
