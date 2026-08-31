@@ -18,7 +18,7 @@ vi.mock('../../api/userStore', () => ({
 vi.mock('../../app/update/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
 
 import SettingsView from '../SettingsView.vue';
-import { openExternalUrl } from '../../platform/tauri/updater';
+import { checkForUpdate, openExternalUrl, type UpdateDownloadEvent } from '../../platform/tauri/updater';
 import { playbackDiagnostics } from '../../playback/playbackDiagnostics';
 import { useAppearanceStore, __resetForTest as resetAppearance } from '../../app/appearance/appearanceStore';
 import { __resetForTest as resetTheme } from '../../app/appearance/themeStore';
@@ -32,6 +32,60 @@ beforeEach(() => {
 });
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+// Pre-C7b the progress callback read `event.data.chunkLength` directly, so a
+// malformed Progress event (no data) threw inside downloadAndInstall and the
+// UI surfaced 下载失败. The optional-chaining added in C7b silently treats it
+// as +0 bytes; this contract locks the original fail-loud behavior.
+describe('SettingsView update download failure semantics', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    resetAppearance();
+    resetTheme();
+  });
+
+  async function mountUpdateSection() {
+    const wrapper = mount(SettingsView);
+    await flushPromises();
+    const nav = wrapper.findAll('[data-test="settings-nav-item"]');
+    // The update nav item is the one labelled 更新.
+    const updateNav = nav.find((n) => n.text().includes('更新'))!;
+    await updateNav.trigger('click');
+    await flushPromises();
+    return wrapper;
+  }
+
+  it('surfaces 下载失败 instead of silently completing on a malformed Progress event', async () => {
+    vi.mocked(checkForUpdate).mockImplementation(async () => ({
+      version: '9.9.9',
+      body: '',
+      async downloadAndInstall(handler?: (e: UpdateDownloadEvent) => void) {
+        // Malformed stream: Progress carries no data at all.
+        const h = handler as (e: unknown) => void;
+        h({ event: 'Started', data: { contentLength: 1000 } });
+        h({ event: 'Progress' });
+        h({ event: 'Finished' });
+      },
+    }));
+
+    const wrapper = await mountUpdateSection();
+
+    // 检查更新 populates updateVersion → the 下载并安装 button appears.
+    const checkBtn = wrapper.findAll('button').find((b) => b.text().includes('检查更新'))!;
+    await checkBtn.trigger('click');
+    await flushPromises();
+    expect(wrapper.text()).toContain('发现新版本 v9.9.9');
+
+    const downloadBtn = wrapper.findAll('button').find((b) => b.text().includes('下载并安装'))!;
+    await downloadBtn.trigger('click');
+    await flushPromises();
+
+    // The malformed Progress must surface a failure, not complete silently.
+    expect(wrapper.text()).toContain('下载失败');
+    expect(wrapper.text()).not.toContain('✓ 更新已安装');
+    wrapper.unmount();
+  });
 });
 
 describe('SettingsView playback diagnostics', () => {
