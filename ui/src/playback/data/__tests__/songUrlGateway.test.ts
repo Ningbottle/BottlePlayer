@@ -22,6 +22,8 @@ describe('playback/data/songUrlGateway contract', () => {
       AlbumAudioID: 'AUDIO789',
       SongName: 'Song',
       ArtistName: 'Artist',
+      SingerName: 'Artist',
+      Duration: 180,
     };
     const res = await resolveTrack(track, 'lossless');
     expect(mockApiGet).toHaveBeenCalledWith('/song/url', {

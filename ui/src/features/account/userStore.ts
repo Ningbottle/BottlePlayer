@@ -13,7 +13,7 @@ import {
   notifyLocalLogout,
 } from './accountEffects';
 
-interface UserState {
+export interface UserState {
   isLoggedIn: boolean;
   deviceReady: boolean;
   userId: string;
@@ -61,7 +61,7 @@ function resetLoginState() {
   notifyAccountCleared();
 }
 
-interface VipDeviceResult {
+export interface VipDeviceResult {
   ok: boolean;
   error?: string;
 }

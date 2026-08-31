@@ -29,5 +29,10 @@ export function resolveTrack(
 }
 
 export function probeSongUrl(params: ProbeSongUrlParams): Promise<ProbeSongUrlResponse> {
-  return apiGet<ProbeSongUrlResponse>('/song/url', params);
+  return apiGet<ProbeSongUrlResponse>('/song/url', {
+    hash: params.hash,
+    ...(params.album_id !== undefined ? { album_id: params.album_id } : {}),
+    ...(params.album_audio_id !== undefined ? { album_audio_id: params.album_audio_id } : {}),
+    ...(params.quality !== undefined ? { quality: params.quality } : {}),
+  });
 }
