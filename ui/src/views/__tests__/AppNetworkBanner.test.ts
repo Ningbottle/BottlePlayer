@@ -101,7 +101,9 @@ vi.mock('../../features/library', async (importOriginal) => {
 
 vi.mock('../../playback/components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
 vi.mock('../../playback/components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
-vi.mock('../SearchView.vue', () => ({ default: { props: ['query'], template: '<main data-test="search-view" />' } }));
+vi.mock('../../features/search', () => ({
+  SearchView: { props: ['query'], template: '<main data-test="search-view" />' },
+}));
 vi.mock('../LyricView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../SettingsView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../StatsView.vue', () => ({ default: { template: '<main />' } }));

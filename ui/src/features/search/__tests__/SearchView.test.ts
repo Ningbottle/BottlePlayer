@@ -4,9 +4,9 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 
 const mockApiGet = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
+vi.mock('../../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
 
-vi.mock('../../playback/playerStore', () => ({
+vi.mock('../../../playback/playerStore', () => ({
   playAll: vi.fn(),
   playerStore: { currentTrack: null },
 }));
