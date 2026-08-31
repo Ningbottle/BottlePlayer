@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
-import { apiGet, describeBackendError } from '../platform/tauri/nativeClient';
+import { describeBackendError } from '../platform/tauri/nativeClient';
+import { searchSongs } from '../features/search/searchGateway';
 import { playAll, playerStore } from '../playback/index';
 import { Track as SongInfo, normalizeTrack } from '../shared/music/track';
 import AddToPlaylistModal from '../components/AddToPlaylistModal.vue';
@@ -31,7 +32,7 @@ async function performSearch() {
   loading.value = true;
   error.value = '';
   try {
-    const res = await apiGet<{ status: number; error?: string; data?: { lists: SongInfo[], total: number } }>('/search', {
+    const res = await searchSongs<SongInfo>({
       keywords: props.query,
       page: page.value,
       pagesize: 25
