@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import QRCode from 'qrcode';
-import { apiGet, apiPost } from '../platform/tauri/nativeClient';
+import { fetchQrKey, checkQrStatus, logoutAuth } from '../features/account/accountGateway';
 import { userStore, checkLoginStatus, claimVip, logoutLocal } from '../api/userStore';
 import { useThemeStore } from '../app/appearance/themeStore';
 
@@ -33,14 +33,14 @@ async function generateQrCode() {
 
   try {
     // 1. Get Key
-    const keyRes = await apiGet<any>('/login/qr/key');
+    const keyRes = await fetchQrKey();
     if (keyRes.status === 1 && keyRes.data && keyRes.data.qrcode) {
       qrKey.value = keyRes.data.qrcode;
       // KuGou may return the QR image under different field names.
-      const imgData = keyRes.data.qrcode_img || keyRes.data.imgurl || keyRes.data.img_url || keyRes.data.img;
+      const imgData = (keyRes.data.qrcode_img || keyRes.data.imgurl || keyRes.data.img_url || keyRes.data.img) as string | undefined;
       if (imgData) {
         qrCodeImg.value = imgData;
-      } else if (keyRes.data.qrcodeurl) {
+      } else if (typeof keyRes.data.qrcodeurl === 'string') {
         // Fall back to generating the QR code locally from the scan URL.
         qrCodeImg.value = await QRCode.toDataURL(keyRes.data.qrcodeurl, { width: 200, margin: 1 });
       }
@@ -91,7 +91,7 @@ function handleQrResponse(res: any) {
 async function pollLoop() {
   if (!qrKey.value || pollAbort) return;
   try {
-    const res = await apiGet<any>('/login/qr/check', { key: qrKey.value });
+    const res = await checkQrStatus(qrKey.value);
     pollFailures = 0;
     handleQrResponse(res);
   } catch (e) {
@@ -131,7 +131,7 @@ async function handleLogout() {
     try {
       // Backend clears session + device. Next QR scan binds a fresh
       // appid=1005 device, which KuGou recognises for VIP audio.
-      await apiPost<{ status: number }>('/auth/logout');
+      await logoutAuth();
     } catch (e) {
       console.warn('Logout backend call failed (continuing)', e);
     }

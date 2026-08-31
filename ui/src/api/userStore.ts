@@ -1,5 +1,11 @@
 import { reactive } from 'vue';
-import { apiGet, apiPost, describeBackendError } from '../platform/tauri/nativeClient';
+import { describeBackendError } from '../platform/tauri/nativeClient';
+import {
+  registerDevice,
+  fetchUserDetail,
+  fetchVipDetail,
+  claimDailyVipSong,
+} from '../features/account/accountGateway';
 import { resolveVip } from './vipResolver';
 import {
   notifyAccountReady,
@@ -136,10 +142,10 @@ export async function ensureVipDeviceReady(): Promise<VipDeviceResult> {
     // Forcing every restored session makes r_register_dev rotate a valid dfid
     // and destabilizes protected APIs. A real 20017 still has one isolated
     // refresh/retry in the native user-playlist route.
-    const result = await apiPost<any>('/register/dev');
+    const result = await registerDevice();
     const data = result?.data && typeof result.data === 'object' ? result.data : {};
     const registered = data.registered === true;
-    if (result?.status === 1 && registered && isUsableDfid(data.dfid)) {
+    if (result?.status === 1 && registered && isUsableDfid(typeof data.dfid === 'string' ? data.dfid : undefined)) {
       userStore.deviceReady = true;
       return { ok: true };
     }
@@ -161,7 +167,7 @@ export async function ensureVipDeviceReady(): Promise<VipDeviceResult> {
 export async function checkLoginStatus() {
   userStore.loading = true;
   try {
-    const detail = await apiGet<any>('/user/detail');
+    const detail = await fetchUserDetail();
     if (detail && detail.status === 1 && detail.data) {
       userStore.userId = String(detail.data.userid || '');
       userStore.username = detail.data.nickname || detail.data.username || '听歌用户';
@@ -187,7 +193,7 @@ export async function checkLoginStatus() {
       // 规则摘要：顶层 is_vip/vip_type → 付费；busi_vip[svip] 未过期 → 临时 SVIP；
       // 到期时间取所有来源里"最晚且未过期"的。旧"顶层短路"bug 已由测试锁定。
       try {
-        const vip = await apiGet<any>('/user/vip/detail');
+        const vip = await fetchVipDetail();
         const outcome = applyVipSnapshot(vip, { allowDowngrade: true });
         if (outcome === 'kept') {
           console.warn('VIP detail returned no authoritative state; keeping prior VIP state');
@@ -224,7 +230,7 @@ export async function claimVip() {
       return;
     }
     void notifyAccountReady(userStore.userId);
-    const listen = await apiGet<any>('/youth/listen/song');
+    const listen = await claimDailyVipSong();
 
     // 关键：listen_song 成功响应是 {status:1, data:"", error_msg:""} —— 不携带到期时间。
     // 成功与否只看 status===1；到期时间的权威来源是 /user/vip/detail (get_union_vip)。
@@ -232,7 +238,7 @@ export async function claimVip() {
       userStore.isVip = true;
       userStore.claimMessage = '领取成功，正在同步权益';
       try {
-        const vip = await apiGet<any>('/user/vip/detail');
+        const vip = await fetchVipDetail();
         const outcome = applyVipSnapshot(vip, { allowDowngrade: false });
         if (outcome === 'applied' && userStore.isVip) {
           userStore.claimMessage = userStore.vipEndDate
@@ -252,7 +258,7 @@ export async function claimVip() {
     if (Number(listen?.error_code) === 130012) {
       userStore.claimMessage = '今天已经领过了';
       try {
-        const vip = await apiGet<any>('/user/vip/detail');
+        const vip = await fetchVipDetail();
         applyVipSnapshot(vip, { allowDowngrade: false });
       } catch {
         /* keep "already claimed"; only authoritative VIP may update state */
