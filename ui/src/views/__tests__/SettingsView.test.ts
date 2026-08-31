@@ -2,9 +2,11 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('@tauri-apps/plugin-updater', () => ({ check: vi.fn().mockResolvedValue(null) }));
-vi.mock('@tauri-apps/plugin-process', () => ({ relaunch: vi.fn() }));
-vi.mock('@tauri-apps/plugin-opener', () => ({ openUrl: vi.fn().mockResolvedValue(undefined) }));
+vi.mock('../../platform/tauri/updater', () => ({
+  checkForUpdate: vi.fn().mockResolvedValue(null),
+  relaunchApp: vi.fn().mockResolvedValue(undefined),
+  openExternalUrl: vi.fn().mockResolvedValue(undefined),
+}));
 const mockApiGet = vi.fn();
 vi.mock('../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
 vi.mock('../../api/userStore', () => ({
@@ -16,7 +18,7 @@ vi.mock('../../api/userStore', () => ({
 vi.mock('../../app/update/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
 
 import SettingsView from '../SettingsView.vue';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import { openExternalUrl } from '../../platform/tauri/updater';
 import { playbackDiagnostics } from '../../playback/playbackDiagnostics';
 import { useAppearanceStore, __resetForTest as resetAppearance } from '../../app/appearance/appearanceStore';
 import { __resetForTest as resetTheme } from '../../app/appearance/themeStore';
@@ -326,7 +328,7 @@ describe('SettingsView appearance controls', () => {
     await flushPromises();
     await wrapper.get('[data-test="open-device-help"]').trigger('click');
 
-    expect(openUrl).toHaveBeenCalledWith('https://m.kugou.com/');
+    expect(openExternalUrl).toHaveBeenCalledWith('https://m.kugou.com/');
   });
 });
 

@@ -8,8 +8,8 @@ import { useThemeStore, __resetForTest } from '../../appearance/themeStore';
 import { createAppRouter } from '../../navigation/router';
 import { routeNames } from '../../navigation/routes';
 
-vi.mock('@tauri-apps/plugin-updater', () => ({
-  check: vi.fn().mockResolvedValue(null),
+vi.mock('../../../platform/tauri/updater', () => ({
+  checkForUpdate: vi.fn().mockResolvedValue(null),
 }));
 
 vi.mock('../../../platform/tauri/nativeClient', () => ({

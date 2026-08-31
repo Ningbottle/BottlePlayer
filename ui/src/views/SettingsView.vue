@@ -2,9 +2,12 @@
 import { ref, onMounted } from 'vue';
 import { apiGet, apiPost } from '../platform/tauri/nativeClient';
 import { checkLoginStatus, ensureVipDeviceReady, formatVipClaimFailure } from '../api/userStore';
-import { check } from '@tauri-apps/plugin-updater';
-import { relaunch } from '@tauri-apps/plugin-process';
-import { openUrl } from '@tauri-apps/plugin-opener';
+import {
+  checkForUpdate,
+  relaunchApp,
+  openExternalUrl,
+  type AvailableUpdate,
+} from '../platform/tauri/updater';
 import { useAppearanceStore, type AppearanceSettings } from '../app/appearance/appearanceStore';
 import { setSkippedVersion } from '../app/update/skippedVersion';
 import { playbackDiagnostics, type DiagEvent } from '../playback/index';
@@ -70,18 +73,18 @@ const updateVersion = ref('');
 const updateBody = ref('');
 const updateDownloading = ref(false);
 const updateProgress = ref(0);
-// 缓存 check() 结果，避免下载时重复请求
-let cachedUpdate: any = null;
+// 缓存 adapter 检查结果，避免下载时重复请求
+let cachedUpdate: AvailableUpdate | null = null;
 
-async function checkForUpdate() {
+async function runUpdateCheck() {
   updateLoading.value = true;
   updateStatus.value = '正在检查更新…';
   updateVersion.value = '';
   updateBody.value = '';
   cachedUpdate = null;
   try {
-    const update = await check();
-    cachedUpdate = update || null;
+    const update = await checkForUpdate();
+    cachedUpdate = update;
     if (update) {
       updateVersion.value = update.version;
       updateBody.value = update.body || '';
@@ -103,13 +106,13 @@ async function downloadAndInstall() {
   let downloadedBytes = 0;
   let totalBytes = 0;
   try {
-    const update = cachedUpdate || await check();
+    const update = cachedUpdate || await checkForUpdate();
     if (!update) {
       updateStatus.value = '没有可用更新';
       updateDownloading.value = false;
       return;
     }
-    await update.downloadAndInstall((event: any) => {
+    await update.downloadAndInstall((event) => {
       switch (event.event) {
         case 'Started':
           totalBytes = event.data?.contentLength || 0;
@@ -117,7 +120,7 @@ async function downloadAndInstall() {
           updateProgress.value = 0;
           break;
         case 'Progress':
-          downloadedBytes += event.data.chunkLength;
+          downloadedBytes += event.data?.chunkLength || 0;
           if (totalBytes > 0) {
             updateProgress.value = Math.round((downloadedBytes / totalBytes) * 100);
           }
@@ -128,7 +131,7 @@ async function downloadAndInstall() {
       }
     });
     updateStatus.value = '✓ 更新已安装，正在重启…';
-    await relaunch();
+    await relaunchApp();
   } catch (e: any) {
     updateStatus.value = '下载失败：' + (e?.message || String(e));
   } finally {
@@ -222,7 +225,7 @@ async function resetDevice() {
 
 async function openDeviceHelp() {
   try {
-    await openUrl('https://m.kugou.com/');
+    await openExternalUrl('https://m.kugou.com/');
   } catch (e: any) {
     deviceStatus.value = '无法打开系统浏览器：' + (e?.message || String(e));
   }
@@ -536,7 +539,7 @@ async function copyDiag() {
               从 GitHub Releases 拉取最新版本。发现新版本后可一键下载安装，重启应用即可生效。
             </p>
             <div class="settings-row">
-              <SkinButton variant="primary" size="md" :disabled="updateLoading || updateDownloading" @click="checkForUpdate">
+              <SkinButton variant="primary" size="md" :disabled="updateLoading || updateDownloading" @click="runUpdateCheck">
                 {{ updateLoading ? '检查中…' : '检查更新' }}
               </SkinButton>
               <SkinButton

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { check } from '@tauri-apps/plugin-updater';
+import { checkForUpdate } from '../../platform/tauri/updater';
 import { apiGet } from '../../platform/tauri/nativeClient';
 import { userStore } from '../../api/userStore';
 import { normalizePlaylists, type UserPlaylist } from '../../api/favoriteStore';
@@ -46,7 +46,7 @@ watch(skippedVersion, () => {
 }, { immediate: true });
 onMounted(async () => {
   try {
-    const update = await check();
+    const update = await checkForUpdate();
     if (update) {
       const skipped = getSkippedVersion();
       if (skipped !== update.version) {
