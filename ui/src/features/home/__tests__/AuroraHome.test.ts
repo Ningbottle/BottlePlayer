@@ -4,7 +4,7 @@ import { nextTick } from 'vue';
 import AuroraHome from '../AuroraHome.vue';
 import type { HomeSectionError, HomeSectionViewState, HomeViewModel } from '../homeViewModel';
 import type { Track } from '../../../shared/music/track';
-import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
+import type { HomeSection, PlaylistInfo } from '../homeFeedStore';
 import type { PlaybackPhase } from '../../../playback/playbackPhase';
 import { animateStagger } from '../../../shared/motion/motion';
 import { playerStore, togglePlay } from '../../../playback/playerStore';

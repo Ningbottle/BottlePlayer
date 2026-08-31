@@ -1,6 +1,6 @@
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from 'vue-router';
 
-import HomeView from '../../views/HomeView.vue';
+import { HomeView } from '../../features/home';
 import { LoginView } from '../../features/account';
 import { HistoryView, PlaylistView } from '../../features/library';
 import { LyricView } from '../../features/lyrics';

@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import HomeView from '../HomeView.vue';
-import { playAll, playPersonalFm, playTrack, playerStore } from '../../playback/playerStore';
-import { __resetHomeFeedForTest } from '../../api/homeFeedStore';
+import { playAll, playPersonalFm, playTrack, playerStore } from '../../../playback/playerStore';
+import { __resetHomeFeedForTest } from '../homeFeedStore';
 
 const mockApiGet = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: any[]) => mockApiGet(...args),
 }));
 
-vi.mock('../../playback/playerStore', () => ({
+vi.mock('../../../playback/playerStore', () => ({
   playTrack: vi.fn(),
   playAll: vi.fn(),
   playPersonalFm: vi.fn(),

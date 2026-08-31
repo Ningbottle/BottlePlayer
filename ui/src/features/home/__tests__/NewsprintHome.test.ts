@@ -5,7 +5,7 @@ import { resolve } from 'node:path';
 import NewsprintHome from '../NewsprintHome.vue';
 import type { HomeSectionError, HomeSectionViewState, HomeViewModel } from '../homeViewModel';
 import type { Track } from '../../../shared/music/track';
-import type { HomeSection, PlaylistInfo } from '../../../api/homeFeedStore';
+import type { HomeSection, PlaylistInfo } from '../homeFeedStore';
 
 const newsprintCss = readFileSync(resolve(__dirname, '../../../styles/skins/newsprint.css'), 'utf8');
 

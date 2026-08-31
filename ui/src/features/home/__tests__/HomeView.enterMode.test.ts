@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { KeepAlive, defineComponent, h, nextTick, ref } from 'vue';
 import { mount, flushPromises } from '@vue/test-utils';
-import HomeView from '../../HomeView.vue';
-import { __resetHomeFeedForTest } from '../../../api/homeFeedStore';
+import HomeView from '../HomeView.vue';
+import { __resetHomeFeedForTest } from '../homeFeedStore';
 import {
   __resetHomeEnterSessionForTest,
   nextHomeEnterMode,
-} from '../../../api/homeEnterSession';
+} from '../homeEnterSession';
 import { __resetForTest as __resetThemeForTest, useThemeStore } from '../../../app/appearance/themeStore';
 
 const mockApiGet = vi.fn();

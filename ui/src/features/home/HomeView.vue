@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { onMounted, onActivated, onDeactivated, nextTick, ref, computed } from 'vue';
-import { playTrack, playPersonalFm, clearQueue, playerStore } from '../playback/index';
-import type { Track } from '../shared/music/track';
-import { useHomeFeedStore } from '../api/homeFeedStore';
-import { useThemeStore } from '../app/appearance/themeStore';
-import { nextHomeEnterMode, type HomeEnterMode } from '../api/homeEnterSession';
-import { useHomeViewModel } from './home/homeViewModel';
-import AuroraHome from './home/AuroraHome.vue';
-import NewsprintHome from './home/NewsprintHome.vue';
+import { playTrack, playPersonalFm, clearQueue, playerStore } from '../../playback/index';
+import type { Track } from '../../shared/music/track';
+import { useHomeFeedStore } from './homeFeedStore';
+import { useThemeStore } from '../../app/appearance/themeStore';
+import { nextHomeEnterMode, type HomeEnterMode } from './homeEnterSession';
+import { useHomeViewModel } from './homeViewModel';
+import AuroraHome from './AuroraHome.vue';
+import NewsprintHome from './NewsprintHome.vue';
 
 defineOptions({ name: 'HomeView' });
 

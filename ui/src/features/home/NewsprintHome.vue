@@ -2,7 +2,7 @@
 import { computed } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../shared/music/track';
-import type { HomeSection, PlaylistInfo } from '../../api/homeFeedStore';
+import type { HomeSection, PlaylistInfo } from './homeFeedStore';
 import { ArrowRight } from '@lucide/vue';
 
 const props = defineProps<{ model: HomeViewModel }>();

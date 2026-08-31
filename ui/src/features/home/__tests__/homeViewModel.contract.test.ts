@@ -26,7 +26,7 @@ const homeFeedMock = {
   retrySection: vi.fn(),
 };
 
-vi.mock('../../../api/homeFeedStore', () => ({
+vi.mock('../homeFeedStore', () => ({
   useHomeFeedStore: () => homeFeedMock,
 }));
 

@@ -4,7 +4,7 @@ import {
   type HomeSection,
   type HomeSectionState,
   type PlaylistInfo,
-} from '../../api/homeFeedStore';
+} from './homeFeedStore';
 import { playerStore } from '../../playback/index';
 import type { Track } from '../../shared/music/track';
 import type { PlaybackPhase } from '../../playback/index';

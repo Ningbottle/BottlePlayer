@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const uiRoot = resolve(__dirname, '..', '..', '..');
+const uiRoot = resolve(__dirname, '..', '..', '..', '..');
 
 describe('Aurora font assets', () => {
   it('self-hosts Noto Serif SC (no Google Fonts CDN dependency)', () => {

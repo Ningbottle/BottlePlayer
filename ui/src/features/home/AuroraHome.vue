@@ -2,14 +2,14 @@
 import { ref, computed, watch, onBeforeUpdate, onMounted, onActivated, onDeactivated, onUnmounted, nextTick } from 'vue';
 import type { HomeViewModel } from './homeViewModel';
 import type { Track } from '../../shared/music/track';
-import type { PlaylistInfo } from '../../api/homeFeedStore';
+import type { PlaylistInfo } from './homeFeedStore';
 import { gsap } from 'gsap';
-import type { HomeEnterMode } from '../../api/homeEnterSession';
+import type { HomeEnterMode } from './homeEnterSession';
 import { animateStagger, isReducedMotion } from '../../shared/motion/motion';
 import { playerStore, togglePlay as storeTogglePlay } from '../../playback/index';
 import { createPlaybackAudioLevelMonitor, type AudioLevelMonitor } from '../../playback/index';
 import { flyCoverToDock } from '../../playback/index';
-import { extractDominantColor, type RGB } from '../../api/coverColor';
+import { extractDominantColor, type RGB } from './coverColor';
 import { PhPause, PhPlay } from '@phosphor-icons/vue';
 import AuroraAtmosphere from './AuroraAtmosphere.vue';
 

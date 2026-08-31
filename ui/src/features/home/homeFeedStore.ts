@@ -3,8 +3,8 @@ import {
   fetchEverydayRecommend,
   fetchTopSong,
   fetchTopPlaylist,
-} from '../features/home/homeGateway';
-import { normalizeTrack, type Track } from '../shared/music/track';
+} from './homeGateway';
+import { normalizeTrack, type Track } from '../../shared/music/track';
 
 export interface PlaylistInfo {
   specialid: number;
