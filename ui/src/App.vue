@@ -12,14 +12,14 @@ import NewsprintShell from './app/shell/NewsprintShell.vue';
 import FullscreenWindowControls from './app/shell/FullscreenWindowControls.vue';
 import PageRecoveryBoundary from './app/shell/PageRecoveryBoundary.vue';
 
-import { initPlayer, initPlayerBackend } from './playback/playerStore';
-import { bindOsMediaBridge, unbindOsMediaBridge } from './playback/sync/osMediaBridge';
+import { initPlayer, initPlayerBackend } from './playback/index';
+import { bindOsMediaBridge, unbindOsMediaBridge } from './playback/index';
 import { checkLoginStatus } from './api/userStore';
 import { ping } from './platform/tauri/nativeClient';
 import { lyricFullscreen, setLyricFullscreen } from './api/lyricFullscreen';
 import { transitionEnter, transitionLeave } from './app/navigation/pageTransitions';
 import { isReducedMotion } from './shared/motion/motion';
-import { startPlayerSyncHost } from './playback/sync/playerSync';
+import { startPlayerSyncHost } from './playback/index';
 import { registerPageTransition, unregisterPageTransition } from './app/navigation/navigationLifecycle';
 import { routeNames, type AppRouteName } from './app/navigation/routes';
 import { useThemeStore } from './app/appearance/themeStore';

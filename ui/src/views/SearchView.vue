@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, onMounted } from 'vue';
 import { apiGet, describeBackendError } from '../platform/tauri/nativeClient';
-import { playAll, playerStore } from '../playback/playerStore';
+import { playAll, playerStore } from '../playback/index';
 import { Track as SongInfo, normalizeTrack } from '../shared/music/track';
 import AddToPlaylistModal from '../components/AddToPlaylistModal.vue';
 import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';

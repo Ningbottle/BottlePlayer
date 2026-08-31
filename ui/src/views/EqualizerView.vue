@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { ref } from 'vue';
 import EqualizerPanel from '../playback/components/EqualizerPanel.vue';
-import { playerStore, setWebAudioEqBand, eqState } from '../playback/playerStore';
+import { playerStore, setWebAudioEqBand, eqState } from '../playback/index';
 import {
   EQ_BANDS,
   EQ_PRESET_LABELS,
   EQ_PRESETS,
   normalizeEqBands,
-} from '../playback/eq/equalizerConfig';
+} from '../playback/index';
 import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
 import SkinButton from '../shared/ui/SkinButton.vue';
 

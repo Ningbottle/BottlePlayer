@@ -9,7 +9,13 @@ import { gsap } from 'gsap';
 import { Flip } from 'gsap/Flip';
 import { isReducedMotion } from '../../shared/motion/motion';
 
-gsap.registerPlugin(Flip);
+let flipRegistered = false;
+/** Register the Flip plugin on first real use (keeps module-eval mock-safe). */
+function ensureFlipRegistered(): void {
+  if (flipRegistered) return;
+  gsap.registerPlugin(Flip);
+  flipRegistered = true;
+}
 
 const GHOST_CLASS = 'aurora-cover-ghost';
 const DOCK_COVER_SELECTOR = '.aurora-pb-cover';
@@ -54,6 +60,7 @@ export function flyCoverToElement(
     });
     document.body.appendChild(ghost);
 
+    ensureFlipRegistered();
     Flip.fit(ghost, target, {
       duration: 0.55,
       ease: 'expo.inOut',

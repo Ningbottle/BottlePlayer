@@ -11,7 +11,7 @@ import { getCurrentWindow } from '@tauri-apps/api/window';
 import { getCurrentWebview } from '@tauri-apps/api/webview';
 import { LogicalSize, PhysicalPosition } from '@tauri-apps/api/dpi';
 import { PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
-import { onPlayerState, sendPlayerCommand, applySyncedTheme, type PlayerSyncState } from '../../playback/sync/playerSync';
+import { onPlayerState, sendPlayerCommand, applySyncedTheme, type PlayerSyncState } from '../../playback/index';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay } from '../../platform/tauri/windows';
 import { startVinylSpin } from '../../shared/motion/motion';
 import type { VinylSpinHandle } from '../../shared/motion/motion';

@@ -6,10 +6,9 @@ import type { PlaylistInfo } from '../../api/homeFeedStore';
 import { gsap } from 'gsap';
 import type { HomeEnterMode } from '../../api/homeEnterSession';
 import { animateStagger, isReducedMotion } from '../../shared/motion/motion';
-import { playerStore, togglePlay as storeTogglePlay } from '../../playback/playerStore';
-import { getMediaRuntime } from '../../playback/runtime/mediaRuntime';
-import { createAudioLevelMonitor, type AudioLevelMonitor } from '../../playback/runtime/audioLevelMonitor';
-import { flyCoverToDock } from '../../playback/components/coverFlight';
+import { playerStore, togglePlay as storeTogglePlay } from '../../playback/index';
+import { createPlaybackAudioLevelMonitor, type AudioLevelMonitor } from '../../playback/index';
+import { flyCoverToDock } from '../../playback/index';
 import { extractDominantColor, type RGB } from '../../api/coverColor';
 import { PhPause, PhPlay } from '@phosphor-icons/vue';
 import AuroraAtmosphere from './AuroraAtmosphere.vue';
@@ -71,10 +70,9 @@ const coverTint = ref<RGB | null>(null);
 let tintToken = 0;
 
 function bootLevelMonitor(): void {
-  const audio = getMediaRuntime()?.audio;
-  if (levelMonitor || !audio) return;
-  levelMonitor = createAudioLevelMonitor(audio);
-  levelMonitor.start();
+  if (levelMonitor) return;
+  levelMonitor = createPlaybackAudioLevelMonitor();
+  levelMonitor?.start();
 }
 
 // hasAudio is the store's reactive projection of MediaRuntime audio

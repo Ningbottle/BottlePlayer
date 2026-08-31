@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
 import { apiGet } from '../platform/tauri/nativeClient';
-import { playAll, playerStore } from '../playback/playerStore';
+import { playAll, playerStore } from '../playback/index';
 import { normalizeTrack } from '../shared/music/track';
 import { userStore } from '../api/userStore';
-import { recentPlayedStore, type RecentPlayedEntry } from '../playback/data/recentPlayedStore';
+import { recentPlayedStore, type RecentPlayedEntry } from '../playback/index';
 import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
 import SkinEmptyState from '../shared/ui/SkinEmptyState.vue';
 

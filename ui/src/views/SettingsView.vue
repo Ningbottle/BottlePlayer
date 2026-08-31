@@ -7,7 +7,7 @@ import { relaunch } from '@tauri-apps/plugin-process';
 import { openUrl } from '@tauri-apps/plugin-opener';
 import { useAppearanceStore, type AppearanceSettings } from '../app/appearance/appearanceStore';
 import { setSkippedVersion } from '../app/update/skippedVersion';
-import { playbackDiagnostics, type DiagEvent } from '../playback/playbackDiagnostics';
+import { playbackDiagnostics, type DiagEvent } from '../playback/index';
 import { crossfadeTheme } from '../shared/motion/motion';
 import { transitionEnter, transitionLeave } from '../app/navigation/pageTransitions';
 import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
