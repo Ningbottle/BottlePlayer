@@ -5,7 +5,7 @@
  * 浮层（client）：订阅状态快照，发送传输命令。
  * 全部经 Tauri event bus；非 Tauri 环境安全降级为 no-op。
  */
-import { emit, listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { emitEvent, listenEvent, type Unlisten } from '../../platform/tauri/events';
 import { watch } from 'vue';
 import { playerStore, togglePlay, next, prev, seek, setVolume } from '../playerStore';
 import { useThemeStore } from '../../app/appearance/themeStore';
@@ -93,7 +93,7 @@ export function startPlayerSyncHost(): () => void {
   if (!isTauriRuntime()) return () => {};
 
   const broadcast = (): void => {
-    void emit(STATE_EVENT, snapshot()).catch(() => {});
+    void emitEvent(STATE_EVENT, snapshot()).catch(() => {});
   };
 
   // Immediate on structural changes; light throttle for progress ticks.
@@ -113,7 +113,7 @@ export function startPlayerSyncHost(): () => void {
     if (playerStore.isPlaying) broadcast();
   }, 500);
 
-  const unlistenPromise = listen<PlayerCommand>(CMD_EVENT, (event) => {
+  const unlistenPromise = listenEvent<PlayerCommand>(CMD_EVENT, (event) => {
     const cmd = event.payload;
     if (cmd.action === 'toggle') togglePlay();
     else if (cmd.action === 'next') next();
@@ -124,12 +124,12 @@ export function startPlayerSyncHost(): () => void {
 
   // Overlays that subscribe after the seed broadcast would otherwise wait
   // forever while idle — they say hello, we answer with an immediate state.
-  const helloPromise = listen(HELLO_EVENT, broadcast);
+  const helloPromise = listenEvent(HELLO_EVENT, broadcast);
 
   broadcast(); // seed late-opening overlays immediately
 
-  let unlisten: UnlistenFn | null = null;
-  let unhello: UnlistenFn | null = null;
+  let unlisten: Unlisten | null = null;
+  let unhello: Unlisten | null = null;
   void unlistenPromise.then((fn) => {
     unlisten = fn;
   });
@@ -150,7 +150,7 @@ export function startPlayerSyncHost(): () => void {
 /** Overlay side: send a transport command to the main window. */
 export async function sendPlayerCommand(cmd: PlayerCommand): Promise<void> {
   if (!isTauriRuntime()) return;
-  await emit(CMD_EVENT, cmd).catch(() => {});
+  await emitEvent(CMD_EVENT, cmd).catch(() => {});
 }
 
 /** Overlay side: subscribe to state snapshots. Returns unlisten. */
@@ -158,10 +158,10 @@ export async function onPlayerState(
   cb: (state: PlayerSyncState) => void,
 ): Promise<() => void> {
   if (!isTauriRuntime()) return () => {};
-  const unlisten = await listen<PlayerSyncState>(STATE_EVENT, (event) => {
+  const unlisten = await listenEvent<PlayerSyncState>(STATE_EVENT, (event) => {
     cb(event.payload);
   });
   // Handshake: ask the host to rebroadcast so late joiners get theme + state now.
-  await emit(HELLO_EVENT, null).catch(() => {});
+  await emitEvent(HELLO_EVENT, null).catch(() => {});
   return unlisten;
 }

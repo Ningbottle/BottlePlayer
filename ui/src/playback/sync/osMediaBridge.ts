@@ -4,14 +4,14 @@
  */
 import { watch, type WatchStopHandle } from 'vue';
 import { invokeTauri } from '../../platform/tauri/invoke';
-import { listen, type UnlistenFn } from '@tauri-apps/api/event';
+import { listenEvent, type Unlisten } from '../../platform/tauri/events';
 import { playerStore, togglePlay, next, prev } from '../playerStore';
 
 export type OsMediaButton = 'Play' | 'Pause' | 'PlayPause' | 'Next' | 'Prev';
 
 export type OsMediaBridgeDeps = {
   invoke: typeof invokeTauri;
-  listen: typeof listen;
+  listen: typeof listenEvent;
   getTrack: () => {
     title: string;
     artist: string;
@@ -28,7 +28,7 @@ export type OsMediaBridgeDeps = {
 
 const defaultDeps = (): OsMediaBridgeDeps => ({
   invoke: invokeTauri,
-  listen,
+  listen: listenEvent,
   getTrack: () => {
     const t = playerStore.currentTrack;
     if (!t) return null;
@@ -52,7 +52,7 @@ const defaultDeps = (): OsMediaBridgeDeps => ({
 });
 
 let stopWatch: WatchStopHandle | null = null;
-let unlistenButton: UnlistenFn | null = null;
+let unlistenButton: Unlisten | null = null;
 let bound = false;
 let activeDeps: OsMediaBridgeDeps | null = null;
 
