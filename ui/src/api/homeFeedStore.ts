@@ -1,5 +1,9 @@
 import { reactive } from 'vue';
-import { apiGet } from '../platform/tauri/nativeClient';
+import {
+  fetchEverydayRecommend,
+  fetchTopSong,
+  fetchTopPlaylist,
+} from '../features/home/homeGateway';
 import { normalizeTrack, type Track } from '../shared/music/track';
 
 export interface PlaylistInfo {
@@ -120,14 +124,14 @@ function responseList(response: unknown, keys: readonly string[]): Record<string
 }
 
 async function loadDailyItems(): Promise<Track[]> {
-  const primaryResponse = await apiGet<unknown>('/everyday/recommend', { pagesize: 6 });
+  const primaryResponse = await fetchEverydayRecommend(6);
   let primaryItems: Record<string, unknown>[];
   try {
     primaryItems = responseList(primaryResponse, ['song_list', 'info', 'list']);
   } catch {
     // The top-song endpoint is the established fallback for unavailable daily recommendations.
     console.info('[home] daily: /everyday/recommend failed, falling back to static /top/song chart');
-    const fallbackResponse = await apiGet<unknown>('/top/song', { pagesize: 6 });
+    const fallbackResponse = await fetchTopSong(6);
     return responseList(fallbackResponse, ['info', 'list']).slice(0, 6).map(normalizeTrack);
   }
 
@@ -136,12 +140,12 @@ async function loadDailyItems(): Promise<Track[]> {
   }
 
   console.info('[home] daily: /everyday/recommend returned empty, falling back to static /top/song chart');
-  const fallbackResponse = await apiGet<unknown>('/top/song', { pagesize: 6 });
+  const fallbackResponse = await fetchTopSong(6);
   return responseList(fallbackResponse, ['info', 'list']).slice(0, 6).map(normalizeTrack);
 }
 
 async function loadPlaylistItems(sort: number): Promise<PlaylistInfo[]> {
-  const response = await apiGet<unknown>('/top/playlist', { pagesize: 5, sort });
+  const response = await fetchTopPlaylist({ pagesize: 5, sort });
   return responseList(response, ['info', 'list']).slice(0, 5).map(normalizePlaylist);
 }
 
