@@ -1,5 +1,5 @@
 import { addPlaylistTracks, removePlaylistTracks as removePlaylistTracksCall } from '../features/library/favoriteGateway';
-import { userStore } from './userStore';
+import { userStore } from '../features/account';
 import type { Track } from '../shared/music/track';
 
 /**

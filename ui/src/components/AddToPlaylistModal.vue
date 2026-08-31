@@ -4,7 +4,7 @@ import { gsap } from 'gsap';
 import { addTrackToPlaylist, type UserPlaylist } from '../api/favorite';
 import { getUserPlaylists, favoriteStore } from '../api/favoriteStore';
 import { Track } from '../shared/music/track';
-import { userStore } from '../api/userStore';
+import { userStore } from '../features/account';
 import { transitionEnter, transitionLeave } from '../app/navigation/pageTransitions';
 
 const props = defineProps<{

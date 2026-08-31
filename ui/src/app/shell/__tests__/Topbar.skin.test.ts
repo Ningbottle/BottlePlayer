@@ -6,13 +6,14 @@ import { useThemeStore, __resetForTest } from '../../appearance/themeStore';
 import { createAppRouter } from '../../navigation/router';
 import { routeNames } from '../../navigation/routes';
 
-vi.mock('../../../api/userStore', () => ({
+vi.mock('../../../features/account', () => ({
   userStore: {
     isLoggedIn: false,
     username: '未登录',
     isVip: false,
-    avatar: '',
+    vipLevel: 0,
   },
+  LoginView: { template: '<div />' },
 }));
 
 async function mountTopbar(query?: string) {

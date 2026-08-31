@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../platform/tauri/nativeClient')>();
+vi.mock('../../../platform/tauri/nativeClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../platform/tauri/nativeClient')>();
   return {
     ...actual,
     apiGet: (...args: any[]) => mockApiGet(...args),
@@ -23,7 +23,7 @@ import {
   configureAccountEffects,
   __resetAccountEffectsForTests,
   type AccountEffects,
-} from '../../features/account/accountEffects';
+} from '../accountEffects';
 
 function makeFakeEffects() {
   return {

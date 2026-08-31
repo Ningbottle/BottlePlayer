@@ -11,7 +11,7 @@ import {
   type MemoryData,
   type DeviceInfo,
 } from '../features/settings/settingsGateway';
-import { checkLoginStatus, ensureVipDeviceReady, formatVipClaimFailure } from '../api/userStore';
+import { checkLoginStatus, ensureVipDeviceReady, formatVipClaimFailure } from '../features/account';
 import {
   checkForUpdate,
   relaunchApp,

@@ -67,13 +67,14 @@ vi.mock('../../playback/playerStore', () => ({
   playPersonalFm: vi.fn(),
 }));
 
-vi.mock('../../api/userStore', () => ({
+vi.mock('../../features/account', () => ({
   checkLoginStatus: vi.fn(),
   userStore: {
     isLoggedIn: false,
     nickname: '',
     avatar: '',
   },
+  LoginView: { template: '<main />' },
 }));
 
 vi.mock('../../app/shell/Sidebar.vue', () => ({
@@ -95,7 +96,6 @@ vi.mock('../SearchView.vue', () => ({ default: { props: ['query'], template: '<m
 vi.mock('../PlaylistView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../LyricView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../SettingsView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../LoginView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../HistoryView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../StatsView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../EqualizerView.vue', () => ({ default: { template: '<main />' } }));

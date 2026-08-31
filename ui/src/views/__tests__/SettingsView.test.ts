@@ -9,7 +9,7 @@ vi.mock('../../platform/tauri/updater', () => ({
 }));
 const mockApiGet = vi.fn();
 vi.mock('../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
-vi.mock('../../api/userStore', () => ({
+vi.mock('../../features/account', () => ({
   checkLoginStatus: vi.fn().mockResolvedValue(undefined),
   ensureVipDeviceReady: vi.fn().mockResolvedValue({ ok: true }),
   formatVipClaimFailure: vi.fn((result: any) =>
@@ -22,7 +22,7 @@ import { checkForUpdate, openExternalUrl, type UpdateDownloadEvent } from '../..
 import { playbackDiagnostics } from '../../playback/playbackDiagnostics';
 import { useAppearanceStore, __resetForTest as resetAppearance } from '../../app/appearance/appearanceStore';
 import { __resetForTest as resetTheme } from '../../app/appearance/themeStore';
-import { ensureVipDeviceReady } from '../../api/userStore';
+import { ensureVipDeviceReady } from '../../features/account';
 
 // Reduced-motion stub: makes GSAP transition hooks (transitionEnter/Leave)
 // call done() synchronously so <Transition> leave/enter completes within the

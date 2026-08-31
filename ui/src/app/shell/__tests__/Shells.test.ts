@@ -311,7 +311,7 @@ vi.mock('../../../playback/playerStore', () => ({
   playPersonalFm: vi.fn(),
 }));
 
-vi.mock('../../../api/userStore', () => ({
+vi.mock('../../../features/account', () => ({
   checkLoginStatus: vi.fn(),
   userStore: {
     isLoggedIn: false,

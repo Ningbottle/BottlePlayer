@@ -3,7 +3,7 @@ import { ref, computed, onMounted } from 'vue';
 import { fetchUserHistory } from '../features/library/historyGateway';
 import { playAll, playerStore } from '../playback/index';
 import { normalizeTrack } from '../shared/music/track';
-import { userStore } from '../api/userStore';
+import { userStore } from '../features/account';
 import { recentPlayedStore, type RecentPlayedEntry } from '../playback/index';
 import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
 import SkinEmptyState from '../shared/ui/SkinEmptyState.vue';

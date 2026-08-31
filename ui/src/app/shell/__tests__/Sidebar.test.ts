@@ -3,7 +3,7 @@ import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
 import Sidebar from '../Sidebar.vue';
 import { apiGet } from '../../../platform/tauri/nativeClient';
-import { userStore } from '../../../api/userStore';
+import { userStore } from '../../../features/account';
 import { useThemeStore, __resetForTest } from '../../appearance/themeStore';
 import { createAppRouter } from '../../navigation/router';
 import { routeNames } from '../../navigation/routes';
@@ -16,7 +16,7 @@ vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock('../../../api/userStore', async () => {
+vi.mock('../../../features/account', async () => {
   const { reactive } = await vi.importActual<typeof import('vue')>('vue');
   return {
     userStore: reactive({
@@ -28,6 +28,7 @@ vi.mock('../../../api/userStore', async () => {
       isVip: false,
       vipLevel: 0,
     }),
+    LoginView: { template: '<div />' },
   };
 });
 

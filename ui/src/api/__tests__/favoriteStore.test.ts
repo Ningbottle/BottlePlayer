@@ -8,7 +8,7 @@ vi.mock('../../platform/tauri/nativeClient', () => ({
   apiPost: (...args: unknown[]) => mockApiPost(...args),
 }));
 
-import { userStore } from '../userStore';
+import { userStore } from '../../features/account';
 import {
   favoriteStore,
   __resetFavoriteStoreForTests,

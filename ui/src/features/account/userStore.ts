@@ -1,17 +1,17 @@
 import { reactive } from 'vue';
-import { describeBackendError } from '../platform/tauri/nativeClient';
+import { describeBackendError } from '../../platform/tauri/nativeClient';
 import {
   registerDevice,
   fetchUserDetail,
   fetchVipDetail,
   claimDailyVipSong,
-} from '../features/account/accountGateway';
+} from './accountGateway';
 import { resolveVip } from './vipResolver';
 import {
   notifyAccountReady,
   notifyAccountCleared,
   notifyLocalLogout,
-} from '../features/account/accountEffects';
+} from './accountEffects';
 
 interface UserState {
   isLoggedIn: boolean;

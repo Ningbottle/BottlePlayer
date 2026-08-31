@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue';
 import { useRoute } from 'vue-router';
-import { userStore } from '../../api/userStore';
+import { userStore } from '../../features/account';
 import { useThemeStore } from '../appearance/themeStore';
 
 const emit = defineEmits<{

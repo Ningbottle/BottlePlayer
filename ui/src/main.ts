@@ -24,7 +24,7 @@ import "./styles/skins/newsprint.css";
 import { useThemeStore } from "./app/appearance/themeStore";
 import { useLyricFocusStore } from "./api/lyricFocusStore";
 import { favoriteStore } from "./api/favoriteStore";
-import { userStore } from "./api/userStore";
+import { userStore } from "./features/account";
 import {
   disposePlayerRuntime,
   recentPlayedStore,

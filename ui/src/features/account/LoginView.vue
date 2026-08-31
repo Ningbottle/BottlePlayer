@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import QRCode from 'qrcode';
-import { fetchQrKey, checkQrStatus, logoutAuth } from '../features/account/accountGateway';
-import { userStore, checkLoginStatus, claimVip, logoutLocal } from '../api/userStore';
-import { useThemeStore } from '../app/appearance/themeStore';
+import { fetchQrKey, checkQrStatus, logoutAuth } from './accountGateway';
+import { userStore, checkLoginStatus, claimVip, logoutLocal } from './userStore';
+import { useThemeStore } from '../../app/appearance/themeStore';
 
 const themeStore = useThemeStore();
 const isAurora = computed(() => themeStore.skinId.value === 'aurora');

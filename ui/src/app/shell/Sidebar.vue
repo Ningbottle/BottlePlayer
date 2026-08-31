@@ -3,7 +3,7 @@ import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { checkForUpdate } from '../../platform/tauri/updater';
 import { fetchUserPlaylistsRaw } from '../../features/library/playlistGateway';
-import { userStore } from '../../api/userStore';
+import { userStore } from '../../features/account';
 import { normalizePlaylists, type UserPlaylist } from '../../api/favoriteStore';
 import { useSkippedVersion, getSkippedVersion } from '../update/skippedVersion';
 import { useThemeStore } from '../appearance/themeStore';

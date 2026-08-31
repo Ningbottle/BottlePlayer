@@ -12,7 +12,7 @@ vi.mock('../../playback/playerStore', async () => {
 });
 
 const { mockUserStore } = vi.hoisted(() => ({ mockUserStore: { isLoggedIn: true } }));
-vi.mock('../../api/userStore', () => ({
+vi.mock('../../features/account', () => ({
   userStore: mockUserStore,
   checkLoginStatus: vi.fn().mockResolvedValue(undefined),
 }));

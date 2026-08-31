@@ -3,11 +3,11 @@ import { mount, flushPromises } from '@vue/test-utils';
 import LoginView from '../LoginView.vue';
 
 const mockApiGet = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: any[]) => mockApiGet(...args),
 }));
 
-vi.mock('../../api/userStore', () => ({
+vi.mock('../userStore', () => ({
   userStore: {},
   checkLoginStatus: vi.fn(),
   claimVip: vi.fn(),
