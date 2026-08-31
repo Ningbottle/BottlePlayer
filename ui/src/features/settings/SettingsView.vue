@@ -10,22 +10,22 @@ import {
   claimYouthVipAd,
   type MemoryData,
   type DeviceInfo,
-} from '../features/settings/settingsGateway';
-import { checkLoginStatus, ensureVipDeviceReady, formatVipClaimFailure } from '../features/account';
+} from './settingsGateway';
+import { checkLoginStatus, ensureVipDeviceReady, formatVipClaimFailure } from '../account';
 import {
   checkForUpdate,
   relaunchApp,
   openExternalUrl,
   type AvailableUpdate,
-} from '../platform/tauri/updater';
-import { useAppearanceStore, type AppearanceSettings } from '../app/appearance/appearanceStore';
-import { setSkippedVersion } from '../app/update/skippedVersion';
-import { playbackDiagnostics, type DiagEvent } from '../playback/index';
-import { crossfadeTheme } from '../shared/motion/motion';
-import { transitionEnter, transitionLeave } from '../app/navigation/pageTransitions';
-import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
-import SkinButton from '../shared/ui/SkinButton.vue';
-import SkinEmptyState from '../shared/ui/SkinEmptyState.vue';
+} from '../../platform/tauri/updater';
+import { useAppearanceStore, type AppearanceSettings } from '../../app/appearance/appearanceStore';
+import { setSkippedVersion } from '../../app/update/skippedVersion';
+import { playbackDiagnostics, type DiagEvent } from '../../playback/index';
+import { crossfadeTheme } from '../../shared/motion/motion';
+import { transitionEnter, transitionLeave } from '../../app/navigation/pageTransitions';
+import SkinPageHeader from '../../shared/ui/SkinPageHeader.vue';
+import SkinButton from '../../shared/ui/SkinButton.vue';
+import SkinEmptyState from '../../shared/ui/SkinEmptyState.vue';
 
 const appearanceStore = useAppearanceStore();
 appearanceStore.init();

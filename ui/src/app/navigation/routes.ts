@@ -1,12 +1,11 @@
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from 'vue-router';
 
-import EqualizerView from '../../views/EqualizerView.vue';
 import HomeView from '../../views/HomeView.vue';
 import { LoginView } from '../../features/account';
 import { HistoryView, PlaylistView } from '../../features/library';
 import LyricView from '../../views/LyricView.vue';
 import { SearchView } from '../../features/search';
-import SettingsView from '../../views/SettingsView.vue';
+import { EqualizerView, SettingsView } from '../../features/settings';
 import StatsView from '../../views/StatsView.vue';
 import IslandView from '../../views/overlay/IslandView.vue';
 import DesktopLyricView from '../../views/overlay/DesktopLyricView.vue';

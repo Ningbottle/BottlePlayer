@@ -104,10 +104,12 @@ vi.mock('../../playback/components/QueuePanel.vue', () => ({ default: { template
 vi.mock('../../features/search', () => ({
   SearchView: { props: ['query'], template: '<main data-test="search-view" />' },
 }));
+vi.mock('../../features/settings', () => ({
+  SettingsView: { template: '<main />' },
+  EqualizerView: { template: '<main />' },
+}));
 vi.mock('../LyricView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../SettingsView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../StatsView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../EqualizerView.vue', () => ({ default: { template: '<main />' } }));
 
 import App from '../../App.vue';
 import { useThemeStore, __resetForTest as resetTheme } from '../../app/appearance/themeStore';

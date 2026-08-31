@@ -2,27 +2,27 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
-vi.mock('../../platform/tauri/updater', () => ({
+vi.mock('../../../platform/tauri/updater', () => ({
   checkForUpdate: vi.fn().mockResolvedValue(null),
   relaunchApp: vi.fn().mockResolvedValue(undefined),
   openExternalUrl: vi.fn().mockResolvedValue(undefined),
 }));
 const mockApiGet = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
-vi.mock('../../features/account', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
+vi.mock('../../account', () => ({
   checkLoginStatus: vi.fn().mockResolvedValue(undefined),
   ensureVipDeviceReady: vi.fn().mockResolvedValue({ ok: true }),
   formatVipClaimFailure: vi.fn((result: any) =>
     result?.error_code ? `领取失败：酷狗返回错误码 ${result.error_code}` : '领取失败：酷狗未返回具体原因'),
 }));
-vi.mock('../../app/update/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
+vi.mock('../../../app/update/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
 
 import SettingsView from '../SettingsView.vue';
-import { checkForUpdate, openExternalUrl, type UpdateDownloadEvent } from '../../platform/tauri/updater';
-import { playbackDiagnostics } from '../../playback/playbackDiagnostics';
-import { useAppearanceStore, __resetForTest as resetAppearance } from '../../app/appearance/appearanceStore';
-import { __resetForTest as resetTheme } from '../../app/appearance/themeStore';
-import { ensureVipDeviceReady } from '../../features/account';
+import { checkForUpdate, openExternalUrl, type UpdateDownloadEvent } from '../../../platform/tauri/updater';
+import { playbackDiagnostics } from '../../../playback/playbackDiagnostics';
+import { useAppearanceStore, __resetForTest as resetAppearance } from '../../../app/appearance/appearanceStore';
+import { __resetForTest as resetTheme } from '../../../app/appearance/themeStore';
+import { ensureVipDeviceReady } from '../../account';
 
 // Reduced-motion stub: makes GSAP transition hooks (transitionEnter/Leave)
 // call done() synchronously so <Transition> leave/enter completes within the
