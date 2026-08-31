@@ -83,6 +83,27 @@ describe('playback/data/coverGateway: fetchCoverImage', () => {
 
     apiGetMock.mockResolvedValue({ status: 1, data: {} });
     expect(await fetchCoverImage('H')).toBe('');
+
+    apiGetMock.mockResolvedValue({ status: 1, data: [[]] });
+    expect(await fetchCoverImage('H')).toBe('');
+  });
+
+  it('handles nested array structure and empty imgs cleanly without throwing', async () => {
+    apiGetMock.mockResolvedValue({
+      status: 1,
+      data: {
+        imgs: {},
+      },
+    });
+    expect(await fetchCoverImage('H')).toBe('');
+
+    apiGetMock.mockResolvedValue({
+      status: 1,
+      data: {
+        imgs: { 500: [] },
+      },
+    });
+    expect(await fetchCoverImage('H')).toBe('');
   });
 
   it('returns "" and logs best-effort when apiGet rejects', async () => {
