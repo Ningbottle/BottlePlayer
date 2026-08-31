@@ -4,7 +4,16 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const outDir = path.join(__dirname, '..', 'design-qa-captures');
+const uiRoot = path.resolve(__dirname, '..');
+const outPrefix = '--out-dir=';
+const outArg = process.argv.find((arg) => arg.startsWith(outPrefix));
+const outDir = outArg
+  ? path.resolve(uiRoot, outArg.slice(outPrefix.length))
+  : path.join(uiRoot, 'design-qa-captures');
+const relativeOut = path.relative(uiRoot, outDir);
+if (relativeOut.startsWith('..') || path.isAbsolute(relativeOut)) {
+  throw new Error('capture_out_dir_must_stay_inside_ui');
+}
 const baseUrl = process.env.AURORA_QA_URL || 'http://127.0.0.1:5173/';
 
 const shots = [

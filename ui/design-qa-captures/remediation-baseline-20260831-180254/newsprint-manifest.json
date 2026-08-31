@@ -1,0 +1,28 @@
+[
+  {
+    "file": "newsprint-home-1586x1024-dark.png",
+    "viewport": "1586 × 1024",
+    "mode": "dark",
+    "observed": {
+      "hasShell": true,
+      "layout": "",
+      "paperBaseDisplay": "block",
+      "appBg": "#1a1714",
+      "accent": "#c4391e",
+      "wordmark": "BottleMusic"
+    }
+  },
+  {
+    "file": "newsprint-home-1586x1024-light.png",
+    "viewport": "1586 × 1024",
+    "mode": "light",
+    "observed": {
+      "hasShell": true,
+      "layout": "",
+      "paperBaseDisplay": "block",
+      "appBg": "#f1ead8",
+      "accent": "#a8311b",
+      "wordmark": "BottleMusic"
+    }
+  }
+]
