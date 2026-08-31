@@ -1,3 +1,10 @@
-export * from "./playlistGateway";
-export * from "./historyGateway";
-export * from "./favoriteGateway";
+export { default as PlaylistView } from './PlaylistView.vue';
+export { default as HistoryView } from './HistoryView.vue';
+export { default as AddToPlaylistModal } from './AddToPlaylistModal.vue';
+export * from './favoriteStore';
+export * from './favorite';
+export * from './favoriteRepository';
+export * from './favoriteMarkers';
+export * from './playlistGateway';
+export * from './historyGateway';
+export * from './favoriteGateway';

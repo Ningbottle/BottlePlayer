@@ -4,22 +4,22 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 
 const mockApiGet = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
+vi.mock('../../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
 
-vi.mock('../../playback/playerStore', async () => {
-  const actual = await vi.importActual<typeof import('../../playback/playerStore')>('../../playback/playerStore');
+vi.mock('../../../playback/playerStore', async () => {
+  const actual = await vi.importActual<typeof import('../../../playback/playerStore')>('../../../playback/playerStore');
   return { ...actual, playAll: vi.fn() };
 });
 
 const { mockUserStore } = vi.hoisted(() => ({ mockUserStore: { isLoggedIn: true } }));
-vi.mock('../../features/account', () => ({
+vi.mock('../../account', () => ({
   userStore: mockUserStore,
   checkLoginStatus: vi.fn().mockResolvedValue(undefined),
 }));
 
 import HistoryView from '../HistoryView.vue';
-import { recentPlayedStore } from '../../playback/data/recentPlayedStore';
-import type { Track } from '../../shared/music/track';
+import { recentPlayedStore } from '../../../playback/data/recentPlayedStore';
+import type { Track } from '../../../shared/music/track';
 
 function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'Artist ' + hash, Duration: 200, Image: 'http://img/' + hash } as Track;

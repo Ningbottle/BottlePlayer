@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue';
 import { gsap } from 'gsap';
-import { addTrackToPlaylist, type UserPlaylist } from '../api/favorite';
-import { getUserPlaylists, favoriteStore } from '../api/favoriteStore';
-import { Track } from '../shared/music/track';
-import { userStore } from '../features/account';
-import { transitionEnter, transitionLeave } from '../app/navigation/pageTransitions';
+import { addTrackToPlaylist, type UserPlaylist } from './favorite';
+import { getUserPlaylists, favoriteStore } from './favoriteStore';
+import { Track } from '../../shared/music/track';
+import { userStore } from '../account';
+import { transitionEnter, transitionLeave } from '../../app/navigation/pageTransitions';
 
 const props = defineProps<{
   show: boolean;

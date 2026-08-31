@@ -1,11 +1,11 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { describeBackendError } from '../platform/tauri/nativeClient';
-import { fetchPlaylistTracks } from '../features/library/playlistGateway';
-import { playAll, playerStore } from '../playback/index';
-import { Track as SongInfo, normalizeTrack } from '../shared/music/track';
-import { favoriteStore, isLikedPlaylistName } from '../api/favoriteStore';
-import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
+import { describeBackendError } from '../../platform/tauri/nativeClient';
+import { fetchPlaylistTracks } from './playlistGateway';
+import { playAll, playerStore } from '../../playback/index';
+import { Track as SongInfo, normalizeTrack } from '../../shared/music/track';
+import { favoriteStore, isLikedPlaylistName } from './favoriteStore';
+import SkinPageHeader from '../../shared/ui/SkinPageHeader.vue';
 
 
 const props = defineProps<{

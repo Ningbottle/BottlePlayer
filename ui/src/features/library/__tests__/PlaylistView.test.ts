@@ -3,19 +3,19 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 import {
   __resetFavoriteMarkersForTests,
   isFavoriteMarker,
-} from '../../api/favoriteMarkers';
+} from '../favoriteMarkers';
 
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(undefined) }));
 
 const mockApiGet = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../platform/tauri/nativeClient')>();
+vi.mock('../../../platform/tauri/nativeClient', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../platform/tauri/nativeClient')>();
   return {
     ...actual,
     apiGet: (...args: any[]) => mockApiGet(...args),
   };
 });
-vi.mock('../../playback/playerStore', () => ({
+vi.mock('../../../playback/playerStore', () => ({
   playAll: vi.fn(),
   playerStore: { currentTrack: null },
 }));

@@ -3,7 +3,7 @@ import { mount, flushPromises } from '@vue/test-utils';
 
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: (...a: unknown[]) => mockApiGet(...a),
   apiPost: (...a: unknown[]) => mockApiPost(...a),
 }));
@@ -26,10 +26,10 @@ vi.mock('gsap', () => ({
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue('') }));
 
 import AddToPlaylistModal from '../AddToPlaylistModal.vue';
-import { userStore } from '../../features/account';
-import { favoriteStore, __resetFavoriteStoreForTests } from '../../api/favoriteStore';
-import { __resetFavoriteRepositoryForTests } from '../../api/favoriteRepository';
-import type { Track } from '../../shared/music/track';
+import { userStore } from '../../account';
+import { favoriteStore, __resetFavoriteStoreForTests } from '../favoriteStore';
+import { __resetFavoriteRepositoryForTests } from '../favoriteRepository';
+import type { Track } from '../../../shared/music/track';
 
 const track = {
   FileHash: 'modal-1',

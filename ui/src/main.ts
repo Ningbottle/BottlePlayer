@@ -23,7 +23,7 @@ import "./styles/skins/aurora.css";
 import "./styles/skins/newsprint.css";
 import { useThemeStore } from "./app/appearance/themeStore";
 import { useLyricFocusStore } from "./api/lyricFocusStore";
-import { favoriteStore } from "./api/favoriteStore";
+import { favoriteStore } from "./features/library";
 import { userStore } from "./features/account";
 import {
   disposePlayerRuntime,

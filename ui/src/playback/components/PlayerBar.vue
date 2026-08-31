@@ -5,7 +5,7 @@ import { useThemeStore } from '../../app/appearance/themeStore';
 import { usePlayerControls } from './player/usePlayerControls';
 import AuroraPlayerBar from './player/AuroraPlayerBar.vue';
 import NewsprintPlayerBar from './player/NewsprintPlayerBar.vue';
-import AddToPlaylistModal from '../../components/AddToPlaylistModal.vue';
+import { AddToPlaylistModal } from '../../features/library';
 
 const props = defineProps<{
   navigate?: (view: string) => void | boolean | Promise<void | boolean>;

@@ -90,13 +90,20 @@ vi.mock('../../app/shell/Topbar.vue', () => ({
     template: '<header><button data-test="edit-search" @click="$emit(\'update:searchQuery\', \'typed\')" /><button data-test="go-back" @click="$emit(\'back\')" /></header>',
   },
 }));
+vi.mock('../../features/library', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../features/library')>();
+  return {
+    ...actual,
+    PlaylistView: { template: '<main />' },
+    HistoryView: { template: '<main />' },
+  };
+});
+
 vi.mock('../../playback/components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
 vi.mock('../../playback/components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
 vi.mock('../SearchView.vue', () => ({ default: { props: ['query'], template: '<main data-test="search-view" />' } }));
-vi.mock('../PlaylistView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../LyricView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../SettingsView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../HistoryView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../StatsView.vue', () => ({ default: { template: '<main />' } }));
 vi.mock('../EqualizerView.vue', () => ({ default: { template: '<main />' } }));
 

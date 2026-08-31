@@ -3,19 +3,19 @@ import { flushPromises } from '@vue/test-utils';
 
 const mockApiGet = vi.fn();
 const mockApiPost = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: unknown[]) => mockApiGet(...args),
   apiPost: (...args: unknown[]) => mockApiPost(...args),
 }));
 
-import { userStore } from '../../features/account';
+import { userStore } from '../../account';
 import {
   favoriteStore,
   __resetFavoriteStoreForTests,
 } from '../favoriteStore';
 import * as favoriteRepository from '../favoriteRepository';
 import { __resetFavoriteRepositoryForTests } from '../favoriteRepository';
-import type { Track } from '../../shared/music/track';
+import type { Track } from '../../../shared/music/track';
 
 function mkTrack(hash: string, audioId = ''): Track {
   return {

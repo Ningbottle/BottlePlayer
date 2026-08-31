@@ -1,6 +1,6 @@
 import { reactive, readonly } from 'vue';
-import { fetchUserPlaylistsRaw, fetchPlaylistTracks } from '../features/library/playlistGateway';
-import { normalizeTrack, type Track } from '../shared/music/track';
+import { fetchUserPlaylistsRaw, fetchPlaylistTracks } from './playlistGateway';
+import { normalizeTrack, type Track } from '../../shared/music/track';
 import {
   addTrackToPlaylist,
   removeTrackFromPlaylist,

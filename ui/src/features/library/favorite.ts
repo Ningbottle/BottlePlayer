@@ -1,6 +1,6 @@
-import { addPlaylistTracks, removePlaylistTracks as removePlaylistTracksCall } from '../features/library/favoriteGateway';
-import { userStore } from '../features/account';
-import type { Track } from '../shared/music/track';
+import { addPlaylistTracks, removePlaylistTracks as removePlaylistTracksCall } from './favoriteGateway';
+import { userStore } from '../account';
+import type { Track } from '../../shared/music/track';
 
 /**
  * favorite.ts is ONLY the /playlist/tracks/add and /playlist/tracks/del adapter.

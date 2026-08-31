@@ -4,7 +4,7 @@ import { describeBackendError } from '../platform/tauri/nativeClient';
 import { searchSongs } from '../features/search/searchGateway';
 import { playAll, playerStore } from '../playback/index';
 import { Track as SongInfo, normalizeTrack } from '../shared/music/track';
-import AddToPlaylistModal from '../components/AddToPlaylistModal.vue';
+import { AddToPlaylistModal } from '../features/library';
 import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
 
 
