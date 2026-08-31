@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invokeTauri } from './invoke';
 import type { PreparedAudioSource } from '../../shared/media/audioSource';
 
 function isHttpUrl(url: string): boolean {
@@ -11,7 +11,7 @@ export async function prepareAudioSourceUrl(url: string): Promise<PreparedAudioS
   }
 
   try {
-    const proxyUrl = await invoke<string>('audio_proxy_url', { url });
+    const proxyUrl = await invokeTauri<string>('audio_proxy_url', { url });
     if (typeof proxyUrl !== 'string' || !proxyUrl) {
       return { url, crossOriginSafe: false };
     }

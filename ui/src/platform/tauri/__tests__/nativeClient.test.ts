@@ -8,8 +8,8 @@ import {
 } from '../nativeClient';
 
 const mockInvoke = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: (...args: any[]) => mockInvoke(...args),
+vi.mock('../invoke', () => ({
+  invokeTauri: (...args: any[]) => mockInvoke(...args),
 }));
 
 describe('backend resilience', () => {

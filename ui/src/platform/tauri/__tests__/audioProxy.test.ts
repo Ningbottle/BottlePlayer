@@ -1,10 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: vi.fn(),
+vi.mock('../invoke', () => ({
+  invokeTauri: vi.fn(),
 }));
 
-import { invoke } from '@tauri-apps/api/core';
+import { invokeTauri as invoke } from '../invoke';
 import { prepareAudioSourceUrl } from '../audioProxy';
 
 describe('audioProxy', () => {

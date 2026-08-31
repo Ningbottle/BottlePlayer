@@ -1,4 +1,4 @@
-import { invoke } from '@tauri-apps/api/core';
+import { invokeTauri } from './invoke';
 import { CircuitBreaker } from './circuitBreaker';
 
 // 前端 → C++ 后端的统一入口。
@@ -105,7 +105,7 @@ async function ipcRequest(
   const headersStr = headers ? JSON.stringify(headers) : undefined;
 
   const rawJson = await withTimeout(
-    invoke<string>('native_request', {
+    invokeTauri<string>('native_request', {
       method,
       path,
       queryJson: queryStr,
@@ -150,7 +150,7 @@ async function apiGetNoRetry<T = unknown>(
 }
 
 export async function ping(): Promise<string> {
-  return invoke<string>('ping');
+  return invokeTauri<string>('ping');
 }
 
 /** Default bucket is playback so existing callers stay safe for play UX. */
