@@ -1,6 +1,6 @@
 import { computed, watch, onMounted, onScopeDispose, nextTick, type ComputedRef } from 'vue';
 import { playerStore, seek as storeSeek } from '../../playback/index';
-import { apiGet } from '../../platform/tauri/nativeClient';
+import { searchLyricCandidates, fetchLyricDetail } from '../../features/lyrics/lyricsGateway';
 import { useLyricFollow } from '../../api/useLyricFollow';
 import { lyricFullscreen, setLyricFullscreen } from '../../api/lyricFullscreen';
 import type { Track } from '../../shared/music/track';
@@ -95,9 +95,7 @@ export function parseLrc(raw: string): LyricLine[] {
 }
 
 export async function fetchLyrics(track: Track): Promise<LyricLine[]> {
-  const searchRes = await apiGet<{ status: number; candidates?: { id: string; accesskey: string }[] }>('/search/lyric', {
-    hash: track.FileHash,
-  });
+  const searchRes = await searchLyricCandidates(track.FileHash);
   if (searchRes.status !== 1 && searchRes.status !== 200) {
     throw new Error('Unable to search lyrics');
   }
@@ -105,10 +103,7 @@ export async function fetchLyrics(track: Track): Promise<LyricLine[]> {
   const candidate = searchRes.candidates?.[0];
   if (!candidate) return [];
 
-  const detailRes = await apiGet<{ status: number; lyric?: string }>('/lyric', {
-    id: candidate.id,
-    accesskey: candidate.accesskey,
-  });
+  const detailRes = await fetchLyricDetail(candidate.id, candidate.accesskey);
   if (detailRes.status !== 1 && detailRes.status !== 200) {
     throw new Error('Unable to load lyrics');
   }
