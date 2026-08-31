@@ -700,7 +700,7 @@ async function copyDiag() {
 .settings-segment-buttons button {
   padding: 8px 14px;
   border-radius: 999px;
-  border: 1px solid var(--rule, var(--border, #ccc));
+  border: 1px solid var(--rule);
   background: transparent;
   color: var(--text-secondary, var(--ink-soft));
   font-size: 13px;
