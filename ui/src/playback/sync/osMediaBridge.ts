@@ -3,14 +3,14 @@
  * Mirrors playerStore → Tauri commands; routes OS buttons to existing controls.
  */
 import { watch, type WatchStopHandle } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
+import { invokeTauri } from '../../platform/tauri/invoke';
 import { listen, type UnlistenFn } from '@tauri-apps/api/event';
 import { playerStore, togglePlay, next, prev } from '../playerStore';
 
 export type OsMediaButton = 'Play' | 'Pause' | 'PlayPause' | 'Next' | 'Prev';
 
 export type OsMediaBridgeDeps = {
-  invoke: typeof invoke;
+  invoke: typeof invokeTauri;
   listen: typeof listen;
   getTrack: () => {
     title: string;
@@ -27,7 +27,7 @@ export type OsMediaBridgeDeps = {
 };
 
 const defaultDeps = (): OsMediaBridgeDeps => ({
-  invoke,
+  invoke: invokeTauri,
   listen,
   getTrack: () => {
     const t = playerStore.currentTrack;

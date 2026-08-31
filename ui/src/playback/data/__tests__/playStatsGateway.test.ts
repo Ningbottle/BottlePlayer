@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { PlayRecord } from '../../playSessionTracker';
 
 const mockInvoke = vi.fn();
-vi.mock('@tauri-apps/api/core', () => ({
-  invoke: (...args: unknown[]) => mockInvoke(...args),
+vi.mock('../../../platform/tauri/invoke', () => ({
+  invokeTauri: (...args: unknown[]) => mockInvoke(...args),
 }));
 
 function mkRecord(): PlayRecord {

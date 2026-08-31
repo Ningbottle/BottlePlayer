@@ -1,54 +1,42 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, type ComponentPublicInstance } from 'vue';
-import { invoke } from '@tauri-apps/api/core';
 import { normalizeTrack, type Track } from '../shared/music/track';
+import {
+  getStatsSummary,
+  getStatsTop,
+  getStatsTimeline,
+  analyzeStats,
+  type StatsRange,
+  type StatsSummary,
+  type StatsTopItem,
+  type StatsTimelineItem,
+} from '../features/stats/statsGateway';
 import { playAll, playerStore } from '../playback/index';
 import { animateBarHeight, animateCountUp, isReducedMotion } from '../shared/motion/motion';
 import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
 import SkinButton from '../shared/ui/SkinButton.vue';
 import SkinEmptyState from '../shared/ui/SkinEmptyState.vue';
 
-type Range = '1d' | '7d' | '30d';
+type Range = StatsRange;
 const range = ref<Range>('30d');
 const loading = ref(true);
 const error = ref('');
 
-interface Summary {
-  total_plays: number;
-  total_listened_seconds: number;
-  unique_songs: number;
-  unique_artists: number;
-  completion_rate: number;
-}
-const summary = ref<Summary | null>(null);
+const summary = ref<StatsSummary | null>(null);
 const displayTotalPlays = ref(0);
 const displayListenedSeconds = ref(0);
 const displayUniqueSongs = ref(0);
 const displayUniqueArtists = ref(0);
 const displayCompletionPercent = ref(0);
 
-interface TopItem {
-  song_hash?: string;
-  album_id?: string;
-  name: string;
-  singer?: string;
-  album?: string;
-  cover_url?: string;
-  play_count: number;
-  total_listened_seconds: number;
-}
-const topSongs = ref<TopItem[]>([]);
-const topArtists = ref<TopItem[]>([]);
-const topAlbums = ref<TopItem[]>([]);
+const topSongs = ref<StatsTopItem[]>([]);
+const topArtists = ref<StatsTopItem[]>([]);
+const topAlbums = ref<StatsTopItem[]>([]);
 
 /** Hero trophy: the most-played song's cover, square and quiet. */
 const topCoverUrl = computed(() => topSongs.value[0]?.cover_url ?? '');
 
-interface TimelineItem {
-  date: string;
-  count: number;
-}
-const timeline = ref<TimelineItem[]>([]);
+const timeline = ref<StatsTimelineItem[]>([]);
 const maxTimelineCount = ref(1);
 const timelineBarEls = ref<HTMLElement[]>([]);
 let statsRequestId = 0;
@@ -75,7 +63,7 @@ function formatDuration(seconds: number): string {
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-function topSongToTrack(item: TopItem): Track {
+function topSongToTrack(item: StatsTopItem): Track {
   return normalizeTrack({
     FileHash: item.song_hash || '',
     SongName: item.name,
@@ -87,7 +75,7 @@ function topSongToTrack(item: TopItem): Track {
   });
 }
 
-function playTopSong(item: TopItem) {
+function playTopSong(item: StatsTopItem) {
   const tracks = topSongs.value
     .filter(song => !!song.song_hash)
     .map(topSongToTrack);
@@ -104,11 +92,11 @@ function setTimelineBarEl(el: Element | ComponentPublicInstance | null, index: n
   if (el instanceof HTMLElement) timelineBarEls.value[index] = el;
 }
 
-function timelineHeight(item: TimelineItem): number {
+function timelineHeight(item: StatsTimelineItem): number {
   return Math.round((item.count / maxTimelineCount.value) * 100);
 }
 
-async function animateSummaryValues(s: Summary, isActive: () => boolean) {
+async function animateSummaryValues(s: StatsSummary, isActive: () => boolean) {
   await Promise.all([
     animateCountUp(displayTotalPlays, s.total_plays, { delay: 0, isActive }),
     animateCountUp(displayListenedSeconds, s.total_listened_seconds, { delay: 0.04, isActive }),
@@ -145,18 +133,18 @@ async function loadStats() {
   timelineBarEls.value = [];
   try {
     const [s, songs, artists, albums, tl] = await Promise.all([
-      invoke<string>('stats_get_summary', { range: requestedRange }),
-      invoke<string>('stats_get_top', { kind: 'song', range: requestedRange, limit: 10 }),
-      invoke<string>('stats_get_top', { kind: 'artist', range: requestedRange, limit: 10 }),
-      invoke<string>('stats_get_top', { kind: 'album', range: requestedRange, limit: 10 }),
-      invoke<string>('stats_get_timeline', { range: requestedRange }),
+      getStatsSummary(requestedRange),
+      getStatsTop('song', requestedRange, 10),
+      getStatsTop('artist', requestedRange, 10),
+      getStatsTop('album', requestedRange, 10),
+      getStatsTimeline(requestedRange),
     ]);
     if (!isActive()) return;
-    summary.value = JSON.parse(s);
-    topSongs.value = JSON.parse(songs).items || [];
-    topArtists.value = JSON.parse(artists).items || [];
-    topAlbums.value = JSON.parse(albums).items || [];
-    timeline.value = JSON.parse(tl).items || [];
+    summary.value = s;
+    topSongs.value = songs;
+    topArtists.value = artists;
+    topAlbums.value = albums;
+    timeline.value = tl;
     maxTimelineCount.value = Math.max(1, ...timeline.value.map(t => t.count));
     loading.value = false;
     await nextTick();
@@ -182,20 +170,16 @@ async function runAIAnalysis() {
   aiResult.value = '';
   try {
     const [s, songs, artists, tl] = await Promise.all([
-      invoke<string>('stats_get_summary', { range: range.value }),
-      invoke<string>('stats_get_top', { kind: 'song', range: range.value, limit: 5 }),
-      invoke<string>('stats_get_top', { kind: 'artist', range: range.value, limit: 5 }),
-      invoke<string>('stats_get_timeline', { range: range.value }),
+      getStatsSummary(range.value),
+      getStatsTop('song', range.value, 5),
+      getStatsTop('artist', range.value, 5),
+      getStatsTimeline(range.value),
     ]);
-    const statsJson = JSON.stringify({
-      summary: JSON.parse(s),
-      topSongs: JSON.parse(songs).items || [],
-      topArtists: JSON.parse(artists).items || [],
-      timeline: JSON.parse(tl).items || [],
-    });
-    aiResult.value = await invoke<string>('ai_analyze', {
-      apiKey: aiApiKey.value,
-      statsJson,
+    aiResult.value = await analyzeStats(aiApiKey.value, {
+      summary: s,
+      topSongs: songs,
+      topArtists: artists,
+      timeline: tl,
     });
   } catch (e: any) {
     aiError.value = e?.message || String(e);
