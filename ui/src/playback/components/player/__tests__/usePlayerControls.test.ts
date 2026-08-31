@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { Track } from '../../../../shared/music/track';
-import { __resetFavoriteMarkersForTests } from '../../../../api/favoriteMarkers';
+import { __resetFavoriteMarkersForTests } from '../../../../features/library';
 
 // ── Mock playerStore module ──
 const mocks = vi.hoisted(() => ({

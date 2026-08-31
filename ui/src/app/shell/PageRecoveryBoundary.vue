@@ -3,7 +3,7 @@ import { onErrorCaptured, ref, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 
 import { cancelPageTransition } from '../navigation/navigationLifecycle';
-import { clearLyricFullscreenUnlessOnLyric } from '../../api/lyricFullscreen';
+import { clearLyricFullscreenUnlessOnLyric } from '../../features/lyrics';
 import { settleActiveTransitionSessions } from '../navigation/transitionSession';
 import { useThemeStore, type SkinId } from '../appearance/themeStore';
 

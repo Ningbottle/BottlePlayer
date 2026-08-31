@@ -286,9 +286,13 @@ vi.mock('../../../playback/components/coverFlight', () => ({
   flyCoverToDock: vi.fn(),
 }));
 
-vi.mock('../../../api/homeFeedStore', () => ({
-  useHomeFeedStore: () => homeFeedStoreMock,
-}));
+vi.mock('../../../features/home', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    useHomeFeedStore: () => homeFeedStoreMock,
+  };
+});
 
 vi.mock('../../../playback/playerStore', () => ({
   initPlayer: vi.fn(),

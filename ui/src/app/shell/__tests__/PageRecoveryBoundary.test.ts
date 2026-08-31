@@ -19,7 +19,7 @@ vi.mock('../../navigation/navigationLifecycle', () => ({
 }));
 
 import PageRecoveryBoundary from '../PageRecoveryBoundary.vue';
-import { lyricFullscreen, setLyricFullscreen } from '../../../api/lyricFullscreen';
+import { lyricFullscreen, setLyricFullscreen } from '../../../features/lyrics';
 import { useThemeStore, __resetForTest as resetTheme } from '../../appearance/themeStore';
 import { beginTransitionSession } from '../../navigation/transitionSession';
 

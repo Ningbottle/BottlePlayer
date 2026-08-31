@@ -9,10 +9,12 @@ const pageLifecycle = vi.hoisted(() => ({
   nextInstance: { home: 0, search: 0, playlist: 0, lyric: 0 },
 }));
 
-vi.mock('../../../views/HomeView.vue', async () => {
+vi.mock('../../../features/home', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
   const { defineComponent, h, onMounted, onUnmounted } = await import('vue');
   return {
-    default: defineComponent({
+    ...actual,
+    HomeView: defineComponent({
       name: 'HomeView',
       emits: ['navigate'],
       setup(_props, { emit }) {
@@ -28,10 +30,12 @@ vi.mock('../../../views/HomeView.vue', async () => {
   };
 });
 
-vi.mock('../../../views/SearchView.vue', async () => {
+vi.mock('../../../features/search', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
   const { defineComponent, h, onMounted, onUnmounted } = await import('vue');
   return {
-    default: defineComponent({
+    ...actual,
+    SearchView: defineComponent({
       name: 'SearchView',
       setup() {
         const instance = ++pageLifecycle.nextInstance.search;
@@ -43,10 +47,12 @@ vi.mock('../../../views/SearchView.vue', async () => {
   };
 });
 
-vi.mock('../../../views/PlaylistView.vue', async () => {
+vi.mock('../../../features/library', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
   const { defineComponent, h, onMounted, onUnmounted } = await import('vue');
   return {
-    default: defineComponent({
+    ...actual,
+    PlaylistView: defineComponent({
       name: 'PlaylistView',
       setup() {
         const instance = ++pageLifecycle.nextInstance.playlist;
@@ -58,10 +64,20 @@ vi.mock('../../../views/PlaylistView.vue', async () => {
   };
 });
 
-vi.mock('../../../views/LyricView.vue', async () => {
-  const { defineComponent, h, onMounted, onUnmounted } = await import('vue');
+vi.mock('../../../features/lyrics', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  const { defineComponent, h, onMounted, onUnmounted, ref } = await import('vue');
+  const lyricFullscreen = ref(false);
   return {
-    default: defineComponent({
+    ...actual,
+    lyricFullscreen,
+    setLyricFullscreen: vi.fn((value: boolean) => {
+      lyricFullscreen.value = value;
+    }),
+    clearLyricFullscreenUnlessOnLyric: vi.fn((isLyricRoute: boolean) => {
+      if (!isLyricRoute) lyricFullscreen.value = false;
+    }),
+    LyricView: defineComponent({
       name: 'LyricView',
       props: ['isQueueOpen'],
       emits: ['navigate'],
@@ -83,10 +99,13 @@ vi.mock('../../../views/LyricView.vue', async () => {
   };
 });
 
-vi.mock('../../../views/LoginView.vue', async () => {
+vi.mock('../../../features/account', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
   const { defineComponent, h } = await import('vue');
   return {
-    default: defineComponent({
+    ...actual,
+    checkLoginStatus: vi.fn(),
+    LoginView: defineComponent({
       name: 'LoginView',
       emits: ['navigate'],
       setup(_props, { emit }) {
@@ -96,9 +115,13 @@ vi.mock('../../../views/LoginView.vue', async () => {
   };
 });
 
-vi.mock('../../../views/SettingsView.vue', () => ({
-  default: { name: 'SettingsView', template: '<div data-test="page-settings" />' },
-}));
+vi.mock('../../../features/settings', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    SettingsView: { name: 'SettingsView', template: '<div data-test="page-settings" />' },
+  };
+});
 
 vi.mock('../../shell/Sidebar.vue', () => ({
   default: { name: 'Sidebar', emits: ['navigate'], template: '<nav><button data-test="sidebar-search" @click="$emit(\'navigate\', \'search\')" /></nav>' },
@@ -145,43 +168,36 @@ vi.mock('../../../playback/playerStore', async (importOriginal) => {
     initPlayerBackend: vi.fn(),
   };
 });
-vi.mock('../../../api/userStore', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../../api/userStore')>();
-  return { ...actual, checkLoginStatus: vi.fn() };
+vi.mock('../../../platform/tauri/nativeClient', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    ping: vi.fn().mockResolvedValue(true),
+  };
 });
-vi.mock('../../../platform/tauri/nativeClient', () => ({ ping: vi.fn().mockResolvedValue(true) }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn().mockResolvedValue(0) }));
 vi.mock('../pageTransitions', () => ({ transitionEnter: vi.fn(), transitionLeave: vi.fn() }));
-vi.mock('../../../shared/motion/motion', () => ({
-  isReducedMotion: vi.fn(() => true),
-  pressBounceDown: vi.fn(),
-  pressBounceUp: vi.fn(),
-  attachMagnet: vi.fn(() => () => {}),
-}));
+vi.mock('../../../shared/motion/motion', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    isReducedMotion: vi.fn(() => true),
+    pressBounceDown: vi.fn(),
+    pressBounceUp: vi.fn(),
+    attachMagnet: vi.fn(() => () => {}),
+  };
+});
 vi.mock('../appearance/themeStore', async () => {
   const { ref } = await import('vue');
   const skinId = ref('aurora');
   return { useThemeStore: () => ({ skinId }) };
 });
-vi.mock('../../../api/lyricFullscreen', async () => {
-  const { ref } = await import('vue');
-  const lyricFullscreen = ref(false);
-  return {
-    lyricFullscreen,
-    setLyricFullscreen: vi.fn((value: boolean) => {
-      lyricFullscreen.value = value;
-    }),
-    clearLyricFullscreenUnlessOnLyric: vi.fn((isLyricRoute: boolean) => {
-      if (!isLyricRoute) lyricFullscreen.value = false;
-    }),
-  };
-});
 
-import HomeView from '../../../views/HomeView.vue';
-import LyricView from '../../../views/LyricView.vue';
-import LoginView from '../../../views/LoginView.vue';
-import PlaylistView from '../../../views/PlaylistView.vue';
-import SearchView from '../../../views/SearchView.vue';
+import { HomeView } from '../../../features/home';
+import { LyricView } from '../../../features/lyrics';
+import { LoginView } from '../../../features/account';
+import { PlaylistView } from '../../../features/library';
+import { SearchView } from '../../../features/search';
 import App from '../../../App.vue';
 import { initPlayer, initPlayerBackend } from '../../../playback/playerStore';
 import { registerPageTransition } from '../navigationLifecycle';

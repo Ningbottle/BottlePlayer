@@ -12,7 +12,7 @@ vi.mock('@tauri-apps/api/core', () => ({
 }));
 
 import FullscreenWindowControls from '../FullscreenWindowControls.vue';
-import { lyricFullscreen, setLyricFullscreen } from '../../../api/lyricFullscreen';
+import { lyricFullscreen, setLyricFullscreen } from '../../../features/lyrics';
 
 describe('FullscreenWindowControls', () => {
   beforeEach(() => {

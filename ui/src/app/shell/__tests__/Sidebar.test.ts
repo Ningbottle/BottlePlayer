@@ -32,9 +32,10 @@ vi.mock('../../../features/account', async () => {
   };
 });
 
-vi.mock('../../../api/favoriteStore', async () => {
-  const actual = await vi.importActual<typeof import('../../../api/favoriteStore')>('../../../api/favoriteStore');
+vi.mock('../../../features/library', async () => {
+  const actual = await vi.importActual<typeof import('../../../features/library')>('../../../features/library');
   return {
+    ...actual,
     normalizePlaylists: actual.normalizePlaylists,
   };
 });
