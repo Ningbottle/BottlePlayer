@@ -1,6 +1,16 @@
-﻿<script setup lang="ts">
+<script setup lang="ts">
 import { ref, onMounted } from 'vue';
-import { apiGet, apiPost } from '../platform/tauri/nativeClient';
+import {
+  fetchDiagnosticsMemory,
+  fetchDeviceSettings,
+  saveDeviceSettings,
+  resetDeviceSettings,
+  probeSongUrl,
+  claimYouthListenSong,
+  claimYouthVipAd,
+  type MemoryData,
+  type DeviceInfo,
+} from '../features/settings/settingsGateway';
 import { checkLoginStatus, ensureVipDeviceReady, formatVipClaimFailure } from '../api/userStore';
 import {
   checkForUpdate,
@@ -37,24 +47,6 @@ function selectCompactList(event: Event) {
 }
 function selectLyricAlign(value: AppearanceSettings['lyricAlign']) {
   appearanceStore.setLyricAlign(value);
-}
-
-interface MemoryData {
-  working_set_bytes: number;
-  private_bytes: number;
-  image_cache_bytes: number;
-  pending_task_count: number;
-  playback_state: string;
-  text: string;
-}
-
-interface DeviceInfo {
-  dfid: string;
-  mid: string;
-  uuid: string;
-  appid: string;
-  clientver: string;
-  registered: boolean;
 }
 
 const loading = ref(false);
@@ -160,7 +152,7 @@ const deviceStatus = ref('');
 async function loadDiagnostics() {
   loading.value = true;
   try {
-    const res = await apiGet<{ status: number; data?: MemoryData }>('/diagnostics/memory');
+    const res = await fetchDiagnosticsMemory();
     if (res.status === 1 && res.data) {
       memoryInfo.value = res.data;
     }
@@ -173,7 +165,7 @@ async function loadDiagnostics() {
 
 async function loadDevice() {
   try {
-    const res = await apiGet<{ status: number; data: DeviceInfo }>('/settings/device');
+    const res = await fetchDeviceSettings();
     if (res.status === 1 && res.data) {
       device.value = res.data;
       dfidInput.value = res.data.dfid || '';
@@ -192,7 +184,7 @@ async function saveDevice() {
     if (dfidInput.value.trim()) query.dfid = dfidInput.value.trim();
     if (midInput.value.trim()) query.mid = midInput.value.trim();
     if (uuidInput.value.trim()) query.uuid = uuidInput.value.trim();
-    const res = await apiPost<{ status: number; data: DeviceInfo; updated: boolean }>('/settings/device', undefined, query);
+    const res = await saveDeviceSettings(query);
     if (res.status === 1) {
       device.value = res.data;
       deviceStatus.value = res.updated
@@ -210,7 +202,7 @@ async function resetDevice() {
   if (!confirm('清除设备指纹？将删除当前自定义 dfid/mid/uuid，退化为未注册占位。')) return;
   deviceStatus.value = '重置中…';
   try {
-    const res = await apiPost<{ status: number; data: DeviceInfo }>('/settings/device', undefined, { clear: '1' });
+    const res = await resetDeviceSettings();
     if (res.status === 1) {
       device.value = res.data;
       dfidInput.value = res.data.dfid || '';
@@ -241,7 +233,7 @@ async function testDevice() {
   try {
     // hash f0a6ba24... (风中芭蕾) is a known concept-edition track that
     // KuGou serves as /full/ to trusted devices.
-    const res = await apiGet<any>('/song/url', {
+    const res = await probeSongUrl({
       hash: 'F0A6BA24635A8560F96C2C2D603E8CA8',
       album_id: '1776319',
       album_audio_id: '39905465',
@@ -272,7 +264,7 @@ async function claimListenVip() {
       listenVipMsg.value = `领取失败：设备注册失败${deviceResult.error ? `（${deviceResult.error}）` : ''}`;
       return;
     }
-    const res = await apiGet<any>('/youth/listen/song');
+    const res = await claimYouthListenSong();
     if (res?.status === 1) {
       listenVipMsg.value = '✓ 听歌领 VIP 成功';
       await checkLoginStatus(); // 领取成功后刷新持久 VIP 状态/到期时间（权威来源 get_union_vip）
@@ -295,7 +287,7 @@ async function claimAdVip() {
       adVipMsg.value = `领取失败：设备注册失败${deviceResult.error ? `（${deviceResult.error}）` : ''}`;
       return;
     }
-    const res = await apiGet<any>('/youth/vip/ad');
+    const res = await claimYouthVipAd();
     if (res?.status === 1) {
       adVipMsg.value = '✓ 领取成功';
       await checkLoginStatus(); // 领取成功后刷新持久 VIP 状态/到期时间
