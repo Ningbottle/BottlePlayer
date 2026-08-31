@@ -39,7 +39,7 @@ CSS 载入顺序（`ui/src/main.ts:19-23`，cascade 事实基础）：
 
 ```text
 ui/src/
-├── style.css                              1033 行：legacy tokens + shared + shell chrome（E3b 剩余）
+├── style.css                              1033 行：legacy tokens + shared rules + shell chrome + Newsprint Home + cross-feature selectors（E3b 剩余，待 E3c/E3d 处理）
 ├── styles/
 │   ├── tokens.css / progress.css          （不变）
 │   └── skins/aurora.css / newsprint.css   （不变）
@@ -268,7 +268,7 @@ E3a 已删除经精确模板 class、动态 class 与 DOM selector 三路检索�
 
 ## 7. E3 输入摘要（E3a/E3b 执行后存档）
 
-> **E3b 完成记录（2026-08-31，4 commit）**：`f8049c45` Settings → `features/settings/settings.css`；`4996e399` PageRecovery → `app/shell/pageRecovery.css`（PageRecoveryBoundary 测试同步改读 owner 文件）；`9cf52203` Lyrics → `features/lyrics/lyrics.css`；`3edd059f` SettingsView 死 fallback 收敛。三文件在 main.ts 中紧接 style.css、两 skin CSS 之前导入（§0.1）；source-level gate `ui/src/test/__tests__/styleOwnership.test.ts` 锁定 selector 归属与 import-order 契约。视觉验证：Aurora 6/6 + Newsprint 2/2 PNG hash 与 E2 基线一致；剩余为 E4（rename）与 §7.2 的共用拆分。
+> **E3b 完成记录（2026-08-31，4 commit）**：`f8049c45` Settings → `features/settings/settings.css`；`4996e399` PageRecovery → `app/shell/pageRecovery.css`（PageRecoveryBoundary 测试同步改读 owner 文件）；`9cf52203` Lyrics → `features/lyrics/lyrics.css`；`3edd059f` SettingsView 死 fallback 收敛。三文件在 main.ts 中紧接 style.css、两 skin CSS 之前导入（§0.1）；source-level gate `ui/src/test/__tests__/styleOwnership.test.ts` 锁定 selector 归属与 import-order 契约。视觉验证：Aurora 6/6 + Newsprint 2/2 PNG hash 与 E2 基线一致。E3b 共 4 个实现 commit，随后 `77952d9f` 为 gate/doc correction（无条件 readFileSync 加固 + import-order 契约 + 本文档 E3b 记录）。**剩余工作顺序**：E3c Shell chrome 迁移 → E3d Newsprint Home 与 `.page-head`/`.recent`/`.artist` ownership 收敛 → shared/token 收敛 → E4 `style.css` → `styles/base.css`（rename，验收不设行数阈值）。style.css 现仍承载 legacy tokens、shared rules、shell chrome、Newsprint Home 与跨 Feature selectors（§0.1），并非只剩 shared。
 
 1. **E3a 已完成**：§4.4 死 playback 组与 §4.6 经复核的死组（`.btn-*`/`.dim`/`.lyric-container`/`.func*`）已经删除；`.artists*` 因 `.artist` 活跃而撤销删除结论。
 2. **需先拆共用**：`.page-head`（3 个调用方跨 feature）、`.recent`（NewsprintHome + QueuePanel）——先决定 owner 再动。
