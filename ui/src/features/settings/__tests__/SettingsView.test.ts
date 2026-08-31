@@ -9,12 +9,16 @@ vi.mock('../../../platform/tauri/updater', () => ({
 }));
 const mockApiGet = vi.fn();
 vi.mock('../../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
-vi.mock('../../account', () => ({
-  checkLoginStatus: vi.fn().mockResolvedValue(undefined),
-  ensureVipDeviceReady: vi.fn().mockResolvedValue({ ok: true }),
-  formatVipClaimFailure: vi.fn((result: any) =>
-    result?.error_code ? `领取失败：酷狗返回错误码 ${result.error_code}` : '领取失败：酷狗未返回具体原因'),
-}));
+vi.mock('../../account', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    checkLoginStatus: vi.fn().mockResolvedValue(undefined),
+    ensureVipDeviceReady: vi.fn().mockResolvedValue({ ok: true }),
+    formatVipClaimFailure: vi.fn((result: any) =>
+      result?.error_code ? `领取失败：酷狗返回错误码 ${result.error_code}` : '领取失败：酷狗未返回具体原因'),
+  };
+});
 vi.mock('../../../app/update/skippedVersion', () => ({ setSkippedVersion: vi.fn() }));
 
 import SettingsView from '../SettingsView.vue';

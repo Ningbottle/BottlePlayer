@@ -13,6 +13,8 @@ import {
   fetchUserDetail,
   fetchVipDetail,
   claimDailyVipSong,
+  claimYouthListenSong,
+  claimYouthVipAd,
   fetchQrKey,
   checkQrStatus,
   logoutAuth,
@@ -48,6 +50,20 @@ describe("accountGateway contract", () => {
     mockApiGet.mockResolvedValueOnce({ status: 1, data: "" });
     const res = await claimDailyVipSong();
     expect(mockApiGet).toHaveBeenCalledWith("/youth/listen/song");
+    expect(res.status).toBe(1);
+  });
+
+  it("claimYouthListenSong calls /youth/listen/song via apiGet", async () => {
+    mockApiGet.mockResolvedValueOnce({ status: 1, data: "" });
+    const res = await claimYouthListenSong();
+    expect(mockApiGet).toHaveBeenCalledWith("/youth/listen/song");
+    expect(res.status).toBe(1);
+  });
+
+  it("claimYouthVipAd calls /youth/vip/ad via apiGet", async () => {
+    mockApiGet.mockResolvedValueOnce({ status: 1, data: "" });
+    const res = await claimYouthVipAd();
+    expect(mockApiGet).toHaveBeenCalledWith("/youth/vip/ad");
     expect(res.status).toBe(1);
   });
 

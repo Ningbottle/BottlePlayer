@@ -40,21 +40,6 @@ export interface SaveDeviceSettingsResponse {
   [key: string]: unknown;
 }
 
-export interface ProbeSongUrlResponse {
-  status: number;
-  url?: string;
-  error?: string;
-  [key: string]: unknown;
-}
-
-export interface YouthVipResponse {
-  status: number;
-  error_code?: number | string;
-  error_msg?: string;
-  data?: unknown;
-  [key: string]: unknown;
-}
-
 export async function fetchDiagnosticsMemory(): Promise<DiagnosticsMemoryResponse> {
   return apiGet<DiagnosticsMemoryResponse>("/diagnostics/memory");
 }
@@ -69,20 +54,4 @@ export async function saveDeviceSettings(query: Record<string, string>): Promise
 
 export async function resetDeviceSettings(): Promise<DeviceSettingsResponse> {
   return apiPost<DeviceSettingsResponse>("/settings/device", undefined, { clear: "1" });
-}
-
-export async function probeSongUrl(params: {
-  hash: string;
-  album_id?: string;
-  album_audio_id?: string;
-}): Promise<ProbeSongUrlResponse> {
-  return apiGet<ProbeSongUrlResponse>("/song/url", params);
-}
-
-export async function claimYouthListenSong(): Promise<YouthVipResponse> {
-  return apiGet<YouthVipResponse>("/youth/listen/song");
-}
-
-export async function claimYouthVipAd(): Promise<YouthVipResponse> {
-  return apiGet<YouthVipResponse>("/youth/vip/ad");
 }

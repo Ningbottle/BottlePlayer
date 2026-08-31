@@ -61,6 +61,13 @@ export interface YouthListenSongResponse {
   data?: unknown;
 }
 
+export interface YouthVipAdResponse {
+  status: number;
+  error_code?: number | string;
+  error_msg?: string;
+  data?: unknown;
+}
+
 export interface LogoutResponse {
   status: number;
   error?: string;
@@ -80,6 +87,14 @@ export async function fetchVipDetail(): Promise<unknown> {
 
 export async function claimDailyVipSong(): Promise<YouthListenSongResponse> {
   return apiGet<YouthListenSongResponse>("/youth/listen/song");
+}
+
+export async function claimYouthListenSong(): Promise<YouthListenSongResponse> {
+  return apiGet<YouthListenSongResponse>("/youth/listen/song");
+}
+
+export async function claimYouthVipAd(): Promise<YouthVipAdResponse> {
+  return apiGet<YouthVipAdResponse>("/youth/vip/ad");
 }
 
 export async function fetchQrKey(): Promise<QrKeyResponse> {

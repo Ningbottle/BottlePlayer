@@ -2,6 +2,20 @@ import { apiGet } from '../../platform/tauri/nativeClient';
 import type { Track } from '../../shared/music/track';
 import type { ResolveTrackResult } from '../types';
 
+export interface ProbeSongUrlParams {
+  hash: string;
+  album_id?: string;
+  album_audio_id?: string;
+  quality?: string;
+}
+
+export interface ProbeSongUrlResponse {
+  status: number;
+  url?: string;
+  error?: string;
+  [key: string]: unknown;
+}
+
 export function resolveTrack(
   track: Track,
   quality: string,
@@ -12,4 +26,8 @@ export function resolveTrack(
     album_audio_id: track.AlbumAudioID || '',
     quality,
   });
+}
+
+export function probeSongUrl(params: ProbeSongUrlParams): Promise<ProbeSongUrlResponse> {
+  return apiGet<ProbeSongUrlResponse>('/song/url', params);
 }

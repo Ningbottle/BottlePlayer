@@ -70,6 +70,12 @@ import type {
   QualityOption,
 } from './types';
 
+import {
+  probeSongUrl,
+  type ProbeSongUrlParams,
+  type ProbeSongUrlResponse,
+} from './data/songUrlGateway';
+
 export {
   // State projection
   playerStore,
@@ -119,6 +125,8 @@ export {
   flyCoverToDock,
   // UI-safe audio level adapter (home atmosphere)
   createPlaybackAudioLevelMonitor,
+  // Song URL probe
+  probeSongUrl,
 };
 export type {
   Track,
@@ -131,4 +139,6 @@ export type {
   PlayerSyncState,
   PlayerCommand,
   AudioLevelMonitor,
+  ProbeSongUrlParams,
+  ProbeSongUrlResponse,
 };

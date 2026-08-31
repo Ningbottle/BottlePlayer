@@ -13,9 +13,6 @@ import {
   fetchDeviceSettings,
   saveDeviceSettings,
   resetDeviceSettings,
-  probeSongUrl,
-  claimYouthListenSong,
-  claimYouthVipAd,
 } from "../settingsGateway";
 
 describe("settingsGateway contract", () => {
@@ -48,27 +45,6 @@ describe("settingsGateway contract", () => {
     mockApiPost.mockResolvedValueOnce({ status: 1, data: { dfid: "" } });
     const res = await resetDeviceSettings();
     expect(mockApiPost).toHaveBeenCalledWith("/settings/device", undefined, { clear: "1" });
-    expect(res.status).toBe(1);
-  });
-
-  it("probeSongUrl calls /song/url with params", async () => {
-    mockApiGet.mockResolvedValueOnce({ status: 1, url: "http://test/full/audio" });
-    const res = await probeSongUrl({ hash: "abc" });
-    expect(mockApiGet).toHaveBeenCalledWith("/song/url", { hash: "abc" });
-    expect(res.url).toBe("http://test/full/audio");
-  });
-
-  it("claimYouthListenSong calls /youth/listen/song", async () => {
-    mockApiGet.mockResolvedValueOnce({ status: 1 });
-    const res = await claimYouthListenSong();
-    expect(mockApiGet).toHaveBeenCalledWith("/youth/listen/song");
-    expect(res.status).toBe(1);
-  });
-
-  it("claimYouthVipAd calls /youth/vip/ad", async () => {
-    mockApiGet.mockResolvedValueOnce({ status: 1 });
-    const res = await claimYouthVipAd();
-    expect(mockApiGet).toHaveBeenCalledWith("/youth/vip/ad");
     expect(res.status).toBe(1);
   });
 });

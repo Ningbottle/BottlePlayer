@@ -5,13 +5,16 @@ import {
   fetchDeviceSettings,
   saveDeviceSettings,
   resetDeviceSettings,
-  probeSongUrl,
-  claimYouthListenSong,
-  claimYouthVipAd,
   type MemoryData,
   type DeviceInfo,
 } from './settingsGateway';
-import { checkLoginStatus, ensureVipDeviceReady, formatVipClaimFailure } from '../account';
+import {
+  checkLoginStatus,
+  ensureVipDeviceReady,
+  formatVipClaimFailure,
+  claimYouthListenSong,
+  claimYouthVipAd,
+} from '../account';
 import {
   checkForUpdate,
   relaunchApp,
@@ -20,7 +23,7 @@ import {
 } from '../../platform/tauri/updater';
 import { useAppearanceStore, type AppearanceSettings } from '../../app/appearance/appearanceStore';
 import { setSkippedVersion } from '../../app/update/skippedVersion';
-import { playbackDiagnostics, type DiagEvent } from '../../playback/index';
+import { playbackDiagnostics, probeSongUrl, type DiagEvent } from '../../playback';
 import { crossfadeTheme } from '../../shared/motion/motion';
 import { transitionEnter, transitionLeave } from '../../app/navigation/pageTransitions';
 import SkinPageHeader from '../../shared/ui/SkinPageHeader.vue';
