@@ -1,22 +1,22 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import Sidebar from '../../app/shell/Sidebar.vue';
-import { apiGet } from '../../platform/tauri/nativeClient';
-import { userStore } from '../../api/userStore';
-import { useThemeStore, __resetForTest } from '../../app/appearance/themeStore';
-import { createAppRouter } from '../../app/navigation/router';
-import { routeNames } from '../../app/navigation/routes';
+import Sidebar from '../Sidebar.vue';
+import { apiGet } from '../../../platform/tauri/nativeClient';
+import { userStore } from '../../../api/userStore';
+import { useThemeStore, __resetForTest } from '../../appearance/themeStore';
+import { createAppRouter } from '../../navigation/router';
+import { routeNames } from '../../navigation/routes';
 
 vi.mock('@tauri-apps/plugin-updater', () => ({
   check: vi.fn().mockResolvedValue(null),
 }));
 
-vi.mock('../../platform/tauri/nativeClient', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock('../../api/userStore', async () => {
+vi.mock('../../../api/userStore', async () => {
   const { reactive } = await vi.importActual<typeof import('vue')>('vue');
   return {
     userStore: reactive({
@@ -31,14 +31,14 @@ vi.mock('../../api/userStore', async () => {
   };
 });
 
-vi.mock('../../api/favoriteStore', async () => {
-  const actual = await vi.importActual<typeof import('../../api/favoriteStore')>('../../api/favoriteStore');
+vi.mock('../../../api/favoriteStore', async () => {
+  const actual = await vi.importActual<typeof import('../../../api/favoriteStore')>('../../../api/favoriteStore');
   return {
     normalizePlaylists: actual.normalizePlaylists,
   };
 });
 
-vi.mock('../../app/update/skippedVersion', async () => {
+vi.mock('../../update/skippedVersion', async () => {
   const { ref } = await vi.importActual<typeof import('vue')>('vue');
   return {
     useSkippedVersion: () => ref(''),

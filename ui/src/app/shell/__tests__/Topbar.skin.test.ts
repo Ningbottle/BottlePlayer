@@ -1,12 +1,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import { nextTick } from 'vue';
-import Topbar from '../../app/shell/Topbar.vue';
-import { useThemeStore, __resetForTest } from '../../app/appearance/themeStore';
-import { createAppRouter } from '../../app/navigation/router';
-import { routeNames } from '../../app/navigation/routes';
+import Topbar from '../Topbar.vue';
+import { useThemeStore, __resetForTest } from '../../appearance/themeStore';
+import { createAppRouter } from '../../navigation/router';
+import { routeNames } from '../../navigation/routes';
 
-vi.mock('../../api/userStore', () => ({
+vi.mock('../../../api/userStore', () => ({
   userStore: {
     isLoggedIn: false,
     username: '未登录',
