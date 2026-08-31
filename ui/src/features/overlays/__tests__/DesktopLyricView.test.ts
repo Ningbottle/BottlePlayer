@@ -6,7 +6,7 @@ const syncState = reactive({
   cb: null as null | ((s: Record<string, unknown>) => void),
 });
 
-vi.mock('../../playback/sync/playerSync', () => ({
+vi.mock('../../../playback/sync/playerSync', () => ({
   onPlayerState: vi.fn(async (cb: (s: Record<string, unknown>) => void) => {
     syncState.cb = cb;
     return () => {};
@@ -16,7 +16,7 @@ vi.mock('../../playback/sync/playerSync', () => ({
   pinOverlayThemeDark: vi.fn(() => {}),
 }));
 
-vi.mock('../../platform/tauri/windows', () => ({
+vi.mock('../../../platform/tauri/windows', () => ({
   isTauriRuntime: () => false,
   settleCurrentOverlay: vi.fn(async () => {}),
   moveCurrentOverlayTo: vi.fn(async () => {}),
@@ -27,7 +27,7 @@ vi.mock('../../platform/tauri/windows', () => ({
   saveLyricSize: vi.fn(),
 }));
 
-vi.mock('../lyric/useLyricStage', () => ({
+vi.mock('../../lyrics', () => ({
   fetchLyrics: vi.fn(async () => [
     { time: 0, text: '第一行' },
     { time: 10, text: '第二行' },
@@ -43,7 +43,7 @@ vi.mock('@tauri-apps/api/window', () => ({
   })),
 }));
 
-import DesktopLyricView from '../overlay/DesktopLyricView.vue';
+import DesktopLyricView from '../DesktopLyricView.vue';
 
 function emitState(partial: Record<string, unknown> = {}) {
   syncState.cb?.({

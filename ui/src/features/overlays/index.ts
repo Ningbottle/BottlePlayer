@@ -1,2 +1,2 @@
-// Empty public facade for overlays feature
-export {};
+export { default as IslandView } from './IslandView.vue';
+export { default as DesktopLyricView } from './DesktopLyricView.vue';

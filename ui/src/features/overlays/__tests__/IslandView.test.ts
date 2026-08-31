@@ -1,13 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { flushPromises, mount } from '@vue/test-utils';
 import { reactive } from 'vue';
-import overlayCapability from '../../../src-tauri/capabilities/default.json';
+import overlayCapability from '../../../../src-tauri/capabilities/default.json';
 
 const syncState = reactive({
   cb: null as null | ((s: Record<string, unknown>) => void),
 });
 
-vi.mock('../../playback/sync/playerSync', () => ({
+vi.mock('../../../playback/sync/playerSync', () => ({
   onPlayerState: vi.fn(async (cb: (s: Record<string, unknown>) => void) => {
     syncState.cb = cb;
     return () => {};
@@ -20,8 +20,8 @@ vi.mock('../../playback/sync/playerSync', () => ({
   }),
 }));
 
-vi.mock('../../platform/tauri/windows', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('../../platform/tauri/windows')>();
+vi.mock('../../../platform/tauri/windows', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../../platform/tauri/windows')>();
   return {
     ...actual,
     isTauriRuntime: vi.fn(() => false),
@@ -30,7 +30,7 @@ vi.mock('../../platform/tauri/windows', async (importOriginal) => {
   };
 });
 
-vi.mock('../../shared/motion/motion', () => ({
+vi.mock('../../../shared/motion/motion', () => ({
   isReducedMotion: vi.fn(() => true),
   startVinylSpin: vi.fn(() => ({ kill: vi.fn(), setPlaying: vi.fn(), burst: vi.fn() })),
 }));
@@ -69,10 +69,10 @@ vi.mock('@tauri-apps/api/dpi', () => ({
   },
 }));
 
-import IslandView from '../overlay/IslandView.vue';
-import { sendPlayerCommand } from '../../playback/sync/playerSync';
-import { isTauriRuntime, settleCurrentOverlay } from '../../platform/tauri/windows';
-import { startVinylSpin } from '../../shared/motion/motion';
+import IslandView from '../IslandView.vue';
+import { sendPlayerCommand } from '../../../playback/sync/playerSync';
+import { isTauriRuntime, settleCurrentOverlay } from '../../../platform/tauri/windows';
+import { startVinylSpin } from '../../../shared/motion/motion';
 import type { Mock } from 'vitest';
 
 function emitState(partial: Record<string, unknown> = {}) {
