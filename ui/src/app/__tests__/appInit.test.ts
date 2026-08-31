@@ -11,8 +11,8 @@ vi.mock('@tauri-apps/api/event', () => ({
 import { initPlayer, initPlayerBackend, playerStore } from '../../playback/playerStore';
 import { getMediaRuntime } from '../../playback/runtime/mediaRuntime';
 import appSource from '../../App.vue?raw';
-import { routeNames } from '../../app/navigation/routes';
-import { createAppRouter } from '../../app/navigation/router';
+import { routeNames } from '../navigation/routes';
+import { createAppRouter } from '../navigation/router';
 
 async function waitForHistoryNavigation(router: ReturnType<typeof createAppRouter>, action: () => void) {
   const settled = new Promise<void>((resolve) => {

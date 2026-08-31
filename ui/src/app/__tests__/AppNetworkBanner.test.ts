@@ -43,9 +43,13 @@ vi.mock('../../shared/motion/motion', () => ({
   animateStagger: vi.fn(() => ({ kill: () => {} })),
 }));
 
-vi.mock('../../api/homeFeedStore', () => ({
-  useHomeFeedStore: () => homeFeedStoreMock,
-}));
+vi.mock('../../features/home', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    useHomeFeedStore: () => homeFeedStoreMock,
+  };
+});
 
 vi.mock('../../playback/playerStore', () => ({
   initPlayer: vi.fn(),
@@ -77,13 +81,13 @@ vi.mock('../../features/account', () => ({
   LoginView: { template: '<main />' },
 }));
 
-vi.mock('../../app/shell/Sidebar.vue', () => ({
+vi.mock('../shell/Sidebar.vue', () => ({
   default: {
     emits: ['navigate'],
     template: '<aside><button data-test="go-search" @click="$emit(\'navigate\', \'search\')" /><button data-test="go-stats" @click="$emit(\'navigate\', \'stats\')" /></aside>',
   },
 }));
-vi.mock('../../app/shell/Topbar.vue', () => ({
+vi.mock('../shell/Topbar.vue', () => ({
   default: {
     props: ['searchQuery'],
     emits: ['update:searchQuery', 'back'],
@@ -112,9 +116,9 @@ vi.mock('../../features/lyrics', () => ({ LyricView: { template: '<main />' } })
 vi.mock('../../features/stats', () => ({ StatsView: { template: '<main />' } }));
 
 import App from '../../App.vue';
-import { useThemeStore, __resetForTest as resetTheme } from '../../app/appearance/themeStore';
-import { createAppRouter } from '../../app/navigation/router';
-import { routeNames } from '../../app/navigation/routes';
+import { useThemeStore, __resetForTest as resetTheme } from '../appearance/themeStore';
+import { createAppRouter } from '../navigation/router';
+import { routeNames } from '../navigation/routes';
 
 async function mountApp() {
   const router = createAppRouter();
