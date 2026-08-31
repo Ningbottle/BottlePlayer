@@ -37,6 +37,11 @@ export async function closeCurrentWindow(): Promise<void> {
   await getCurrentWindow().close();
 }
 
+/** Scale factor only — no position/size IPC. Overlay resize handlers use this. */
+export async function getCurrentWindowScaleFactor(): Promise<number> {
+  return getCurrentWindow().scaleFactor();
+}
+
 export async function readCurrentWindowFrame(): Promise<WindowFrame> {
   const win = getCurrentWindow();
   const [position, outer, scaleFactor] = await Promise.all([

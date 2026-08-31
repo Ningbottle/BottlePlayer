@@ -7,7 +7,7 @@
  * 时间轴经 playerSync 同步。窗口固定在屏幕顶部，可横向拖放或选择锚点。
  */
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue';
-import { closeCurrentWindow, onCurrentWindowResized, readCurrentWindowFrame } from '../../platform/tauri/windows';
+import { closeCurrentWindow, onCurrentWindowResized, getCurrentWindowScaleFactor } from '../../platform/tauri/windows';
 import { PhGear, PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosphor-icons/vue';
 import { onPlayerState, sendPlayerCommand, applySyncedTheme, pinOverlayThemeDark, type PlayerSyncState } from '../../playback/index';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay, loadLyricPrefs, saveLyricPrefs, saveLyricSize } from '../../platform/tauri/windows';
@@ -123,8 +123,8 @@ onMounted(async () => {
     resizeUnlisten = await onCurrentWindowResized(({ payload }) => {
       window.clearTimeout(sizeTimer);
       sizeTimer = window.setTimeout(() => {
-        void readCurrentWindowFrame().then(({ scaleFactor }) => {
-          saveLyricSize(payload.width / (scaleFactor || 1));
+        void getCurrentWindowScaleFactor().then((factor) => {
+          saveLyricSize(payload.width / (factor || 1));
         });
       }, 300);
     });

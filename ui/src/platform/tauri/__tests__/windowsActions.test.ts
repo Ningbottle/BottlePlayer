@@ -36,6 +36,7 @@ import {
   setCurrentWindowPhysicalPosition,
   makeCurrentOverlayTransparent,
   onCurrentWindowResized,
+  getCurrentWindowScaleFactor,
   type WindowFrame,
 } from '../windows';
 
@@ -140,5 +141,21 @@ describe('platform/tauri window action adapters', () => {
     expect(typeof returned).toBe('function');
     expect(captured).not.toBeNull();
     captured!({ payload: { width: 640, height: 180 } });
+  });
+
+  it('getCurrentWindowScaleFactor reads only scaleFactor — no outerPosition/outerSize IPC', async () => {
+    const win = {
+      scaleFactor: vi.fn().mockResolvedValue(1.75),
+      outerPosition: vi.fn().mockResolvedValue({ x: 0, y: 0 }),
+      outerSize: vi.fn().mockResolvedValue({ width: 800, height: 600 }),
+    };
+    getCurrentWindowMock.mockReturnValue(win);
+
+    const factor = await getCurrentWindowScaleFactor();
+
+    expect(factor).toBe(1.75);
+    expect(win.scaleFactor).toHaveBeenCalledTimes(1);
+    expect(win.outerPosition).not.toHaveBeenCalled();
+    expect(win.outerSize).not.toHaveBeenCalled();
   });
 });
