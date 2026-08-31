@@ -8,7 +8,7 @@ import {
   setVolume as storeSetVolume,
   setQuality as storeSetQuality,
 } from '../../playerStore';
-import { setLyricFullscreen } from '../../../api/lyricFullscreen';
+import { setLyricFullscreen } from '../../../features/lyrics';
 import {
   isFavoriteMarker,
   markFavorite,

@@ -1,7 +1,7 @@
 import { gsap } from 'gsap';
 import type { Router } from 'vue-router';
 
-import { clearLyricFullscreenUnlessOnLyric } from '../../api/lyricFullscreen';
+import { clearLyricFullscreenUnlessOnLyric } from '../../features/lyrics';
 import { settleActiveTransitionSessions } from './transitionSession';
 import { routeNames } from './routes';
 

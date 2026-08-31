@@ -40,10 +40,14 @@ vi.mock('../../../playerStore', async () => {
   };
 });
 
-vi.mock('../../../../api/lyricFullscreen', () => ({
-  lyricFullscreen: { value: false },
-  setLyricFullscreen: (...args: unknown[]) => mocks.setLyricFullscreen(...args),
-}));
+vi.mock('../../../../features/lyrics', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    lyricFullscreen: { value: false },
+    setLyricFullscreen: (...args: unknown[]) => mocks.setLyricFullscreen(...args),
+  };
+});
 
 import { usePlayerControls } from '../usePlayerControls';
 

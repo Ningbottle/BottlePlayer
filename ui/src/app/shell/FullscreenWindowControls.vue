@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { minimizeCurrentWindow } from '../../platform/tauri/windows';
 import { Minimize2, Minus } from '@lucide/vue';
-import { setLyricFullscreen } from '../../api/lyricFullscreen';
+import { setLyricFullscreen } from '../../features/lyrics';
 
 const props = withDefaults(
   defineProps<{

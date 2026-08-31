@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { LyricsResource, type LyricLine } from '../lyricsResource';
-import type { Track } from '../../shared/music/track';
+import type { Track } from '../../../shared/music/track';
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

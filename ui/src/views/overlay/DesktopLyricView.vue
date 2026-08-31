@@ -12,7 +12,7 @@ import { PhGear, PhPause, PhPlay, PhSkipBack, PhSkipForward, PhX } from '@phosph
 import { onPlayerState, sendPlayerCommand, applySyncedTheme, pinOverlayThemeDark, type PlayerSyncState } from '../../playback/index';
 import { isTauriRuntime, moveCurrentOverlayTo, settleCurrentOverlay, loadLyricPrefs, saveLyricPrefs, saveLyricSize } from '../../platform/tauri/windows';
 import type { LyricPrefs } from '../../platform/tauri/windows';
-import { fetchLyrics, type LyricLine } from '../lyric/useLyricStage';
+import { fetchLyrics, type LyricLine } from '../../features/lyrics';
 
 const state = ref<PlayerSyncState | null>(null);
 const lines = ref<LyricLine[]>([]);

@@ -8,12 +8,12 @@ vi.mock('@tauri-apps/api/core', () => ({
 
 const seekMock = vi.hoisted(() => vi.fn(async (seconds: number) => {
   // Mirror store seek side-effect used by follow index (tests assert call + time)
-  const { playerStore: store } = await import('../../playback/playerStore');
+  const { playerStore: store } = await import('../../../playback/playerStore');
   store.currentTime = seconds;
 }));
 
-vi.mock('../../playback/playerStore', async () => {
-  const actual = await vi.importActual<typeof import('../../playback/playerStore')>('../../playback/playerStore');
+vi.mock('../../../playback/playerStore', async () => {
+  const actual = await vi.importActual<typeof import('../../../playback/playerStore')>('../../../playback/playerStore');
   return { ...actual, playTrack: vi.fn(), seek: seekMock };
 });
 
@@ -38,14 +38,14 @@ vi.mock('gsap', () => ({
 }));
 
 const mockApiGet = vi.fn();
-vi.mock('../../platform/tauri/nativeClient', () => ({
+vi.mock('../../../platform/tauri/nativeClient', () => ({
   apiGet: (...args: any[]) => mockApiGet(...args),
 }));
 
 import LyricView from '../LyricView.vue';
-import { playerStore } from '../../playback/playerStore';
-import { lyricFullscreen, setLyricFullscreen } from '../../api/lyricFullscreen';
-import type { Track } from '../../shared/music/track';
+import { playerStore } from '../../../playback/playerStore';
+import { lyricFullscreen, setLyricFullscreen } from '../lyricFullscreen';
+import type { Track } from '../../../shared/music/track';
 
 function mkTrack(hash: string): Track {
   return { FileHash: hash, SongName: hash, SingerName: 'A', Duration: 100, Image: 'http://img/' } as Track;

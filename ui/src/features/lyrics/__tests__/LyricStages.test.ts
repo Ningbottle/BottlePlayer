@@ -65,7 +65,7 @@ import { useLyricStage } from '../useLyricStage';
 import {
   useLyricFocusStore,
   __resetLyricFocusForTest,
-} from '../../../api/lyricFocusStore';
+} from '../lyricFocusStore';
 
 const newsprintStageSource = readFileSync(resolve(__dirname, '../NewsprintLyricStage.vue'), 'utf8');
 

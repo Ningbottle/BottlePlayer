@@ -108,7 +108,7 @@ vi.mock('../../features/settings', () => ({
   SettingsView: { template: '<main />' },
   EqualizerView: { template: '<main />' },
 }));
-vi.mock('../LyricView.vue', () => ({ default: { template: '<main />' } }));
+vi.mock('../../features/lyrics', () => ({ LyricView: { template: '<main />' } }));
 vi.mock('../StatsView.vue', () => ({ default: { template: '<main />' } }));
 
 import App from '../../App.vue';

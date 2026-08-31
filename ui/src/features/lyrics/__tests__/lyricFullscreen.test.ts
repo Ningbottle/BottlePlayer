@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { lyricFullscreen, setLyricFullscreen } from '../lyricFullscreen';
-import { routeNames } from '../../app/navigation/routes';
-import { createAppRouter } from '../../app/navigation/router';
+import { routeNames } from '../../../app/navigation/routes';
+import { createAppRouter } from '../../../app/navigation/router';
 
 describe('lyricFullscreen', () => {
   it('starts false', () => {

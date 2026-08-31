@@ -1,12 +1,12 @@
 import { computed, watch, onMounted, onScopeDispose, nextTick, type ComputedRef } from 'vue';
 import { playerStore, seek as storeSeek } from '../../playback/index';
-import { searchLyricCandidates, fetchLyricDetail } from '../../features/lyrics/lyricsGateway';
-import { useLyricFollow } from '../../api/useLyricFollow';
-import { lyricFullscreen, setLyricFullscreen } from '../../api/lyricFullscreen';
+import { searchLyricCandidates, fetchLyricDetail } from './lyricsGateway';
+import { useLyricFollow } from './useLyricFollow';
+import { lyricFullscreen, setLyricFullscreen } from './lyricFullscreen';
 import type { Track } from '../../shared/music/track';
-import { LyricsResource, type LyricLine } from '../../api/lyricsResource';
+import { LyricsResource, type LyricLine } from './lyricsResource';
 
-export type { LyricLine } from '../../api/lyricsResource';
+export type { LyricLine } from './lyricsResource';
 
 export interface LyricStageModel {
   loading: boolean;

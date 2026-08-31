@@ -1,10 +1,10 @@
 <script setup lang="ts">
 import { computed } from 'vue';
-import { useThemeStore } from '../app/appearance/themeStore';
-import { useLyricStage } from './lyric/useLyricStage';
-import AuroraLyricStage from './lyric/AuroraLyricStage.vue';
-import NewsprintLyricStage from './lyric/NewsprintLyricStage.vue';
-import LyricFollowFooter from './lyric/LyricFollowFooter.vue';
+import { useThemeStore } from '../../app/appearance/themeStore';
+import { useLyricStage } from './useLyricStage';
+import AuroraLyricStage from './AuroraLyricStage.vue';
+import NewsprintLyricStage from './NewsprintLyricStage.vue';
+import LyricFollowFooter from './LyricFollowFooter.vue';
 
 const props = defineProps<{
   isQueueOpen?: boolean;

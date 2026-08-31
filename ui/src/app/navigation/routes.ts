@@ -3,7 +3,7 @@ import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from 'vue-router';
 import HomeView from '../../views/HomeView.vue';
 import { LoginView } from '../../features/account';
 import { HistoryView, PlaylistView } from '../../features/library';
-import LyricView from '../../views/LyricView.vue';
+import { LyricView } from '../../features/lyrics';
 import { SearchView } from '../../features/search';
 import { EqualizerView, SettingsView } from '../../features/settings';
 import StatsView from '../../views/StatsView.vue';

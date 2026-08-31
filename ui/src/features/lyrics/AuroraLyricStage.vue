@@ -4,7 +4,7 @@ import { gsap } from 'gsap';
 import { PhArrowsOutSimple, PhDisc, PhPause, PhPlay } from '@phosphor-icons/vue';
 import { isReducedMotion, startVinylSpin } from '../../shared/motion/motion';
 import type { VinylSpinHandle } from '../../shared/motion/motion';
-import { useLyricFocusStore } from '../../api/lyricFocusStore';
+import { useLyricFocusStore } from './lyricFocusStore';
 import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../playback/index';
 import type { Track } from '../../shared/music/track';
 import type { LyricStageModel } from './useLyricStage';

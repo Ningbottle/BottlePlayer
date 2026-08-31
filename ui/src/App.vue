@@ -16,7 +16,7 @@ import { initPlayer, initPlayerBackend } from './playback/index';
 import { bindOsMediaBridge, unbindOsMediaBridge } from './playback/index';
 import { checkLoginStatus } from './features/account';
 import { ping } from './platform/tauri/nativeClient';
-import { lyricFullscreen, setLyricFullscreen } from './api/lyricFullscreen';
+import { lyricFullscreen, setLyricFullscreen } from './features/lyrics';
 import { transitionEnter, transitionLeave } from './app/navigation/pageTransitions';
 import { isReducedMotion } from './shared/motion/motion';
 import { startPlayerSyncHost } from './playback/index';
