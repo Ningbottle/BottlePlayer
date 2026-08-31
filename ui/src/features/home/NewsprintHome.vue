@@ -335,6 +335,192 @@ export default { name: 'NewsprintHome' };
   min-width: 0;
 }
 
+/* feature row */
+.feature {
+  display:grid;
+  grid-template-columns: 1.15fr 1fr;
+  gap: 22px;
+  margin-bottom: 30px;
+}
+.feature .hero {
+  position: relative;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  padding: 22px;
+  overflow:hidden;
+  min-height: 220px;
+  display:flex; flex-direction:column; justify-content:space-between;
+}
+.feature .hero::before {
+  content:""; position:absolute; inset:6px;
+  border: 1px dashed rgba(34,27,18,0.12);
+  pointer-events:none;
+}
+.feature .hero .label {
+  font-family:"EB Garamond",serif; font-style:italic; font-size: 12px;
+  letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-mute);
+}
+.feature .hero h2 {
+  font-size: 30px; margin: 6px 0 4px; line-height: 1.05; max-width: 78%;
+  font-weight: 600;
+}
+.feature .hero p {
+  font-size: 13px; color: var(--ink-soft); max-width: 70%; line-height: 1.6;
+  margin: 4px 0 0;
+}
+.feature .hero .hero-art {
+  position: absolute; right: -10px; bottom: -10px; width: 200px; height: 200px;
+  opacity:.95;
+}
+.feature .hero .play-cta {
+  align-self: flex-start;
+  display:inline-flex; align-items:center; gap:10px;
+  background: var(--ink); color: var(--paper);
+  padding: 8px 16px 8px 8px; border-radius: 999px;
+  font-size: 13px; letter-spacing: 0.08em;
+  cursor:pointer;
+  margin-top: 14px;
+  z-index: 2;
+}
+.feature .hero .play-cta .pp {
+  width:22px; height:22px; background: var(--accent);
+  border-radius:50%; display:grid; place-items:center; color: var(--paper);
+}
+
+.feature .side-list {
+  border: 1px solid var(--rule);
+  background: rgba(255,252,243,0.35);
+  padding: 14px 16px;
+  display:flex; flex-direction:column;
+}
+.side-list .sl-head {
+  display:flex; align-items:baseline; justify-content:space-between;
+  padding-bottom: 8px; margin-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+}
+.side-list .sl-head h3 {
+  margin:0; font-size: 16px; font-weight: 600; letter-spacing: 0.02em;
+}
+.side-list .sl-head .more {
+  font-family:"EB Garamond",serif; font-style:italic; font-size: 11px; color: var(--ink-mute);
+}
+.side-list ol { list-style:none; margin:0; padding:0; }
+.side-list li {
+  display:grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items:center;
+  padding: 6px 0;
+  border-bottom: 1px dotted var(--rule-soft);
+  font-size: 13px;
+  cursor: pointer;
+}
+.side-list li:hover { background: rgba(34,27,18,0.02); }
+.side-list li:last-child { border-bottom: none; }
+.side-list li .n {
+  font-family:"EB Garamond",serif; font-style:italic; color: var(--ink-mute); font-size: 14px;
+  text-align: right;
+}
+.side-list li .t { display:flex; flex-direction:column; }
+.side-list li .t b { font-weight: 500; }
+.side-list li .t span { font-size: 11px; color: var(--ink-mute); }
+.side-list li .dur { font-family:"EB Garamond",serif; font-style:italic; color: var(--ink-mute); font-size:12px; }
+
+/* ---------- Card grid ---------- */
+.section-bar {
+  display:flex; align-items:baseline; justify-content:space-between;
+  margin: 22px 0 14px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid var(--rule);
+}
+.section-bar h2 {
+  margin:0; font-size: 20px; font-weight: 600; letter-spacing: 0.02em;
+}
+.section-bar h2 i {
+  font-family:"EB Garamond",serif; font-weight:400; font-style:italic; color: var(--ink-mute); font-size: .8em; margin-left:6px;
+}
+.section-bar .more {
+  font-family:"EB Garamond",serif; font-style: italic;
+  font-size: 12px; color: var(--ink-mute); cursor:pointer;
+}
+
+.grid {
+  display: grid;
+  /* 5 on typical width; more columns when maximized */
+  grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+  gap: 24px 22px;
+  width: 100%;
+}
+.card {
+  display:flex; flex-direction:column; gap:10px;
+  cursor:pointer;
+}
+.card .cover {
+  position: relative;
+  aspect-ratio: 1/1;
+  border: 1px solid var(--rule);
+  background: var(--paper-2);
+  overflow: hidden;
+  box-shadow: 0 2px 0 -1px var(--paper-edge), 0 1px 12px -6px rgba(40,28,12,0.25);
+}
+.card .cover::after {
+  content:""; position:absolute; inset:0;
+  background-image: radial-gradient(rgba(34,27,18,0.5) 0.5px, transparent 1px);
+  background-size: 2.5px 2.5px;
+  mix-blend-mode: multiply;
+  opacity: .25;
+  pointer-events:none;
+}
+.card .cover img { width:100%; height:100%; object-fit: cover; display:block; }
+.card .cover svg { width:100%; height:100%; display:block; }
+.card .cover .corner {
+  position:absolute; top:8px; left:8px;
+  font-family:"EB Garamond",serif; font-style:italic;
+  font-size: 10px; color: rgba(255,250,236,0.85);
+  letter-spacing: 0.1em; text-transform: uppercase;
+  mix-blend-mode: difference;
+}
+.card .cover .play {
+  position:absolute; right:10px; bottom:10px;
+  width: 34px; height: 34px; border-radius:50%;
+  background: var(--paper);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  border: 1px solid var(--rule);
+  display:grid; place-items:center;
+  color: var(--ink);
+  opacity:0; transform: translateY(4px);
+  transition: opacity .2s ease, transform .2s ease;
+}
+.card:hover .play { opacity:1; transform:none; }
+.card .meta-row {
+  display:flex; align-items:baseline; justify-content:space-between;
+  gap: 8px;
+}
+.card .title {
+  font-size: 14px; font-weight: 500; line-height:1.3;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow:hidden;
+}
+.card .sub {
+  font-family:"EB Garamond","Noto Serif SC",serif;
+  font-style: italic; font-size: 11px; color: var(--ink-mute);
+  margin-top: 2px;
+}
+.card .plays {
+  font-family:"EB Garamond",serif; font-style:italic;
+  font-size: 11px; color: var(--ink-mute);
+  white-space:nowrap;
+}
+
+/* Dark-mode overrides (migrated from style.css; values verbatim).
+   Whole selectors wrapped in :global so Vue's scoped compiler keeps the
+   descendant part (it otherwise drops everything after :global(...)). */
+:global(:root[data-mode='dark'] .card .cover::after) { mix-blend-mode: normal; opacity: .06; }
+:global(:root[data-mode='dark'] .feature .hero::before) { border-color: rgba(255,255,255,0.08); }
+:global(:root[data-mode='dark'] .side-list li:hover) { background: rgba(255,255,255,0.03); }
+:global(:root[data-mode='dark'] .card) { box-shadow: 0 2px 0 -1px var(--paper-edge), 0 1px 12px -6px rgba(0,0,0,0.5); }
+:global(:root[data-mode='dark'] .hero-art circle[fill="rgba(34,27,18,0.06)"]) { fill: rgba(255,255,255,0.08); }
+:global(:root[data-mode='dark'] .hero-art circle[fill="rgba(34,27,18,0.45)"]) { fill: rgba(255,255,255,0.3); }
+:global(:root[data-mode='dark'] .hero-art circle[stroke="rgba(34,27,18,0.25)"]) { stroke: rgba(255,255,255,0.2); }
+:global(:root[data-mode='dark'] .card .cover .play) { background: rgba(0,0,0,0.55); border-color: rgba(255,255,255,0.12); color: #fff; }
+
 :deep(.grid) {
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
   width: 100%;

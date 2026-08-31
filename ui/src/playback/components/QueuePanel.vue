@@ -320,4 +320,53 @@ watch(() => playerStore.queue, () => {
 :global(:root[data-mode="dark"]) .recent .item.active {
   background: rgba(255,255,255,0.1);
 }
+
+/* Recent list (migrated verbatim from style.css, Task E3d) */
+
+.recent {
+  display:flex; flex-direction:column;
+}
+.recent .item {
+  display:grid; grid-template-columns: 36px 1fr auto; gap: 10px;
+  padding: 7px 4px;
+  border-bottom: 1px dotted rgba(34,27,18,0.1);
+  align-items:center;
+  cursor:pointer;
+}
+.recent .item:last-child { border:none; }
+.recent .item:hover { background: rgba(255,252,243,0.35); }
+.recent .item .mini {
+  width:36px; height:36px;
+  background: var(--paper-2);
+  border-radius:4px;
+  overflow:hidden;
+  border: 1px solid rgba(34,27,18,0.08);
+}
+.recent .item .mini svg { width:100%; height:100%; }
+.recent .item .info {
+  display:flex; flex-direction:column; min-width:0;
+}
+.recent .item .info b {
+  font-weight:500; font-size: 13px;
+  white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+}
+.recent .item .info span {
+  font-family:"EB Garamond","Noto Serif SC",serif;
+  font-style: italic;
+  font-size: 11px; color: var(--ink-mute);
+}
+.recent .item .dur {
+  font-family:"EB Garamond",serif; font-style:italic;
+  font-size: 11px; color: var(--ink-mute);
+}
+:global(:root[data-mode='dark']) .recent .item { border-bottom-color: rgba(255,255,255,0.06); }
+:global(:root[data-mode='dark']) .recent .item:hover { background: rgba(255,255,255,0.04); }
+:global(:root[data-mode='dark']) .recent .item .mini { border-color: rgba(255,255,255,0.08); }
+html.compact .recent .item {
+  padding: 4px;
+  gap: 8px;
+}
+html.compact .recent .item .mini {
+  width: 30px; height: 30px;
+}
 </style>
