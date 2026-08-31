@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, type ComponentPublicInstance } from 'vue';
-import { normalizeTrack, type Track } from '../shared/music/track';
+import { normalizeTrack, type Track } from '../../shared/music/track';
 import {
   getStatsSummary,
   getStatsTop,
@@ -10,12 +10,12 @@ import {
   type StatsSummary,
   type StatsTopItem,
   type StatsTimelineItem,
-} from '../features/stats/statsGateway';
-import { playAll, playerStore } from '../playback/index';
-import { animateBarHeight, animateCountUp, isReducedMotion } from '../shared/motion/motion';
-import SkinPageHeader from '../shared/ui/SkinPageHeader.vue';
-import SkinButton from '../shared/ui/SkinButton.vue';
-import SkinEmptyState from '../shared/ui/SkinEmptyState.vue';
+} from './statsGateway';
+import { playAll, playerStore } from '../../playback/index';
+import { animateBarHeight, animateCountUp, isReducedMotion } from '../../shared/motion/motion';
+import SkinPageHeader from '../../shared/ui/SkinPageHeader.vue';
+import SkinButton from '../../shared/ui/SkinButton.vue';
+import SkinEmptyState from '../../shared/ui/SkinEmptyState.vue';
 
 type Range = StatsRange;
 const range = ref<Range>('30d');

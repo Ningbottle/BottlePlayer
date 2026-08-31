@@ -6,7 +6,7 @@ import { HistoryView, PlaylistView } from '../../features/library';
 import { LyricView } from '../../features/lyrics';
 import { SearchView } from '../../features/search';
 import { EqualizerView, SettingsView } from '../../features/settings';
-import StatsView from '../../views/StatsView.vue';
+import { StatsView } from '../../features/stats';
 import IslandView from '../../views/overlay/IslandView.vue';
 import DesktopLyricView from '../../views/overlay/DesktopLyricView.vue';
 

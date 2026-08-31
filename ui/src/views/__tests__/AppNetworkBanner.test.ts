@@ -109,7 +109,7 @@ vi.mock('../../features/settings', () => ({
   EqualizerView: { template: '<main />' },
 }));
 vi.mock('../../features/lyrics', () => ({ LyricView: { template: '<main />' } }));
-vi.mock('../StatsView.vue', () => ({ default: { template: '<main />' } }));
+vi.mock('../../features/stats', () => ({ StatsView: { template: '<main />' } }));
 
 import App from '../../App.vue';
 import { useThemeStore, __resetForTest as resetTheme } from '../../app/appearance/themeStore';

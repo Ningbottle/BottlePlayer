@@ -9,21 +9,21 @@ const animateCountUpMock = vi.hoisted(() => vi.fn((targetRef, target) => {
 const animateBarHeightMock = vi.hoisted(() => vi.fn());
 const isReducedMotionMock = vi.hoisted(() => vi.fn(() => false));
 
-vi.mock('../../playback/playerStore', () => ({
+vi.mock('../../../playback/playerStore', () => ({
   playAll: playAllMock,
   playerStore: {
     currentTrack: null,
   },
 }));
 
-vi.mock('../../shared/motion/motion', () => ({
+vi.mock('../../../shared/motion/motion', () => ({
   animateCountUp: animateCountUpMock,
   animateBarHeight: animateBarHeightMock,
   startVinylSpin: vi.fn(() => ({ kill: vi.fn(), setPlaying: vi.fn(), burst: vi.fn() })),
   isReducedMotion: isReducedMotionMock,
 }));
 
-vi.mock('../../features/stats/statsGateway', () => ({
+vi.mock('../statsGateway', () => ({
   getStatsSummary: vi.fn().mockResolvedValue({
     total_plays: 10,
     total_listened_seconds: 3600,
@@ -69,8 +69,8 @@ vi.mock('../../features/stats/statsGateway', () => ({
 }));
 
 import StatsView from '../StatsView.vue';
-import { getStatsSummary, getStatsTop, getStatsTimeline, analyzeStats } from '../../features/stats/statsGateway';
-import { playAll } from '../../playback/index';
+import { getStatsSummary, getStatsTop, getStatsTimeline, analyzeStats } from '../statsGateway';
+import { playAll } from '../../../playback/index';
 
 // The backend JSON contract for summary/top/timeline is covered by
 // features/stats/__tests__/statsGateway.test.ts (the typed gateway parses the
