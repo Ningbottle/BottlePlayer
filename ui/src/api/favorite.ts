@@ -1,4 +1,4 @@
-import { apiPost } from '../platform/tauri/nativeClient';
+import { addPlaylistTracks, removePlaylistTracks as removePlaylistTracksCall } from '../features/library/favoriteGateway';
 import { userStore } from './userStore';
 import type { Track } from '../shared/music/track';
 
@@ -47,7 +47,7 @@ export async function addTrackToPlaylist(
   if (!userStore.isLoggedIn) return { success: false, error: '请先登录' };
 
   const apiId = playlist.listid || playlist.id;
-  const res = await apiPost<any>('/playlist/tracks/add', undefined, {
+  const res = await addPlaylistTracks({
     listid: apiId,
     data: buildTrackInfo(track),
   });
@@ -77,7 +77,7 @@ export async function removeTrackFromPlaylist(
   const fileid = String(track.fileid ?? track.audio_id ?? '');
   if (!fileid) return { success: false, error: '缺少曲目 fileid，无法取消收藏' };
 
-  const res = await apiPost<any>('/playlist/tracks/del', undefined, {
+  const res = await removePlaylistTracksCall({
     listid: apiId,
     fileids: fileid,
   });

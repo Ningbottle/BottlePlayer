@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue';
-import { apiGet } from '../platform/tauri/nativeClient';
+import { fetchUserHistory } from '../features/library/historyGateway';
 import { playAll, playerStore } from '../playback/index';
 import { normalizeTrack } from '../shared/music/track';
 import { userStore } from '../api/userStore';
@@ -49,7 +49,7 @@ async function loadRemoteHistory() {
   loading.value = true;
   remoteError.value = '';
   try {
-    const res = await apiGet<any>('/user/history', { pagesize: 100 });
+    const res = await fetchUserHistory(100);
     if (res?.status === 1 && res?.data) {
       const list = res.data.info || res.data.list || res.data.songs || res.data.data || [];
       remoteEntries.value = list

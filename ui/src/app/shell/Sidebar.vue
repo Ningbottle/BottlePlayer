@@ -2,7 +2,7 @@
 import { ref, watch, onMounted, computed } from 'vue';
 import { useRoute } from 'vue-router';
 import { checkForUpdate } from '../../platform/tauri/updater';
-import { apiGet } from '../../platform/tauri/nativeClient';
+import { fetchUserPlaylistsRaw } from '../../features/library/playlistGateway';
 import { userStore } from '../../api/userStore';
 import { normalizePlaylists, type UserPlaylist } from '../../api/favoriteStore';
 import { useSkippedVersion, getSkippedVersion } from '../update/skippedVersion';
@@ -75,7 +75,7 @@ async function loadUserPlaylists() {
   const generation = ++playlistLoadGeneration;
   playlistsLoading.value = true;
   try {
-    const res = await apiGet<any>('/user/playlist', { page: 1, pagesize: 100 });
+    const res = await fetchUserPlaylistsRaw(1, 100);
     if (generation !== playlistLoadGeneration) return;
     if (res?.status !== 1) {
       if (String(res?.error_code) === 'native_user_playlist_id_contract_invalid') {

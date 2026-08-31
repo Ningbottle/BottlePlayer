@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, watch } from 'vue';
-import { apiGet, describeBackendError } from '../platform/tauri/nativeClient';
+import { describeBackendError } from '../platform/tauri/nativeClient';
+import { fetchPlaylistTracks } from '../features/library/playlistGateway';
 import { playAll, playerStore } from '../playback/index';
 import { Track as SongInfo, normalizeTrack } from '../shared/music/track';
 import { favoriteStore, isLikedPlaylistName } from '../api/favoriteStore';
@@ -42,7 +43,7 @@ async function loadPlaylistTracks() {
   loading.value = true;
   error.value = '';
   try {
-    const res = await apiGet<{ status: number; error?: string; data?: { list: SongInfo[], total: number } }>('/playlist/track/all', {
+    const res = await fetchPlaylistTracks<SongInfo>({
       id: props.playlistId,
       page: page.value,
       pagesize: 50

@@ -1,5 +1,5 @@
 import { reactive, readonly } from 'vue';
-import { apiGet } from '../platform/tauri/nativeClient';
+import { fetchUserPlaylistsRaw, fetchPlaylistTracks } from '../features/library/playlistGateway';
 import { normalizeTrack, type Track } from '../shared/music/track';
 import {
   addTrackToPlaylist,
@@ -127,7 +127,7 @@ export function normalizePlaylists(payload: unknown): UserPlaylist[] {
  * (resolveLikedPlaylist) can distinguish "unavailable" from "no liked playlist".
  */
 async function fetchUserPlaylists(): Promise<UserPlaylist[]> {
-  const res = await apiGet<any>('/user/playlist', { page: 1, pagesize: 100 });
+  const res = await fetchUserPlaylistsRaw(1, 100);
   return normalizePlaylists(res);
 }
 
@@ -165,10 +165,11 @@ async function fetchLikedTracksPage(
   page: number,
   pageSize: number,
 ): Promise<TracksPage> {
-  const res = await apiGet<{ status: number; error?: string; data?: { list?: unknown[]; total?: number } }>(
-    '/playlist/track/all',
-    { id: gid, page, pagesize: pageSize },
-  );
+  const res = await fetchPlaylistTracks<{ list?: unknown[]; total?: number }>({
+    id: gid,
+    page,
+    pagesize: pageSize,
+  });
   if (!res || res.status !== 1 || !res.data) return { tracks: [], total: 0 };
   const list = Array.isArray(res.data.list) ? res.data.list : [];
   return { tracks: list.map(normalizeTrack), total: res.data.total ?? list.length };
