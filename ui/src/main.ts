@@ -19,6 +19,7 @@ import "@fontsource/noto-serif-sc/700.css";
 import "./styles/tokens.css";
 import "./styles/progress.css";
 import "./style.css";
+import "./features/settings/settings.css";
 import "./styles/skins/aurora.css";
 import "./styles/skins/newsprint.css";
 import { useThemeStore } from "./app/appearance/themeStore";
