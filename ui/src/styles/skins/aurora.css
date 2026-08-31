@@ -224,7 +224,6 @@
 
 /* Aurora: home-specific CSS variables */
 [data-shell="aurora"] {
-  --on-accent: #ffffff;
 }
 
 /* Mid-narrow: sidebar becomes a 64px icon rail (text hidden, icons kept) */

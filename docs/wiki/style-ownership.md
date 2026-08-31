@@ -2,6 +2,8 @@
 
 审计日期：2026-08-31 · 基线 commit：`7a1d4a69` · 本文档只清点，不修改任何 CSS（E3/E4 的输入）。
 
+> **E3a 执行更正（2026-08-31）**：已删除本清单证明为零引用的 17 个 selector family 与 9 个 token 名称；删除死规则后又暴露并删除了 0 使用的 `--accent-deep`。原清单把 `.artists/.artist/.ah` 整组判死是错误的：精确类名 `.artist` 正被 Search / History / Playlist / Stats 使用，因此整组保留，等待跨 Feature owner 收敛。下文行号与数量仍是 E1 基线口径，E3a 结果以本注记及 §4.2/§4.6/§7 的更正为准。
+
 所有数量均可按文中给出的 `rg` 命令复算。所有"死/未定义"判定均基于全仓引用扫描，非代码形态猜测；判定命令随条目给出。
 
 ## 0. 目录现状
@@ -70,7 +72,7 @@ usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确�
 | `--glass-tint` | 4 | 0 | 无 | **是** |
 | `--glass-tint-2` | 4 | 0 | 无 | **是** |
 | `--glass-edge` | 4 | 0 | 无 | **是** |
-| `--glass-shadow` | 4 | 0 | 无 | **是** |
+| `--glass-shadow` | 2 | 0 | 无 | **是** |
 | `--font-serif` | 2（:root + aurora） | 32 | 全仓广泛 | 否 |
 | `--font-sans` | 2（:root + aurora） | 22 | 全仓广泛 | 否 |
 | `--ease-spa` | 1 | 17 | progress.css:87、LyricFollowFooter/QueuePanel/NewsprintPlayerBar 等 | 否 |
@@ -81,7 +83,7 @@ usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确�
 
 组件局部的 `--page-recovery-border/--page-recovery-muted`（style.css:1513-1514，定义与使用均在 `.page-recovery` 块内）随 owner 规则移动，不算 legacy vocabulary。
 
-**死定义合计：8 个名称、约 24 条声明**（`--ink-soft-10`×4、`--glass-*` 4 名称×4 块、`--ease-material`、`--dur-normal`、`--dur-slow`，另有 skins 的 `--on-accent`×2 见 §2.4）。E1 只记录；删除与否由 E3 决议（计划未授权在本 Phase 删 token）。
+**E1 死定义合计：8 个名称、21 条声明**（`--ink-soft-10`×4、`--glass-tint/-2/edge` 各×4、`--glass-shadow`×2、`--ease-material`、`--dur-normal`、`--dur-slow`；另有 skins 的 `--on-accent`×2，见 §2.4）。这些定义已由 E3a 删除；死 selector 删除后变为 0 使用的 `--accent-deep`×3 也已一并删除。
 
 ### 2.2 Semantic tokens（tokens.css 拥有，owner 不变）
 
@@ -189,7 +191,7 @@ usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确�
 | `.grid` | 624-630 | NewsprintHome.vue | 活 |
 | `.card` 全家 | 631-690 | NewsprintHome.vue | 活 |
 | `.func-grid/.func` | 692-712 | 0 引用 | **死** |
-| `.artists/.artist`（含 `.ah`） | 714-736 | 0 引用（StatsView 的 `artist` 是 `top-cover artist` 修饰类，非本组） | **死** |
+| `.artists/.artist`（含 `.ah`） | 714-736 | `.artist` 精确命中 SearchView、HistoryView、PlaylistView 与 StatsView；CSS 不会区分“修饰类”与“本组” | **活，且存在跨 Feature 命名碰撞；E3a 保留整组** |
 | `.recent` 全家 | 738-773 | **NewsprintHome.vue + playback/components/QueuePanel.vue:111 两处**（跨 feature 共用，迁移需拆分或先统一） | 活 |
 
 ### 4.3 Lyrics feature（owner = `src/features/lyrics/`）
@@ -209,13 +211,13 @@ usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确�
 
 ### 4.6 死 selector 合计
 
-12 组：`.btn-primary/.btn-secondary/.btn-ghost`、`.dim`、`.lyric-container`、`.func-grid/.func`、`.artists/.artist/.ah`、以及 §4.4 的 `.player/.np/.transport/.t-btn/.seek/.track/.volume/.quality/.p-icon` 10 组。约 200 行死规则。E1 不删，E3 按 owner 迁移时一并处置。
+E3a 已删除经精确模板 class、动态 class 与 DOM selector 三路检索均为 0 引用的 17 个 family：`.btn-primary/.btn-secondary/.btn-ghost`、`.dim`、`.lyric-container`、`.func-grid/.func`，以及 §4.4 的 `.player/.np/.transport/.t-btn/.seek/.track/.player-right/.quality/.p-icon/.volume`。`.artists/.artist/.ah` 不在删除集合；其中 `.artist` 是活跃全局类，须在后续 owner 迁移中先消除跨 Feature 碰撞。
 
 ## 5. Skin overrides（styles/skins/，owner 已正确）
 
 - `aurora.css`（535 行，84 个顶层规则组）：`.app[data-shell=aurora]` grid、`.shell-*` 布局、`.lyric-fullscreen-active` 覆盖、sidebar/topbar chrome（`[data-skin-chrome=aurora]`）、playerbar dock、stage 响应式、Skin* primitives（`[data-skin=aurora] .skin-*`）。
 - `newsprint.css`（419 行，69 个顶层规则组）：同构的 newsprint 版本 + `.newsprint-stage-*` 骨架屏 + `.np-pb-*` 暗色覆盖组。
-- 两文件均**无 token 重定义**（文件头声明与实测一致：`rg -n -e '^\s*--' ui/src/styles/skins/` 仅命中 `--on-accent`）。
+- E1 时两文件各有一条无使用的 `--on-accent`；E3a 删除后，两文件均**无 token 重定义**（与文件头 owner 声明一致）。
 - skin override 对 style.css 的覆盖关系见 §6。
 
 ## 6. 跨文件覆盖与 cascade-order 依赖（全部只记录，不改）
@@ -234,8 +236,8 @@ usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确�
 
 ## 7. E3 输入摘要（本 Phase 不执行）
 
-1. **可直接迁移、低风险**：§4.4 死 playback 组与 §4.6 其余死组（`.btn-*`/`.dim`/`.lyric-container`/`.func*`/`.artists*`）→ 随 E3 删除或入 base 前先删。
+1. **E3a 已完成**：§4.4 死 playback 组与 §4.6 经复核的死组（`.btn-*`/`.dim`/`.lyric-container`/`.func*`）已经删除；`.artists*` 因 `.artist` 活跃而撤销删除结论。
 2. **需先拆共用**：`.page-head`（3 个调用方跨 feature）、`.recent`（NewsprintHome + QueuePanel）——先决定 owner 再动。
 3. **需决策**：`.settings-*` 皮肤变体位置（feature vs skins，ADR-006）；`html.lyric-left .lyric-line` 钉住 lyric feature 的 base 规则。
-4. **token 合并前置**：§2.3 映射表显示 legacy→semantic 在 dark 组合下普遍值不同，**逐项替换必须按皮肤×模式组合逐一 QA**；唯一零风险项是删除死定义（--ink-soft-10、--glass-*×4、--ease-material、--dur-normal、--dur-slow、--on-accent、dead fallback `var(--border, #ccc)`）。
+4. **token 合并前置**：§2.3 映射表显示 legacy→semantic 在 dark 组合下普遍值不同，**逐项替换必须按皮肤×模式组合逐一 QA**；E3a 已删除确认无使用的 `--ink-soft-10`、`--glass-*`、`--ease-material`、`--dur-normal`、`--dur-slow`、`--on-accent` 及继发死亡的 `--accent-deep`。Settings 的 dead fallback `var(--border, #ccc)` 留给 owner 迁移时处理。
 5. **cascade 保护**：C1/C3/C6 顺序敏感项迁移时保持 main.ts import 顺序不变，或以特异性替代顺序依赖。

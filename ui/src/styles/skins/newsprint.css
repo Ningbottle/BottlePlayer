@@ -237,7 +237,6 @@
 
 /* Newsprint: home-specific CSS variables */
 [data-shell="newsprint"] {
-  --on-accent: var(--paper, #fff);
 }
 
 /* ── Newsprint Player Bar ── */
