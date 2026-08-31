@@ -4,9 +4,11 @@
 
 > **E3a 执行更正（2026-08-31）**：已删除本清单证明为零引用的 17 个 selector family 与 9 个 token 名称；删除死规则后又暴露并删除了 0 使用的 `--accent-deep`。原清单把 `.artists/.artist/.ah` 整组判死是错误的：精确类名 `.artist` 正被 Search / History / Playlist / Stats 使用，因此整组保留，等待跨 Feature owner 收敛。下文行号与数量仍是 E1 基线口径，E3a 结果以本注记及 §4.2/§4.6/§7 的更正为准。
 
-所有数量均可按文中给出的 `rg` 命令复算。所有"死/未定义"判定均基于全仓引用扫描，非代码形态猜测；判定命令随条目给出。
+> **E3b 执行更正（2026-08-31，HEAD `3edd059f`）**：三组 owner 规则已从 style.css **原样迁出**到 Feature/shell-local CSS（声明值、选择器名、顺序均不变；skin 变体随本体同迁）。本文下文凡称 §4.5 Settings / §4.1 `.page-recovery*` / §4.3 Lyrics 规则"住在 style.css"的行号与陈述均已失效，以本注记和下方 §0.1 现状为准。观察项：`.lyric-right` 在当前生产 Vue 模板中 0 引用（a659a915 舞台重建时孤儿化，§4.3 原使用证据有误），仅观察、不删除。
 
 ## 0. 目录现状
+
+> E3b 后实际 tree 见 §0.1；下图为 E1 审计时点快照，保留作历史口径。
 
 ```text
 ui/src/
@@ -33,6 +35,33 @@ CSS 载入顺序（`ui/src/main.ts:19-23`，cascade 事实基础）：
 
 `ui/index.html:8-22` 的内联 FOUC 脚本在任何 CSS 加载前设置 `data-skin`（默认 `aurora`）与 `data-mode`（默认 `light`），因此所有 `[data-skin]/[data-mode]` 限定块自首次绘制即生效。
 
+### 0.1 E3b 后 tree 与载入顺序（2026-08-31，权威现状）
+
+```text
+ui/src/
+├── style.css                              1033 行：legacy tokens + shared + shell chrome（E3b 剩余）
+├── styles/
+│   ├── tokens.css / progress.css          （不变）
+│   └── skins/aurora.css / newsprint.css   （不变）
+├── app/shell/pageRecovery.css             69 行：.page-recovery* 全家（原 style.css §4.1 条目）
+└── features/
+    ├── settings/settings.css              61 行：.settings-*/.diag-*/.status-list + 两 skin 变体（原 §4.5）
+    └── lyrics/lyrics.css                  107 行：.lyric-* 全家 + html.lyric-left + lyric dark overrides（原 §4.3）
+```
+
+CSS 载入顺序（`ui/src/main.ts`，E3b 后 8 项；import-order 契约由 `styleOwnership.test.ts` 锁定）：
+
+```text
+1. ./styles/tokens.css
+2. ./styles/progress.css
+3. ./style.css
+4. ./features/settings/settings.css
+5. ./app/shell/pageRecovery.css
+6. ./features/lyrics/lyrics.css
+7. ./styles/skins/aurora.css
+8. ./styles/skins/newsprint.css
+```
+
 ## 1. 五类清点总览
 
 | 类别 | 定义处 | 数量 | 复算命令 |
@@ -43,7 +72,7 @@ CSS 载入顺序（`ui/src/main.ts:19-23`，cascade 事实基础）：
 | 4. Feature selectors | `style.css` 内的 settings/lyrics/home/shell-chrome/legacy-player 组 | 51 组（含 12 死组） | §4 表 |
 | 5. Skin overrides | `styles/skins/aurora.css` / `newsprint.css` | 84 / 69 个顶层规则组 | `grep -cE '^\s*[^/@].*\{\s*$' ui/src/styles/skins/aurora.css`（newsprint 同） |
 
-另有两处游离定义：`--on-accent`（skins 各定义 1 次，0 使用）、`--page-recovery-*`（`style.css:1513-1514`，组件局部）。
+另有两处游离定义：`--on-accent`（skins 各定义 1 次，0 使用，E3a 已删）、`--page-recovery-*`（E1 时在 `style.css:1513-1514`，组件局部；E3b 已随 owner 迁入 `app/shell/pageRecovery.css`）。
 
 usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确边界，避免 `--ink` 吞掉 `--ink-soft` 前缀）。
 
@@ -81,7 +110,7 @@ usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确�
 | `--dur-normal` | 1 | 0 | 无 | **是** |
 | `--dur-slow` | 1 | 0 | 无 | **是** |
 
-组件局部的 `--page-recovery-border/--page-recovery-muted`（style.css:1513-1514，定义与使用均在 `.page-recovery` 块内）随 owner 规则移动，不算 legacy vocabulary。
+组件局部的 `--page-recovery-border/--page-recovery-muted`（E1 时在 style.css:1513-1514，定义与使用均在 `.page-recovery` 块内）不算 legacy vocabulary，E3b 已随 owner 迁入 `app/shell/pageRecovery.css`。
 
 **E1 死定义合计：8 个名称、21 条声明**（`--ink-soft-10`×4、`--glass-tint/-2/edge` 各×4、`--glass-shadow`×2、`--ease-material`、`--dur-normal`、`--dur-slow`；另有 skins 的 `--on-accent`×2，见 §2.4）。这些定义已由 E3a 删除；死 selector 删除后变为 0 使用的 `--accent-deep`×3 也已一并删除。
 
@@ -179,7 +208,7 @@ usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确�
 | `.titlebar/.titlebar-logo/.titlebar-center/.titlebar-controls` | 1124-1184 | App.vue、shell/AuroraShell.vue、shell/NewsprintShell.vue、shell/FullscreenWindowControls.vue |
 | `.app.lyric-fullscreen-active` 组 | 1404-1419 | App.vue / shells |
 | dark 变体中针对以上 selector 的 `:root[data-mode=dark]` 覆盖 | 1219-1393 内散布 | 同上 |
-| `.page-recovery*` | 1512-1576 | app/shell/PageRecoveryBoundary.vue（shell，非 feature） |
+| `.page-recovery*` | 1512-1576 | app/shell/PageRecoveryBoundary.vue（shell，非 feature）。**E3b 已迁出** → `app/shell/pageRecovery.css` |
 
 ### 4.2 Newsprint Home feature（owner = `src/features/home/NewsprintHome.vue`）
 
@@ -194,20 +223,23 @@ usage 计数统一口径：`rg -o -e 'var\(--NAME[),]' ui/src | wc -l`（精确�
 | `.artists/.artist`（含 `.ah`） | 714-736 | `.artist` 精确命中 SearchView、HistoryView、PlaylistView 与 StatsView；CSS 不会区分“修饰类”与“本组” | **活，且存在跨 Feature 命名碰撞；E3a 保留整组** |
 | `.recent` 全家 | 738-773 | **NewsprintHome.vue + playback/components/QueuePanel.vue:111 两处**（跨 feature 共用，迁移需拆分或先统一） | 活 |
 
-### 4.3 Lyrics feature（owner = `src/features/lyrics/`）
+### 4.3 Lyrics feature（owner = `src/features/lyrics/`，E3b 后 = `features/lyrics/lyrics.css`）
 
-| 组 | style.css 行 | 使用证据 |
+**E3b 已迁出**：下表全部规则现位于 `ui/src/features/lyrics/lyrics.css`（107 行，含 `html.lyric-left` 与 dark 覆盖；`html.compact .lyric-scroll` 与 `.app.lyric-fullscreen-active` 除外——前者随 §3 compact 组留在 style.css，后者随 §4.1 shell chrome 留在 style.css）。行号为 E1 基线口径，仅存档。
+
+| 组 | style.css 行（E1 口径） | 使用证据 |
 | :--- | :--- | :--- |
-| `.lyric-meta/.lyric-right/.lyric-scroll/.lyric-line` 全家 | 1040-1122 | AuroraLyricStage/NewsprintLyricStage/LyricView/DesktopLyricView |
-| `:root[data-mode=dark] .lyric-right` 滚动条覆盖 | 1211-1217 | 同上 |
+| `.lyric-meta/.lyric-right/.lyric-scroll/.lyric-line` 全家 | 1040-1122 | AuroraLyricStage/NewsprintLyricStage/LyricView/DesktopLyricView。**E3b 复核：`.lyric-right` 在生产 Vue 模板中 0 引用**（a659a915 舞台重建时孤儿化，本表原使用证据有误）；按 E3b"原样迁入"随组保留在 lyrics.css，仅观察、不删除 |
 
 ### 4.4 Legacy playback player（owner 已迁 `src/playback/components/player/`，CSS 全死）
 
 `.player/.np/.transport/.t-btn/.seek/.track/.player-right/.quality/.p-icon/.volume`：style.css 775-947，约 170 行。**全部 0 引用**——两条 PlayerBar 已是 AuroraPlayerBar.vue（`aurora-pb-*`）与 NewsprintPlayerBar.vue（`np-pb-*`，skin 覆盖在 newsprint.css:243-294）。复算：`rg -n 'class="[^"]*\b(player|np|transport|t-btn|seek|track|volume|quality|p-icon)\b' ui/src --glob '*.vue'` 仅命中 `aurora-pb-*`/`np-pb-*`/`island-transport` 等复合名。
 
-### 4.5 Settings feature + 皮肤变体（owner = `src/features/settings/SettingsView.vue`）
+### 4.5 Settings feature + 皮肤变体（owner = `src/features/settings/SettingsView.vue`，E3b 后 = `features/settings/settings.css`）
 
-`.settings-*`（1455-1499）、`.diag-*`（1489-1494）、`.status-list`（1495-1498）：仅 SettingsView.vue 使用。**所有权泄漏**：`:root[data-skin="aurora"] .settings-*`（1501-1503）与 `:root[data-skin="newsprint"] .settings-*`（1506-1509）是皮肤变体，却住在 style.css 而非 `styles/skins/`。E3 时应连同本体一起归 settings feature 或 skins（按 ADR-006 归属判定）。
+**E3b 已迁出**：`.settings-*`、`.diag-*`、`.status-list` 及 `:root[data-skin="aurora"/"newsprint"] .settings-*` 皮肤变体现全部位于 `ui/src/features/settings/settings.css`（61 行，变体随本体归 Feature，未进 skins/）。行号为 E1 基线口径，仅存档。
+
+E1 时态记录（已解决）：`.settings-*`（1455-1499）、`.diag-*`（1489-1494）、`.status-list`（1495-1498）当时住在 style.css；`:root[data-skin="aurora"] .settings-*`（1501-1503）与 `:root[data-skin="newsprint"] .settings-*`（1506-1509）是皮肤变体却同住 style.css（所有权泄漏，见 §6/C9）。E3b 连同本体一起归 settings feature。附带：SettingsView.vue 的死 fallback `var(--rule, var(--border, #ccc))` 已收敛为 `var(--rule)`（commit `3edd059f`，§2.5）。
 
 ### 4.6 死 selector 合计
 
@@ -232,12 +264,14 @@ E3a 已删除经精确模板 class、动态 class 与 DOM selector 三路检索�
 | C6 | style.css `.icon-btn`(:412) 与 dark 覆盖(:1235) ← aurora.css:510 `[data-skin-chrome=aurora].topbar .icon-btn` | 同特异性 (0,3,0) 时 aurora.css 后载入获胜；dark+aurora 组合两者都命中 | **是** |
 | C7 | style.css `.nav a.active`(:324) ← aurora.css:178 / newsprint.css:222 `[data-skin-chrome].sidebar .nav > a.active` | skin 特异性更高 | 否 |
 | C8 | style.css `.paper-*` aurora 隐藏(:134-139) ↔ aurora.css:164-169 **完全重复** | 同规则双文件冗余 | 否（删任一需 QA 佐证） |
-| C9 | `.settings-*` 皮肤变体住在 style.css（:1501-1509）而非 skins/ | 所有权放错文件（非 cascade 问题） | — |
+| C9 | `.settings-*` 皮肤变体住在 style.css（:1501-1509）而非 skins/ | 所有权放错文件（非 cascade 问题） | — | **E3b 已解决**：变体随本体迁入 `features/settings/settings.css`（feature-local，非 skins/） |
 
-## 7. E3 输入摘要（本 Phase 不执行）
+## 7. E3 输入摘要（E3a/E3b 执行后存档）
+
+> **E3b 完成记录（2026-08-31，4 commit）**：`f8049c45` Settings → `features/settings/settings.css`；`4996e399` PageRecovery → `app/shell/pageRecovery.css`（PageRecoveryBoundary 测试同步改读 owner 文件）；`9cf52203` Lyrics → `features/lyrics/lyrics.css`；`3edd059f` SettingsView 死 fallback 收敛。三文件在 main.ts 中紧接 style.css、两 skin CSS 之前导入（§0.1）；source-level gate `ui/src/test/__tests__/styleOwnership.test.ts` 锁定 selector 归属与 import-order 契约。视觉验证：Aurora 6/6 + Newsprint 2/2 PNG hash 与 E2 基线一致；剩余为 E4（rename）与 §7.2 的共用拆分。
 
 1. **E3a 已完成**：§4.4 死 playback 组与 §4.6 经复核的死组（`.btn-*`/`.dim`/`.lyric-container`/`.func*`）已经删除；`.artists*` 因 `.artist` 活跃而撤销删除结论。
 2. **需先拆共用**：`.page-head`（3 个调用方跨 feature）、`.recent`（NewsprintHome + QueuePanel）——先决定 owner 再动。
-3. **需决策**：`.settings-*` 皮肤变体位置（feature vs skins，ADR-006）；`html.lyric-left .lyric-line` 钉住 lyric feature 的 base 规则。
-4. **token 合并前置**：§2.3 映射表显示 legacy→semantic 在 dark 组合下普遍值不同，**逐项替换必须按皮肤×模式组合逐一 QA**；E3a 已删除确认无使用的 `--ink-soft-10`、`--glass-*`、`--ease-material`、`--dur-normal`、`--dur-slow`、`--on-accent` 及继发死亡的 `--accent-deep`。Settings 的 dead fallback `var(--border, #ccc)` 留给 owner 迁移时处理。
+3. **需决策（已解决）**：`.settings-*` 皮肤变体位置——E3b 决议随本体归 settings feature（`features/settings/settings.css`），未进 skins/；`html.lyric-left .lyric-line` 已随 lyric feature 迁入 `features/lyrics/lyrics.css`。
+4. **token 合并前置**：§2.3 映射表显示 legacy→semantic 在 dark 组合下普遍值不同，**逐项替换必须按皮肤×模式组合逐一 QA**；E3a 已删除确认无使用的 `--ink-soft-10`、`--glass-*`、`--ease-material`、`--dur-normal`、`--dur-slow`、`--on-accent` 及继发死亡的 `--accent-deep`。Settings 的 dead fallback `var(--border, #ccc)` 已随 E3b 处理（SettingsView.vue 收敛为 `var(--rule)`，commit `3edd059f`）。
 5. **cascade 保护**：C1/C3/C6 顺序敏感项迁移时保持 main.ts import 顺序不变，或以特异性替代顺序依赖。
