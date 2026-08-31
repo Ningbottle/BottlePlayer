@@ -43,6 +43,9 @@ vi.mock('../../shared/motion/motion', () => ({
   animateStagger: vi.fn(() => ({ kill: () => {} })),
 }));
 
+vi.mock('../../features/home/homeFeedStore', () => ({
+  useHomeFeedStore: () => homeFeedStoreMock,
+}));
 vi.mock('../../features/home', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
@@ -112,7 +115,13 @@ vi.mock('../../features/settings', () => ({
   SettingsView: { template: '<main />' },
   EqualizerView: { template: '<main />' },
 }));
-vi.mock('../../features/lyrics', () => ({ LyricView: { template: '<main />' } }));
+vi.mock('../../features/lyrics', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    LyricView: { template: '<main />' },
+  };
+});
 vi.mock('../../features/stats', () => ({ StatsView: { template: '<main />' } }));
 
 import App from '../../App.vue';

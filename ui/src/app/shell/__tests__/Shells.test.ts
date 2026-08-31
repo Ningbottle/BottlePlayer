@@ -315,14 +315,19 @@ vi.mock('../../../playback/playerStore', () => ({
   playPersonalFm: vi.fn(),
 }));
 
-vi.mock('../../../features/account', () => ({
-  checkLoginStatus: vi.fn(),
-  userStore: {
-    isLoggedIn: false,
-    nickname: '',
-    avatar: '',
-  },
-}));
+vi.mock('../../../features/account', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    checkLoginStatus: vi.fn(),
+    userStore: {
+      isLoggedIn: false,
+      nickname: '',
+      avatar: '',
+    },
+    LoginView: { template: '<div />' },
+  };
+});
 
 vi.mock('../Sidebar.vue', () => ({
   default: {
@@ -339,14 +344,25 @@ vi.mock('../Topbar.vue', () => ({
 }));
 vi.mock('../../../playback/components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
 vi.mock('../../../playback/components/QueuePanel.vue', () => ({ default: { template: '<div />' } }));
-vi.mock('../../../views/SearchView.vue', () => ({ default: { props: ['query'], template: '<main data-test="search-view" />' } }));
-vi.mock('../../../views/PlaylistView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../../../views/LyricView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../../../views/SettingsView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../../../views/LoginView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../../../views/HistoryView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../../../views/StatsView.vue', () => ({ default: { template: '<main />' } }));
-vi.mock('../../../views/EqualizerView.vue', () => ({ default: { template: '<main />' } }));
+vi.mock('../../../features/search', () => ({
+  SearchView: { props: ['query'], template: '<main data-test="search-view" />' },
+}));
+vi.mock('../../../features/library', () => ({
+  PlaylistView: { template: '<main />' },
+  HistoryView: { template: '<main />' },
+}));
+vi.mock('../../../features/lyrics', async (importOriginal) => {
+  const actual = await importOriginal<Record<string, unknown>>();
+  return {
+    ...actual,
+    LyricView: { template: '<main />' },
+  };
+});
+vi.mock('../../../features/settings', () => ({
+  SettingsView: { template: '<main />' },
+  EqualizerView: { template: '<main />' },
+}));
+vi.mock('../../../features/stats', () => ({ StatsView: { template: '<main />' } }));
 
 import { useThemeStore, __resetForTest } from '../../appearance/themeStore';
 import App from '../../../App.vue';
