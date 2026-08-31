@@ -2,8 +2,8 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// Task E3b ownership gate: feature/shell-owned selectors must live in the
-// owner CSS file and must no longer remain in the global stylesheet.
+// Task E3b/E3c ownership gate: feature/shell-owned selectors must live in
+// the owner CSS file and must no longer remain in the global stylesheet.
 // Source-level on purpose — no rendering, so it stays cheap and
 // cascade-neutral. Mirrors the prelude extraction used by legacyCssCleanup.
 // Owner files are read unconditionally: a missing owner stylesheet must fail
@@ -22,6 +22,7 @@ const lyricsCss = readFileSync(
   resolve(uiRoot, 'src/features/lyrics/lyrics.css'),
   'utf8',
 );
+const shellCss = readFileSync(resolve(uiRoot, 'src/app/shell/shell.css'), 'utf8');
 const mainTs = readFileSync(resolve(uiRoot, 'src/main.ts'), 'utf8');
 
 function escapeRegex(value: string): string {
@@ -59,6 +60,7 @@ describe('feature style ownership (Task E3b)', () => {
       './styles/tokens.css',
       './styles/progress.css',
       './style.css',
+      './app/shell/shell.css',
       './features/settings/settings.css',
       './app/shell/pageRecovery.css',
       './features/lyrics/lyrics.css',
@@ -139,6 +141,82 @@ describe('feature style ownership (Task E3b)', () => {
         expect(hasSelector(globalPreludes, selector)).toBe(false);
       },
     );
+  });
+
+  describe('app/shell owns shell chrome (Task E3c)', () => {
+    const ownerPreludes = selectorPreludes(shellCss);
+    // Each entry: the bare/owned prelude that must live in shell.css.
+    // html.compact .playlists a stays in style.css with the shared compact
+    // group (style-ownership §3), so bare preludes are asserted instead of
+    // substring matching which would also hit the compound selectors.
+    const ownerSelectors = [
+      '.app',
+      '.sidebar',
+      '.sidebar::after',
+      '.masthead',
+      '.user',
+      '.avatar',
+      '.section-label',
+      '.nav',
+      '.playlists',
+      '.playlist-placeholder',
+      '.playlist-retry',
+      '.sidebar-footer',
+      '.main',
+      '.topbar',
+      '.nav-arrows',
+      '.icon-btn',
+      '.search',
+      '.free-badge',
+      '.top-actions',
+      '.titlebar',
+      '.titlebar-logo',
+      '.titlebar-center',
+      '.titlebar-controls',
+      '.app.lyric-fullscreen-active',
+    ];
+
+    it.each(ownerSelectors)(
+      '%s is owned by shell.css and gone from style.css',
+      (selector) => {
+        expect(hasSelector(ownerPreludes, selector)).toBe(true);
+        // The shared compact-mode group keeps html.compact .playlists a in
+        // style.css (style-ownership §3), so only a bare .playlists prelude
+        // would mean the shell rule was left behind.
+        const bareSelectorLeft =
+          selector === '.playlists' &&
+          globalPreludes.some((prelude) => prelude.trim() === '.playlists');
+        expect(bareSelectorLeft || hasSelector(globalPreludes, selector)).toBe(
+          selector === '.playlists',
+        );
+      },
+    );
+
+    it('keeps the shell dark-mode overrides beside the shell', () => {
+      const mustContain = [
+        ':root[data-mode="dark"] .nav a:hover',
+        ':root[data-mode="dark"] .nav a.active',
+        ':root[data-mode="dark"] .playlists a:hover',
+        ':root[data-mode="dark"] .icon-btn',
+        ':root[data-mode="dark"] .icon-btn:hover',
+        ':root[data-mode="dark"] .titlebar-controls .control-btn:hover',
+        ':root[data-mode="dark"] .sidebar',
+        ':root[data-mode="dark"] .topbar',
+        ':root[data-mode="dark"] .nav-arrows button',
+        ':root[data-mode="dark"] .search',
+      ];
+      for (const fragment of mustContain) {
+        expect(shellCss).toContain(fragment);
+        expect(globalCss).not.toContain(fragment);
+      }
+    });
+
+    it('keeps the aurora paper-layer hiding in style.css (shell background, §3)', () => {
+      expect(globalCss).toContain(
+        ':root[data-skin="aurora"] .paper-base',
+      );
+      expect(shellCss).not.toContain(':root[data-skin="aurora"] .paper-base');
+    });
   });
 
   describe('lyrics feature owns lyric page selectors', () => {
