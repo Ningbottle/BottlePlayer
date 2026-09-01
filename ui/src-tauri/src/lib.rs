@@ -310,6 +310,56 @@ mod tests {
     }
 
     #[test]
+    fn frontend_timeout_literal_covers_every_generated_deadline() {
+        // The hand-written FRONTEND_TIMEOUT_MS literal in the frontend must
+        // never fall below the largest generated per-path deadline: otherwise
+        // the frontend gives up while the backend request is still in flight
+        // and the circuit breaker miscounts the abandon as a failure. This is
+        // the cross-layer guard: editing either side alone turns this red.
+        let frontend_ts = std::fs::read_to_string(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../ui/src/platform/tauri/nativeClient.ts"
+        ))
+        .expect("nativeClient.ts should exist relative to ui/src-tauri");
+
+        let literal = frontend_ts
+            .split(|c: char| c == '\n' || c == ';')
+            .map(str::trim)
+            .find(|line| line.starts_with("const FRONTEND_TIMEOUT_MS"))
+            .unwrap_or_else(|| {
+                panic!("FRONTEND_TIMEOUT_MS declaration not found in nativeClient.ts")
+            });
+        let value_part = literal
+            .split('=')
+            .nth(1)
+            .expect("FRONTEND_TIMEOUT_MS declaration must contain '='")
+            .trim()
+            .replace('_', "");
+        let frontend_timeout_ms: u64 = value_part
+            .parse()
+            .unwrap_or_else(|_| panic!("FRONTEND_TIMEOUT_MS literal not parseable: {literal}"));
+
+        let max_deadline = [
+            deadlines::kDeadlineSongUrlMs,
+            deadlines::kDeadlineImageMs,
+            deadlines::kDeadlineLoginPollMs,
+            deadlines::kDeadlineSearchMs,
+            deadlines::kDeadlinePlaylistMs,
+            deadlines::kDeadlineGenericMs,
+            deadlines::kFrontendTimeoutMs,
+        ]
+        .into_iter()
+        .max()
+        .expect("deadline list is non-empty");
+
+        assert!(
+            frontend_timeout_ms >= max_deadline,
+            "FRONTEND_TIMEOUT_MS ({frontend_timeout_ms}ms) must be >= the largest generated \
+             deadline ({max_deadline}ms); keep nativeClient.ts in sync with RequestDeadlines.h"
+        );
+    }
+
+    #[test]
     fn non_exit_run_events_do_not_shutdown_process_global_c_api() {
         assert!(!should_shutdown_c_api(&tauri::RunEvent::Ready));
     }
