@@ -1,6 +1,6 @@
 [
   {
-    "file": "design-qa-captures/aurora-home-1586x1024-dark.png",
+    "file": "design-qa-captures/current/aurora-home-1586x1024-dark.png",
     "viewport": "1586 × 1024",
     "mode": "dark",
     "reducedMotion": false,
@@ -21,7 +21,7 @@
     }
   },
   {
-    "file": "design-qa-captures/aurora-home-1586x1024-light.png",
+    "file": "design-qa-captures/current/aurora-home-1586x1024-light.png",
     "viewport": "1586 × 1024",
     "mode": "light",
     "reducedMotion": false,
@@ -42,7 +42,7 @@
     }
   },
   {
-    "file": "design-qa-captures/aurora-home-1440x900-dark.png",
+    "file": "design-qa-captures/current/aurora-home-1440x900-dark.png",
     "viewport": "1440 × 900",
     "mode": "dark",
     "reducedMotion": false,
@@ -63,7 +63,7 @@
     }
   },
   {
-    "file": "design-qa-captures/aurora-home-1280x720-dark.png",
+    "file": "design-qa-captures/current/aurora-home-1280x720-dark.png",
     "viewport": "1280 × 720",
     "mode": "dark",
     "reducedMotion": false,
@@ -84,7 +84,7 @@
     }
   },
   {
-    "file": "design-qa-captures/aurora-home-900-dark.png",
+    "file": "design-qa-captures/current/aurora-home-900-dark.png",
     "viewport": "900 × 720",
     "mode": "dark",
     "reducedMotion": false,
@@ -105,7 +105,7 @@
     }
   },
   {
-    "file": "design-qa-captures/aurora-home-1586x1024-dark-reduced-motion.png",
+    "file": "design-qa-captures/current/aurora-home-1586x1024-dark-reduced-motion.png",
     "viewport": "1586 × 1024",
     "mode": "dark",
     "reducedMotion": true,

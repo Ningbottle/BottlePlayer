@@ -2,7 +2,7 @@
 
 **Spec:** `docs/superpowers/specs/2026-07-21-aurora-turntable-night-design.md`
 **Plan:** `docs/superpowers/plans/2026-07-21-aurora-turntable-night.md`
-**Rendered screenshots:** `ui/design-qa-captures/aurora-home-*.png`(本次重跑)
+**Rendered screenshots:** `ui/design-qa-captures/current/aurora-home-*.png`(本次重跑)
 **Extra viewport:** `ui/design-qa-captures/icon-rail-1000x800.png`(1000×800,图标栏)
 **Viewport:** 1586 × 1024 (primary);矩阵另有 1440×900、1280×720、900×720、light、reduced-motion(见 `manifest.json`)
 
@@ -25,13 +25,13 @@
 
 | File | Viewport | Mode | Notes |
 | --- | --- | --- | --- |
-| `design-qa-captures/aurora-home-1586x1024-dark.png` | 1586 × 1024 | dark | 主对比:空盘黑胶 + 静音传输区 |
-| `design-qa-captures/aurora-home-1586x1024-light.png` | 1586 × 1024 | light | 冷白不变,黑胶器物跨模式一致 |
-| `design-qa-captures/aurora-home-1440x900-dark.png` | 1440 × 900 | dark | rail 可见 |
-| `design-qa-captures/aurora-home-1280x720-dark.png` | 1280 × 720 | dark | rail 可见(<1280 隐藏边界) |
-| `design-qa-captures/aurora-home-900-dark.png` | 900 × 720 | dark | sidebar 隐藏,舞台单列 |
+| `design-qa-captures/current/aurora-home-1586x1024-dark.png` | 1586 × 1024 | dark | 主对比:空盘黑胶 + 静音传输区 |
+| `design-qa-captures/current/aurora-home-1586x1024-light.png` | 1586 × 1024 | light | 冷白不变,黑胶器物跨模式一致 |
+| `design-qa-captures/current/aurora-home-1440x900-dark.png` | 1440 × 900 | dark | rail 可见 |
+| `design-qa-captures/current/aurora-home-1280x720-dark.png` | 1280 × 720 | dark | rail 可见(<1280 隐藏边界) |
+| `design-qa-captures/current/aurora-home-900-dark.png` | 900 × 720 | dark | sidebar 隐藏,舞台单列 |
 | `design-qa-captures/icon-rail-1000x800.png` | 1000 × 800 | dark | 64px 图标栏 |
-| `design-qa-captures/aurora-home-1586x1024-dark-reduced-motion.png` | 1586 × 1024 | dark + reduced | 无动画依赖 |
+| `design-qa-captures/current/aurora-home-1586x1024-dark-reduced-motion.png` | 1586 × 1024 | dark + reduced | 无动画依赖 |
 
 ## Notes
 
