@@ -54,6 +54,7 @@
   /* Must not reintroduce Apple-red; tokens emerald is source of truth */
   --accent:      #18875b;
 
+
   --font-serif:
     "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
   --font-sans:
@@ -77,6 +78,7 @@
   --rule-soft:  rgba(242, 245, 242, 0.05);
 
   --accent:      #62d6a2;
+
 
 }
 
@@ -233,11 +235,6 @@ button {
 
 svg { display:block; }
 
-.artist {
-  display:flex; flex-direction:column; align-items:center; gap:6px;
-  cursor:pointer;
-}
-
 /* Common styles for lists & views */
 .list-view {
   display: flex;
@@ -286,6 +283,13 @@ svg { display:block; }
 }
 .song-row .title {
   font-weight: 500;
+}
+.song-row .artist {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
 }
 .song-row .artist, .song-row .album {
   color: var(--ink-soft);

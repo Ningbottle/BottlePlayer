@@ -69,7 +69,9 @@ describe('legacy global CSS cleanup', () => {
     );
   });
 
-  it('keeps the active .artist selector until its cross-feature ownership is resolved', () => {
-    expect(globalCss).toMatch(/^\s*\.artist\s*\{/m);
+  it('no longer defines the ambiguous bare .artist rule (resolved ownership)', () => {
+    // The bare rule was removed: song-row column layout lives in
+    // .song-row .artist, StatsView circular covers live in StatsView scoped.
+    expect(globalCss).not.toMatch(/^\s*\.artist\s*\{/m);
   });
 });
