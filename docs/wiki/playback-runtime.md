@@ -7,16 +7,16 @@
 
 ## 1. 概览
 
-播放运行时是 BottleMusic 前端最核心的子系统,负责把"用户点击一首歌"到"扬声器出声 + 统计入库"之间的全部状态机、并发竞态与媒体管线串起来。当前实现由六个协作模块组成,全部位于 [ui/src/api/](../../ui/src/api/) 下:
+播放运行时是 BottleMusic 前端最核心的子系统,负责把"用户点击一首歌"到"扬声器出声 + 统计入库"之间的全部状态机、并发竞态与媒体管线串起来。当前实现由六个协作模块组成,全部位于 [ui/src/playback/](../../ui/src/playback/) 与各 Feature 目录下:
 
 | 模块 | 文件 | 职责 |
 |---|---|---|
-| Html5AudioBackend | [html5Backend.ts](../../ui/src/api/html5Backend.ts) | **唯一生产后端**,封装 `<audio>` 元素 |
-| PlaybackOrchestrator | [playbackOrchestrator.ts](../../ui/src/api/playbackOrchestrator.ts) | Resolve + PlaySession + Backend 顺序协调 |
-| PlaybackCommandCoordinator | [playbackCommandCoordinator.ts](../../ui/src/api/playbackCommandCoordinator.ts) | 命令合并 mailbox,消除 race |
-| PlaySessionTracker | [playSessionTracker.ts](../../ui/src/api/playSessionTracker.ts) | 统计会话,seek-immune 累加器 |
-| WebAudioEq | [webAudioEq.ts](../../ui/src/api/webAudioEq.ts) + [eqWorkletProcessor.ts](../../ui/src/api/eqWorkletProcessor.ts) | 10 段 RBJ peaking EQ |
-| audio_proxy | [audioProxy.ts](../../ui/src/api/audioProxy.ts) + [audio_proxy.rs](../../ui/src-tauri/src/audio_proxy.rs) | KuGou CDN 反向代理加 CORS 头 |
+| Html5AudioBackend | [html5Backend.ts](../../ui/src/playback/runtime/html5Backend.ts) | **唯一生产后端**,封装 `<audio>` 元素 |
+| PlaybackOrchestrator | [playbackOrchestrator.ts](../../ui/src/playback/runtime/playbackOrchestrator.ts) | Resolve + PlaySession + Backend 顺序协调 |
+| PlaybackCommandCoordinator | [playbackCommandCoordinator.ts](../../ui/src/playback/commands/playbackCommandCoordinator.ts) | 命令合并 mailbox,消除 race |
+| PlaySessionTracker | [playSessionTracker.ts](../../ui/src/playback/playSessionTracker.ts) | 统计会话,seek-immune 累加器 |
+| WebAudioEq | [webAudioEq.ts](../../ui/src/playback/eq/webAudioEq.ts) + [eqWorkletProcessor.ts](../../ui/src/playback/eq/eqWorkletProcessor.ts) | 10 段 RBJ peaking EQ |
+| audio_proxy | [audioProxy.ts](../../ui/src/platform/tauri/audioProxy.ts) + [audio_proxy.rs](../../ui/src-tauri/src/audio_proxy.rs) | KuGou CDN 反向代理加 CORS 头 |
 
 运行时边界(**已确认**):
 
@@ -25,11 +25,11 @@
 - **Media Foundation 已移除**:旧 `native/playback/` 目录与 `PlaybackControllerMFP.cpp` / `BiquadFilter.cpp` 在 2026-07-17 commit `refactor(native): remove MF playback stack and BackendFacade` 中删除,`ui/src-tauri/src/playback.rs` 同步移除。详见 [evidence-report.md §7.2 / §7.3](./evidence-report.md)。
 - **C++ 核心只负责 KuGou API 请求调度 + SQLite 统计存储**,不含播放栈(见 [evidence-report.md §7.1](./evidence-report.md):`C_API.cpp` 全局状态仅有 `api` 与 `scheduler`,无 `g_playback`)。
 
-装配入口在 [playerStore.ts](../../ui/src/api/playerStore.ts):`PlaybackOrchestrator` 实例化于模块顶层,依赖 `activeBackend`(`Html5AudioBackend`)、`playSession`(`PlaySessionTracker`)、`resolveTrack`、`patchState` 等,通过 `playbackOrchestrator` 单例对外暴露。
+装配入口在 [playerStore.ts](../../ui/src/playback/playerStore.ts):`PlaybackOrchestrator` 实例化于模块顶层,依赖 `activeBackend`(`Html5AudioBackend`)、`playSession`(`PlaySessionTracker`)、`resolveTrack`、`patchState` 等,通过 `playbackOrchestrator` 单例对外暴露。
 
 ## 2. Html5AudioBackend
 
-[html5Backend.ts](../../ui/src/api/html5Backend.ts) 中的 `Html5AudioBackend` 类实现 [playerBackend.ts](../../ui/src/api/playerBackend.ts) 的 `PlayerBackend` 接口,是**唯一生产后端**(`playerStore.backend` 字段类型为 `'html5' | null`)。
+[html5Backend.ts](../../ui/src/playback/runtime/html5Backend.ts) 中的 `Html5AudioBackend` 类实现 [playerBackend.ts](../../ui/src/playback/runtime/playerBackend.ts) 的 `PlayerBackend` 接口,是**唯一生产后端**(`playerStore.backend` 字段类型为 `'html5' | null`)。
 
 ### 2.1 事件出口:`onEvent` 是唯一事件源
 
@@ -85,7 +85,7 @@ async stop(): Promise<void> {
 
 ## 3. 播放状态机
 
-[playbackPhase.ts](../../ui/src/api/playbackPhase.ts) 定义 7 个 phase 的纯状态机(无 I/O、无 Vue、无 backend):
+[playbackPhase.ts](../../ui/src/playback/playbackPhase.ts) 定义 7 个 phase 的纯状态机(无 I/O、无 Vue、无 backend):
 
 ```
 idle | resolving | loading | playing | paused | recovering | error
@@ -142,7 +142,7 @@ const seq = ++this.transitionSeq;   // 单调递增
 
 ## 4. PlaybackOrchestrator
 
-[playbackOrchestrator.ts](../../ui/src/api/playbackOrchestrator.ts) 的 `PlaybackOrchestrator` 类是 Resolve + PlaySession + Backend 的顺序协调器。`switchTrack(track)` 的标准序列:
+[playbackOrchestrator.ts](../../ui/src/playback/runtime/playbackOrchestrator.ts) 的 `PlaybackOrchestrator` 类是 Resolve + PlaySession + Backend 的顺序协调器。`switchTrack(track)` 的标准序列:
 
 ```mermaid
 sequenceDiagram
@@ -208,7 +208,7 @@ sequenceDiagram
 
 ## 5. PlaybackCommandCoordinator
 
-[playbackCommandCoordinator.ts](../../ui/src/api/playbackCommandCoordinator.ts) 的 `PlaybackCommandCoordinator` 是**所有播放意图的唯一入口**(single mailbox)。它做的是 **coalescing,不是 FIFO**——连续点击 / 键盘连按 next 时合并为一次 delta 跳转,避免中途切歌 race。
+[playbackCommandCoordinator.ts](../../ui/src/playback/commands/playbackCommandCoordinator.ts) 的 `PlaybackCommandCoordinator` 是**所有播放意图的唯一入口**(single mailbox)。它做的是 **coalescing,不是 FIFO**——连续点击 / 键盘连按 next 时合并为一次 delta 跳转,避免中途切歌 race。
 
 命令类型(`PlaybackCommand`):`next` / `prev` / `selectTrack` / `seek` / `togglePlay` / `switchQuality` / `clearQueue` / `removeTrack` / `ended` / `playAll` / `addToQueue`。
 
@@ -257,7 +257,7 @@ if (command.type === 'ended' && this.endedEpochHandled === this.epoch && !this.p
 
 ## 6. PlaySessionTracker
 
-[playSessionTracker.ts](../../ui/src/api/playSessionTracker.ts) 的 `PlaySessionTracker` 是纯逻辑统计机(无 Tauri / DOM 依赖,完全可单测)。它的职责是产出 `PlayRecord`(`song_hash` / `duration_seconds` / `completed` / `listened_seconds` / `quality` / `played_at` …)并经 `emit` fire-and-forget 上报(`playerStore.emitPlayRecord` → `invoke('stats_record_play')`,失败静默)。
+[playSessionTracker.ts](../../ui/src/playback/playSessionTracker.ts) 的 `PlaySessionTracker` 是纯逻辑统计机(无 Tauri / DOM 依赖,完全可单测)。它的职责是产出 `PlayRecord`(`song_hash` / `duration_seconds` / `completed` / `listened_seconds` / `quality` / `played_at` …)并经 `emit` fire-and-forget 上报(`playerStore.emitPlayRecord` → `invoke('stats_record_play')`,失败静默)。
 
 ### 6.1 session 状态机
 
@@ -316,15 +316,15 @@ if (listenedSeconds <= MIN_RECORD_LISTENED_SECONDS) return;  // < 60s 不记录
 
 ## 7. Web Audio EQ
 
-[webAudioEq.ts](../../ui/src/api/webAudioEq.ts) + [eqWorkletProcessor.ts](../../ui/src/api/eqWorkletProcessor.ts) 实现 10 段 EQ。EQ 是 AudioWorklet 重设计的 Phase 1(DSP)+ Phase 2(graph)产物,设计文档:`docs/superpowers/specs/2026-06-28-eq-audioworklet-redesign-design.md`。
+[webAudioEq.ts](../../ui/src/playback/eq/webAudioEq.ts) + [eqWorkletProcessor.ts](../../ui/src/playback/eq/eqWorkletProcessor.ts) 实现 10 段 EQ。EQ 是 AudioWorklet 重设计的 Phase 1(DSP)+ Phase 2(graph)产物,设计文档:`docs/superpowers/specs/2026-06-28-eq-audioworklet-redesign-design.md`。
 
 ### 7.1 10 段频段
 
-[equalizerConfig.ts](../../ui/src/api/equalizerConfig.ts) 的 `EQ_BANDS` 常量声明 10 段中心频率:31 / 62 / 125 / 250 / 500 / 1K / 2K / 4K / 8K / 16K Hz。每段附 `label` / `display` / `tone` 元数据供 UI 渲染。
+[equalizerConfig.ts](../../ui/src/playback/eq/equalizerConfig.ts) 的 `EQ_BANDS` 常量声明 10 段中心频率:31 / 62 / 125 / 250 / 500 / 1K / 2K / 4K / 8K / 16K Hz。每段附 `label` / `display` / `tone` 元数据供 UI 渲染。
 
 ### 7.2 DSP:RBJ peaking from Audio EQ Cookbook
 
-[eqWorkletProcessor.ts](../../ui/src/api/eqWorkletProcessor.ts) 的 `computePeakingCoeffs(freq, gainDb, Q, sampleRate)` 实现标准 RBJ peaking filter(参考 Robert Bristow-Johnson《Audio EQ Cookbook》),`Q = 1 / Math.SQRT2` 与旧 `BiquadFilterNode` 默认 Q 对齐。
+[eqWorkletProcessor.ts](../../ui/src/playback/eq/eqWorkletProcessor.ts) 的 `computePeakingCoeffs(freq, gainDb, Q, sampleRate)` 实现标准 RBJ peaking filter(参考 Robert Bristow-Johnson《Audio EQ Cookbook》),`Q = 1 / Math.SQRT2` 与旧 `BiquadFilterNode` 默认 Q 对齐。
 
 > **Spec 偏差修正**(文件顶部注释):设计文档原称 DSP "翻自 `native/playback/BiquadFilter.cpp`",但该文件在 MF 移除时已删除(见 [evidence-report.md §7.2](./evidence-report.md))。核验后改用标准 Cookbook 公式实现,行为等价。
 >
@@ -389,7 +389,7 @@ EQ 接管失败(AudioContext 无法 resume、worklet load 失败、或运行中�
 
 ### 7.8 内置预设(6 个)
 
-[equalizerConfig.ts](../../ui/src/api/equalizerConfig.ts) 的 `EQ_PRESETS`:
+[equalizerConfig.ts](../../ui/src/playback/eq/equalizerConfig.ts) 的 `EQ_PRESETS`:
 
 | 预设 | 中文名 | band 增益(dB) |
 |---|---|---|
@@ -421,7 +421,7 @@ KuGou 媒体 CDN 不返回 `Access-Control-Allow-Origin`,前端 `<audio>` 直连
 
 ### 8.3 前端接入与降级提示
 
-[audioProxy.ts](../../ui/src/api/audioProxy.ts) 的 `prepareAudioSourceUrl(url)`:
+[audioProxy.ts](../../ui/src/platform/tauri/audioProxy.ts) 的 `prepareAudioSourceUrl(url)`:
 
 - 非 `http(s)` URL(如 blob:)→ 原样返回,`crossOriginSafe: false`。
 - 调 `invoke('audio_proxy_url', { url })`:成功返回代理 URL,`crossOriginSafe: true`;失败或返回空 → 原样返回 + `crossOriginSafe: false` + `console.warn('Audio proxy unavailable; falling back to direct playback')`。
@@ -432,7 +432,7 @@ KuGou 媒体 CDN 不返回 `Access-Control-Allow-Origin`,前端 `<audio>` 直连
 
 单曲循环(`loopMode === 'single'`)的 replay 路径**不走 `next()`**,而是 `ended` handler 内分支:
 
-[playbackCommandCoordinator.ts](../../ui/src/api/playbackCommandCoordinator.ts) `applyNav` 中(`fromEnded && loop === 'single'` 分支):
+[playbackCommandCoordinator.ts](../../ui/src/playback/commands/playbackCommandCoordinator.ts) `applyNav` 中(`fromEnded && loop === 'single'` 分支):
 
 ```ts
 if (fromEnded && loop === 'single') {
@@ -475,11 +475,11 @@ applyPhase('loading') → playSession.intend(track) → backend.playUrl(url)
 
 ### 10.2 `initPlayer` 只处理 durationchange/loadedmetadata
 
-[playerStore.ts](../../ui/src/api/playerStore.ts) 的 `initPlayer` 在 `<audio>` 上额外注册的监听仅用于初始化 UI(`duration` / metadata 就绪),**不**重复处理 play/pause/ended。所有播放语义事件都归 `onEvent`。历史上"双 ended handler 各自拉取 `/song/url` 造成重复请求"的 bug 已在迁移到 `onEvent` 单一出口时修复,当前架构下 `<audio>` 的 `ended` 只会触发一次 `PlaybackEvent`,由 coordinator 的 epoch 去重二次兜底。
+[playerStore.ts](../../ui/src/playback/playerStore.ts) 的 `initPlayer` 在 `<audio>` 上额外注册的监听仅用于初始化 UI(`duration` / metadata 就绪),**不**重复处理 play/pause/ended。所有播放语义事件都归 `onEvent`。历史上"双 ended handler 各自拉取 `/song/url` 造成重复请求"的 bug 已在迁移到 `onEvent` 单一出口时修复,当前架构下 `<audio>` 的 `ended` 只会触发一次 `PlaybackEvent`,由 coordinator 的 epoch 去重二次兜底。
 
 ## 11. HMR 共享
 
-[playerStore.ts](../../ui/src/api/playerStore.ts) 顶部声明:
+[playerStore.ts](../../ui/src/playback/playerStore.ts) 顶部声明:
 
 ```ts
 type BottleMusicAudioGlobal = Window & {
@@ -493,7 +493,7 @@ type BottleMusicAudioGlobal = Window & {
 - `__bottlemusic_player_cleanup__`:旧模块在 HMR 替换前的 cleanup 钩子(unsubscribe `onEvent`、断开 EQ、**释放分析 AudioContext**）。
 - `__bottlemusic_pagehide__`:`pagehide` 事件单 owner;HMR / re-import 时替换前一个 handler,保证不会注册多个重复 handler。
 
-`cleanupCurrentModuleForHmr()`（[playerStore.ts](../../ui/src/api/playerStore.ts) L132-151）在 HMR 时执行：`detachCoordinatorForHmr()`（supersede mailbox,不 stop/pause/clear）→ `disposeFmSession()` → drop backend ref → `closeWebAudioEq()`（关 EQ context）→ **`disposeAudioLevelMonitor()`**（关分析 context,R3 修复）。两个 AudioContext 在 HMR 时都显式释放,新模块重建 fresh graph。
+`cleanupCurrentModuleForHmr()`（[playerStore.ts](../../ui/src/playback/playerStore.ts) L132-151）在 HMR 时执行：`detachCoordinatorForHmr()`（supersede mailbox,不 stop/pause/clear）→ `disposeFmSession()` → drop backend ref → `closeWebAudioEq()`（关 EQ context）→ **`disposeAudioLevelMonitor()`**（关分析 context,R3 修复）。两个 AudioContext 在 HMR 时都显式释放,新模块重建 fresh graph。
 
 `shutdownCoordinatorInstance` 在应用退出时停掉 coordinator 但**不**清空队列(队列已由 `flushSaveQueue` 落盘),注释明确禁止用 `dispose()`(会 barrier-empty 队列并覆盖 localStorage 为空会话)。
 
@@ -531,18 +531,18 @@ EQ graph 的 build order 要求"full chain 在 createMediaElementSource 之前",
 
 | 文件 | 关键导出 |
 |---|---|
-| [playerStore.ts](../../ui/src/api/playerStore.ts) | `playerStore` (reactive)、`handlePlaybackEvent`、`initPlayer`、`playbackOrchestrator` 实例 |
-| [html5Backend.ts](../../ui/src/api/html5Backend.ts) | `Html5AudioBackend` (implements `PlayerBackend`)、`onEvent`、`stop`、`beginSourceLease`、`waitForMetadata` |
-| [playerBackend.ts](../../ui/src/api/playerBackend.ts) | `PlayerBackend` 接口、`PlaybackEvent` 类型 |
-| [playbackOrchestrator.ts](../../ui/src/api/playbackOrchestrator.ts) | `PlaybackOrchestrator`、`switchTrack`、`switchQuality`、`resumeOrReloadCurrent`、`replaySameTrack`、`transitionSeq` |
-| [playbackPhase.ts](../../ui/src/api/playbackPhase.ts) | `PlaybackPhase`、`canTransition`、`transitionPhase`、`flagsFromPhase`、`LEGAL` |
-| [playbackCommandCoordinator.ts](../../ui/src/api/playbackCommandCoordinator.ts) | `PlaybackCommandCoordinator`、`PlaybackCommand`、`dispatch`、`endedEpochHandled`、`applyNav` |
-| [playSessionTracker.ts](../../ui/src/api/playSessionTracker.ts) | `PlaySessionTracker`、`PlayRecord`、`intend`、`onPlay`、`onTimeUpdate`、`finalize` |
-| [webAudioEq.ts](../../ui/src/api/webAudioEq.ts) | `WebAudioEq`、`attachSource`、`disconnectSource`、`setBand`、`setEnabled`、`enterDegradation`、`recoverFromDegradation` |
-| [eqWorkletProcessor.ts](../../ui/src/api/eqWorkletProcessor.ts) | `computePeakingCoeffs`、`clampFreq`、`loadEqWorklet` |
-| [equalizerConfig.ts](../../ui/src/api/equalizerConfig.ts) | `EQ_BANDS`、`EQ_PRESETS`、`EQ_PRESET_LABELS`、`clampEqGain`、`normalizeEqBands` |
-| [audioProxy.ts](../../ui/src/api/audioProxy.ts) | `prepareAudioSourceUrl` |
+| [playerStore.ts](../../ui/src/playback/playerStore.ts) | `playerStore` (reactive)、`handlePlaybackEvent`、`initPlayer`、`playbackOrchestrator` 实例 |
+| [html5Backend.ts](../../ui/src/playback/runtime/html5Backend.ts) | `Html5AudioBackend` (implements `PlayerBackend`)、`onEvent`、`stop`、`beginSourceLease`、`waitForMetadata` |
+| [playerBackend.ts](../../ui/src/playback/runtime/playerBackend.ts) | `PlayerBackend` 接口、`PlaybackEvent` 类型 |
+| [playbackOrchestrator.ts](../../ui/src/playback/runtime/playbackOrchestrator.ts) | `PlaybackOrchestrator`、`switchTrack`、`switchQuality`、`resumeOrReloadCurrent`、`replaySameTrack`、`transitionSeq` |
+| [playbackPhase.ts](../../ui/src/playback/playbackPhase.ts) | `PlaybackPhase`、`canTransition`、`transitionPhase`、`flagsFromPhase`、`LEGAL` |
+| [playbackCommandCoordinator.ts](../../ui/src/playback/commands/playbackCommandCoordinator.ts) | `PlaybackCommandCoordinator`、`PlaybackCommand`、`dispatch`、`endedEpochHandled`、`applyNav` |
+| [playSessionTracker.ts](../../ui/src/playback/playSessionTracker.ts) | `PlaySessionTracker`、`PlayRecord`、`intend`、`onPlay`、`onTimeUpdate`、`finalize` |
+| [webAudioEq.ts](../../ui/src/playback/eq/webAudioEq.ts) | `WebAudioEq`、`attachSource`、`disconnectSource`、`setBand`、`setEnabled`、`enterDegradation`、`recoverFromDegradation` |
+| [eqWorkletProcessor.ts](../../ui/src/playback/eq/eqWorkletProcessor.ts) | `computePeakingCoeffs`、`clampFreq`、`loadEqWorklet` |
+| [equalizerConfig.ts](../../ui/src/playback/eq/equalizerConfig.ts) | `EQ_BANDS`、`EQ_PRESETS`、`EQ_PRESET_LABELS`、`clampEqGain`、`normalizeEqBands` |
+| [audioProxy.ts](../../ui/src/platform/tauri/audioProxy.ts) | `prepareAudioSourceUrl` |
 | [audio_proxy.rs](../../ui/src-tauri/src/audio_proxy.rs) | `audio_proxy_url` Tauri command、`append_cors_headers`、`is_supported_audio_url` |
-| [songUrlResolver.ts](../../ui/src/api/songUrlResolver.ts) | `resolveTrack` (被 orchestrator 注入) |
+| [songUrlResolver.ts](../../ui/src/playback/data/songUrlGateway.ts) | `resolveTrack` (被 orchestrator 注入) |
 
 > 本文档所有结论以 [evidence-report.md](./evidence-report.md) 与源码为准;与旧 Code-Wiki.md 冲突处以本文档为准。

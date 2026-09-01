@@ -7,7 +7,7 @@
 
 ## 上下文
 
-BottleMusic 的均衡器（EQ）基于 Web Audio API AudioWorklet 实现，需要将 HTML5 `<audio>` 元素接入 AudioContext 图。**实际拓扑只使用 `captureStream → createMediaStreamSource`,从不使用 `createMediaElementSource`**（见 [ui/src/api/webAudioEq.ts](../../ui/src/api/webAudioEq.ts) L4-7、L107-109）：
+BottleMusic 的均衡器（EQ）基于 Web Audio API AudioWorklet 实现，需要将 HTML5 `<audio>` 元素接入 AudioContext 图。**实际拓扑只使用 `captureStream → createMediaStreamSource`,从不使用 `createMediaElementSource`**（见 [../../ui/src/playback/eq/webAudioEq.ts](../../ui/src/playback/eq/webAudioEq.ts) L4-7、L107-109）：
 
 ```
 captureStream() → MediaStreamAudioSourceNode → AudioWorkletNode → GainNode → destination
@@ -26,10 +26,10 @@ captureStream() → MediaStreamAudioSourceNode → AudioWorkletNode → GainNode
 
 ### 生命周期管理（代码核验）
 
-`webAudioEq.ts` 的 `close()` 方法释放 AudioContext 并清理所有节点引用（[webAudioEq.ts](../../ui/src/api/webAudioEq.ts) L168-186）：
+`webAudioEq.ts` 的 `close()` 方法释放 AudioContext 并清理所有节点引用（[webAudioEq.ts](../../ui/src/playback/eq/webAudioEq.ts) L168-186）：
 
 ```typescript
-// ui/src/api/webAudioEq.ts
+// ../../ui/src/playback/eq/webAudioEq.ts
 close(): void {
   this.clearDegradationTimer();
   this.disconnectSource();           // stop tracks + null sourceNode
@@ -53,7 +53,7 @@ close(): void {
 
 ### HMR 生命周期（代码核验）
 
-HMR 触发时旧模块调用 `cleanupCurrentModuleForHmr()`（[playerStore.ts](../../ui/src/api/playerStore.ts) L132-146），其中调用 `closeWebAudioEq()` → `WebAudioEq.close()`，**关闭旧 AudioContext + 拆除 worklet 图**。`<audio>` 元素通过 `window.__bottlemusic_audio__` 跨模块复用，**不 dispose、不清 src**（L205-230）。
+HMR 触发时旧模块调用 `cleanupCurrentModuleForHmr()`（[playerStore.ts](../../ui/src/playback/playerStore.ts) L132-146），其中调用 `closeWebAudioEq()` → `WebAudioEq.close()`，**关闭旧 AudioContext + 拆除 worklet 图**。`<audio>` 元素通过 `window.__bottlemusic_audio__` 跨模块复用，**不 dispose、不清 src**（L205-230）。
 
 新模块加载后，`initPlayer()` 复用同一个 `<audio>` 元素（L214-218），`initPlayerBackend()` 调用 `initWebAudioEQ()` 重建 AudioContext + worklet graph（L317）。
 
@@ -67,7 +67,7 @@ HMR 触发时旧模块调用 `cleanupCurrentModuleForHmr()`（[playerStore.ts](.
 
 ### EQ 图安全构建顺序
 
-`buildGraph()` 先创建 AudioContext、加载 worklet、连接 `workletNode → gainNode → destination`，全部成功后才在 `attachSource()` 中调用 `captureStream()` + `createMediaStreamSource()` 接入元素（[webAudioEq.ts](../../ui/src/api/webAudioEq.ts) L237-264、L101-112）：
+`buildGraph()` 先创建 AudioContext、加载 worklet、连接 `workletNode → gainNode → destination`，全部成功后才在 `attachSource()` 中调用 `captureStream()` + `createMediaStreamSource()` 接入元素（[webAudioEq.ts](../../ui/src/playback/eq/webAudioEq.ts) L237-264、L101-112）：
 
 ```typescript
 // buildGraph: 先建链,再 postBands/postEnabled
@@ -100,7 +100,7 @@ this.sourceNode.connect(this.workletNode);
 
 ### 降级回调（`onDegraded` / `onRecovered`）
 
-`EqOptions` 暴露两个回调（[webAudioEq.ts](../../ui/src/api/webAudioEq.ts) L15-24）：
+`EqOptions` 暴露两个回调（[webAudioEq.ts](../../ui/src/playback/eq/webAudioEq.ts) L15-24）：
 
 - **`onDegraded`**：当 `AudioContext` 创建失败、worklet 加载失败、或 `enterDegradation()` 完成 fade-out 时触发（L240-243、L261-263、L204）；
 - **`onRecovered`**：当 `recoverFromDegradation()` 完成 fade-in 时触发（L214）。
@@ -111,7 +111,7 @@ this.sourceNode.connect(this.workletNode);
 
 除 EQ 链路外,生产代码中存在**第二条独立的 Web Audio 链路**用于音频电平分析,服务于 Aurora 首页粒子动画与可视化页面。
 
-**代码核验**（[ui/src/api/audioLevelMonitor.ts](../../ui/src/api/audioLevelMonitor.ts)）:
+**代码核验**（[audioLevelMonitor.ts](../../ui/src/playback/runtime/audioLevelMonitor.ts)）:
 
 - **独立 AudioContext**:`ensureGraph()` 中 `sharedCtx = new AudioContext()`（L65）,与 EQ 的 `WebAudioEq.ctx` 完全独立;
 - **拓扑**:`captureStream() → MediaStreamAudioSourceNode → AnalyserNode`,**不连接到 `destination`**（L77 注释:"analysis only — never to destination"）,因此不干预播放路径;

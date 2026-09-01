@@ -102,16 +102,16 @@ C++ Core (native/) → EchoCAPI.dll
 
 | File | Responsibility |
 |---|---|
-| `ui/src/api/playerStore.ts` | Vue reactive player state + UI-facing commands; delegates playback transitions |
-| `ui/src/api/playbackOrchestrator.ts` | Playback transition orchestrator (Resolve + PlaySession + Backend sequencing) |
-| `ui/src/api/playSessionTracker.ts` | Stats session state machine + seek-immune accumulator |
-| `ui/src/api/webAudioEq.ts` | Web Audio API AudioWorklet EQ graph controller (proxy-enabled, safe build order) |
-| `ui/src/api/backend.ts` | Tauri invoke wrapper with S1 resilience |
-| `ui/src/api/themeStore.ts` | Skin/mode management |
-| `ui/src/api/circuitBreaker.ts` | Frontend resilience (CircuitBreaker) |
-| `ui/src/api/recentPlayedStore.ts` | Local-first recent-played store (localStorage, FileHash dedupe, mergeRemote) |
-| `ui/src/api/useLyricFollow.ts` | Lyric auto-follow state machine composable |
-| `ui/src/api/playbackDiagnostics.ts` | Playback boundary event ring buffer (diagnostics) |
+| `ui/src/playback/playerStore.ts` | Vue reactive player state + UI-facing commands; delegates playback transitions |
+| `ui/src/playback/runtime/playbackOrchestrator.ts` | Playback transition orchestrator (Resolve + PlaySession + Backend sequencing) |
+| `ui/src/playback/playSessionTracker.ts` | Stats session state machine + seek-immune accumulator |
+| `ui/src/playback/eq/webAudioEq.ts` | Web Audio API AudioWorklet EQ graph controller (proxy-enabled, safe build order) |
+| `ui/src/playback/runtime/playerBackend.ts` | Tauri invoke wrapper with S1 resilience |
+| `ui/src/app/appearance/themeStore.ts` | Skin/mode management |
+| `ui/src/platform/tauri/circuitBreaker.ts` | Frontend resilience (CircuitBreaker) |
+| `ui/src/playback/data/recentPlayedStore.ts` | Local-first recent-played store (localStorage, FileHash dedupe, mergeRemote) |
+| `ui/src/features/lyrics/useLyricFollow.ts` | Lyric auto-follow state machine composable |
+| `ui/src/playback/playbackDiagnostics.ts` | Playback boundary event ring buffer (diagnostics) |
 | `ui/src/components/EqualizerPanel.vue` | EQ UI (10 sliders, 6 presets, degradation banner) |
 | `ui/src/views/EqualizerView.vue` | Equalizer view (EQ panel host) |
 | `ui/src/views/StatsView.vue` | Statistics dashboard (overview + top + timeline + recent + AI) |
@@ -119,7 +119,7 @@ C++ Core (native/) → EchoCAPI.dll
 | `ui/src-tauri/src/stats.rs` | 6 Tauri stats commands |
 | `ui/src-tauri/src/ai_analysis.rs` | DeepSeek AI analysis async command |
 | `ui/src-tauri/src/audio_proxy.rs` | Local HTTP proxy for cross-origin CDN media (CORS, range/resume, SSRF allowlist) |
-| `ui/src/api/audioProxy.ts` | Frontend wrapper for audio_proxy_url Tauri command |
+| `ui/src/platform/tauri/audioProxy.ts` | Frontend wrapper for audio_proxy_url Tauri command |
 | `native/core/C_API.cpp` | C API exports, Ctx().api, Ctx().scheduler, Ctx().stats, Ctx().db (EchoContext Meyers singleton; no g_playback — MFS removed) |
 | `native/core/HttpClient.cpp` | WinHTTP + watchdog + retry budget |
 | `native/async/RequestScheduler.cpp` | Thread pool + bounded shutdown/restart |

@@ -41,14 +41,14 @@ BottleMusic 前端是 Tauri 应用内的 Vue 3 单页应用,定位为"UI 渲染 
 
 - **`onMounted`**:依次调用 `initPlayer()`(创建/复用 `<audio>`)、`initPlayerBackend()`(挂载 `Html5AudioBackend`)、`bindOsMediaBridge()`(仅在 Tauri 环境下)、`checkLoginStatus()`、`ping()` 轮询(每 5s 探测后端,失败时显示 `networkDegraded` 横幅)
 - **`KeepAlive`**:`include` 列表由 `router.getRoutes().filter(r => r.meta.keepAlive)` 动态生成,当前只有 `home` 路由标记了 `keepAlive: true`
-- **页面过渡**:Aurora 模式使用 overlap(无 `mode`),Newsprint 模式使用 `out-in` 串行;过渡钩子委托给 [motion.ts](../../ui/src/api/motion.ts) 的 `transitionEnter` / `transitionLeave`,并经 [navigationLifecycle.ts](../../ui/src/navigation/navigationLifecycle.ts) 注册到全局活动集合(供路由跳转时 `cancelPageTransition` 杀掉残留 GSAP tween)
+- **页面过渡**:Aurora 模式使用 overlap(无 `mode`),Newsprint 模式使用 `out-in` 串行;过渡钩子委托给 [motion.ts](../../ui/src/shared/motion/motion.ts) 的 `transitionEnter` / `transitionLeave`,并经 [navigationLifecycle.ts](../../ui/src/app/navigation/navigationLifecycle.ts) 注册到全局活动集合(供路由跳转时 `cancelPageTransition` 杀掉残留 GSAP tween)
 - **`PageRecoveryBoundary`**:包裹 `RouterView`,捕获子组件渲染异常并以新 `retryKey` 重挂
 
 ### 路由
 
-[router.ts](../../ui/src/navigation/router.ts) 默认导出 `createAppRouter(createWebHistory())`,导出工厂 `createAppRouter(history)` 供测试用 `createMemoryHistory()` 注入。`installNavigationLifecycle(router)` 安装 `beforeEach` 守卫:从 `lyric` 路由离开时调用 `cancelPageTransition()` 清理全屏过渡残留。
+[router.ts](../../ui/src/app/navigation/router.ts) 默认导出 `createAppRouter(createWebHistory())`,导出工厂 `createAppRouter(history)` 供测试用 `createMemoryHistory()` 注入。`installNavigationLifecycle(router)` 安装 `beforeEach` 守卫:从 `lyric` 路由离开时调用 `cancelPageTransition()` 清理全屏过渡残留。
 
-[routes.ts](../../ui/src/navigation/routes.ts) 定义 10 条路由记录(导出为 `routeRecords`,命名常量为 `routeNames`):
+[routes.ts](../../ui/src/app/navigation/routes.ts) 定义 10 条路由记录(导出为 `routeRecords`,命名常量为 `routeNames`):
 
 | 路径 | name | 视图 | 特殊 |
 |---|---|---|---|
@@ -65,27 +65,27 @@ BottleMusic 前端是 Tauri 应用内的 Vue 3 单页应用,定位为"UI 渲染 
 
 ## 状态管理
 
-**当前实现:不使用 Pinia。** 全部状态以模块级 `reactive` / `ref` 单例形式住在 [ui/src/api/](../../ui/src/api/) 各文件顶层,通过 ES 模块单例语义共享。设计理由与未来迁移提案见 [maintenance.md](./maintenance.md) 的 "Pinia 化迁移提案"。
+**当前实现:不使用 Pinia。** 全部状态以模块级 `reactive` / `ref` 单例形式住在 [ui/src/playback/](../../ui/src/playback/) 与 `features/*/` 各文件顶层,通过 ES 模块单例语义共享。设计理由与未来迁移提案见 [maintenance.md](./maintenance.md) 的 "Pinia 化迁移提案"。
 
 关键 store(每个文件导出一个单例):
 
 | 单例 | 文件 | 职责 |
 |---|---|---|
-| `playerStore` | [playerStore.ts](../../ui/src/api/playerStore.ts) | `reactive<PlayerState>`,持有 `currentTrack` / `queue` / `currentTime` / `playbackPhase` / `eqBands` 等;`initPlayer()` / `initPlayerBackend()` 入口 |
-| `playbackOrchestrator` | [playbackOrchestrator.ts](../../ui/src/api/playbackOrchestrator.ts) | `PlaybackOrchestrator` 类实例,编排 `resolveTrack → playUrl → initEq → recordStats`,串行化 `transitionSeq` 防止竞态 |
-| `playSessionTracker`(`PlaySessionTracker`) | [playSessionTracker.ts](../../ui/src/api/playSessionTracker.ts) | 统计会话累加器,seek-immune(`SEEK_THRESHOLD=2s`),达 `MIN_RECORD_LISTENED_SECONDS=60s` 才 finalize,经 `stats_record_play` 上报 |
-| `playbackCommandCoordinator`(`PlaybackCommandCoordinator`) | [playbackCommandCoordinator.ts](../../ui/src/api/playbackCommandCoordinator.ts) | 命令合并层:`next/prev` 相对合并、`selectTrack/seek` latest-wins、`clearQueue` 屏障、`removeTrack` 严格 FIFO、`ended` 每 epoch 一次 |
-| `themeStore`(`useThemeStore()`) | [themeStore.ts](../../ui/src/api/themeStore.ts) | 转发 `appearanceStore` 的 `skinId` / `mode` / `setSkin` / `setMode` / `init` |
-| `appearanceStore`(`useAppearanceStore()`) | [appearanceStore.ts](../../ui/src/api/appearanceStore.ts) | `skin` / `mode` / `accent` / `compactList` / `lyricAlign` 五维外观状态;`applyToDom()` 写 `data-skin` / `data-mode` 等 DOM 属性 |
-| `favoriteStore` | [favoriteStore.ts](../../ui/src/api/favoriteStore.ts) | `reactive` 播放列表发现 + 喜欢列表,本地 outbox + 匿名收藏迁移 |
-| `homeFeedStore` | [homeFeedStore.ts](../../ui/src/api/homeFeedStore.ts) | `reactive` 三段首页 feed(`daily` / `playlists` / `albums`),generation 守卫防止过期请求回写 |
-| `fmSession` | [fmSession.ts](../../ui/src/api/fmSession.ts) | 私人 FM 推荐 append,按 `FileHash` 去重,`generation` 标记会话,被 supersede 时丢弃 in-flight 结果 |
-| `playHistory`(`uploadPlayHistory`) | [playHistory.ts](../../ui/src/api/playHistory.ts) | 静默上传播放历史到 KuGou(`/playhistory/upload`),失败仅 `console.warn` |
-| `recentPlayedStore` | [recentPlayedStore.ts](../../ui/src/api/recentPlayedStore.ts) | `ref<RecentPlayedEntry[]>`,本地 `recent_played` 持久化,上限 100 条 |
-| `userStore` | [userStore.ts](../../ui/src/api/userStore.ts) | `reactive<UserState>`,登录态 / VIP 等级 / 头像;`checkLoginStatus()` 拉取 |
-| `playbackDiagnostics` | [playbackDiagnostics.ts](../../ui/src/api/playbackDiagnostics.ts) | 诊断事件总线,记录 `media_event` / `proxy_prep`,供 SettingsView 调试面板展示 |
-| `lyricFocusStore` | [lyricFocusStore.ts](../../ui/src/api/lyricFocusStore.ts) | 歌词聚焦状态(首屏 `init()` 同步读 localStorage) |
-| `skippedVersion`(`useSkippedVersion`) | [skippedVersion.ts](../../ui/src/api/skippedVersion.ts) | 自动更新"跳过此版本"标记,响应式 ref |
+| `playerStore` | [playerStore.ts](../../ui/src/playback/playerStore.ts) | `reactive<PlayerState>`,持有 `currentTrack` / `queue` / `currentTime` / `playbackPhase` / `eqBands` 等;`initPlayer()` / `initPlayerBackend()` 入口 |
+| `playbackOrchestrator` | [playbackOrchestrator.ts](../../ui/src/playback/runtime/playbackOrchestrator.ts) | `PlaybackOrchestrator` 类实例,编排 `resolveTrack → playUrl → initEq → recordStats`,串行化 `transitionSeq` 防止竞态 |
+| `playSessionTracker`(`PlaySessionTracker`) | [playSessionTracker.ts](../../ui/src/playback/playSessionTracker.ts) | 统计会话累加器,seek-immune(`SEEK_THRESHOLD=2s`),达 `MIN_RECORD_LISTENED_SECONDS=60s` 才 finalize,经 `stats_record_play` 上报 |
+| `playbackCommandCoordinator`(`PlaybackCommandCoordinator`) | [playbackCommandCoordinator.ts](../../ui/src/playback/commands/playbackCommandCoordinator.ts) | 命令合并层:`next/prev` 相对合并、`selectTrack/seek` latest-wins、`clearQueue` 屏障、`removeTrack` 严格 FIFO、`ended` 每 epoch 一次 |
+| `themeStore`(`useThemeStore()`) | [themeStore.ts](../../ui/src/app/appearance/themeStore.ts) | 转发 `appearanceStore` 的 `skinId` / `mode` / `setSkin` / `setMode` / `init` |
+| `appearanceStore`(`useAppearanceStore()`) | [appearanceStore.ts](../../ui/src/app/appearance/appearanceStore.ts) | `skin` / `mode` / `accent` / `compactList` / `lyricAlign` 五维外观状态;`applyToDom()` 写 `data-skin` / `data-mode` 等 DOM 属性 |
+| `favoriteStore` | [favoriteStore.ts](../../ui/src/features/library/favoriteStore.ts) | `reactive` 播放列表发现 + 喜欢列表,本地 outbox + 匿名收藏迁移 |
+| `homeFeedStore` | [homeFeedStore.ts](../../ui/src/features/home/homeFeedStore.ts) | `reactive` 三段首页 feed(`daily` / `playlists` / `albums`),generation 守卫防止过期请求回写 |
+| `fmSession` | [fmSession.ts](../../ui/src/playback/fm/fmSession.ts) | 私人 FM 推荐 append,按 `FileHash` 去重,`generation` 标记会话,被 supersede 时丢弃 in-flight 结果 |
+| `playHistory`(`uploadPlayHistory`) | [playHistory.ts](../../ui/src/playback/data/playHistoryGateway.ts) | 静默上传播放历史到 KuGou(`/playhistory/upload`),失败仅 `console.warn` |
+| `recentPlayedStore` | [recentPlayedStore.ts](../../ui/src/playback/data/recentPlayedStore.ts) | `ref<RecentPlayedEntry[]>`,本地 `recent_played` 持久化,上限 100 条 |
+| `userStore` | [userStore.ts](../../ui/src/features/account/userStore.ts) | `reactive<UserState>`,登录态 / VIP 等级 / 头像;`checkLoginStatus()` 拉取 |
+| `playbackDiagnostics` | [playbackDiagnostics.ts](../../ui/src/playback/playbackDiagnostics.ts) | 诊断事件总线,记录 `media_event` / `proxy_prep`,供 SettingsView 调试面板展示 |
+| `lyricFocusStore` | [lyricFocusStore.ts](../../ui/src/features/lyrics/lyricFocusStore.ts) | 歌词聚焦状态(首屏 `init()` 同步读 localStorage) |
+| `skippedVersion`(`useSkippedVersion`) | [skippedVersion.ts](../../ui/src/app/update/skippedVersion.ts) | 自动更新"跳过此版本"标记,响应式 ref |
 
 > **注意**:任务规格提到的 `settingsStore` 实际不存在;设置项散落在 `appearanceStore` / `skippedVersion` / `playbackDiagnostics` 等模块中,由 `SettingsView` 直接组合调用。同样,`statsApi.ts` / `aiAnalysisApi.ts` 也不存在 —— 统计与 AI 调用直接通过 `invoke('stats_*')` / `invoke('ai_analyze')` 写在 [StatsView.vue](../../ui/src/views/StatsView.vue) 内,无独立 API 封装层。
 
@@ -115,15 +115,15 @@ graph LR
 
 ### 关键不变量
 
-- **事件单一所有权**:`Html5AudioBackend.onEvent` 是 `play` / `pause` / `timeupdate` / `ended` / `error` 的**唯一来源**([playerStore.ts](../../ui/src/api/playerStore.ts) `initPlayer` 注释明确说明);`playerStore` 只额外监听 `durationchange` / `loadedmetadata` / `play`(后者仅为 `resumeAudioContext()` 应对 autoplay policy)
-- **Phase 权威**:`playerStore.playbackPhase` 是状态机的唯一真源,`isPlaying` / `isLoading` 由 [playbackPhase.ts](../../ui/src/api/playbackPhase.ts) `flagsFromPhase()` 单向投影,不允许直接赋值
+- **事件单一所有权**:`Html5AudioBackend.onEvent` 是 `play` / `pause` / `timeupdate` / `ended` / `error` 的**唯一来源**([playerStore.ts](../../ui/src/playback/playerStore.ts) `initPlayer` 注释明确说明);`playerStore` 只额外监听 `durationchange` / `loadedmetadata` / `play`(后者仅为 `resumeAudioContext()` 应对 autoplay policy)
+- **Phase 权威**:`playerStore.playbackPhase` 是状态机的唯一真源,`isPlaying` / `isLoading` 由 [playbackPhase.ts](../../ui/src/playback/playbackPhase.ts) `flagsFromPhase()` 单向投影,不允许直接赋值
 - **SourceLease**:`Html5AudioBackend` 每次 `playUrl` / `switchUrl` 发放递增 `sourceLeaseId`,异步 `audio.play()` 返回后用 `ownsPlayback(lease, attachSeq)` 验证仍持有租约,否则放弃后续 `initEq`
 - **TransitionSeq**:`PlaybackOrchestrator` 的 `transitionSeq` 在每次切歌递增;`Html5AudioBackend` 在 `play()` 前后用 `isAttachTransitionCurrent(seq)` 防止上一曲的 EQ attach 回写本曲
 - **Ended 路由**:`onEvent('ended')` 不直接切歌,而是 `coordinator.dispatch({ type: 'ended' })`,由 `PlaybackCommandCoordinator` 决定是否 barrier(每 epoch 一次)
 
 ### 播放状态机
 
-[playbackPhase.ts](../../ui/src/api/playbackPhase.ts) 定义 7 个 phase 与合法转移边。`transitionPhase()` 对非法边抛 `illegal_playback_transition`,`canTransition()` 用于软忽略(竞态时只记日志不抛)。
+[playbackPhase.ts](../../ui/src/playback/playbackPhase.ts) 定义 7 个 phase 与合法转移边。`transitionPhase()` 对非法边抛 `illegal_playback_transition`,`canTransition()` 用于软忽略(竞态时只记日志不抛)。
 
 ```mermaid
 stateDiagram-v2
@@ -154,7 +154,7 @@ stateDiagram-v2
 
 ### 通用请求 `backend.ts`
 
-[backend.ts](../../ui/src/api/backend.ts) 是前端 → C++ 后端的唯一入口。设计:
+[backend.ts](../../ui/src/playback/runtime/playerBackend.ts) 是前端 → C++ 后端的唯一入口。设计:
 
 - **不重试**:重试由 C++ `HttpClient` 负责(详见 [architecture.md § 三层 deadline](./architecture.md#三层-deadline));前端只做单次调用
 - **单次超时**:`FRONTEND_TIMEOUT_MS = 14_000`,通过 `withTimeout` 包装 `invoke('native_request', ...)`
@@ -165,18 +165,18 @@ stateDiagram-v2
 
 ### 熔断器 `circuitBreaker.ts`
 
-[circuitBreaker.ts](../../ui/src/api/circuitBreaker.ts) 是极简实现:`failureThreshold=5` / `openDurationMs=30_000`。达到阈值后 `openedAt = Date.now()`,`isClosed()` 在 30s 后自动半开并重置计数。无 half-open 探针(下一个请求成功即 `recordSuccess` 全量重置)。
+[circuitBreaker.ts](../../ui/src/platform/tauri/circuitBreaker.ts) 是极简实现:`failureThreshold=5` / `openDurationMs=30_000`。达到阈值后 `openedAt = Date.now()`,`isClosed()` 在 30s 后自动半开并重置计数。无 half-open 探针(下一个请求成功即 `recordSuccess` 全量重置)。
 
 ### 音频代理 `audioProxy.ts`
 
-[audioProxy.ts](../../ui/src/api/audioProxy.ts) 的 `prepareAudioSourceUrl(url)` 调 `invoke('audio_proxy_url', { url })` 拿到 `127.0.0.1:<port>/...` 的本地代理 URL(`crossOriginSafe: true`),失败则回退原始 URL(`crossOriginSafe: false`)。`crossOriginSafe` 决定 `WebAudioEq` 是否走 `captureStream` 分支(详见 [playback-runtime.md](./playback-runtime.md))。
+[audioProxy.ts](../../ui/src/platform/tauri/audioProxy.ts) 的 `prepareAudioSourceUrl(url)` 调 `invoke('audio_proxy_url', { url })` 拿到 `127.0.0.1:<port>/...` 的本地代理 URL(`crossOriginSafe: true`),失败则回退原始 URL(`crossOriginSafe: false`)。`crossOriginSafe` 决定 `WebAudioEq` 是否走 `captureStream` 分支(详见 [playback-runtime.md](./playback-runtime.md))。
 
 ### 统计与 AI 调用(无独立 API 文件)
 
 `stats_*` 与 `ai_analyze` 命令**没有封装成独立 `statsApi.ts` / `aiAnalysisApi.ts` 模块**,而是直接在视图内 `invoke`:
 
 - [StatsView.vue](../../ui/src/views/StatsView.vue):`invoke('stats_get_summary')` / `invoke('stats_get_top')` / `invoke('stats_get_timeline')` / `invoke('ai_analyze', { ... })`
-- [playerStore.ts](../../ui/src/api/playerStore.ts):`emitPlayRecord` 内 `invoke('stats_record_play', { json })`,fire-and-forget(失败静默)
+- [playerStore.ts](../../ui/src/playback/playerStore.ts):`emitPlayRecord` 内 `invoke('stats_record_play', { json })`,fire-and-forget(失败静默)
 
 DeepSeek API Key **仅在内存 ref**(`StatsView.vue` `aiApiKey = ref('')`),不写 localStorage;模块加载时 `localStorage.removeItem('deepseek_api_key')` 清理升级用户旧数据。详见 [evidence-report.md § 5](./evidence-report.md#5-deepseek-key-真实存储生命周期) 与 [security-and-privacy.md](./security-and-privacy.md)。
 
@@ -224,7 +224,7 @@ DeepSeek API Key **仅在内存 ref**(`StatsView.vue` `aiApiKey = ref('')`),不�
 
 ### 切换机制
 
-[appearanceStore.ts](../../ui/src/api/appearanceStore.ts) `applyToDom()` 在 `document.documentElement` 写入:
+[appearanceStore.ts](../../ui/src/app/appearance/appearanceStore.ts) `applyToDom()` 在 `document.documentElement` 写入:
 
 - `data-skin="aurora" | "newsprint"`
 - `data-mode="light" | "dark"`
@@ -238,7 +238,7 @@ DeepSeek API Key **仅在内存 ref**(`StatsView.vue` `aiApiKey = ref('')`),不�
 
 [main.ts](../../ui/src/main.ts) 在 `createApp(App)` **之前**同步调用 `useThemeStore().init()`(转调 `appearanceStore.init()`),后者同步读 `localStorage` 并 `applyToDom()`。这样 Vue 挂载时 `:root` 已带正确 `data-skin` / `data-mode`,CSS 立即命中正确分支,无白屏闪烁。
 
-`SettingsView` 切换皮肤时通过 [motion.ts](../../ui/src/api/motion.ts) `crossfadeTheme(() => appearanceStore.setSkin(id))` 做交叉淡入,避免硬切。
+`SettingsView` 切换皮肤时通过 [motion.ts](../../ui/src/shared/motion/motion.ts) `crossfadeTheme(() => appearanceStore.setSkin(id))` 做交叉淡入,避免硬切。
 
 ## 样式系统
 
@@ -254,7 +254,7 @@ DeepSeek API Key **仅在内存 ref**(`StatsView.vue` `aiApiKey = ref('')`),不�
 
 ## HMR 共享
 
-Vite HMR 重新求值 [playerStore.ts](../../ui/src/api/playerStore.ts) 模块时会生成全新 `playerStore`(其 `audio` 为 `null`),而上一模块创建的 `<audio>` 元素可能仍在播放。**僵尸音频防护**机制:
+Vite HMR 重新求值 [playerStore.ts](../../ui/src/playback/playerStore.ts) 模块时会生成全新 `playerStore`(其 `audio` 为 `null`),而上一模块创建的 `<audio>` 元素可能仍在播放。**僵尸音频防护**机制:
 
 - `window.__bottlemusic_audio__`:全局引用,`initPlayer()` 优先复用此元素而非 `new Audio()`
 - `window.__bottlemusic_player_cleanup__`:由当前活跃模块注册的清理函数;HMR 时新模块调用它清理旧监听 / Worklet,但**不**调用 `dispose()`(避免清空队列覆盖 localStorage)
@@ -286,9 +286,9 @@ Playwright 在 `package.json` devDependencies 中,但**仅用于设计 QA 截图
 
 2. **onEnded phase guard 延期**:`onEvent('ended')` 当前不显式转 phase(如 `idle` 或 `ended`),直接 `coordinator.dispatch({ type: 'ended' })`。若 coordinator 决定不切歌(如 queue 空且非 loop),phase 会停在 `playing`,UI 仍显示播放图标直到下次事件。详见 [maintenance.md](./maintenance.md) "onEnded phase guard 延期"。
 
-3. **CircuitBreaker 半开探测缺失**:[circuitBreaker.ts](../../ui/src/api/circuitBreaker.ts) `isClosed()` 在 30s 后直接全量重置 `failures=0`,无 half-open 探针;若后端持续故障,会立即放行全量请求再立即熔断,造成抖动。
+3. **CircuitBreaker 半开探测缺失**:[circuitBreaker.ts](../../ui/src/platform/tauri/circuitBreaker.ts) `isClosed()` 在 30s 后直接全量重置 `failures=0`,无 half-open 探针;若后端持续故障,会立即放行全量请求再立即熔断,造成抖动。
 
-4. **`apiGetNoRetry` 双重否定易误读**:[backend.ts](../../ui/src/api/backend.ts) `apiGetNoRetry` 中 `if (!cb.isClosed()) throw new Error('circuit_open')` —— 语义正确(`isClosed()` 返回 false 即熔断打开,取反后抛错),但 `!isClosed()` 双重否定易被误读为 bug,建议未来引入 `isOpen()` 别名提升可读性。需在 [maintenance.md](./maintenance.md) 记录。
+4. **`apiGetNoRetry` 双重否定易误读**:[backend.ts](../../ui/src/playback/runtime/playerBackend.ts) `apiGetNoRetry` 中 `if (!cb.isClosed()) throw new Error('circuit_open')` —— 语义正确(`isClosed()` 返回 false 即熔断打开,取反后抛错),但 `!isClosed()` 双重否定易被误读为 bug,建议未来引入 `isOpen()` 别名提升可读性。需在 [maintenance.md](./maintenance.md) 记录。
 
 ## 未来提案
 

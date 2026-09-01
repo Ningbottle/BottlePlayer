@@ -298,19 +298,19 @@ bool RecordPlay(const PlayRecord& r);
 
 | 键 | 用途 | 写入位置 |
 |---|---|---|
-| `player_queue` | 播放队列 | [playerPersistence.ts](../../ui/src/api/playerPersistence.ts) |
+| `player_queue` | 播放队列 | [playerPersistence.ts](../../ui/src/playback/data/playerPersistence.ts) |
 | `player_index` | 当前曲目索引 | playerPersistence.ts |
-| `player_volume` | 音量 | [playerStore.ts](../../ui/src/api/playerStore.ts) / html5Backend.ts |
+| `player_volume` | 音量 | [playerStore.ts](../../ui/src/playback/playerStore.ts) / html5Backend.ts |
 | `player_quality` | 音质(128/320/flac) | playerStore.ts |
 | `player_eq_preset` / `player_eq_bands` / `player_eq_enabled` | EQ 预设/频段/开关 | [EqualizerView.vue](../../ui/src/views/EqualizerView.vue) / EqualizerPanel.vue |
 | `player_loop_mode` / `player_queue_mode` | 循环/队列模式 | playerStore.ts |
-| `appearance_accent` / `appearance_compact_list` / ... | 外观偏好/skin/mode | [appearanceStore.ts](../../ui/src/api/appearanceStore.ts) |
-| `recent_played` | 最近播放(本地) | [recentPlayedStore.ts](../../ui/src/api/recentPlayedStore.ts) |
+| `appearance_accent` / `appearance_compact_list` / ... | 外观偏好/skin/mode | [appearanceStore.ts](../../ui/src/app/appearance/appearanceStore.ts) |
+| `recent_played` | 最近播放(本地) | [recentPlayedStore.ts](../../ui/src/playback/data/recentPlayedStore.ts) |
 | `lyric_focus_*` | 歌词聚焦模式 | lyricFocusStore.ts |
 
 ### 8.2 recentPlayedStore
 
-[recentPlayedStore.ts](../../ui/src/api/recentPlayedStore.ts) 是"最近播放"的前端本地缓存,设计要点:
+[recentPlayedStore.ts](../../ui/src/playback/data/recentPlayedStore.ts) 是"最近播放"的前端本地缓存,设计要点:
 
 - **本地优先**:构造时立即从 `localStorage` 加载,UI 不阻塞等待远端。
 - **FileHash 去重**:`recordRecentPlayed` 用 `track.FileHash` 过滤重复项,新记录置于队首。
@@ -330,7 +330,7 @@ const aiApiKey = ref('');                      // L54
 
 - **当前实现**:`aiApiKey` 是内存 `ref`,仅在当前页面会话存活,不写入 `localStorage`/磁盘。调用 `ai_analyze` 时传入内存值,Rust 侧 [ai_analysis.rs](../../ui/src-tauri/src/ai_analysis.rs) 用完即弃,不持久化。
 - **清理遗留**:`removeItem` 是为清理升级用户的旧版 Key(历史版本曾存 localStorage),见 evidence-report §5。
-- **测试覆盖**:[StatsView.test.ts](../../ui/src/views/__tests__/StatsView.test.ts) 断言旧 Key 被清理(`expect(localStorage.getItem('deepseek_api_key')).toBeNull()`)。
+- **测试覆盖**:[StatsView.test.ts](../../ui/src/features/stats/__tests__/StatsView.test.ts) 断言旧 Key 被清理(`expect(localStorage.getItem('deepseek_api_key')).toBeNull()`)。
 
 ## 9. 数据流总览
 
@@ -355,7 +355,7 @@ flowchart TD
     style L fill:#e8f5e9
 ```
 
-[PlaySessionTracker](../../ui/src/api/playSessionTracker.ts) 关键设计:
+[PlaySessionTracker](../../ui/src/playback/playSessionTracker.ts) 关键设计:
 
 - **状态机**:`idle → pending → playing → paused`,只在真实 `play` 事件后开 session,避免 autoplay 被拒产生 ghost session。
 - **聆听秒数累积**:`onTimeUpdate` 仅累加 `delta > 0 && delta < SEEK_THRESHOLD`(2 秒)的增量;大跳变(seek)和回跳(replay)被忽略,防止循环/后台挂起虚增。
