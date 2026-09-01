@@ -163,7 +163,7 @@ button {
 }
 
 :root:not([data-mode="dark"]) .paper-base {
-  background-image: 
+  background-image:
     radial-gradient(ellipse 90% 60% at 20% 0%, rgba(255,250,236,0.9), transparent 60%),
     radial-gradient(ellipse 80% 70% at 100% 100%, rgba(214,200,168,0.45), transparent 55%),
     linear-gradient(180deg, #f3ecdb 0%, #ede4cc 100%);
@@ -367,4 +367,3 @@ html.compact .lyric-scroll {
     animation-iteration-count: 1 !important;
   }
 }
-

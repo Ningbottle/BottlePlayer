@@ -47,4 +47,3 @@ export {
   type YouthVipAdResponse,
   type LogoutResponse,
 } from './accountGateway';
-
