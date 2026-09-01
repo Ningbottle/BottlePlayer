@@ -12,11 +12,6 @@ fn ping() -> &'static str {
 }
 
 #[tauri::command]
-fn backend_base_url() -> &'static str {
-    "native-ipc" // Returning a dummy value to avoid breaking frontend immediately
-}
-
-#[tauri::command]
 fn get_memory_usage() -> u64 {
     use sysinfo::{Pid, System};
 
@@ -110,7 +105,6 @@ pub fn run() {
             use tauri::Manager;
 
             // Store AppHandle for event emission from C++ callbacks.
-            backend_api::set_app_handle(app.handle().clone());
             os_media_session::set_app_handle(app.handle().clone());
             #[cfg(feature = "desktop-shell")]
             if let Err(e) = os_media_session::install_os_integrations(app.handle()) {
@@ -214,7 +208,6 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![
             ping,
-            backend_base_url,
             get_memory_usage,
             native_request,
             audio_proxy::audio_proxy_url,

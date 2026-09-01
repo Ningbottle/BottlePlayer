@@ -91,7 +91,6 @@ sequenceDiagram
 
     App->>Lib: run()
     Lib->>Lib: 注册 plugins (opener/updater/process/global-shortcut)
-    Lib->>BA: set_app_handle(handle)
     Lib->>OS: set_app_handle(handle)
     Lib->>OS: install_os_integrations (desktop-shell only)
     Lib->>AP: bind_listener() — 绑定 127.0.0.1 随机端口
