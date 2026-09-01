@@ -510,16 +510,17 @@ export default { name: 'NewsprintHome' };
 }
 
 /* Dark-mode overrides (migrated from style.css; values verbatim).
-   Whole selectors wrapped in :global so Vue's scoped compiler keeps the
-   descendant part (it otherwise drops everything after :global(...)). */
-:global(:root[data-mode='dark'] .card .cover::after) { mix-blend-mode: normal; opacity: .06; }
-:global(:root[data-mode='dark'] .feature .hero::before) { border-color: rgba(255,255,255,0.08); }
-:global(:root[data-mode='dark'] .side-list li:hover) { background: rgba(255,255,255,0.03); }
-:global(:root[data-mode='dark'] .card) { box-shadow: 0 2px 0 -1px var(--paper-edge), 0 1px 12px -6px rgba(0,0,0,0.5); }
-:global(:root[data-mode='dark'] .hero-art circle[fill="rgba(34,27,18,0.06)"]) { fill: rgba(255,255,255,0.08); }
-:global(:root[data-mode='dark'] .hero-art circle[fill="rgba(34,27,18,0.45)"]) { fill: rgba(255,255,255,0.3); }
-:global(:root[data-mode='dark'] .hero-art circle[stroke="rgba(34,27,18,0.25)"]) { stroke: rgba(255,255,255,0.2); }
-:global(:root[data-mode='dark'] .card .cover .play) { background: rgba(0,0,0,0.55); border-color: rgba(255,255,255,0.12); color: #fff; }
+   Every selector is qualified by the .np-home root and wrapped whole in
+   :global — a partial :global(:root) prefix makes Vue's scoped compiler
+   drop the descendant part, and unqualified rules would leak globally. */
+:global(:root[data-mode='dark'] .np-home .card .cover::after) { mix-blend-mode: normal; opacity: .06; }
+:global(:root[data-mode='dark'] .np-home .feature .hero::before) { border-color: rgba(255,255,255,0.08); }
+:global(:root[data-mode='dark'] .np-home .side-list li:hover) { background: rgba(255, 255, 255, 0.04); }
+:global(:root[data-mode='dark'] .np-home .card) { box-shadow: 0 2px 0 -1px var(--paper-edge), 0 1px 12px -6px rgba(0,0,0,0.5); }
+:global(:root[data-mode='dark'] .np-home .hero-art circle[fill="rgba(34,27,18,0.06)"]) { fill: rgba(255,255,255,0.08); }
+:global(:root[data-mode='dark'] .np-home .hero-art circle[fill="rgba(34,27,18,0.45)"]) { fill: rgba(255,255,255,0.3); }
+:global(:root[data-mode='dark'] .np-home .hero-art circle[stroke="rgba(34,27,18,0.25)"]) { stroke: rgba(255,255,255,0.2); }
+:global(:root[data-mode='dark'] .np-home .card .cover .play) { background: rgba(0,0,0,0.55); border-color: rgba(255,255,255,0.12); color: #fff; }
 
 :deep(.grid) {
   grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
@@ -548,9 +549,12 @@ export default { name: 'NewsprintHome' };
   cursor: not-allowed;
 }
 
-/* Dark mode still uses paper-ink variables via tokens */
-:global(:root[data-mode='dark']) .feature .side-list {
-  background: rgba(255, 252, 243, 0.04);
+/* Dark mode still uses paper-ink variables via tokens.
+   Qualified by .np-home and wrapped whole in :global — the previous partial
+   form compiled to ":root[data-mode='dark'] { background: ... }", painting
+   the document root instead of the side list. */
+:global(:root[data-mode='dark'] .np-home .feature .side-list) {
+  background: rgba(255, 255, 255, 0.04);
 }
 
 @media (max-width: 960px) {
