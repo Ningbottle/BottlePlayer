@@ -16,9 +16,6 @@
   --rule:       rgba(34, 27, 18, 0.14);
   --rule-soft:  rgba(34, 27, 18, 0.07);
 
-  /* Accent（红） */
-  --accent:      #a8311b;
-
   /* 字体栈 */
   --font-serif:
     "Noto Serif SC", "EB Garamond", "Songti SC", "STSong",
@@ -51,9 +48,6 @@
   --rule:       rgba(22, 32, 29, 0.08);
   --rule-soft:  rgba(22, 32, 29, 0.04);
 
-  /* Must not reintroduce Apple-red; tokens emerald is source of truth */
-  --accent:      #18875b;
-
 
   --font-serif:
     "Noto Serif SC", "Source Han Serif SC", "Songti SC", "STSong", "SimSun", serif;
@@ -76,8 +70,6 @@
 
   --rule:       rgba(242, 245, 242, 0.1);
   --rule-soft:  rgba(242, 245, 242, 0.05);
-
-  --accent:      #62d6a2;
 
 
 }
