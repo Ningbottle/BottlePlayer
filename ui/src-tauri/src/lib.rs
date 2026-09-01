@@ -4,7 +4,9 @@ mod backend_api;
 mod os_media_session;
 mod stats;
 
+use std::sync::{Arc, OnceLock};
 use std::time::Duration;
+use tokio::sync::Semaphore;
 
 #[tauri::command]
 fn ping() -> &'static str {
@@ -59,6 +61,43 @@ fn should_shutdown_c_api(event: &tauri::RunEvent) -> bool {
     matches!(event, tauri::RunEvent::Exit)
 }
 
+/// Cap on native_request calls concurrently admitted into FFI dispatch.
+/// 16 = 4× the C++ scheduler's 4 workers (so the Rust side never becomes the
+/// bottleneck ahead of the C++ queue cap) while still bounding admitted
+/// concurrency for a single-user desktop app. This bounds admission, not
+/// lifetime: a timed-out dispatch drops its permit immediately, but its
+/// spawn_blocking closure (and the backend_api read guard inside) keeps
+/// running to completion — zombie closures are not capped or cancelled here.
+const MAX_CONCURRENT_FFI_CALLS: usize = 16;
+
+fn ffi_dispatch_semaphore() -> Arc<Semaphore> {
+    static SEMAPHORE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    SEMAPHORE
+        .get_or_init(|| Arc::new(Semaphore::new(MAX_CONCURRENT_FFI_CALLS)))
+        .clone()
+}
+
+/// Dispatch `task` on the blocking pool under the given admission semaphore.
+/// The permit is held from before spawn until the task joins, so at most
+/// `semaphore` permits' worth of calls are inside the FFI at once. If the
+/// caller's surrounding timeout fires, the whole future (permit included) is
+/// dropped: the blocking task itself keeps running to completion (spawn_blocking
+/// cannot be cancelled), but the admission slot is released immediately so
+/// later requests are not starved behind zombies.
+async fn dispatch_bounded_ffi<T, F>(semaphore: &Arc<Semaphore>, task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    let _permit = semaphore
+        .acquire()
+        .await
+        .map_err(|_| "ffi_dispatcher_closed".to_string())?;
+    tauri::async_runtime::spawn_blocking(task)
+        .await
+        .unwrap_or_else(|e| Err(format!("Task panic: {:?}", e)))
+}
+
 #[tauri::command]
 async fn native_request(
     method: String,
@@ -70,7 +109,7 @@ async fn native_request(
     let deadline = deadline_for_path(&path);
     match tokio::time::timeout(
         deadline,
-        tauri::async_runtime::spawn_blocking(move || {
+        dispatch_bounded_ffi(&ffi_dispatch_semaphore(), move || {
             backend_api::handle_request(
                 &method,
                 &path,
@@ -82,7 +121,7 @@ async fn native_request(
     )
     .await
     {
-        Ok(join_result) => join_result.unwrap_or_else(|e| Err(format!("Task panic: {:?}", e))),
+        Ok(dispatch_result) => dispatch_result,
         Err(_) => Err("request_deadline".to_string()),
     }
 }
@@ -239,8 +278,23 @@ pub fn run() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Condvar, Mutex};
     use std::time::Duration;
     use tokio::time::timeout;
+
+    /// Poll `cond` every 5ms until it holds or `budget` elapses.
+    /// Deterministic replacement for sleep-then-assert synchronization.
+    async fn wait_until(budget: Duration, cond: impl Fn() -> bool) -> bool {
+        let deadline = std::time::Instant::now() + budget;
+        while !cond() {
+            if std::time::Instant::now() >= deadline {
+                return false;
+            }
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+        true
+    }
 
     #[tokio::test]
     async fn native_request_times_out_when_handler_sleeps() {
@@ -252,6 +306,129 @@ mod tests {
         })
         .await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn dispatch_admits_at_most_the_semaphore_capacity() {
+        // No DLL involved: a slow handler blocks all permits, then the
+        // (capacity+1)-th dispatch must wait behind the queue instead of
+        // entering the "FFI". Observed in-FFI concurrency never exceeds the
+        // permit count.
+        let semaphore = Arc::new(Semaphore::new(2));
+        let in_flight = Arc::new(AtomicUsize::new(0));
+        let max_observed = Arc::new(AtomicUsize::new(0));
+        // std Condvar: the slow "FFI" closures run on blocking threads and
+        // need a blocking (not async) release signal.
+        let gate = Arc::new(Mutex::new(false));
+        let gate_cv = Arc::new(Condvar::new());
+
+        let mut tasks = Vec::new();
+        for i in 0..6 {
+            let semaphore = semaphore.clone();
+            let in_flight = in_flight.clone();
+            let max_observed = max_observed.clone();
+            let gate = gate.clone();
+            let gate_cv = gate_cv.clone();
+            tasks.push(tokio::spawn(async move {
+                dispatch_bounded_ffi(&semaphore, move || {
+                    let now = in_flight.fetch_add(1, Ordering::SeqCst) + 1;
+                    max_observed.fetch_max(now, Ordering::SeqCst);
+                    // Block inside the "FFI" until the test opens the gate,
+                    // so the queue point is deterministic.
+                    let mut open = gate.lock().unwrap();
+                    while !*open {
+                        open = gate_cv.wait(open).unwrap();
+                    }
+                    in_flight.fetch_sub(1, Ordering::SeqCst);
+                    Ok(i)
+                })
+                .await
+            }));
+        }
+
+        // Wait deterministically until both permits are held by the blocking
+        // closures (a fixed sleep-then-assert here used to race slow
+        // schedulers). The first two dispatches acquire immediately and block
+        // on the gate; the remaining four cannot enter until the gate opens,
+        // so in_flight can never exceed 2.
+        let admitted =
+            wait_until(Duration::from_secs(10), || in_flight.load(Ordering::SeqCst) >= 2).await;
+        assert!(
+            admitted,
+            "the first two dispatches were not admitted within the budget"
+        );
+        assert_eq!(
+            max_observed.load(Ordering::SeqCst),
+            2,
+            "concurrent FFI entries must be capped at the semaphore capacity"
+        );
+
+        *gate.lock().unwrap() = true;
+        gate_cv.notify_all();
+        for task in tasks {
+            assert!(task.await.unwrap().unwrap() < 6);
+        }
+        assert_eq!(in_flight.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn timed_out_dispatch_releases_capacity_immediately() {
+        // A dispatch abandoned by its surrounding timeout must free its
+        // admission slot at once: the very next dispatch (with a fast handler)
+        // must be admitted without waiting for the zombie task to finish.
+        let semaphore = Arc::new(Semaphore::new(1));
+
+        // Occupy the only permit with work that outlives the timeout.
+        let zombie = tokio::spawn({
+            let semaphore = semaphore.clone();
+            async move {
+                let _ = timeout(
+                    Duration::from_millis(50),
+                    dispatch_bounded_ffi(&semaphore, || {
+                        std::thread::sleep(Duration::from_millis(1500));
+                        Ok(())
+                    }),
+                )
+                .await;
+            }
+        });
+        tokio::time::sleep(Duration::from_millis(150)).await; // zombie timed out, slot must be back
+
+        // With the slot released, a fast dispatch completes quickly even
+        // though the zombie closure is still sleeping on the blocking pool.
+        let started = std::time::Instant::now();
+        let result = timeout(
+            Duration::from_millis(500),
+            dispatch_bounded_ffi(&semaphore, || Ok("admitted")),
+        )
+        .await
+        .expect("next dispatch must not be starved by the timed-out zombie")
+        .expect("fast handler should succeed");
+        assert_eq!(result, "admitted");
+        assert!(
+            started.elapsed() < Duration::from_millis(400),
+            "admission took {:?}; the timed-out dispatch did not release its slot",
+            started.elapsed()
+        );
+        // The permit came back when the timeout dropped the dispatch future,
+        // not when the zombie closure finishes: assert it while the zombie is
+        // still sleeping on the blocking pool.
+        assert_eq!(
+            semaphore.available_permits(),
+            1,
+            "the timed-out dispatch must release its permit at timeout, before the zombie completes"
+        );
+
+        zombie.await.unwrap();
+        assert_eq!(semaphore.available_permits(), 1);
+    }
+
+    #[test]
+    fn ffi_cap_exceeds_cpp_scheduler_workers() {
+        // The Rust admission cap must never become the bottleneck ahead of the
+        // C++ scheduler's bounded 4-worker pool.
+        assert!(MAX_CONCURRENT_FFI_CALLS > 4);
+        assert_eq!(MAX_CONCURRENT_FFI_CALLS, 16);
     }
 
     #[test]
