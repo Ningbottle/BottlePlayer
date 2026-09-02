@@ -16,10 +16,10 @@
 | Rust FFI 外壳 | `ui/src-tauri/src/lib.rs` | `pub fn run()` 注册 `invoke_handler!`,5 个 mod: `ai_analysis, audio_proxy, backend_api, os_media_session, stats` |
 | C++ 核心 DLL | `native/core/C_API.cpp` → `EchoCAPI.dll` | CMakeLists.txt L140 `add_library(EchoCAPI SHARED core/C_API.cpp)` |
 
-### 1.2 Tauri IPC 命令(已确认,19 个)
+### 1.2 Tauri IPC 命令(已确认,18 个)
 
-`lib.rs` `invoke_handler!` 注册(`lib.rs:216-236`):
-- 通用:`ping`, `backend_base_url`, `get_memory_usage`, `native_request`
+`lib.rs` `invoke_handler!` 注册:
+- 通用:`ping`, `get_memory_usage`, `native_request`
 - audio_proxy:`audio_proxy_url`
 - ai_analysis:`ai_analyze`
 - stats(6):`stats_record_play`, `stats_get_summary`, `stats_get_top`, `stats_get_timeline`, `stats_get_recent`, `stats_get_recommendations`

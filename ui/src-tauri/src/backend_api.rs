@@ -2,16 +2,6 @@ use libloading::{Library, Symbol};
 use std::ffi::{CStr, CString};
 use std::os::raw::{c_char, c_int, c_void};
 use std::sync::{OnceLock, RwLock};
-use tauri::AppHandle;
-
-// Retained so setup can hand us an AppHandle (log/event paths may use later).
-#[allow(dead_code)]
-static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
-
-/// Store the Tauri AppHandle. Safe to call multiple times — only the first takes effect.
-pub fn set_app_handle(handle: AppHandle) {
-    let _ = APP_HANDLE.set(handle);
-}
 
 // Resolved entry points from the DLL. The Library handle is kept alive so the
 // function pointers stay valid. A read guard is held for the duration of each

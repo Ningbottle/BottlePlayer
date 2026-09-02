@@ -437,11 +437,13 @@ function handlePlaybackEvent(e: PlaybackEvent) {
 // Watch volume and queue to persist
 watch(() => playerStore.volume, (newVol) => {
   savePlayerVolume(newVol);
-  setWebAudioEqVolume(newVol);
   const backend = moduleRuntime?.getBackend();
   if (backend) {
     backend.setVolume(newVol).catch(() => {});
   } else if (moduleRuntime) {
+    // Backend not yet created (initPlayer phase); set volume directly.
+    // Once playback starts, ensureBackend() creates the backend and
+    // backend.setVolume() takes over.
     moduleRuntime.audio.volume = newVol;
   }
 });

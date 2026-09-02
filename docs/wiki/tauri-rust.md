@@ -56,11 +56,11 @@ mod stats;
 
 ## Tauri 命令注册
 
-`run()` 中的 `invoke_handler!` 注册 **19 个命令**,按模块分组:
+`run()` 中的 `invoke_handler!` 注册 **18 个命令**,按模块分组:
 
 | 分组 | 命令 | 定义位置 |
 |---|---|---|
-| 通用(4) | `ping`, `backend_base_url`, `get_memory_usage`, `native_request` | [`lib.rs`](../../ui/src-tauri/src/lib.rs) |
+| 通用(3) | `ping`, `get_memory_usage`, `native_request` | [`lib.rs`](../../ui/src-tauri/src/lib.rs) |
 | audio_proxy(1) | `audio_proxy_url` | [`audio_proxy.rs`](../../ui/src-tauri/src/audio_proxy.rs) |
 | ai_analysis(1) | `ai_analyze` | [`ai_analysis.rs`](../../ui/src-tauri/src/ai_analysis.rs) |
 | stats(6) | `stats_record_play`, `stats_get_summary`, `stats_get_top`, `stats_get_timeline`, `stats_get_recent`, `stats_get_recommendations` | [`stats.rs`](../../ui/src-tauri/src/stats.rs) |
@@ -70,10 +70,9 @@ mod stats;
 
 ### 通用命令说明
 
-除 `native_request`(下一节详解)外,三个轻量通用命令定义在 [`lib.rs`](../../ui/src-tauri/src/lib.rs):
+除 `native_request`(下一节详解)外,两个轻量通用命令定义在 [`lib.rs`](../../ui/src-tauri/src/lib.rs):
 
 - `ping() -> &'static str`:返回 `"pong"`,前端启动时探活 IPC 通道。
-- `backend_base_url() -> &'static str`:返回 `"native-ipc"` 占位值。注释说明这是为避免前端立即报错而保留的 dummy 值 —— 真实请求全部走 `native_request` FFI,不走 HTTP base URL。
 - `get_memory_usage() -> u64`:用 `sysinfo` 读取当前进程内存(`Pid::from_u32(std::process::id())` + `refresh_process`),供前端监控内存占用。
 
 ## `native_request` 命令详解

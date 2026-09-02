@@ -65,7 +65,10 @@ jobs:
           $root = (Resolve-Path ../..).Path
           $env:PATH = "$root\native\out\bottlemusic-check;$root\native\vcpkg_installed\x64-windows\bin;$env:PATH"
           # --no-default-features: tray-icon / global-shortcut crash the lib test harness
-          cargo test --lib --no-default-features -- --test-threads=1
+          # --tests (not --lib): also run the integration tests under tests/
+          # (playback_ffi_test, cross_layer_contract_test). --lib silently
+          # skipped them, which is how a broken tree stayed green.
+          cargo test --tests --no-default-features -- --test-threads=1
         working-directory: ui/src-tauri
 
       - name: Cargo check (default desktop features)

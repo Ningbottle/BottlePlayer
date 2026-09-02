@@ -1,7 +1,10 @@
 use std::{
     collections::HashMap,
     net::TcpListener as StdTcpListener,
-    sync::{Arc, Mutex, OnceLock},
+    sync::{
+        atomic::{AtomicU64, Ordering},
+        Arc, Mutex, OnceLock,
+    },
     time::Instant,
 };
 
@@ -28,11 +31,21 @@ pub struct AudioProxyState {
 struct AudioProxyInner {
     port: u16,
     routes: Mutex<HashMap<String, RouteEntry>>,
+    // Monotonic logical clock for LRU tie-breaking. Instant::now() can return
+    // identical stamps for touches inside the same tick, and min_by_key over
+    // equal keys would pick an arbitrary victim; every register/resolve stamps
+    // a strictly increasing seq so eviction order stays deterministic.
+    touch_seq: AtomicU64,
 }
 
 struct RouteEntry {
     url: String,
-    created_at: Instant,
+    // Recency marker for capacity eviction: refreshed on every resolve, so a
+    // route an audio element is actively fetching is never the LRU victim.
+    last_used: Instant,
+    // Tie-breaker for equal last_used stamps (see AudioProxyInner::touch_seq):
+    // lower seq means touched earlier, so it loses the tie.
+    seq: u64,
 }
 
 const MAX_ROUTES: usize = 128;
@@ -51,6 +64,7 @@ impl AudioProxyState {
             inner: Arc::new(AudioProxyInner {
                 port,
                 routes: Mutex::new(HashMap::new()),
+                touch_seq: AtomicU64::new(0),
             }),
         }
     }
@@ -77,12 +91,12 @@ impl AudioProxyState {
             .lock()
             .map_err(|_| "audio_proxy_routes_poisoned".to_string())?;
         while routes.len() >= MAX_ROUTES {
-            if let Some(oldest_id) = routes
+            if let Some(lru_id) = routes
                 .iter()
-                .min_by_key(|(_, route)| route.created_at)
+                .min_by_key(|(_, route)| (route.last_used, route.seq))
                 .map(|(id, _)| id.clone())
             {
-                routes.remove(&oldest_id);
+                routes.remove(&lru_id);
             } else {
                 break;
             }
@@ -98,15 +112,20 @@ impl AudioProxyState {
             id.clone(),
             RouteEntry {
                 url,
-                created_at: Instant::now(),
+                last_used: Instant::now(),
+                seq: self.inner.touch_seq.fetch_add(1, Ordering::Relaxed),
             },
         );
         Ok(format!("http://127.0.0.1:{}/audio/{}", self.port(), id))
     }
 
     fn resolve(&self, id: &str) -> Option<String> {
-        let routes = self.inner.routes.lock().ok()?;
-        routes.get(id).map(|route| route.url.clone())
+        let mut routes = self.inner.routes.lock().ok()?;
+        routes.get_mut(id).map(|route| {
+            route.last_used = Instant::now();
+            route.seq = self.inner.touch_seq.fetch_add(1, Ordering::Relaxed);
+            route.url.clone()
+        })
     }
 }
 
@@ -933,7 +952,8 @@ mod tests {
             "stream".to_string(),
             RouteEntry {
                 url: format!("http://{}/song.mp3", upstream_addr),
-                created_at: Instant::now(),
+                last_used: Instant::now(),
+                seq: 0,
             },
         );
 
@@ -993,7 +1013,8 @@ mod tests {
             "stream".to_string(),
             RouteEntry {
                 url: format!("http://{}/song.mp3", upstream_addr),
-                created_at: Instant::now(),
+                last_used: Instant::now(),
+                seq: 0,
             },
         );
 
@@ -1075,7 +1096,8 @@ mod tests {
             "stream".to_string(),
             RouteEntry {
                 url: format!("http://{}/song.mp3", upstream_addr),
-                created_at: Instant::now(),
+                last_used: Instant::now(),
+                seq: 0,
             },
         );
 
@@ -1105,19 +1127,19 @@ mod tests {
     }
 
     #[test]
-    fn route_survives_beyond_old_ttl_for_active_audio_element() {
+    fn route_survives_long_pause_while_capacity_allows() {
         let state = AudioProxyState::new(12345);
         let url = "https://fs.wbpz.kugou.com/song.mp3".to_string();
         let registered = state.register(url.clone()).expect("should register");
         let route_id = registered.rsplit('/').next().expect("route id");
 
-        // Simulate the audio element being paused for longer than the old
-        // 10-minute TTL by backdating created_at past ROUTE_TTL.
-        let old_time = Instant::now() - Duration::from_secs(601);
+        // Simulate the audio element being paused by backdating last_used;
+        // capacity eviction must be the only way this route can disappear.
+        let old_time = Instant::now() - Duration::from_secs(30);
         {
             let mut routes = state.inner.routes.lock().unwrap();
             if let Some(entry) = routes.get_mut(route_id) {
-                entry.created_at = old_time;
+                entry.last_used = old_time;
             }
         }
 
@@ -1127,7 +1149,7 @@ mod tests {
         let resolved = state.resolve(route_id);
         assert!(
             resolved.is_some(),
-            "route should survive beyond old TTL as long as capacity allows"
+            "route should survive a long pause as long as capacity allows"
         );
         assert_eq!(resolved, Some(url));
     }
@@ -1142,7 +1164,89 @@ mod tests {
         let count = state.inner.routes.lock().unwrap().len();
         assert_eq!(
             count, MAX_ROUTES,
-            "route table should be bounded by MAX_ROUTES even without TTL pruning"
+            "route table should stay bounded by MAX_ROUTES via capacity eviction"
+        );
+    }
+
+    #[test]
+    fn active_route_is_not_evicted_when_capacity_is_full() {
+        let state = AudioProxyState::new(12345);
+
+        // Fill the table to capacity; the first route registered will be the
+        // least-recently-used once the table is full.
+        let first = state
+            .register("https://fs.ab000.kugou.com/active.mp3".to_string())
+            .expect("should register first route");
+        let active_id = first.rsplit('/').next().expect("route id").to_string();
+        for i in 1..MAX_ROUTES {
+            let url = format!("https://fs.ab{:03}.kugou.com/song.mp3", i);
+            state.register(url).expect("should register");
+        }
+        assert_eq!(state.inner.routes.lock().unwrap().len(), MAX_ROUTES);
+
+        // The audio element is still fetching this route: a resolve refreshes
+        // its recency marker, so it must not be picked as the eviction victim.
+        let resolved = state.resolve(&active_id).expect("active route resolves");
+        assert_eq!(resolved, "https://fs.ab000.kugou.com/active.mp3");
+
+        // Overflow the table: eviction must take some other (stale) route.
+        state
+            .register("https://fs.overflow.kugou.com/new.mp3".to_string())
+            .expect("should register after evicting a stale route");
+
+        let routes = state.inner.routes.lock().unwrap();
+        assert_eq!(
+            routes.len(),
+            MAX_ROUTES,
+            "table must stay bounded by MAX_ROUTES"
+        );
+        assert!(
+            routes.contains_key(&active_id),
+            "the actively used route must not be evicted when capacity is reached"
+        );
+    }
+
+    #[test]
+    fn eviction_falls_back_to_least_recently_used_when_every_route_is_active() {
+        let state = AudioProxyState::new(12345);
+        let mut first_id = String::new();
+        for i in 0..MAX_ROUTES {
+            let url = format!("https://fs.full{:03}.kugou.com/song.mp3", i);
+            let registered = state.register(url).expect("should register");
+            if i == 0 {
+                first_id = registered
+                    .rsplit('/')
+                    .next()
+                    .expect("route id")
+                    .to_string();
+            }
+        }
+
+        // Extreme case: every entry was resolved (touched) recently, so no
+        // route is exempt from eviction. Stamp them all with an identical
+        // last_used so the decision falls entirely on the seq tie-breaker:
+        // the victim must be the route with the oldest touch seq, i.e. the
+        // first one registered.
+        let stamp = Instant::now();
+        {
+            let mut routes = state.inner.routes.lock().unwrap();
+            for entry in routes.values_mut() {
+                entry.last_used = stamp;
+            }
+        }
+        state
+            .register("https://fs.overflow.kugou.com/new.mp3".to_string())
+            .expect("insert must succeed even when all existing routes are active");
+
+        let routes = state.inner.routes.lock().unwrap();
+        assert_eq!(
+            routes.len(),
+            MAX_ROUTES,
+            "all-active worst case must still leave the table bounded"
+        );
+        assert!(
+            !routes.contains_key(&first_id),
+            "with every last_used stamp equal, the victim must be the route with the oldest touch seq (the first registered)"
         );
     }
 

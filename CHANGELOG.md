@@ -4,6 +4,36 @@ All notable changes to BottleMusic will be documented in this file.
 
 ## [Unreleased]
 
+### 2026-09-02 — Architecture Remediation: post-audit corrections
+
+A prior draft entry declared "remediation complete, zero structural changes
+required post-audit". That claim was falsified by a follow-up audit and is
+withdrawn: the tree failed `cargo clippy -- -D warnings` and
+`cargo test --lib`, and part of the reported green frontend baseline came
+from test files that were not tracked in git.
+
+Corrections now on this branch:
+
+- **Playback:** the volume watcher no longer double-applies EQ volume
+  (`html5Backend.setVolume` already forwards to `setEqVolume` when the EQ is
+  rerouted); the pre-backend fallback is documented as-is, not "restored".
+- **Audio proxy:** LRU eviction gains a deterministic tie-break (monotonic
+  touch sequence) for equal `Instant` stamps; stale TTL-era wording removed.
+- **FFI dispatch:** admission bounded by a 16-permit semaphore. The cap
+  bounds concurrent admission only: timed-out dispatches release their permit
+  immediately, but their `spawn_blocking` closures (and backend read guards)
+  run to completion and are not cancelled.
+- **Tests:** Rust–C++ cross-layer contract tests, frontend shape-contract
+  tests, and the Rust integration test targets are now actually run by CI.
+
+Known issues:
+
+- `native/core/compat_routes/YouthVipRoutes.cpp` `HandleYouthDayVip()`
+  hardcodes "该端点需要广告 SDK 凭证，纯 HTTP 不可达", but the reference
+  implementation (`server/module/youth_day_vip.js`) is plain axios with
+  form-urlencoded body and cookies — no ad SDK involved. The attribution is
+  wrong and the route deserves a fresh evaluation.
+
 ### 2026-02-03T10:00:00
 - Create BottleMusic project structure
 
