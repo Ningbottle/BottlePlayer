@@ -133,23 +133,104 @@ int main() {
       cookie.find("KugooID=") != std::string::npos;
   const bool vipRequestMatchesReference =
       vipUrl.find("https://kugouvip.kugou.com/v1/get_union_vip?") == 0 &&
-      QueryValue(vipUrl, "appid") == "3116" &&
-      QueryValue(vipUrl, "clientver") == "11440" &&
+      QueryValue(vipUrl, "appid") == "1005" &&
+      QueryValue(vipUrl, "clientver") == "20489" &&
       QueryValue(vipUrl, "busi_type") == "concept" &&
       QueryValue(vipUrl, "uuid") == "-" &&
       QueryValue(vipUrl, "product_type").empty() &&
       QueryValue(vipUrl, "opt_product_types").empty() &&
       QueryValue(vipUrl, "signature") ==
           echo::core::SignatureAndroidParams(
-              vipSignedParams, "", echo::core::KuGouSaltKind::Lite) &&
+              vipSignedParams, "", echo::core::KuGouSaltKind::Standard) &&
       !vipClienttime.empty() && cookieHasSessionKeys;
 
   if (!vipRequestMatchesReference) {
-    std::cerr << "[YouthVipContract] get_union_vip request does not match the Concept contract"
+    std::cerr << "[YouthVipContract] get_union_vip request does not match the Standard contract"
               << std::endl;
     return 1;
   }
 
+  // ── ClaimVip: receive_vip_listen_song must match the 2026-08-31 reference ─
+  // Re-enabled route. The reference (module/youth_day_vip.js + util/request.js)
+  // signs with the STANDARD Android identity, keeps params in the query with an
+  // empty body, and sends content-type application/x-www-form-urlencoded plus
+  // the dfid/clienttime/mid/kg-* fingerprint headers.
+  std::string dayUrl;
+  std::string dayBody = "UNSET";
+  std::unordered_map<std::string, std::string> dayHeaders;
+  echo::core::UserService dayService(
+      [&](const std::string&,
+          const std::unordered_map<std::string, std::string>&) {
+        return echo::core::HttpResult{500, "", "unexpected GET"};
+      },
+      [&](const std::string& url, const std::string& body,
+          const std::unordered_map<std::string, std::string>& headers) {
+        dayUrl = url;
+        dayBody = body;
+        dayHeaders = headers;
+        return echo::core::HttpResult{
+            200, R"({"status":0,"error_code":51002,"error_msg":"device validation failed"})", ""};
+      });
+
+  const auto dayResult = dayService.ClaimVip(device, "42", "token");
+
+  const auto dayClienttime = QueryValue(dayUrl, "clienttime");
+  const auto receiveDay = QueryValue(dayUrl, "receive_day");
+  const std::unordered_map<std::string, std::string> daySignedParams = {
+      {"appid", QueryValue(dayUrl, "appid")},
+      {"clientver", QueryValue(dayUrl, "clientver")},
+      {"clienttime", dayClienttime},
+      {"dfid", QueryValue(dayUrl, "dfid")},
+      {"mid", QueryValue(dayUrl, "mid")},
+      {"uuid", QueryValue(dayUrl, "uuid")},
+      {"userid", QueryValue(dayUrl, "userid")},
+      {"token", QueryValue(dayUrl, "token")},
+      {"source_id", QueryValue(dayUrl, "source_id")},
+      {"receive_day", receiveDay},
+  };
+  const bool dayMatchesReference =
+      dayUrl.find("https://gateway.kugou.com/youth/v1/recharge/receive_vip_listen_song?") == 0 &&
+      QueryValue(dayUrl, "appid") == "1005" &&
+      QueryValue(dayUrl, "clientver") == "20489" &&
+      QueryValue(dayUrl, "dfid") == device.dfid &&
+      QueryValue(dayUrl, "mid") == device.mid &&
+      QueryValue(dayUrl, "uuid") == "-" &&
+      QueryValue(dayUrl, "userid") == "42" &&
+      QueryValue(dayUrl, "token") == "token" &&
+      QueryValue(dayUrl, "source_id") == "90139" &&
+      QueryValue(dayUrl, "plat").empty() &&
+      receiveDay.size() == 10 && receiveDay[4] == '-' && receiveDay[7] == '-' &&
+      QueryValue(dayUrl, "signature") ==
+          echo::core::SignatureAndroidParams(
+              daySignedParams, "", echo::core::KuGouSaltKind::Standard) &&
+      dayBody.empty() &&
+      dayHeaders["Content-Type"] == "application/x-www-form-urlencoded" &&
+      dayHeaders["clienttime"] == dayClienttime &&
+      dayHeaders["dfid"] == device.dfid &&
+      dayHeaders["mid"] == device.mid &&
+      dayHeaders["kg-rc"] == "1" &&
+      dayHeaders["kg-thash"] == "5d816a0" &&
+      dayHeaders["kg-rec"] == "1" &&
+      dayHeaders["kg-rf"] == "B9EDA08A64250DEFFBCADDEE00F8F25F" &&
+      dayHeaders["User-Agent"] ==
+          "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
+
+  if (!dayMatchesReference) {
+    std::cerr << "[YouthVipContract] receive_vip_listen_song request does not match "
+              << "the 2026-08-31 reference contract" << std::endl;
+    return 1;
+  }
+
+  if (dayResult.value("status", -1) != 0 ||
+      dayResult.value("error_code", -1) != 51002 ||
+      dayResult.value("error_msg", std::string{}) != "device validation failed" ||
+      dayResult.value("local_error", std::string{}) != "kugou_vip_claim_failed") {
+    std::cerr << "[YouthVipContract] unexpected ClaimVip normalized response: "
+              << dayResult.dump() << std::endl;
+    return 1;
+  }
+
+  std::cout << "[YouthVipContract] day-vip claim contract passed" << std::endl;
   std::cout << "[YouthVipContract] passed" << std::endl;
   return 0;
 }

@@ -12,6 +12,7 @@ struct KuGouAndroidRequest {
   KuGouProfileParams profile;
   bool includeSongUrlKey = false;
   bool skipDeviceDefaults = false;  // If true, don't inject dfid/mid/uuid/clienttime defaults
+  bool notSign = false;  // If true, omit the signature param (reference notSign option)
   std::map<std::string, std::string> params;
   DeviceInfo device;
   std::string body;

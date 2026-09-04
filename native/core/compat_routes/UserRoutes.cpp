@@ -1,5 +1,6 @@
 #include "echo/core/CompatApiUtils.h"
 #include "echo/core/CompatRequestContext.h"
+#include "echo/core/LoginService.h"
 #include "echo/core/PlayHistoryService.h"
 #include "echo/core/SafeStoll.h"
 #include "echo/storage/SessionRepository.h"
@@ -26,6 +27,19 @@ CompatResponse HandleUserDetail(
   const std::string token = ctx.TokenOrEmpty();
   if (session && !userId.empty()) {
     const auto& device = ctx.Device();
+    // 会话恢复（非扫码）路径：vip_token 不在库里时按 login_token.js 懒刷新，
+    // 让 v6/priv_url 拿得到会员音质。
+    if (session->vipToken.empty() && !token.empty()) {
+      LoginService loginSvc;
+      const auto vt = loginSvc.RefreshVipToken(device, userId, token);
+      if (!vt.empty()) {
+        SessionInfo updated = *session;
+        updated.vipToken = vt;
+        ctx.SaveSession(updated);
+        ECHO_LOG("VipToken", "lazy-refreshed vip_token on /user/detail (len=" +
+            std::to_string(vt.size()) + ")");
+      }
+    }
     UserService userSvc;
     nlohmann::json detail = userSvc.GetUserDetail(device, userId, token);
     if (detail.value("status", 0) == 1 && detail.contains("data") && detail["data"].is_object()) {
@@ -173,30 +187,15 @@ CompatResponse HandleUserPlaylist(
 
   ECHO_LOG("UserPlaylist", std::string("playlist_attempt=1 ") + DescribeDeviceIdentity(device));
   auto result = fetchPlaylists(device);
-  if (IsKuGouErrorCode(result, 20017) && session && !userId.empty() && !token.empty()) {
-    ECHO_LOG("UserPlaylist", std::string("registration_attempt=refresh playlist_attempt=1 ") +
+  if (IsKuGouErrorCode(result, 20017)) {
+    // Incident 2026-09-02: this refresh-retry used to re-register and persist
+    // a synthetic dfid, destroying the user's trusted (web-captured) device
+    // identity within seconds of the first upstream rejection. A registered
+    // device is trusted: never auto-rotate it. Surface the upstream error;
+    // the user refreshes dfid/mid/uuid from Settings when the fingerprint
+    // expires upstream.
+    ECHO_LOG("UserPlaylist", std::string("upstream 20017 with registered device; no auto-rotation ") +
                                  DescribeDeviceIdentity(device));
-    std::string regError;
-    DeviceInfo retryDevice = device;
-    retryDevice.registered = false;
-    const auto newDfid = registerDevice(retryDevice, &regError);
-    const bool dfidChanged = !newDfid.empty() && newDfid != retryDevice.dfid;
-    if (!persistDevice(retryDevice, newDfid)) {
-      ECHO_LOG("UserPlaylist", std::string("refresh registration failed: ") + regError);
-      return JsonResponse({
-          {"status", 0},
-          {"error_code", "device_registration_failed"},
-          {"upstream_error_code", 20017},
-          {"error", regError.empty() ? "device registration failed" : regError},
-          {"error_msg", regError.empty() ? "device registration failed" : regError},
-          {"data", EmptyUserPlaylistData()},
-      });
-    }
-    device = retryDevice;
-    ECHO_LOG("UserPlaylist", std::string("registration_result=success dfid_changed=") +
-                                 (dfidChanged ? "Y " : "N ") + DescribeDeviceIdentity(device));
-    ECHO_LOG("UserPlaylist", std::string("playlist_attempt=2 ") + DescribeDeviceIdentity(device));
-    result = fetchPlaylists(device);
   }
 
   if (session && result.value("status", 0) == 1 && result.contains("data") &&

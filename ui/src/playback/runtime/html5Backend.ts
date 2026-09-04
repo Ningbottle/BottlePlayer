@@ -45,6 +45,40 @@ export class Html5AudioBackend implements PlayerBackend {
     private readonly options: Html5AudioBackendOptions = {},
   ) {
     this.audio.volume = normalizeInitialVolume(this.options.initialVolume);
+    this.installPauseSilenceProbe();
+  }
+
+  // TEMP-DBG: pause-silence investigation (2026-09-03). REMOVE after diagnosis.
+  // Records element state around pause/resume and key media events into a
+  // localStorage ring buffer so the failure can be analyzed post-hoc.
+  private installPauseSilenceProbe(): void {
+    const dbg = (tag: string, extra: Record<string, unknown> = {}) => {
+      try {
+        const rec = JSON.parse(localStorage.getItem('dbg_pause') || '[]') as unknown[];
+        rec.push({
+          t: Date.now(),
+          tag,
+          paused: this.audio.paused,
+          vol: this.audio.volume,
+          muted: this.audio.muted,
+          rs: this.audio.readyState,
+          ns: this.audio.networkState,
+          ct: Math.round(this.audio.currentTime * 10) / 10,
+          src: (this.audio.currentSrc || this.audio.src || '').slice(0, 60),
+          ...extra,
+        });
+        localStorage.setItem('dbg_pause', JSON.stringify(rec.slice(-40)));
+      } catch {
+        /* probe must never break playback */
+      }
+    };
+    for (const ev of [
+      'play', 'playing', 'pause', 'suspend', 'stalled', 'waiting',
+      'volumechange', 'emptied', 'error', 'ratechange', 'seeked',
+    ]) {
+      this.audio.addEventListener(ev, () => dbg(`ev:${ev}`));
+    }
+    (this.audio as unknown as { __pauseSilenceDbg?: typeof dbg }).__pauseSilenceDbg = dbg;
   }
 
   async initialize(): Promise<boolean> { return true; }
@@ -123,8 +157,27 @@ export class Html5AudioBackend implements PlayerBackend {
     return this.audio.hasAttribute('src') && Boolean(this.audio.getAttribute('src') || this.audio.src);
   }
 
-  async pause(): Promise<void> { this.audio.pause(); }
-  async resume(): Promise<void> { await this.audio.play(); }
+  async pause(): Promise<void> {
+    // TEMP-DBG probe (remove with installPauseSilenceProbe)
+    (this.audio as unknown as { __pauseSilenceDbg?: (t: string) => void })
+      .__pauseSilenceDbg?.('pause()');
+    this.audio.pause();
+  }
+
+  async resume(): Promise<void> {
+    // TEMP-DBG probe (remove with installPauseSilenceProbe)
+    const dbg = (this.audio as unknown as {
+      __pauseSilenceDbg?: (t: string, e?: Record<string, unknown>) => void;
+    }).__pauseSilenceDbg;
+    dbg?.('resume() start');
+    try {
+      await this.audio.play();
+      dbg?.('resume() resolved');
+    } catch (e) {
+      dbg?.('resume() rejected', { err: String(e) });
+      throw e;
+    }
+  }
   async stop(): Promise<void> {
     this.beginSourceLease();
     this.options.disconnectEq?.();

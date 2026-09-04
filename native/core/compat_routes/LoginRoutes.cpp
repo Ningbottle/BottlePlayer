@@ -93,6 +93,16 @@ CompatResponse HandleLoginQrCheck(
     session.t1 = FirstNonEmptyString({"t1"});
     if (!session.vipToken.empty()) {
       ECHO_LOG("CompatApi", "QR login issued vip_token (len=" + std::to_string(session.vipToken.size()) + ")");
+    } else if (!session.token.empty() && !session.userId.empty()) {
+      // 扫码响应不下发 vip_token；按参考仓 login_token.js 刷新补齐，
+      // v6/priv_url 需要它才给会员音质。
+      LoginService loginSvc;
+      session.vipToken = loginSvc.RefreshVipToken(device, session.userId, session.token);
+      if (!session.vipToken.empty()) {
+        ECHO_LOG("VipToken", "refreshed vip_token via login_by_token (len=" + std::to_string(session.vipToken.size()) + ")");
+      } else {
+        ECHO_LOG("VipToken", "login_by_token refresh returned no vip_token");
+      }
     } else {
       ECHO_LOG("CompatApi", "QR login issued no vip_token");
     }

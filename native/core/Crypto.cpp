@@ -249,6 +249,46 @@ std::string RsaRawEncrypt(const std::string& jsonPayload) {
   return ss.str();
 }
 
+std::string RsaRawEncryptRef(const std::string& payload) {
+  BCRYPT_KEY_HANDLE keyHandle = GetKuGouPublicKey();
+  if (!keyHandle) return {};
+
+  constexpr ULONG kKeyBytes = 128;
+  const auto payloadSize = static_cast<ULONG>(payload.size());
+  if (payloadSize > kKeyBytes) {
+    BCryptDestroyKey(keyHandle);
+    return {};
+  }
+  // 参考仓 rsaRawEncrypt：payload 左对齐，右侧补零。
+  std::vector<BYTE> padded(kKeyBytes, 0);
+  std::memcpy(padded.data(), payload.data(), payloadSize);
+
+  ULONG cipherLen = 0;
+  NTSTATUS status = BCryptEncrypt(
+      keyHandle, padded.data(), kKeyBytes,
+      nullptr, nullptr, 0,
+      nullptr, 0, &cipherLen, BCRYPT_PAD_NONE);
+  if (!BCRYPT_SUCCESS(status)) {
+    BCryptDestroyKey(keyHandle);
+    return {};
+  }
+
+  std::vector<BYTE> cipher(cipherLen);
+  status = BCryptEncrypt(
+      keyHandle, padded.data(), kKeyBytes,
+      nullptr, nullptr, 0,
+      cipher.data(), cipherLen, &cipherLen, BCRYPT_PAD_NONE);
+  BCryptDestroyKey(keyHandle);
+  if (!BCRYPT_SUCCESS(status)) return {};
+
+  std::ostringstream ss2;
+  ss2 << std::hex << std::setfill('0');
+  for (ULONG i = 0; i < cipherLen; ++i) {
+    ss2 << std::setw(2) << static_cast<int>(cipher[i]);
+  }
+  return ss2.str();
+}
+
 std::string SignParamsKey(const std::string& data,
                           const std::string& appid,
                           const std::string& clientver,
@@ -445,6 +485,65 @@ AesKeyPair PlaylistAesEncrypt(const std::string& plaintext) {
 
   std::string base64Str = Base64Encode(cipher);
   return AesKeyPair{keySeed, base64Str};
+}
+
+std::string AesCbcEncryptBase64(const std::string& plaintext,
+                                const std::string& key,
+                                const std::string& iv) {
+  if (key.empty() || iv.empty()) return {};
+  std::vector<BYTE> ivBytes(iv.begin(), iv.end());
+
+  BCRYPT_ALG_HANDLE algHandle = nullptr;
+  BCRYPT_KEY_HANDLE keyHandle = nullptr;
+  NTSTATUS status = BCryptOpenAlgorithmProvider(&algHandle, BCRYPT_AES_ALGORITHM, nullptr, 0);
+  if (!BCRYPT_SUCCESS(status)) return {};
+
+  status = BCryptSetProperty(algHandle, BCRYPT_CHAINING_MODE, (PUCHAR)BCRYPT_CHAIN_MODE_CBC, sizeof(BCRYPT_CHAIN_MODE_CBC), 0);
+  if (!BCRYPT_SUCCESS(status)) {
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  DWORD keyObjSize = 0;
+  DWORD cbData = 0;
+  status = BCryptGetProperty(algHandle, BCRYPT_OBJECT_LENGTH, reinterpret_cast<PUCHAR>(&keyObjSize), sizeof(keyObjSize), &cbData, 0);
+  if (!BCRYPT_SUCCESS(status)) {
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  std::vector<BYTE> keyObj(keyObjSize);
+  status = BCryptGenerateSymmetricKey(algHandle, &keyHandle, keyObj.data(), keyObjSize,
+                                      reinterpret_cast<PUCHAR>(const_cast<char*>(key.data())),
+                                      static_cast<ULONG>(key.size()), 0);
+  if (!BCRYPT_SUCCESS(status)) {
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  ULONG cipherLen = 0;
+  status = BCryptEncrypt(keyHandle,
+                         reinterpret_cast<PUCHAR>(const_cast<char*>(plaintext.data())),
+                         static_cast<ULONG>(plaintext.size()), nullptr,
+                         ivBytes.data(), static_cast<ULONG>(ivBytes.size()),
+                         nullptr, 0, &cipherLen, BCRYPT_BLOCK_PADDING);
+  if (!BCRYPT_SUCCESS(status)) {
+    BCryptDestroyKey(keyHandle);
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  std::vector<BYTE> cipher(cipherLen);
+  std::memcpy(ivBytes.data(), iv.data(), iv.size());
+  status = BCryptEncrypt(keyHandle,
+                         reinterpret_cast<PUCHAR>(const_cast<char*>(plaintext.data())),
+                         static_cast<ULONG>(plaintext.size()), nullptr,
+                         ivBytes.data(), static_cast<ULONG>(ivBytes.size()),
+                         cipher.data(), cipherLen, &cipherLen, BCRYPT_BLOCK_PADDING);
+  BCryptDestroyKey(keyHandle);
+  BCryptCloseAlgorithmProvider(algHandle, 0);
+  if (!BCRYPT_SUCCESS(status)) return {};
+  return Base64Encode(cipher);
 }
 
 std::string Base64EncodeBytes(const std::string& rawBytes) {

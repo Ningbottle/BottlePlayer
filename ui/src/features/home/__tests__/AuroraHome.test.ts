@@ -242,8 +242,9 @@ describe('AuroraHome', () => {
     expect(rail.text()).toContain('Live A');
     expect(rail.text()).toContain('Live B');
     expect(rail.text()).not.toContain('Stale Daily');
-    // Absolute index = windowStart + row
-    expect(wrapper.get('[data-test="queue-track-live-a"]').text()).toMatch(/05/);
+    // Rail is a plain recommendation list — no queue index numbers
+    expect(wrapper.find('.aurora-queue-index').exists()).toBe(false);
+    expect(wrapper.get('[data-test="queue-track-live-a"]').text()).not.toMatch(/05/);
     expect(wrapper.get('[data-test="queue-track-live-b"]').attributes('aria-current')).toBe('true');
     expect(wrapper.get('.aurora-queue-rail-head h2 span').text()).toBe('12');
     // Refresh is for home snapshot only — hide while following live session
@@ -374,7 +375,7 @@ describe('AuroraHome', () => {
     expect(wrapper.findAll('[data-test^="queue-track-"]').length).toBeGreaterThan(0);
   });
 
-  it('numbers daily rail rows from 01 without playback-window offsets', () => {
+  it('shows no index numbers on daily rail rows even with playback-window offsets', () => {
     const daily = [
       createTrack({ FileHash: 'daily-a', SongName: 'A' }),
       createTrack({ FileHash: 'daily-b', SongName: 'B' }),
@@ -388,8 +389,9 @@ describe('AuroraHome', () => {
       },
     });
 
-    expect(wrapper.get('[data-test="queue-track-daily-a"]').text()).toContain('01');
-    expect(wrapper.get('[data-test="queue-track-daily-b"]').text()).toContain('02');
+    expect(wrapper.find('.aurora-queue-index').exists()).toBe(false);
+    expect(wrapper.get('[data-test="queue-track-daily-a"]').text()).not.toContain('01');
+    expect(wrapper.get('[data-test="queue-track-daily-b"]').text()).not.toContain('02');
   });
 
   it('updates the daily rail when recommendations change (no freeze-follow for playback queue)', async () => {

@@ -14,6 +14,7 @@ vi.mock('../../../platform/tauri/nativeClient', async (importOriginal) => {
 import {
   checkLoginStatus,
   claimVip,
+  claimVipViaRoute,
   ensureVipDeviceReady,
   formatVipClaimFailure,
   logoutLocal,
@@ -223,7 +224,7 @@ describe('userStore login refresh', () => {
     mockReadyDevice();
     mockApiGet.mockResolvedValue({ status: 1 });
 
-    await claimVip();
+    await claimVip({ adLoopMax: 1, adIntervalMs: 0 });
 
     expect(effects.onAccountReady).toHaveBeenCalledTimes(1);
     expect(effects.onAccountReady).toHaveBeenCalledWith('42');
@@ -332,6 +333,9 @@ describe('claimVip snapshot overlay', () => {
 
   it('keeps optimistic VIP when listen succeeds and detail is non-authoritative', async () => {
     mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad' || path === '/youth/day/vip') {
+        return { status: 0, error_code: 51002, error_msg: '' };
+      }
       if (path === '/youth/listen/song') {
         return { status: 1, data: '' };
       }
@@ -347,7 +351,7 @@ describe('claimVip snapshot overlay', () => {
       throw new Error(`unexpected path: ${path}`);
     });
 
-    await claimVip();
+    await claimVip({ adLoopMax: 1, adIntervalMs: 0 });
 
     expect(userStore.isVip).toBe(true);
     expect(userStore.vipEndDate).toBe('');
@@ -357,6 +361,9 @@ describe('claimVip snapshot overlay', () => {
 
   it('does not immediately downgrade optimistic VIP when authoritative detail is still false', async () => {
     mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad' || path === '/youth/day/vip') {
+        return { status: 0, error_code: 51002, error_msg: '' };
+      }
       if (path === '/youth/listen/song') {
         return { status: 1, data: '' };
       }
@@ -366,7 +373,7 @@ describe('claimVip snapshot overlay', () => {
       throw new Error(`unexpected path: ${path}`);
     });
 
-    await claimVip();
+    await claimVip({ adLoopMax: 1, adIntervalMs: 0 });
 
     expect(userStore.isVip).toBe(true);
     expect(userStore.claimMessage).toContain('权益状态同步中');
@@ -374,6 +381,9 @@ describe('claimVip snapshot overlay', () => {
 
   it('applies level and expiry when authoritative detail confirms VIP', async () => {
     mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad' || path === '/youth/day/vip') {
+        return { status: 0, error_code: 51002, error_msg: '' };
+      }
       if (path === '/youth/listen/song') {
         return { status: 1, data: '' };
       }
@@ -387,7 +397,7 @@ describe('claimVip snapshot overlay', () => {
       throw new Error(`unexpected path: ${path}`);
     });
 
-    await claimVip();
+    await claimVip({ adLoopMax: 1, adIntervalMs: 0 });
 
     expect(userStore.isVip).toBe(true);
     expect(userStore.vipEndDate).toBe('2026-12-31 23:59:59');
@@ -414,27 +424,10 @@ describe('claimVip snapshot overlay', () => {
     expect(userStore.isVip).toBe(false);
   });
 
-  it('does not treat 130012 as VIP unless authoritative detail confirms it', async () => {
+  it('stops the ad loop at max rounds and reports success once', async () => {
     mockApiGet.mockImplementation(async (path: string) => {
-      if (path === '/youth/listen/song') {
-        return { status: 0, error_code: 130012, error_msg: '' };
-      }
-      if (path === '/user/vip/detail') {
-        return { status: 0, authoritative: false, data: null };
-      }
-      throw new Error(`unexpected path: ${path}`);
-    });
-
-    await claimVip();
-
-    expect(userStore.claimMessage).toBe('今天已经领过了');
-    expect(userStore.isVip).toBe(false);
-  });
-
-  it('updates VIP from 130012 only when authoritative detail is VIP', async () => {
-    mockApiGet.mockImplementation(async (path: string) => {
-      if (path === '/youth/listen/song') {
-        return { status: 0, error_code: 130012, error_msg: '' };
+      if (path === '/youth/vip/ad') {
+        return { status: 1, data: '' };
       }
       if (path === '/user/vip/detail') {
         return {
@@ -446,11 +439,84 @@ describe('claimVip snapshot overlay', () => {
       throw new Error(`unexpected path: ${path}`);
     });
 
-    await claimVip();
+    await claimVip({ adLoopMax: 2, adIntervalMs: 0 });
 
-    expect(userStore.claimMessage).toBe('今天已经领过了');
     expect(userStore.isVip).toBe(true);
     expect(userStore.vipEndDate).toBe('2026-12-31 23:59:59');
+    expect(userStore.claimMessage).toContain('已激活每日 VIP');
+    // 2 ad rounds + one final vip detail sync
+    expect(mockApiGet).toHaveBeenCalledWith('/youth/vip/ad');
+    expect(mockApiGet.mock.calls.filter((c: any[]) => c[0] === '/youth/vip/ad')).toHaveLength(2);
+    expect(mockApiGet.mock.calls.filter((c: any[]) => c[0] === '/user/vip/detail')).toHaveLength(1);
+  });
+
+  it('falls back to day-vip when the ad channel is rejected, and syncs on success', async () => {
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad') {
+        return { status: 0, error_code: 51002, error_msg: '' };
+      }
+      if (path === '/youth/day/vip') {
+        return { status: 1, data: '' };
+      }
+      if (path === '/user/vip/detail') {
+        return {
+          status: 1,
+          authoritative: true,
+          data: { is_vip: 1, vip_end_time: '2026-12-31 23:59:59' },
+        };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    await claimVip({ adLoopMax: 1, adIntervalMs: 0 });
+
+    expect(mockApiGet).toHaveBeenCalledWith('/youth/day/vip');
+    expect(userStore.isVip).toBe(true);
+    expect(userStore.vipEndDate).toBe('2026-12-31 23:59:59');
+    expect(userStore.claimMessage).toContain('已激活每日 VIP');
+  });
+
+  it('tries every channel in order and surfaces the last upstream code when all are rejected', async () => {
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad') {
+        return { status: 0, error_code: 51002, error_msg: '' };
+      }
+      if (path === '/youth/day/vip') {
+        return { status: 0, error_code: 51002, error_msg: '' };
+      }
+      if (path === '/youth/listen/song') {
+        return { status: 0, error_code: 130012, error_msg: '' };
+      }
+      if (path === '/youth/day/vip/upgrade') {
+        return { status: 0, error_code: 304001, error_msg: '' };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    await claimVip({ adLoopMax: 1, adIntervalMs: 0 });
+
+    expect(mockApiGet).toHaveBeenCalledWith('/youth/vip/ad');
+    expect(mockApiGet).toHaveBeenCalledWith('/youth/day/vip');
+    expect(mockApiGet).toHaveBeenCalledWith('/youth/listen/song');
+    expect(mockApiGet).toHaveBeenCalledWith('/youth/day/vip/upgrade');
+    expect(userStore.claimMessage).toContain('304001');
+    expect(userStore.isVip).toBe(false);
+  });
+
+  it('claimVipViaRoute dispatches the experimental route and shows upstream failure verbatim', async () => {
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/day/vip/upgrade') {
+        return { status: 0, error_code: 131001, error_msg: 'ad token invalid' };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    await claimVipViaRoute('day-upgrade');
+
+    expect(mockApiGet).toHaveBeenCalledWith('/youth/day/vip/upgrade');
+    expect(userStore.claimMessage).toContain('131001');
+    expect(userStore.claimMessage).toContain('ad token invalid');
+    expect(userStore.isVip).toBe(false);
   });
 
   it('does not classify timeout as 51002', async () => {

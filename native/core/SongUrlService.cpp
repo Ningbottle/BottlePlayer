@@ -590,33 +590,46 @@ nlohmann::json SongUrlService::Resolve(
   }
 
   // ── Try v6/priv_url first (VIP-aware endpoint) ──────────────────────────
+  nlohmann::json v6PreviewFallback;
   if (httpPost_) {
     auto v6 = ResolveV6PrivUrl(hash, albumAudioId, userId, token,
                                 std::move(vipToken), /*vipType=*/0, device);
     if (v6.value("status", 0) == 1) {
-      if (!quality.empty() && v6.contains("data") && v6["data"].is_object()) {
-        auto& data = v6["data"];
-        if (data.contains("available_qualities") && data["available_qualities"].is_array()) {
-          for (const auto& candidate : data["available_qualities"]) {
-            if (!candidate.is_object()) continue;
-            if (candidate.value("quality", "") != quality) continue;
-            const auto preferredUrl = candidate.value("url", "");
-            if (preferredUrl.empty()) continue;
-            v6["url"] = preferredUrl;
-            v6["play_url"] = preferredUrl;
-            v6["playUrl"] = preferredUrl;
-            data["url"] = preferredUrl;
-            data["play_url"] = preferredUrl;
-            data["playUrl"] = preferredUrl;
-            data["quality"] = quality;
-            break;
+      // 2026-09-03 实测：缺 viptoken 时 v6 会"成功"但只回试听包
+      // （is_preview=true、URL 带 /yp/p_ 字节区间、fail_process=12），
+      // 会把整条链路钉死在试听上。只有这种真试听包才降级去 v5；
+      // 合成/完整地址（无 /yp/p_ 标记）照常采用。
+      const std::string v6Url = v6.value("url", std::string{});
+      const bool v6Degraded = v6.value("is_preview", false)
+          && v6Url.find("/yp/p_") != std::string::npos;
+      if (!v6Degraded) {
+        if (!quality.empty() && v6.contains("data") && v6["data"].is_object()) {
+          auto& data = v6["data"];
+          if (data.contains("available_qualities") && data["available_qualities"].is_array()) {
+            for (const auto& candidate : data["available_qualities"]) {
+              if (!candidate.is_object()) continue;
+              if (candidate.value("quality", "") != quality) continue;
+              const auto preferredUrl = candidate.value("url", "");
+              if (preferredUrl.empty()) continue;
+              v6["url"] = preferredUrl;
+              v6["play_url"] = preferredUrl;
+              v6["playUrl"] = preferredUrl;
+              data["url"] = preferredUrl;
+              data["play_url"] = preferredUrl;
+              data["playUrl"] = preferredUrl;
+              data["quality"] = quality;
+              break;
+            }
           }
         }
+        ECHO_LOG("SongUrlV6", "SUCCESS — using v6 result");
+        return v6;
       }
-      ECHO_LOG("SongUrlV6", "SUCCESS — using v6 result");
-      return v6;
+      ECHO_LOG("SongUrlV6", "DEGRADED (preview-only) — falling back to v5");
+      v6PreviewFallback = std::move(v6);
+    } else {
+      ECHO_LOG("SongUrlV6", "FAILED — falling back to v5");
     }
-    ECHO_LOG("SongUrlV6", "FAILED — falling back to v5");
   }
 
   // ── v5/url fallback ─────────────────────────────────────────────────────
@@ -625,6 +638,10 @@ nlohmann::json SongUrlService::Resolve(
   // registration we previously zeroed these out as a workaround, but KuGou
   // then treated us as anonymous and only served 60s previews. The DeviceInfo
   // here carries the *registered* fingerprint when device.registered is true.
+  // 2026-09-03 实测分流：业务接口（歌单/会员查询）认标准族，但歌链
+  // tracker 端点认概念族——18:27 概念族 v5 给了全无损，02:13 标准族 v5 回
+  // pkg/buy 只给 60 秒。故 v5 保持概念族（3116/411/967177915），
+  // clientver 仍按 dataMap 覆盖 11430。
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);
   std::unordered_map<std::string, std::string> params;
   params["album_id"] = albumId.empty() ? "0" : albumId;
@@ -644,16 +661,8 @@ nlohmann::json SongUrlService::Resolve(
   params["ppage_id"] = ppageId.empty() ? conceptUrls.ppageId : ppageId;
   params["cdnBackup"] = "1";
   params["module"] = "";
-  // Mirror MakcRe/KuGouMusicApi module/song_url.js exactly. The /v5/url
-  // endpoint is concept-edition (lite): appid=3116, clientver=11430 (the
-  // module's dataMap explicitly overrides the lite default 11440).
-  //
-  // CRITICAL: KuGou's Android-family clients send `mid` as a 38-39 digit
-  // DECIMAL string (calculateMid in MakcRe util/util.js: hex md5 → base16
-  // BigInt → base10). The raw 32-char hex mid that m.kugou.com web sets in
-  // cookies is NOT accepted by /v5/url with appid=3116 — KuGou silently
-  // returns priv_status:0 + auth_through:[] (no VIP applied) when the mid
-  // format doesn't match the appid family.
+  // CRITICAL: mid 必须是 38-39 位十进制安卓 mid（ResolveAndroidMid 产出），
+  // 与 appid 族匹配，否则上游静默不给会员音质。
   params["appid"] = profile.appid;
   params["clientver"] = V5UrlClientver;
   params["mid"] = ResolveAndroidMid(device);
@@ -887,6 +896,12 @@ nlohmann::json SongUrlService::Resolve(
         {"bitRate", bitRateV5},
         {"extName", extNameV5},
     });
+  }
+
+  // v5 全空时回退到 v6 的试听包（有声音总比没有好）。
+  if (playUrl.empty() && !v6PreviewFallback.empty()) {
+    ECHO_LOG("SongUrlV6", "v5 empty — using v6 preview fallback");
+    return v6PreviewFallback;
   }
 
   return BuildSongUrlOutput(SongUrlOutput{

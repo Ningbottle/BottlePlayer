@@ -11,7 +11,9 @@ vi.mock('../userStore', () => ({
   userStore: {},
   checkLoginStatus: vi.fn(),
   claimVip: vi.fn(),
+  claimVipViaRoute: vi.fn(),
   logoutLocal: vi.fn(),
+  VIP_CLAIM_ROUTES: [],
 }));
 
 vi.mock('qrcode', () => ({

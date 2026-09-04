@@ -5,6 +5,9 @@ import {
   fetchUserDetail,
   fetchVipDetail,
   claimDailyVipSong,
+  claimYouthVipAd,
+  claimYouthDayVip,
+  claimYouthDayVipUpgrade,
 } from './accountGateway';
 import { resolveVip } from './vipResolver';
 import {
@@ -216,11 +219,85 @@ export async function checkLoginStatus() {
   }
 }
 
-export async function claimVip() {
+/** 领取成功后用权威接口同步权益，返回展示文案。 */
+async function syncVipAfterClaimSuccess(): Promise<string> {
+  try {
+    const vip = await fetchVipDetail();
+    const outcome = applyVipSnapshot(vip, { allowDowngrade: false });
+    if (outcome === 'applied' && userStore.isVip) {
+      return userStore.vipEndDate
+        ? `✓ 已激活每日 VIP，到期：${userStore.vipEndDate}`
+        : '✓ 已激活每日 VIP';
+    }
+    if (outcome === 'pending') {
+      return '领取成功，权益状态同步中';
+    }
+    return '领取上报成功，会员状态查询失败';
+  } catch {
+    return '领取上报成功，会员状态查询失败';
+  }
+}
+
+// 主领取链路（2026-09-02 实测定案）：
+//   1) 广告上报循环——唯一实测真实发放 VIP 的通道（单次领到 3 小时 svip）。
+//      上游约定：每看一条 30 秒广告上报一次，间隔 30 秒、最多 8 次，
+//      哪一轮被拒（撞墙/风控）立即断路。
+//   2) 广告被拒时，其余三条通道（直接领取/听歌上报/看广告升级）各试一次——
+//      哪条能通取决于酷狗上游活动与风控，墙会随时间移动（130012→51002）。
+// 任一通道成功即同步权威权益；全失败时如实展示最后一次上游返回。
+// 关键：各通道成功响应不携带到期时间，成功与否只看 status===1；
+// 到期时间的权威来源是 /user/vip/detail (get_union_vip)。
+
+export const AD_LOOP_MAX = 8;
+export const AD_LOOP_INTERVAL_MS = 30_000;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function runAdClaimLoop(
+  adLoopMax: number,
+  adIntervalMs: number,
+): Promise<{ ok: boolean; last?: any }> {
+  let last: any;
+  let ok = false;
+  for (let i = 1; i <= adLoopMax; i++) {
+    userStore.claimMessage = `广告上报（${i}/${adLoopMax}）…`;
+    try {
+      last = await claimYouthVipAd();
+    } catch (e: any) {
+      last = { error: describeBackendError(e, '网络异常或接口调用出错') };
+      break;
+    }
+    if (last?.status === 1) {
+      ok = true;
+      if (i >= adLoopMax) break;
+      // 成功不立即收尾：循环上报可能累计时长；倒计时后下一轮，被拒即停。
+      let remainMs = adIntervalMs;
+      while (remainMs > 0) {
+        const step = Math.min(1000, remainMs);
+        userStore.claimMessage =
+          `广告上报（${i}/${adLoopMax}）成功，${Math.ceil(remainMs / 1000)} 秒后下一轮…`;
+        await sleep(step);
+        remainMs -= step;
+      }
+      continue;
+    }
+    // 被上游拒绝：立即断路，不再消耗上报次数。
+    break;
+  }
+  return { ok, last };
+}
+
+export async function claimVip(
+  opts?: { adLoopMax?: number; adIntervalMs?: number },
+): Promise<void> {
   if (!userStore.isLoggedIn) {
     userStore.claimMessage = '请先登录！';
     return;
   }
+  const adLoopMax = opts?.adLoopMax ?? AD_LOOP_MAX;
+  const adIntervalMs = opts?.adIntervalMs ?? AD_LOOP_INTERVAL_MS;
   userStore.loading = true;
   userStore.claimMessage = '正在领取每日免费 VIP…';
   try {
@@ -230,46 +307,92 @@ export async function claimVip() {
       return;
     }
     void notifyAccountReady(userStore.userId);
-    const listen = await claimDailyVipSong();
 
-    // 关键：listen_song 成功响应是 {status:1, data:"", error_msg:""} —— 不携带到期时间。
-    // 成功与否只看 status===1；到期时间的权威来源是 /user/vip/detail (get_union_vip)。
-    if (listen?.status === 1) {
+    // 1) 广告上报循环（主通道）
+    const ad = await runAdClaimLoop(adLoopMax, adIntervalMs);
+    if (ad.ok) {
       userStore.isVip = true;
       userStore.claimMessage = '领取成功，正在同步权益';
-      try {
-        const vip = await fetchVipDetail();
-        const outcome = applyVipSnapshot(vip, { allowDowngrade: false });
-        if (outcome === 'applied' && userStore.isVip) {
-          userStore.claimMessage = userStore.vipEndDate
-            ? `✓ 已激活每日 VIP，到期：${userStore.vipEndDate}`
-            : '✓ 已激活每日 VIP';
-        } else if (outcome === 'pending') {
-          userStore.claimMessage = '领取成功，权益状态同步中';
-        } else {
-          userStore.claimMessage = '领取上报成功，会员状态查询失败';
-        }
-      } catch {
-        userStore.claimMessage = '领取上报成功，会员状态查询失败';
-      }
+      userStore.claimMessage = await syncVipAfterClaimSuccess();
       return;
     }
 
-    if (Number(listen?.error_code) === 130012) {
-      userStore.claimMessage = '今天已经领过了';
+    // 2) 其余通道逐个兜底
+    const fallbacks: { label: string; call: () => Promise<any> }[] = [
+      { label: '直接领取', call: claimYouthDayVip },
+      { label: '听歌上报', call: claimDailyVipSong },
+      { label: '看广告升级', call: claimYouthDayVipUpgrade },
+    ];
+    let lastFailure: any = ad.last;
+    for (const fb of fallbacks) {
+      userStore.claimMessage = `广告上报受限，尝试「${fb.label}」…`;
+      let result: any;
       try {
-        const vip = await fetchVipDetail();
-        applyVipSnapshot(vip, { allowDowngrade: false });
-      } catch {
-        /* keep "already claimed"; only authoritative VIP may update state */
+        result = await fb.call();
+      } catch (e: any) {
+        lastFailure = { error: describeBackendError(e, '网络异常或接口调用出错') };
+        continue;
       }
-      return;
+      if (result?.status === 1) {
+        userStore.isVip = true;
+        userStore.claimMessage = '领取成功，正在同步权益';
+        userStore.claimMessage = await syncVipAfterClaimSuccess();
+        return;
+      }
+      lastFailure = result;
     }
-
-    userStore.claimMessage = formatVipClaimFailure(listen);
+    userStore.claimMessage = formatVipClaimFailure(lastFailure);
   } catch (e: any) {
     console.error('Claim VIP error', e);
     userStore.claimMessage = `领取失败：${describeBackendError(e, '网络异常或接口调用出错')}`;
+  } finally {
+    userStore.loading = false;
+  }
+}
+
+// ── 实验：单独领取通道（诊断用）─────────────────────────────────────────
+// 四条通道互相独立，哪条能通取决于酷狗上游活动与风控；任一通道成功即同步
+// 权益。失败时一律如实展示上游 status/error_code/error_msg，不做本地猜测。
+
+export type VipClaimRoute = 'day' | 'listen' | 'ad' | 'day-upgrade';
+
+export const VIP_CLAIM_ROUTES: { id: VipClaimRoute; label: string }[] = [
+  { id: 'day', label: '直接领取（1天）' },
+  { id: 'listen', label: '听歌上报' },
+  { id: 'ad', label: '广告上报' },
+  { id: 'day-upgrade', label: '看广告升级' },
+];
+
+export async function claimVipViaRoute(route: VipClaimRoute): Promise<void> {
+  if (!userStore.isLoggedIn) {
+    userStore.claimMessage = '请先登录！';
+    return;
+  }
+  const label = VIP_CLAIM_ROUTES.find((r) => r.id === route)?.label ?? route;
+  userStore.loading = true;
+  userStore.claimMessage = `尝试「${label}」…`;
+  try {
+    const deviceResult = await ensureVipDeviceReady();
+    if (!deviceResult.ok) {
+      userStore.claimMessage = formatDeviceGateFailure(deviceResult);
+      return;
+    }
+    const calls: Record<VipClaimRoute, () => Promise<any>> = {
+      day: claimYouthDayVip,
+      listen: claimDailyVipSong,
+      ad: claimYouthVipAd,
+      'day-upgrade': claimYouthDayVipUpgrade,
+    };
+    const result = await calls[route]();
+    if (result?.status === 1) {
+      userStore.isVip = true;
+      userStore.claimMessage = await syncVipAfterClaimSuccess();
+      return;
+    }
+    userStore.claimMessage = `「${label}」${formatVipClaimFailure(result)}`;
+  } catch (e: any) {
+    console.error(`Claim VIP via ${route} error`, e);
+    userStore.claimMessage = `「${label}」领取失败：${describeBackendError(e, '网络异常或接口调用出错')}`;
   } finally {
     userStore.loading = false;
   }

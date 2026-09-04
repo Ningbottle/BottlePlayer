@@ -7,7 +7,6 @@ import { LyricView } from '../../features/lyrics';
 import { SearchView } from '../../features/search';
 import { EqualizerView, SettingsView } from '../../features/settings';
 import { StatsView } from '../../features/stats';
-import { DesktopLyricView, IslandView } from '../../features/overlays';
 
 export const routeNames = {
   home: 'home',
@@ -19,8 +18,6 @@ export const routeNames = {
   playlist: 'playlist',
   lyric: 'lyric',
   login: 'login',
-  overlayIsland: 'overlayIsland',
-  overlayLyric: 'overlayLyric',
 } as const;
 
 export type AppRouteName = typeof routeNames[keyof typeof routeNames];
@@ -58,6 +55,4 @@ export const routeRecords: RouteRecordRaw[] = [
   },
   { path: '/lyric', name: routeNames.lyric, component: LyricView },
   { path: '/login', name: routeNames.login, component: LoginView },
-  { path: '/overlay/island', name: routeNames.overlayIsland, component: IslandView, meta: { overlay: true } },
-  { path: '/overlay/lyric', name: routeNames.overlayLyric, component: DesktopLyricView, meta: { overlay: true } },
 ];

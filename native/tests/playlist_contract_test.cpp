@@ -121,16 +121,15 @@ int main() {
         {"userid", QueryValue(capturedUrl, "userid")},
         {"token", QueryValue(capturedUrl, "token")},
     };
-    // BottleMusic is a Concept deployment. The live Standard profile returns
-    // business error 20017 for this registered Concept device, while the
-    // Concept profile returns the user's real collection list.
-    assert(QueryValue(capturedUrl, "appid") == "3116");
-    assert(QueryValue(capturedUrl, "clientver") == "11440");
+    // 2026-09-03 配对实测：概念族被上游 20017 全拒，业务请求改标准族
+    // （1005/20489 + 标准盐），与登录令牌同族。
+    assert(QueryValue(capturedUrl, "appid") == "1005");
+    assert(QueryValue(capturedUrl, "clientver") == "20489");
     assert(QueryValue(capturedUrl, "uuid") == "-");
     assert(QueryValue(capturedUrl, "signature") ==
            echo::core::SignatureAndroidParams(
                signedParams, R"({"page":1,"pagesize":30,"token":"tok","total_ver":979,"type":2,"userid":42})",
-                echo::core::KuGouSaltKind::Lite));
+                echo::core::KuGouSaltKind::Standard));
     assert(userLists.contains("status"));
     assert(userLists["status"] == 1);
     assert(userLists.contains("data"));

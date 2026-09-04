@@ -851,9 +851,16 @@ export default { name: 'AuroraLyricStage' };
 .lyric-line {
   position: relative;
   width: 100%;
-  /* Apple-style hanging indent: wrapped continuation lines indent ~2 chars */
-  padding-left: 1.5em;
-  text-indent: -1.5em;
+  /* Reset button chrome — clickable for seek. `font: inherit` must stay before
+     the font declarations below, otherwise it overrides them (line-height
+     collapses to the page default). */
+  border: 0;
+  background: transparent;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
   max-width: min(44ch, 94%);
   font-size: 20px;
   color: var(--text-muted, var(--ink-mute));
@@ -861,15 +868,13 @@ export default { name: 'AuroraLyricStage' };
   font-family: var(--font-serif, serif);
   line-height: 1.7;
   transition: color 0.35s ease, opacity 0.35s ease, transform 0.35s ease, font-size 0.35s ease;
-  /* Reset button chrome — clickable for seek */
-  border: 0;
-  background: transparent;
   padding: 0;
-  margin: 0;
-  cursor: pointer;
-  font: inherit;
-  appearance: none;
-  -webkit-appearance: none;
+  /* Apple-style hanging indent: wrapped continuation lines indent ~2 chars.
+     Must stay AFTER the `padding: 0` reset above, otherwise the reset kills
+     the left pad while text-indent survives — the karaoke fill layer (which
+     mirrors this padding-left) then renders offset from the base text. */
+  padding-left: 1.5em;
+  text-indent: -1.5em;
 }
 .lyric-line:hover {
   color: color-mix(in srgb, var(--text-primary, #fff) 72%, var(--text-muted, #888) 28%);

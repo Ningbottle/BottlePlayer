@@ -72,6 +72,17 @@ AesKeyPair PlaylistAesEncrypt(const std::string& plaintext);
 // Matches JS `playlistAesDecrypt`.
 std::string PlaylistAesDecrypt(const std::string& base64Cipher, const std::string& keySeed);
 
+// Fixed-key AES-CBC (PKCS7, base64 output). Mirrors JS
+// `cryptoAesEncrypt(data, {key, iv})` with explicit key/iv (any AES key length).
+std::string AesCbcEncryptBase64(const std::string& plaintext,
+                                const std::string& key,
+                                const std::string& iv);
+
+// Raw RSA modPow mirroring MakcRe util/crypto.js `rsaRawEncrypt` exactly:
+// payload LEFT-aligned (zero padding on the RIGHT), lowercase hex output.
+// login_by_token rejects the legacy right-aligned/uppercase variant (20018).
+std::string RsaRawEncryptRef(const std::string& payload);
+
 // ── Base64 helpers ────────────────────────────────────────────────────────────
 // Encodes raw bytes (typically a binary HTTP response body) as Base64.
 // Useful for feeding `PlaylistAesDecrypt`, which expects base64 input.

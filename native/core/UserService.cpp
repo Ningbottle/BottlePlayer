@@ -226,10 +226,10 @@ nlohmann::json UserService::GetUserVip(
     }
   };
 
-  // 实测（2026-08-04，本账户）：Standard profile 被上游 20017(params invalid) 拒绝，
-  // Concept 正常返回；参考实现的默认 Standard 配置实测同样被拒。
-  // busi_type=concept 与 Concept clientver 配套，按实测证据保留 Concept。
-  auto conceptResult = DoGetVip(GetKuGouProfile(KuGouEdition::Concept));
+  // 实测（2026-09-03，配对后）：令牌与真指纹配对后概念族仍被 20017 全拒，
+  // 官方 App 正常 → 上游拒的是概念族本身；改标准族（1005/20489/标准盐），
+  // busi_type=concept 保留（参考仓 youth_union_vip.js 同约）。
+  auto conceptResult = DoGetVip(GetKuGouProfile(KuGouEdition::Standard));
   if (conceptResult.value("status", 0) == 1) {
     bool hasVipFields = false;
     if (conceptResult.contains("data") && conceptResult["data"].is_object()) {
@@ -306,31 +306,42 @@ nlohmann::json UserService::ClaimVip(
   // KuGouMusicApi reference (module/youth_day_vip.js + util/request.js):
   //   POST /youth/v1/recharge/receive_vip_listen_song
   //   鈥?encryptType=android => params live in URL query string, NOT body
-  //   鈥?android defaults inject dfid, mid, uuid, appid, clientver, clienttime
+  //   鈥?android defaults inject dfid, mid, uuid="-", appid, clientver, clienttime
   //   鈥?signature = md5(salt + sorted(k=v) + body + salt) where body="" here
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  //   鈥?2026-08-31 upstream update: content-type must be
+  //     application/x-www-form-urlencoded and every request carries the
+  //     dfid/clienttime/mid/kg-* fingerprint headers (util/request.js).
+  //   鈥?identity is the STANDARD Android app (appid=1005, clientver=20489,
+  //     standard salt per util/config.json), not the Concept/lite edition;
+  //     the reference sends no 'plat' param. The old Concept identity was a
+  //     candidate root cause of the blanket 51002 rejections.
+  const auto profile = GetKuGouProfile(KuGouEdition::Standard);
   KuGouAndroidRequest req;
   req.endpoint = "https://gateway.kugou.com/youth/v1/recharge/receive_vip_listen_song";
   req.profile = profile;
   req.params = {
-      {"plat", "1"},
       {"userid", userId},
       {"token", token},
       {"source_id", "90139"},
       {"receive_day", receiveDay},
+      {"uuid", "-"},
   };
   req.device = device;
 
   const std::string url = BuildSignedUrl(req);
 
+  auto headers = BuildAndroidHeaders(req);
+  headers["Content-Type"] = "application/x-www-form-urlencoded";
+  headers["User-Agent"] = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
+
+  // Redacted request log: token never leaves in diagnostics.
+  ECHO_LOG("VipClaim", std::string(">>> receive_vip_listen_song userid=") + userId
+      + " receive_day=" + receiveDay);
+
   const auto result = httpPost_(
       url,
       /*body=*/"",
-      {
-          {"Accept", "application/json"},
-          {"Content-Type", "application/json"},
-          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
-      });
+      std::move(headers));
 
   if (!result.error.empty()) return MakeError(result.error, result.statusCode);
 
@@ -342,10 +353,17 @@ nlohmann::json UserService::ClaimVip(
     if (json.value("status", 0) != 1) {
       std::string msg = json.value("error_msg", json.value("error", std::string{}));
       if (msg.empty()) msg = "广告 VIP 升级失败（需要酷狗官方 App 内的广告 SDK 凭证）";
+      const auto upstreamCode = json.contains("error_code") ? json["error_code"] : nlohmann::json(0);
+      ECHO_LOG("VipClaim", std::string("<<< receive_vip_listen_song upstream status=")
+          + std::to_string(json.value("status", 0))
+          + " error_code=" + upstreamCode.dump()
+          + " message=" + (msg.empty() ? std::string("<empty>") : msg));
       return {
           {"status", 0},
           {"error", msg},
-          {"error_code", "kugou_vip_claim_failed"},
+          {"error_msg", msg},
+          {"error_code", upstreamCode},
+          {"local_error", "kugou_vip_claim_failed"},
           {"data", json.contains("data") ? json["data"] : nlohmann::json(nullptr)},
           {"raw", json},
       };
@@ -383,31 +401,36 @@ nlohmann::json UserService::UpgradeVipReward(
 
   // Reference (MakcRe/KuGouMusicApi module/youth_day_vip_upgrade.js):
   //   POST /youth/v1/listen_song/upgrade_vip_reward
-  //   params: kugouid=<userid>, ad_type=1
-  // android encryptType => params live in URL query, no body.
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  //   params: kugouid=<userid>, ad_type=1 (+ default token/userid/uuid="-")
+  // android encryptType => params live in URL query, no body; identity is the
+  // STANDARD Android app (appid=1005), same as receive_vip_listen_song.
+  const auto profile = GetKuGouProfile(KuGouEdition::Standard);
   KuGouAndroidRequest req;
   req.endpoint = "https://gateway.kugou.com/youth/v1/listen_song/upgrade_vip_reward";
   req.profile = profile;
   req.params = {
-      {"plat", "1"},
       {"userid", userId},
       {"token", token},
       {"kugouid", userId},
       {"ad_type", "1"},
+      {"uuid", "-"},
   };
   req.device = device;
 
   const std::string url = BuildSignedUrl(req);
 
+  // Same 2026-08-31 reference alignment as ClaimVip: fingerprint headers +
+  // form-urlencoded content type, params stay in the signed query string.
+  auto headers = BuildAndroidHeaders(req);
+  headers["Content-Type"] = "application/x-www-form-urlencoded";
+  headers["User-Agent"] = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
+
+  ECHO_LOG("VipClaim", std::string(">>> upgrade_vip_reward userid=") + userId);
+
   const auto result = httpPost_(
       url,
       /*body=*/"",
-      {
-          {"Accept", "application/json"},
-          {"Content-Type", "application/json"},
-          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
-      });
+      std::move(headers));
 
   if (!result.error.empty()) return MakeError(result.error, result.statusCode);
 
@@ -416,10 +439,17 @@ nlohmann::json UserService::UpgradeVipReward(
     if (json.value("status", 0) != 1) {
       std::string msg = json.value("error_msg", json.value("error", std::string{}));
       if (msg.empty()) msg = "广告 VIP 升级失败（需要酷狗官方 App 内的广告 SDK 凭证）";
+      const auto upstreamCode = json.contains("error_code") ? json["error_code"] : nlohmann::json(0);
+      ECHO_LOG("VipClaim", std::string("<<< upgrade_vip_reward upstream status=")
+          + std::to_string(json.value("status", 0))
+          + " error_code=" + upstreamCode.dump()
+          + " message=" + (msg.empty() ? std::string("<empty>") : msg));
       return {
           {"status", 0},
           {"error", msg},
-          {"error_code", "kugou_vip_upgrade_failed"},
+          {"error_msg", msg},
+          {"error_code", upstreamCode},
+          {"local_error", "kugou_vip_upgrade_failed"},
           {"raw", json},
       };
     }
@@ -538,7 +568,9 @@ nlohmann::json UserService::ClaimYouthAdVip(
   };
   const std::string body = bodyJson.dump();
 
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  // 参考仓 youth_vip.js 用默认安卓身份（Standard）上报；2026-09-03 配对实测
+  // 概念族被拒后统一切标准族。
+  const auto profile = GetKuGouProfile(KuGouEdition::Standard);
   KuGouAndroidRequest req;
   req.endpoint = "https://gateway.kugou.com/youth/v1/ad/play_report";
   req.profile = profile;

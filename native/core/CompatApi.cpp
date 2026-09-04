@@ -131,8 +131,8 @@ const std::unordered_map<std::string, RouteHandlerFn>& GetRouteTable() {
       {"/playhistory/upload",[](const RouteContext& ctx, const std::string&) { return HandlePlayHistoryUpload(ctx.database, ctx.query); }},
 
       // Youth / VIP
-      {"/youth/day/vip",        [](const RouteContext&, const std::string&) { return HandleYouthDayVip(); }},
-      {"/youth/day/vip/upgrade",[](const RouteContext&, const std::string&) { return HandleYouthDayVip(); }},
+      {"/youth/day/vip",        [](const RouteContext& ctx, const std::string&) { return HandleYouthDayVip(ctx.database); }},
+      {"/youth/day/vip/upgrade",[](const RouteContext& ctx, const std::string&) { return HandleYouthDayVipUpgrade(ctx.database); }},
       {"/youth/listen/song",   [](const RouteContext& ctx, const std::string&) { return HandleYouthListenSong(ctx.database); }},
       {"/youth/vip/ad",        [](const RouteContext& ctx, const std::string&) { return HandleYouthVipAd(ctx.database); }},
       {"/youth/month/vip/record",nullptr},  // not yet ported

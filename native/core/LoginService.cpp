@@ -1,9 +1,14 @@
 #include "echo/core/LoginService.h"
 #include "echo/core/Crypto.h"
 #include "echo/core/DeviceService.h"
+#include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
 #include "echo/core/StringUtils.h"
+#include "echo/diagnostics/EchoDiagnostics.h"
+#include "echo/diagnostics/Redaction.h"
 
+#include <chrono>
+#include <cstdlib>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
@@ -136,6 +141,99 @@ nlohmann::json LoginService::PollQrLogin(const DeviceInfo& device, const std::st
   } catch (const nlohmann::json::exception& e) {
     return MakeErrorJson(std::string("JSON parse error: ") + e.what(), result.statusCode);
   }
+}
+
+std::string LoginService::RefreshVipToken(
+    const DeviceInfo& device,
+    const std::string& userId,
+    const std::string& token) const {
+  using namespace std::chrono;
+  const auto ms = duration_cast<milliseconds>(
+      system_clock::now().time_since_epoch()).count();
+  const long long sec = ms / 1000;
+
+  // p3 = AES({clienttime, token})，固定 key/iv（login_token.js 同约）。
+  const std::string p3 = AesCbcEncryptBase64(
+      "{\"clienttime\":" + std::to_string(sec) + ",\"token\":\"" + token + "\"}",
+      "90b8382a1bb4ccdcf063102053fd75b8", "f063102053fd75b8");
+
+  // encryptParams = AES({}, md5(tempKey)[0:32], 后16位)；tempKey 同时进 RSA 包装。
+  static const char* kChars = "abcdefghijklmnopqrstuvwxyz0123456789";
+  std::string tempKey;
+  tempKey.reserve(16);
+  for (int i = 0; i < 16; ++i) tempKey += kChars[std::rand() % 36];
+  const std::string md5 = CalculateMd5(tempKey);
+  const std::string aesKey = md5.substr(0, 32);
+  const std::string aesIv = aesKey.substr(16, 16);
+  const std::string paramsStr = AesCbcEncryptBase64("{}", aesKey, aesIv);
+  const std::string pk = RsaRawEncryptRef(
+      "{\"clienttime_ms\":" + std::to_string(ms) + ",\"key\":\"" + tempKey + "\"}");
+  if (p3.empty() || paramsStr.empty() || pk.empty()) {
+    ECHO_LOG("VipToken", "crypto prep failed");
+    return {};
+  }
+
+  nlohmann::json bodyJson = {
+      {"dfid", device.dfid.empty() ? "-" : device.dfid},
+      {"p3", p3},
+      {"plat", 1},
+      {"t1", 0},
+      {"t2", 0},
+      {"t3", "MCwwLDAsMCwwLDAsMCwwLDA="},
+      {"pk", pk},
+      {"params", paramsStr},
+      {"userid", [userId] {
+        try { return std::stoi(userId); } catch (...) { return 0; }
+      }()},
+      {"clienttime_ms", ms},
+  };
+  const std::string body = bodyJson.dump();
+
+  KuGouAndroidRequest req;
+  req.endpoint = "http://login.user.kugou.com/v5/login_by_token";
+  req.profile = GetKuGouProfile(KuGouEdition::Standard);
+  req.device = device;
+  req.body = body;
+  if (!userId.empty()) req.params["userid"] = userId;
+  if (!token.empty()) req.params["token"] = token;
+  const std::string url = BuildSignedUrl(req);
+
+  HttpClient client;
+  const auto result = client.Post(url, body, {
+      {"Content-Type", "application/json"},
+      {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
+  });
+  if (!result.error.empty() || result.statusCode < 200 || result.statusCode >= 300) {
+    ECHO_LOG("VipToken", std::string("login_by_token http failed: ") + result.error);
+    return {};
+  }
+  try {
+    auto json = nlohmann::json::parse(result.body);
+    if (json.value("status", 0) != 1 || !json.contains("data") ||
+        !json["data"].is_object()) {
+      ECHO_LOG("VipToken", "login_by_token status!=1 body=" +
+          diagnostics::TruncateForLog(diagnostics::RedactSensitive(result.body)));
+      return {};
+    }
+    auto& data = json["data"];
+    if (data.contains("secu_params") && data["secu_params"].is_string()) {
+      const auto decrypted = PlaylistAesDecrypt(
+          data["secu_params"].get<std::string>(), tempKey);
+      auto inner = nlohmann::json::parse(decrypted, nullptr, false);
+      if (!inner.is_discarded() && inner.is_object() &&
+          inner.contains("vip_token") && inner["vip_token"].is_string() &&
+          !inner["vip_token"].get<std::string>().empty()) {
+        return inner["vip_token"].get<std::string>();
+      }
+    }
+    if (data.contains("vip_token") && data["vip_token"].is_string()) {
+      return data["vip_token"].get<std::string>();
+    }
+    ECHO_LOG("VipToken", "login_by_token ok but no vip_token in response");
+  } catch (const nlohmann::json::exception&) {
+    ECHO_LOG("VipToken", "login_by_token bad json");
+  }
+  return {};
 }
 
 }  // namespace echo::core

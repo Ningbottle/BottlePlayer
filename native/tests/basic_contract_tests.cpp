@@ -786,7 +786,8 @@ int main() {
   const auto authedSongUrl = authenticatedSongUrlService.Resolve(
       "ABCDEF", "123", "456", "sq", "", "42", "tok", qrLoginDevice);
   assert(authedSongUrl["status"] == 1);
-  // Resolve now forces appid=3116 / clientver=11430 (concept edition defaults).
+  // Resolve forces appid=3116 / clientver=11430 (concept family; tracker
+  // endpoint honors it per 2026-09-03 live split finding).
   const std::string expectedMid = echo::core::CalculateAndroidMid("uuid123");
   // Resolve lower-cases the hash before signing, so use "abcdef" for the expected key.
   const std::string expectedSongUrlKey =

@@ -833,11 +833,10 @@ nlohmann::json PlaylistService::GetUserPlaylists(
 
   KuGouAndroidRequest req;
   req.endpoint = "https://gateway.kugou.com/v7/get_all_list";
-  // This request follows the running product edition. A Standard signature
-  // (1005/20489) is accepted syntactically but returns business error 20017
-  // for a dfid registered by the Concept client. Keep the profile aligned
-  // with DeviceRegisterService and the Concept deployment.
-  req.profile = GetKuGouProfile(KuGouEdition::Concept);
+  // 2026-09-03 配对实测：令牌与真指纹配对后，概念族（3116）仍被上游 20017
+  // 全拒，官方 App 正常 → 上游拒的是概念族本身。改按参考仓默认的标准族
+  // （1005/20489）签名，与登录令牌同族。
+  req.profile = GetKuGouProfile(KuGouEdition::Standard);
   req.device = device;
   req.body = body;
   req.params["clienttime"] = clienttime;

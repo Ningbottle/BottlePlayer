@@ -95,7 +95,8 @@ CompatResponse HandleArtistAlbums(const QueryMap& query);
 CompatResponse HandleCommentMusicPlaylistAlbum(const std::string& path);
 
 // YouthVipRoutes
-CompatResponse HandleYouthDayVip();
+CompatResponse HandleYouthDayVip(storage::Database& database);
+CompatResponse HandleYouthDayVipUpgrade(storage::Database& database);
 CompatResponse HandleYouthListenSong(storage::Database& database);
 CompatResponse HandleYouthVipAd(storage::Database& database);
 

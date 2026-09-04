@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import {
-  PhAppWindow,
   PhArrowsOutSimple,
   PhDisc,
   PhHeart,
-  PhNote,
   PhPause,
   PhPlay,
   PhQueue,
@@ -20,18 +18,6 @@ import {
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
 import { pressBounceDown, pressBounceUp, attachMagnet } from '../../../shared/motion/motion';
-import { toggleOverlay } from '../../../platform/tauri/windows';
-
-/** Overlay toggles surface failures on-screen (the windows themselves can't toast). */
-async function onToggleOverlay(kind: 'island' | 'lyric'): Promise<void> {
-  const result = await toggleOverlay(kind);
-  if (result === 'failed') {
-    c.value.toastMsg = kind === 'island' ? '灵动岛打开失败（见控制台）' : '桌面歌词打开失败（见控制台）';
-    window.setTimeout(() => {
-      if (c.value.toastMsg.includes('打开失败')) c.value.toastMsg = '';
-    }, 2600);
-  }
-}
 import { flyCoverToElement } from '../coverFlight';
 
 const props = defineProps<{
@@ -300,30 +286,8 @@ async function onFavoriteClick(): Promise<void> {
       </div>
     </div>
 
-    <!-- Right: loop · overlays · quality · lyric · volume -->
+    <!-- Right: loop · quality · lyric · volume -->
     <div class="aurora-pb-right">
-      <button
-        type="button"
-        class="aurora-pb-icon aurora-pb-overlay"
-        aria-label="灵动岛"
-        title="灵动岛（悬浮迷你播放器）"
-        data-test="aurora-overlay-island"
-        @click="onToggleOverlay('island')"
-      >
-        <PhAppWindow :size="16" weight="regular" aria-hidden="true" />
-      </button>
-
-      <button
-        type="button"
-        class="aurora-pb-icon aurora-pb-overlay-lyric"
-        aria-label="桌面歌词"
-        title="桌面歌词（悬浮歌词条）"
-        data-test="aurora-overlay-lyric"
-        @click="onToggleOverlay('lyric')"
-      >
-        <PhNote :size="16" weight="regular" aria-hidden="true" />
-      </button>
-
       <button
         type="button"
         class="aurora-pb-icon aurora-pb-loop"

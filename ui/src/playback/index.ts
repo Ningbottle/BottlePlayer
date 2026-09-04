@@ -4,9 +4,8 @@
  *
  * Exported: reactive state projection, lifecycle entry points, play commands,
  * user-facing EQ state/commands + config, diagnostics read model, the
- * recent-played read model, player sync public commands/types, the OS media
- * bridge lifecycle, the cover flight animation, and the UI-safe audio-level
- * adapter.
+ * recent-played read model, the OS media bridge lifecycle, the cover flight
+ * animation, and the UI-safe audio-level adapter.
  *
  * Deliberately NOT exported: Backend instances, the Coordinator, MediaRuntime
  * itself, the raw <audio> element, EQ WebAudio nodes, or any test-only seam.
@@ -44,15 +43,6 @@ import {
   EQ_PRESETS,
   normalizeEqBands,
 } from './eq/equalizerConfig';
-import {
-  onPlayerState,
-  sendPlayerCommand,
-  applySyncedTheme,
-  pinOverlayThemeDark,
-  startPlayerSyncHost,
-  type PlayerSyncState,
-  type PlayerCommand,
-} from './sync/playerSync';
 import {
   bindOsMediaBridge,
   unbindOsMediaBridge,
@@ -110,12 +100,6 @@ export {
   playbackDiagnostics,
   // Recent-played read model
   recentPlayedStore,
-  // Player sync (overlay views) — public commands/types + host lifecycle
-  onPlayerState,
-  sendPlayerCommand,
-  applySyncedTheme,
-  pinOverlayThemeDark,
-  startPlayerSyncHost,
   // OS media bridge lifecycle (composition root)
   bindOsMediaBridge,
   unbindOsMediaBridge,
@@ -136,8 +120,6 @@ export type {
   PlaybackPhase,
   DiagEvent,
   RecentPlayedEntry,
-  PlayerSyncState,
-  PlayerCommand,
   AudioLevelMonitor,
   ProbeSongUrlParams,
   ProbeSongUrlResponse,

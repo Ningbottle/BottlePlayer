@@ -4,13 +4,24 @@
 
 namespace echo::core {
 
-CompatResponse HandleYouthDayVip() {
-  return JsonResponse({
-      {"status", 0},
-      {"error_code", "kugou_vip_legacy_disabled"},
-      {"error", "该端点需要广告 SDK 凭证，纯 HTTP 不可达；请使用 /youth/listen/song 或 /youth/vip/ad"},
-      {"data", nullptr},
-  });
+CompatResponse HandleYouthDayVip(storage::Database& database) {
+  CompatRequestContext ctx(database);
+  if (!ctx.HasLogin()) {
+    return JsonResponse({{"status", 0}, {"error", "not logged in"}, {"data", nullptr}});
+  }
+  const auto& session = ctx.Session();
+  UserService userSvc;
+  return JsonResponse(userSvc.ClaimVip(ctx.Device(), session->userId, session->token));
+}
+
+CompatResponse HandleYouthDayVipUpgrade(storage::Database& database) {
+  CompatRequestContext ctx(database);
+  if (!ctx.HasLogin()) {
+    return JsonResponse({{"status", 0}, {"error", "not logged in"}, {"data", nullptr}});
+  }
+  const auto& session = ctx.Session();
+  UserService userSvc;
+  return JsonResponse(userSvc.UpgradeVipReward(ctx.Device(), session->userId, session->token));
 }
 
 CompatResponse HandleYouthListenSong(storage::Database& database) {

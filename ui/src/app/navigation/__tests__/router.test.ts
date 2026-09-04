@@ -199,7 +199,6 @@ import { LoginView } from '../../../features/account';
 import { PlaylistView } from '../../../features/library';
 import { SearchView } from '../../../features/search';
 import App from '../../../App.vue';
-import { initPlayer, initPlayerBackend } from '../../../playback/playerStore';
 import { registerPageTransition } from '../navigationLifecycle';
 import { routeNames, routeRecords } from '../routes';
 import { createAppRouter } from '../router';
@@ -270,8 +269,6 @@ describe('navigation route contract', () => {
       '/playlist/:id',
       '/lyric',
       '/login',
-      '/overlay/island',
-      '/overlay/lyric',
     ]);
     expect(getRoute(routeNames.home).component).toBe(HomeView);
     expect(getRoute(routeNames.search).component).toBe(SearchView);
@@ -518,25 +515,6 @@ describe('navigation route contract', () => {
       expect(transitionEnter).toHaveBeenCalled();
     } finally {
       wrapper.unmount();
-    }
-  });
-
-  it('does not boot a player when the window URL is an overlay path even if the router is still on a page route', async () => {
-    vi.mocked(initPlayer).mockClear();
-    vi.mocked(initPlayerBackend).mockClear();
-    const previous = `${location.pathname}${location.search}${location.hash}`;
-    window.history.replaceState({}, '', '/overlay/island');
-    const router = createAppRouter();
-    await router.push({ name: routeNames.home });
-    await router.isReady();
-    const wrapper = mount(App, { global: { plugins: [router] } });
-    try {
-      await nextTick();
-      expect(initPlayer, 'overlay windows must not call initPlayer').not.toHaveBeenCalled();
-      expect(initPlayerBackend, 'overlay windows must not call initPlayerBackend').not.toHaveBeenCalled();
-    } finally {
-      wrapper.unmount();
-      window.history.replaceState({}, '', previous || '/');
     }
   });
 
