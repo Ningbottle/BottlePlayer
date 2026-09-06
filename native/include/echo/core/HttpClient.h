@@ -56,5 +56,11 @@ void CloseHttpConnectionPool();
 // For resilience tests / diagnostics (P0-A handle-leak regression).
 long HttpClientLiveRequestHandleCount();
 
+// Test-only fault injection: forces the per-op timeout setup to fail so the
+// timeout_setup_failed path (quota release, explicit error, GET no-retry,
+// request never sent) can be exercised deterministically. Never set in
+// production; tests must reset it to false afterwards.
+void HttpClientSetTimeoutSetupFaultForTest(bool enabled);
+
 }  // namespace echo::core
 

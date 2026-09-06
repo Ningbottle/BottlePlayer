@@ -271,6 +271,10 @@ if(ECHO_NATIVE_BUILD_TESTS)
   add_executable(EchoHttpClientResilienceTest tests/http_client_resilience_test.cpp)
   target_include_directories(EchoHttpClientResilienceTest PRIVATE include)
   target_link_libraries(EchoHttpClientResilienceTest PRIVATE EchoCore ws2_32)
+  # Stage 3a structural test reads HttpClient.cpp to pin "the watchdog
+  # action never closes request handles".
+  target_compile_definitions(EchoHttpClientResilienceTest PRIVATE
+    ECHO_NATIVE_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}")
   add_test(NAME EchoHttpClientResilienceTest COMMAND EchoHttpClientResilienceTest)
 
   add_executable(EchoRequestSchedulerResilienceTest tests/request_scheduler_resilience_test.cpp)
