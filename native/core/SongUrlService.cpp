@@ -439,12 +439,20 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
         
         // 仅在有 URL 时才加入可用音质列表
         if (!itemUrl.empty() || !itemBackup.empty()) {
+          const auto entryUrl = itemUrl.empty() ? itemBackup : itemUrl;
+          // Stage 6a: 条目级 is_preview —— 用与顶层相同的 URL 形状规则
+          // （!hasFullSegment）逐条计算。替换音质时（见 Resolve）依赖
+          // 此字段重算顶层标志，避免"URL 已切到试听、标志仍是完整"。
+          const bool entryIsPreview =
+              entryUrl.find("/yp/full/") == std::string::npos &&
+              entryUrl.find("/full/") == std::string::npos;
           nlohmann::json qualityEntry = {
               {"quality", itemQuality},
-              {"url", itemUrl.empty() ? itemBackup : itemUrl},
+              {"url", entryUrl},
               {"fileSize", itemSize},
               {"bitRate", itemBitRate},
               {"extName", itemExt},
+              {"is_preview", entryIsPreview},
           };
           availableQualities.push_back(qualityEntry);
         }
@@ -635,6 +643,14 @@ nlohmann::json SongUrlService::Resolve(
               data["play_url"] = preferredUrl;
               data["playUrl"] = preferredUrl;
               data["quality"] = quality;
+              v6["quality"] = quality; // 顶层 quality 同步（BuildSongUrlOutput 写的是最高码率候选）
+              // Stage 6a: 重算顶层与 data 层的 is_preview —— 原标志描述的是
+              // 最高码率候选，而非切换后的最终 URL（F10：切到试听仍报完整）。
+              const bool switchedIsPreview =
+                  preferredUrl.find("/yp/full/") == std::string::npos &&
+                  preferredUrl.find("/full/") == std::string::npos;
+              v6["is_preview"] = switchedIsPreview;
+              data["is_preview"] = switchedIsPreview;
               break;
             }
           }
