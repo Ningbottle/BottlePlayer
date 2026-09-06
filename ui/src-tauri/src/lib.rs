@@ -98,6 +98,79 @@ where
         .unwrap_or_else(|e| Err(format!("Task panic: {:?}", e)))
 }
 
+/// Dedicated cap for stats FFI calls (plan Stage 4 / F18). Stats queries run
+/// SQLite work behind the C++ api_rwlock and can stall on disk contention or
+/// the shutdown race — historically as SYNC Tauri commands, i.e. on the main
+/// thread with no deadline at all. 4 = one per C++ scheduler worker.
+const MAX_CONCURRENT_STATS_FFI: usize = 4;
+/// Wall-clock bound for one stats dispatch, covering BOTH queueing (permit
+/// acquisition) and execution. Healthy stats queries are sub-millisecond;
+/// 3s absorbs pathological disk contention by orders of magnitude while
+/// staying well under the frontend's 14s budget.
+const STATS_FFI_TIMEOUT_MS: u64 = 3000;
+
+fn stats_ffi_semaphore() -> Arc<Semaphore> {
+    static SEMAPHORE: OnceLock<Arc<Semaphore>> = OnceLock::new();
+    SEMAPHORE
+        .get_or_init(|| Arc::new(Semaphore::new(MAX_CONCURRENT_STATS_FFI)))
+        .clone()
+}
+
+/// Dispatch a stats FFI closure with SURVIVAL-bounded concurrency (plan
+/// Stage 4): the permit is MOVED INTO the blocking closure and held until
+/// the closure actually finishes. `timeout` covers queueing and execution —
+/// a caller that exceeds it gets an error immediately, but the in-flight
+/// closure keeps its permit (spawn_blocking cannot be cancelled), so the
+/// number of live stats FFIs never exceeds the cap even when callers stop
+/// waiting. Contrast dispatch_bounded_ffi, whose admission permit is
+/// released at caller timeout while the zombie closure runs uncapped.
+///
+/// Shutdown boundary: stats closures hold a read guard over the C API
+/// handle. backend_api::shutdown_c_api tries the write lock for at most 5s;
+/// if in-flight stats closures still hold read guards past that, it gives
+/// up and leaves the DLL mapping alive for the OS to reclaim at process
+/// exit — either way the DLL cannot unload mid-call. The dispatch timeout
+/// abandons the caller, never the closure.
+async fn dispatch_stats_ffi_with<T, F>(
+    semaphore: &Arc<Semaphore>,
+    timeout: Duration,
+    task: F,
+) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    let deadline = tokio::time::Instant::now() + timeout;
+    // acquire_owned: the permit owns an Arc clone, so it can move into the
+    // 'static blocking closure (a borrowed acquire() permit cannot).
+    let permit = match tokio::time::timeout_at(deadline, semaphore.clone().acquire_owned()).await {
+        Ok(Ok(permit)) => permit,
+        Ok(Err(_)) => return Err("stats_ffi_dispatcher_closed".to_string()),
+        Err(_) => return Err("stats_ffi_queue_timeout".to_string()),
+    };
+    let handle = tauri::async_runtime::spawn_blocking(move || {
+        let _permit = permit; // held until the closure finishes (survival cap)
+        task()
+    });
+    match tokio::time::timeout_at(deadline, handle).await {
+        Ok(joined) => joined.unwrap_or_else(|e| Err(format!("Task panic: {:?}", e))),
+        Err(_) => Err("stats_ffi_timeout".to_string()),
+    }
+}
+
+async fn dispatch_stats_ffi<T, F>(task: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce() -> Result<T, String> + Send + 'static,
+{
+    dispatch_stats_ffi_with(
+        &stats_ffi_semaphore(),
+        Duration::from_millis(STATS_FFI_TIMEOUT_MS),
+        task,
+    )
+    .await
+}
+
 #[tauri::command]
 async fn native_request(
     method: String,
@@ -429,6 +502,200 @@ mod tests {
         // C++ scheduler's bounded 4-worker pool.
         assert!(MAX_CONCURRENT_FFI_CALLS > 4);
         assert_eq!(MAX_CONCURRENT_FFI_CALLS, 16);
+    }
+
+    #[tokio::test]
+    async fn stats_ffi_dispatcher_execution_timeout_fires_and_holds_permit() {
+        // The dispatcher's OWN execution timeout (not the caller's outer
+        // timeout, which the survival test exercises): the closure enters a
+        // barrier, the dispatcher returns stats_ffi_timeout at its internal
+        // deadline, the permit stays with the still-running closure, and
+        // releasing the barrier lets it finish and return the permit.
+        let semaphore = Arc::new(Semaphore::new(1));
+        let gate = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let entered = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let completed = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        // Releases the barrier on ALL paths (including test failure) so the
+        // gated closure can never outlive the test's captured state.
+        struct GateDrop(Arc<std::sync::atomic::AtomicBool>);
+        impl Drop for GateDrop {
+            fn drop(&mut self) {
+                self.0.store(true, std::sync::atomic::Ordering::Release);
+            }
+        }
+        let gate_guard = GateDrop(gate.clone());
+
+        let started = std::time::Instant::now();
+        let result = dispatch_stats_ffi_with(&semaphore, Duration::from_millis(250), {
+            let gate = gate.clone();
+            let entered = entered.clone();
+            let completed = completed.clone();
+            move || {
+                entered.store(true, std::sync::atomic::Ordering::Release);
+                while !gate.load(std::sync::atomic::Ordering::Acquire) {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                completed.store(true, std::sync::atomic::Ordering::Release);
+                Ok(())
+            }
+        })
+        .await;
+
+        let elapsed = started.elapsed();
+        assert_eq!(
+            result.unwrap_err(),
+            "stats_ffi_timeout",
+            "the dispatcher's internal execution deadline must surface as stats_ffi_timeout"
+        );
+        assert!(
+            elapsed >= Duration::from_millis(200) && elapsed < Duration::from_millis(2000),
+            "dispatch took {:?}; the internal deadline must fire, not the caller's",
+            elapsed
+        );
+        assert!(
+            entered.load(std::sync::atomic::Ordering::Acquire),
+            "the closure actually entered the FFI"
+        );
+        // The closure is still gated behind the barrier: the permit stays held.
+        assert_eq!(
+            semaphore.available_permits(),
+            0,
+            "the permit stays with the gated closure after the dispatcher timeout"
+        );
+
+        // Release: the closure finishes and the permit returns.
+        drop(gate_guard);
+        let drained =
+            wait_until(Duration::from_secs(5), || semaphore.available_permits() == 1).await;
+        assert!(drained, "the permit must return once the barrier opens");
+        assert!(
+            completed.load(std::sync::atomic::Ordering::Acquire),
+            "the gated closure ran to completion after the dispatcher timed out"
+        );
+    }
+
+    #[test]
+    fn stats_ffi_survival_constants() {
+        // Stage 4: stats FFIs get a dedicated survival cap (one per C++
+        // scheduler worker) and a queue+execution timeout well under the
+        // frontend's 14s budget. The cross-constant invariant is checked at
+        // compile time.
+        const {
+            assert!(MAX_CONCURRENT_STATS_FFI <= MAX_CONCURRENT_FFI_CALLS);
+        }
+        assert_eq!(MAX_CONCURRENT_STATS_FFI, 4);
+        assert_eq!(STATS_FFI_TIMEOUT_MS, 3000);
+    }
+
+    #[tokio::test]
+    async fn stats_ffi_permit_survives_caller_timeout() {
+        // THE Stage 4 discriminator (plan: survival cap vs admission cap):
+        // a stats dispatch abandoned by its caller's timeout must NOT give
+        // its permit back — the permit lives inside the still-running
+        // blocking closure, so the count of live stats FFIs stays bounded
+        // even when callers stop waiting. dispatch_bounded_ffi releases the
+        // permit at caller timeout; under those semantics this test fails.
+        let semaphore = Arc::new(Semaphore::new(1));
+        let gate = Arc::new(Mutex::new(false));
+        let gate_cv = Arc::new(Condvar::new());
+        let released = Arc::new(AtomicUsize::new(0));
+
+        let abandoned = tokio::spawn({
+            let semaphore = semaphore.clone();
+            let gate = gate.clone();
+            let gate_cv = gate_cv.clone();
+            let released = released.clone();
+            async move {
+                let _ = timeout(
+                    Duration::from_millis(80),
+                    dispatch_stats_ffi_with(&semaphore, Duration::from_secs(30), move || {
+                        let mut open = gate.lock().unwrap();
+                        while !*open {
+                            open = gate_cv.wait(open).unwrap();
+                        }
+                        released.fetch_add(1, Ordering::SeqCst);
+                        Ok(())
+                    }),
+                )
+                .await;
+            }
+        });
+
+        // Deterministically wait until the closure holds the permit.
+        let entered =
+            wait_until(Duration::from_secs(5), || semaphore.available_permits() == 0).await;
+        assert!(entered, "the closure was not admitted within the budget");
+
+        // Caller timeout fires (80ms). The permit must still be held by the
+        // running closure.
+        abandoned.await.unwrap();
+        assert_eq!(
+            semaphore.available_permits(),
+            0,
+            "the permit must survive the caller timeout (held by the in-flight closure)"
+        );
+
+        // The abandoned closure still runs to completion once released, and
+        // only then does the permit return.
+        *gate.lock().unwrap() = true;
+        gate_cv.notify_all();
+        let drained =
+            wait_until(Duration::from_secs(5), || semaphore.available_permits() == 1).await;
+        assert!(drained, "the permit must return once the abandoned closure finishes");
+        assert_eq!(
+            released.load(Ordering::SeqCst),
+            1,
+            "the abandoned closure must have run to completion (no UAF/hang)"
+        );
+    }
+
+    #[tokio::test]
+    async fn stats_ffi_queue_timeout_when_cap_saturated() {
+        // Queueing is inside the timeout: a dispatch that cannot acquire a
+        // permit within its budget fails with stats_ffi_queue_timeout
+        // instead of hanging behind a saturated cap.
+        let semaphore = Arc::new(Semaphore::new(1));
+        let gate = Arc::new(Mutex::new(false));
+        let gate_cv = Arc::new(Condvar::new());
+
+        let occupier = tokio::spawn({
+            let semaphore = semaphore.clone();
+            let gate = gate.clone();
+            let gate_cv = gate_cv.clone();
+            async move {
+                let _ = dispatch_stats_ffi_with(&semaphore, Duration::from_secs(60), move || {
+                    let mut open = gate.lock().unwrap();
+                    while !*open {
+                        open = gate_cv.wait(open).unwrap();
+                    }
+                    Ok(())
+                })
+                .await;
+            }
+        });
+        let entered =
+            wait_until(Duration::from_secs(5), || semaphore.available_permits() == 0).await;
+        assert!(entered, "the occupying closure was not admitted");
+
+        let start = std::time::Instant::now();
+        let result =
+            dispatch_stats_ffi_with(&semaphore, Duration::from_millis(150), || Ok(())).await;
+        assert_eq!(
+            result.unwrap_err(),
+            "stats_ffi_queue_timeout",
+            "a saturated cap must reject new dispatches with the queue timeout"
+        );
+        assert!(
+            start.elapsed() < Duration::from_millis(1000),
+            "the queue timeout must fire near its budget, not after the occupier finishes"
+        );
+
+        *gate.lock().unwrap() = true;
+        gate_cv.notify_all();
+        let drained =
+            wait_until(Duration::from_secs(5), || semaphore.available_permits() == 1).await;
+        assert!(drained, "the occupier must release its permit after the gate opens");
+        occupier.await.unwrap();
     }
 
     #[test]
