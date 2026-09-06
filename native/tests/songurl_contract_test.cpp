@@ -133,6 +133,100 @@ int main() {
     std::cout << "  [ok] VIP token, VIP type, token, and dfid forwarded" << std::endl;
   }
 
+  // ── Stage 6a: quality switch must keep URL and is_preview consistent ──
+  std::cout << "[SongUrlContract] Testing quality-switch preview-flag consistency..." << std::endl;
+  {
+    // v6 returns two qualities: 320 full (/full/) and 128 preview (/yp/p_).
+    // The best-bitrate pick is the 320 full URL (is_preview=false). The
+    // caller then requests quality=128 — the Resolve quality replacement
+    // swaps the top-level URL to the 128 preview entry. Contract (plan 6a):
+    // the output is_preview must be recomputed from the FINAL URL, and every
+    // available_qualities entry must carry its own is_preview flag.
+    echo::core::SongUrlService svc(
+        [](const std::string&,
+           const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{500, "{}", "unexpected v5 fallback"};
+        },
+        [](const std::string&,
+           const std::string&,
+           const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{
+              200,
+              R"({"status":1,"data":[)"
+              R"({"url":"http://cdn.example/yp/full/320.flac","info":{"bitrate":320,"filesize":9000,"extname":"flac"}},)"
+              R"({"url":"http://cdn.example/yp/p_128/preview.flac","info":{"bitrate":128,"filesize":1000,"extname":"mp3"}}]})",
+              ""};
+        });
+
+    echo::core::DeviceInfo device;
+    device.dfid = "q-dfid";
+    device.mid = "123456789012345678901234567890123456789";
+    device.registered = true;
+    const auto result = svc.Resolve(
+        "MIXEDHASH", "0", "123", "128", "", "42", "normal-token",
+        device, "vip-token", 3);
+
+    // Pre-condition: the quality replacement selected the 128 preview URL.
+    const auto finalUrl = result.value("url", std::string{});
+    assert(finalUrl.find("/yp/p_") != std::string::npos);
+
+    // 6a contract #1: is_preview must describe the FINAL url — a preview
+    // clip must never be reported as full playback.
+    assert(result.value("is_preview", false) == true);
+
+    // 6a contract #2: every available_qualities entry carries its own
+    // preview flag derived from its own URL shape.
+    const auto& qualities = result["data"]["available_qualities"];
+    assert(qualities.is_array() && qualities.size() == 2);
+    assert(qualities[0].contains("is_preview") && qualities[0]["is_preview"] == false);
+    assert(qualities[1].contains("is_preview") && qualities[1]["is_preview"] == true);
+
+    // The reported quality follows the switched selection.
+    assert(result.value("quality", std::string{}) == "128");
+    std::cout << "  [ok] quality switch keeps URL/preview flag consistent" << std::endl;
+  }
+
+  // ── Stage 6a (reverse): switching to a FULL url must declare full ─────
+  std::cout << "[SongUrlContract] Testing reverse switch (preview best → full entry)..." << std::endl;
+  {
+    // Mirror direction: the best-bitrate pick is a preview-marked URL and
+    // the requested quality maps to a /full/ entry. After the replacement
+    // the output must declare FULL playback (is_preview=false) — the old
+    // implementation kept the preview flag from the original pick.
+    // The best URL is marker-less (a synthetic/complete address, no /yp/p_
+    // marker → not "degraded"), so the request stays on the v6 path.
+    echo::core::SongUrlService svc(
+        [](const std::string&,
+           const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{500, "{}", "unexpected v5 fallback"};
+        },
+        [](const std::string&,
+           const std::string&,
+           const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{
+              200,
+              R"({"status":1,"data":[)"
+              R"({"url":"http://cdn.example/synth/320.flac","info":{"bitrate":320,"filesize":9000,"extname":"flac"}},)"
+              R"({"url":"http://cdn.example/full/128.flac","info":{"bitrate":128,"filesize":1000,"extname":"mp3"}}]})",
+              ""};
+        });
+
+    echo::core::DeviceInfo device;
+    device.dfid = "q-dfid";
+    device.mid = "123456789012345678901234567890123456789";
+    device.registered = true;
+    const auto result = svc.Resolve(
+        "MIXEDHASH2", "0", "123", "128", "", "42", "normal-token",
+        device, "vip-token", 3);
+
+    // Pre-condition: the replacement selected the /full/ entry.
+    const auto finalUrl = result.value("url", std::string{});
+    assert(finalUrl.find("/full/") != std::string::npos);
+    // 6a contract: a full URL must be declared full (is_preview=false).
+    assert(result.value("is_preview", true) == false);
+    std::cout << "  [ok] reverse switch (preview best → full entry) declares full playback" << std::endl;
+  }
+
   // ── V6 quality selection: requested quality must be selected ──────────
   std::cout << "[SongUrlContract] Testing V6 quality selection..." << std::endl;
   {
