@@ -24,20 +24,27 @@ CompatResponse HandleUserDetail(
   CompatRequestContext ctx(database);
   const auto& session = ctx.Session();
   const std::string userId = ctx.UserIdOr("");
-  const std::string token = ctx.TokenOrEmpty();
+  std::string token = ctx.TokenOrEmpty();
   if (session && !userId.empty()) {
     const auto& device = ctx.Device();
     // 会话恢复（非扫码）路径：vip_token 不在库里时按 login_token.js 懒刷新，
     // 让 v6/priv_url 拿得到会员音质。
     if (session->vipToken.empty() && !token.empty()) {
       LoginService loginSvc;
-      const auto vt = loginSvc.RefreshVipToken(device, userId, token);
-      if (!vt.empty()) {
+      const auto refreshed = loginSvc.RefreshSession(
+          device, userId, token, session->t1);
+      if (refreshed) {
         SessionInfo updated = *session;
-        updated.vipToken = vt;
+        updated.token = refreshed->token;
+        updated.vipToken = refreshed->vipToken;
+        updated.vipType = refreshed->vipType;
+        if (!refreshed->t1.empty()) updated.t1 = refreshed->t1;
         ctx.SaveSession(updated);
-        ECHO_LOG("VipToken", "lazy-refreshed vip_token on /user/detail (len=" +
-            std::to_string(vt.size()) + ")");
+        token = updated.token;
+        if (!updated.vipToken.empty()) {
+          ECHO_LOG("VipToken", "lazy-refreshed vip_token on /user/detail (len=" +
+              std::to_string(updated.vipToken.size()) + ")");
+        }
       }
     }
     UserService userSvc;

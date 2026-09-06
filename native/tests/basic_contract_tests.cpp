@@ -324,6 +324,8 @@ int main() {
             {"userid", "webview-user-42"},
             {"token", "webview-token-secret"},
             {"t1", "webview-t1-secret"},
+            {"vip_token", "webview-vip-token-secret"},
+            {"vip_type", 3},
             {"nickname", "测试用户"}}}};
     };
     echo::core::CompatApi loginApi(loginDb, std::move(loginHandlers));
@@ -332,11 +334,14 @@ int main() {
     const auto responseText = response.body.dump();
     assert(responseText.find("webview-token-secret") == std::string::npos);
     assert(responseText.find("webview-t1-secret") == std::string::npos);
+    assert(responseText.find("webview-vip-token-secret") == std::string::npos);
 
     const auto saved = echo::storage::SessionRepository(loginDb).Load();
     assert(saved.has_value());
     assert(saved->token == "webview-token-secret");
     assert(saved->userId == "webview-user-42");
+    assert(saved->vipToken == "webview-vip-token-secret");
+    assert(saved->vipType == 3);
     std::cout << "  [ok] QR login keeps credentials out of WebView" << std::endl;
   }
 
@@ -1247,7 +1252,7 @@ int main() {
   {
     // RedactSensitive: all credential keys from the StripSessionCredentials
     // allowlist must be masked in log output (M2 alignment).
-    std::string raw = "t1=secret-t1&access_token=secret-at&auth_token=secret-aut&session_token=secret-st&secret=secret-val&set-cookie=secret-sc&signature=secret-sig";
+    std::string raw = "t1=secret-t1&access_token=secret-at&auth_token=secret-aut&session_token=secret-st&secret=secret-val&set-cookie=secret-sc&signature=secret-sig {\"vip_token\":\"secret-vip\"}";
     auto redacted = echo::diagnostics::RedactSensitive(raw);
     assert(redacted.find("secret-t1") == std::string::npos);
     assert(redacted.find("t1=***") != std::string::npos);
@@ -1263,6 +1268,7 @@ int main() {
     assert(redacted.find("set-cookie=***") != std::string::npos);
     assert(redacted.find("secret-sig") == std::string::npos);
     assert(redacted.find("signature=***") != std::string::npos);
+    assert(redacted.find("secret-vip") == std::string::npos);
     std::cout << "  [ok] RedactSensitive masks all StripSessionCredentials keys" << std::endl;
   }
 

@@ -83,6 +83,21 @@ CompatResponse HandleLoginQrCheck(
       }
       return std::string{};
     };
+    auto FirstInt = [&](std::initializer_list<const char*> keys) {
+      for (const char* k : keys) {
+        if (!loginData->contains(k)) continue;
+        const auto& value = (*loginData)[k];
+        if (value.is_number_integer()) return value.get<int>();
+        if (value.is_number_unsigned()) return static_cast<int>(value.get<unsigned int>());
+        if (value.is_string()) {
+          try {
+            return std::stoi(value.get<std::string>());
+          } catch (...) {
+          }
+        }
+      }
+      return 0;
+    };
     SessionInfo session;
     session.token = loginData->value("token", "");
     session.userId = ExtractUserId(*loginData, "userid");
@@ -90,6 +105,7 @@ CompatResponse HandleLoginQrCheck(
     session.pic = FirstNonEmptyString({"pic", "headphoto", "avatar", "headerurl", "userpic"});
     // 概念版登录响应可能直接下发 vip_token / t1；留空则后续由刷新链路补齐。
     session.vipToken = FirstNonEmptyString({"vip_token", "viptoken"});
+    session.vipType = FirstInt({"vip_type", "vipType"});
     session.t1 = FirstNonEmptyString({"t1"});
     if (!session.vipToken.empty()) {
       ECHO_LOG("CompatApi", "QR login issued vip_token (len=" + std::to_string(session.vipToken.size()) + ")");
@@ -97,7 +113,14 @@ CompatResponse HandleLoginQrCheck(
       // 扫码响应不下发 vip_token；按参考仓 login_token.js 刷新补齐，
       // v6/priv_url 需要它才给会员音质。
       LoginService loginSvc;
-      session.vipToken = loginSvc.RefreshVipToken(device, session.userId, session.token);
+      const auto refreshed = loginSvc.RefreshSession(
+          device, session.userId, session.token, session.t1);
+      if (refreshed) {
+        session.token = refreshed->token;
+        session.vipToken = refreshed->vipToken;
+        session.vipType = refreshed->vipType;
+        if (!refreshed->t1.empty()) session.t1 = refreshed->t1;
+      }
       if (!session.vipToken.empty()) {
         ECHO_LOG("VipToken", "refreshed vip_token via login_by_token (len=" + std::to_string(session.vipToken.size()) + ")");
       } else {
@@ -126,6 +149,9 @@ CompatResponse HandleLoginQrCheck(
       }
     }
   }
+  // The native session owns all credentials. Keep QR results safe even when
+  // this route is exercised independently of the CompatApi chokepoint.
+  StripSessionCredentials(result);
   return JsonResponse(result);
 }
 

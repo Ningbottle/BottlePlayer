@@ -50,6 +50,7 @@ bool CompatRequestContext::HasLogin() {
 void CompatRequestContext::SaveSession(const SessionInfo& info) {
   storage::SessionRepository repo(database_);
   repo.Save(info);
+  session_ = info;
 }
 
 void CompatRequestContext::SaveDevice(const DeviceInfo& info) {

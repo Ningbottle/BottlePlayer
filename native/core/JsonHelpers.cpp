@@ -132,6 +132,7 @@ nlohmann::json ToJson(const SessionInfo& session) {
       {"nickname", session.nickname},
       {"pic", session.pic},
       {"vip_token", session.vipToken},
+      {"vip_type", session.vipType},
   };
 }
 
@@ -157,6 +158,7 @@ SessionInfo SessionInfoFromJson(const nlohmann::json& value) {
   session.nickname = value.value("nickname", "");
   session.pic = value.value("pic", "");
   session.vipToken = value.value("vip_token", "");
+  session.vipType = value.value("vip_type", 0);
   return session;
 }
 

@@ -581,6 +581,23 @@ nlohmann::json SongUrlService::Resolve(
     std::string token,
     const DeviceInfo& device,
     std::string vipToken) const {
+  return Resolve(
+      std::move(hash), std::move(albumId), std::move(albumAudioId),
+      std::move(quality), std::move(ppageId), std::move(userId),
+      std::move(token), device, std::move(vipToken), /*vipType=*/0);
+}
+
+nlohmann::json SongUrlService::Resolve(
+    std::string hash,
+    std::string albumId,
+    std::string albumAudioId,
+    std::string quality,
+    std::string ppageId,
+    std::string userId,
+    std::string token,
+    const DeviceInfo& device,
+    std::string vipToken,
+    int vipType) const {
   hash = NormalizeHash(std::move(hash));
   quality = Trim(std::move(quality));
   ppageId = Trim(std::move(ppageId));
@@ -593,7 +610,7 @@ nlohmann::json SongUrlService::Resolve(
   nlohmann::json v6PreviewFallback;
   if (httpPost_) {
     auto v6 = ResolveV6PrivUrl(hash, albumAudioId, userId, token,
-                                std::move(vipToken), /*vipType=*/0, device);
+                                std::move(vipToken), vipType, device);
     if (v6.value("status", 0) == 1) {
       // 2026-09-03 实测：缺 viptoken 时 v6 会"成功"但只回试听包
       // （is_preview=true、URL 带 /yp/p_ 字节区间、fail_process=12），

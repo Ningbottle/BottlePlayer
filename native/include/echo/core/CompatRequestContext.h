@@ -33,8 +33,7 @@ class CompatRequestContext {
   // Returned reference is valid only while this CompatRequestContext is alive.
   const DeviceInfo& Device();
 
-  // Persist an updated session to the underlying storage.
-  // This does not invalidate the cached session_ value.
+  // Persist an updated session and refresh the request-local cache.
   void SaveSession(const SessionInfo& info);
 
   // Persist an updated device to the underlying storage.

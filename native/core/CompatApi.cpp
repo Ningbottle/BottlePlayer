@@ -50,8 +50,11 @@ CompatResponse DispatchSongUrl(const RouteContext& ctx, const std::string&) {
   const auto album_audio_id = QueryValue(ctx.query, "album_audio_id");
   const auto& session = reqCtx.Session();
   const std::string vipToken = (session && !session->vipToken.empty()) ? session->vipToken : "";
+  const int vipType = session ? session->vipType : 0;
   SongUrlService songUrl;
-  auto result = songUrl.Resolve(hash, album_id, album_audio_id, quality, ppageId, userId, token, device, vipToken);
+  auto result = songUrl.Resolve(
+      hash, album_id, album_audio_id, quality, ppageId, userId, token,
+      device, vipToken, vipType);
   return JsonResponse(result);
 }
 

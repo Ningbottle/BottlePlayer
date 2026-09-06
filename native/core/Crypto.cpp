@@ -250,7 +250,13 @@ std::string RsaRawEncrypt(const std::string& jsonPayload) {
 }
 
 std::string RsaRawEncryptRef(const std::string& payload) {
-  BCRYPT_KEY_HANDLE keyHandle = GetKuGouPublicKey();
+  return RsaRawEncryptRef(payload, KuGouSaltKind::Standard);
+}
+
+std::string RsaRawEncryptRef(
+    const std::string& payload,
+    KuGouSaltKind saltKind) {
+  BCRYPT_KEY_HANDLE keyHandle = GetKuGouPublicKey(saltKind);
   if (!keyHandle) return {};
 
   constexpr ULONG kKeyBytes = 128;
@@ -544,6 +550,176 @@ std::string AesCbcEncryptBase64(const std::string& plaintext,
   BCryptCloseAlgorithmProvider(algHandle, 0);
   if (!BCRYPT_SUCCESS(status)) return {};
   return Base64Encode(cipher);
+}
+
+namespace {
+
+std::string BytesToLowerHex(const std::vector<BYTE>& bytes, ULONG length) {
+  static constexpr char kHex[] = "0123456789abcdef";
+  std::string out;
+  out.resize(static_cast<std::size_t>(length) * 2);
+  for (ULONG i = 0; i < length; ++i) {
+    out[static_cast<std::size_t>(i) * 2] = kHex[(bytes[i] >> 4) & 0x0f];
+    out[static_cast<std::size_t>(i) * 2 + 1] = kHex[bytes[i] & 0x0f];
+  }
+  return out;
+}
+
+int HexNibble(char value) {
+  if (value >= '0' && value <= '9') return value - '0';
+  if (value >= 'a' && value <= 'f') return value - 'a' + 10;
+  if (value >= 'A' && value <= 'F') return value - 'A' + 10;
+  return -1;
+}
+
+std::vector<BYTE> LowerHexToBytes(const std::string& value) {
+  if (value.empty() || value.size() % 2 != 0) return {};
+  std::vector<BYTE> bytes(value.size() / 2);
+  for (std::size_t i = 0; i < bytes.size(); ++i) {
+    const int high = HexNibble(value[i * 2]);
+    const int low = HexNibble(value[i * 2 + 1]);
+    if (high < 0 || low < 0) return {};
+    bytes[i] = static_cast<BYTE>((high << 4) | low);
+  }
+  return bytes;
+}
+
+}  // namespace
+
+std::string AesCbcEncryptHex(const std::string& plaintext,
+                             const std::string& key,
+                             const std::string& iv) {
+  if ((key.size() != 16 && key.size() != 24 && key.size() != 32) ||
+      iv.size() != 16) {
+    return {};
+  }
+
+  BCRYPT_ALG_HANDLE algHandle = nullptr;
+  BCRYPT_KEY_HANDLE keyHandle = nullptr;
+  if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(
+          &algHandle, BCRYPT_AES_ALGORITHM, nullptr, 0))) {
+    return {};
+  }
+  if (!BCRYPT_SUCCESS(BCryptSetProperty(
+          algHandle, BCRYPT_CHAINING_MODE,
+          reinterpret_cast<PUCHAR>(const_cast<wchar_t*>(BCRYPT_CHAIN_MODE_CBC)),
+          sizeof(BCRYPT_CHAIN_MODE_CBC), 0))) {
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  DWORD keyObjectSize = 0;
+  DWORD resultSize = 0;
+  if (!BCRYPT_SUCCESS(BCryptGetProperty(
+          algHandle, BCRYPT_OBJECT_LENGTH,
+          reinterpret_cast<PUCHAR>(&keyObjectSize), sizeof(keyObjectSize),
+          &resultSize, 0))) {
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  std::vector<BYTE> keyObject(keyObjectSize);
+  if (!BCRYPT_SUCCESS(BCryptGenerateSymmetricKey(
+          algHandle, &keyHandle, keyObject.data(), keyObjectSize,
+          reinterpret_cast<PUCHAR>(const_cast<char*>(key.data())),
+          static_cast<ULONG>(key.size()), 0))) {
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  std::vector<BYTE> ivBytes(iv.begin(), iv.end());
+  ULONG cipherLength = 0;
+  NTSTATUS status = BCryptEncrypt(
+      keyHandle,
+      reinterpret_cast<PUCHAR>(const_cast<char*>(plaintext.data())),
+      static_cast<ULONG>(plaintext.size()), nullptr,
+      ivBytes.data(), static_cast<ULONG>(ivBytes.size()), nullptr, 0,
+      &cipherLength, BCRYPT_BLOCK_PADDING);
+  if (!BCRYPT_SUCCESS(status)) {
+    BCryptDestroyKey(keyHandle);
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  std::vector<BYTE> cipher(cipherLength);
+  std::copy(iv.begin(), iv.end(), ivBytes.begin());
+  status = BCryptEncrypt(
+      keyHandle,
+      reinterpret_cast<PUCHAR>(const_cast<char*>(plaintext.data())),
+      static_cast<ULONG>(plaintext.size()), nullptr,
+      ivBytes.data(), static_cast<ULONG>(ivBytes.size()), cipher.data(),
+      cipherLength, &cipherLength, BCRYPT_BLOCK_PADDING);
+  BCryptDestroyKey(keyHandle);
+  BCryptCloseAlgorithmProvider(algHandle, 0);
+  if (!BCRYPT_SUCCESS(status)) return {};
+  return BytesToLowerHex(cipher, cipherLength);
+}
+
+std::string AesCbcDecryptHex(const std::string& hexCipher,
+                             const std::string& key,
+                             const std::string& iv) {
+  if ((key.size() != 16 && key.size() != 24 && key.size() != 32) ||
+      iv.size() != 16) {
+    return {};
+  }
+  auto cipher = LowerHexToBytes(hexCipher);
+  if (cipher.empty()) return {};
+
+  BCRYPT_ALG_HANDLE algHandle = nullptr;
+  BCRYPT_KEY_HANDLE keyHandle = nullptr;
+  if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(
+          &algHandle, BCRYPT_AES_ALGORITHM, nullptr, 0))) {
+    return {};
+  }
+  if (!BCRYPT_SUCCESS(BCryptSetProperty(
+          algHandle, BCRYPT_CHAINING_MODE,
+          reinterpret_cast<PUCHAR>(const_cast<wchar_t*>(BCRYPT_CHAIN_MODE_CBC)),
+          sizeof(BCRYPT_CHAIN_MODE_CBC), 0))) {
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  DWORD keyObjectSize = 0;
+  DWORD resultSize = 0;
+  if (!BCRYPT_SUCCESS(BCryptGetProperty(
+          algHandle, BCRYPT_OBJECT_LENGTH,
+          reinterpret_cast<PUCHAR>(&keyObjectSize), sizeof(keyObjectSize),
+          &resultSize, 0))) {
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  std::vector<BYTE> keyObject(keyObjectSize);
+  if (!BCRYPT_SUCCESS(BCryptGenerateSymmetricKey(
+          algHandle, &keyHandle, keyObject.data(), keyObjectSize,
+          reinterpret_cast<PUCHAR>(const_cast<char*>(key.data())),
+          static_cast<ULONG>(key.size()), 0))) {
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  std::vector<BYTE> ivBytes(iv.begin(), iv.end());
+  ULONG plainLength = 0;
+  NTSTATUS status = BCryptDecrypt(
+      keyHandle, cipher.data(), static_cast<ULONG>(cipher.size()), nullptr,
+      ivBytes.data(), static_cast<ULONG>(ivBytes.size()), nullptr, 0,
+      &plainLength, BCRYPT_BLOCK_PADDING);
+  if (!BCRYPT_SUCCESS(status)) {
+    BCryptDestroyKey(keyHandle);
+    BCryptCloseAlgorithmProvider(algHandle, 0);
+    return {};
+  }
+
+  std::vector<BYTE> plaintext(plainLength);
+  std::copy(iv.begin(), iv.end(), ivBytes.begin());
+  status = BCryptDecrypt(
+      keyHandle, cipher.data(), static_cast<ULONG>(cipher.size()), nullptr,
+      ivBytes.data(), static_cast<ULONG>(ivBytes.size()), plaintext.data(),
+      plainLength, &plainLength, BCRYPT_BLOCK_PADDING);
+  BCryptDestroyKey(keyHandle);
+  BCryptCloseAlgorithmProvider(algHandle, 0);
+  if (!BCRYPT_SUCCESS(status)) return {};
+  return std::string(reinterpret_cast<const char*>(plaintext.data()), plainLength);
 }
 
 std::string Base64EncodeBytes(const std::string& rawBytes) {

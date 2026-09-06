@@ -95,6 +95,44 @@ int main() {
     std::cout << "  [ok] ResolveV6PrivUrl output shape contract (POST mock, strong assertions)" << std::endl;
   }
 
+  // ── Resolve forwards the persisted VIP session identity to v6 ─────────
+  std::cout << "[SongUrlContract] Testing VIP session forwarding..." << std::endl;
+  {
+    std::string capturedBody;
+    std::unordered_map<std::string, std::string> capturedHeaders;
+    echo::core::SongUrlService svc(
+        [](const std::string&,
+           const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{500, "{}", "unexpected GET"};
+        },
+        [&](const std::string&,
+            const std::string& body,
+            const std::unordered_map<std::string, std::string>& headers) {
+          capturedBody = body;
+          capturedHeaders = headers;
+          return echo::core::HttpResult{
+              200,
+              R"({"status":1,"data":[{"url":"http://cdn.example/yp/full/vip.flac","info":{"bitrate":320,"extname":"flac"}}]})",
+              ""};
+        });
+
+    echo::core::DeviceInfo device;
+    device.dfid = "registered-dfid-value";
+    device.mid = "123456789012345678901234567890123456789";
+    device.registered = true;
+    const auto result = svc.Resolve(
+        "VIPHASH", "0", "123", "320", "", "42", "normal-token",
+        device, "vip-token", 3);
+    const auto body = nlohmann::json::parse(capturedBody);
+    assert(result.value("status", 0) == 1);
+    assert(body.value("vip", 0) == 3);
+    assert(body["tracker_param"].value("viptoken", std::string{}) == "vip-token");
+    assert(body.value("token", std::string{}) == "normal-token");
+    assert(capturedHeaders["dfid"] == device.dfid);
+    assert(capturedHeaders["mid"] == device.mid);
+    std::cout << "  [ok] VIP token, VIP type, token, and dfid forwarded" << std::endl;
+  }
+
   // ── V6 quality selection: requested quality must be selected ──────────
   std::cout << "[SongUrlContract] Testing V6 quality selection..." << std::endl;
   {
