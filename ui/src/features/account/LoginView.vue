@@ -292,9 +292,12 @@ onUnmounted(() => {
 
       <!-- 退出 -->
       <div class="flat-row logout-row">
-        <button class="logout-link" type="button" @click="handleLogout">
-          退出登录
-        </button>
+        <button
+          class="logout-link"
+          type="button"
+          :disabled="userStore.loading"
+          @click="handleLogout"
+        >退出登录</button>
       </div>
     </div>
 

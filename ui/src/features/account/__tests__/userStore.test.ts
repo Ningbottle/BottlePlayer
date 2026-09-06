@@ -474,8 +474,86 @@ describe('claimVip snapshot overlay', () => {
     expect(userStore.claimMessage).toContain('已激活每日 VIP');
   });
 
-  it('recheck exhaustion reports 未确认 without marking VIP', async () => {
+  it('a landed authoritative conclusion is reported even when cancel was requested during the await', async () => {
+    // 批次 C 审查 W2：tryConfirmOnce 已把权威"生效"结论写入 store 后，
+    // 取消标志不得把消息误报成"已取消领取"（否则角标已激活、消息已取消，
+    // 自相矛盾）。判别：旧实现（结论前查取消）在此必红。
+    let releaseDetail: () => void = () => {};
+    const detailGate = new Promise<void>((resolve) => {
+      releaseDetail = resolve;
+    });
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad' || path === '/youth/day/vip') {
+        return { status: 0, error_code: 51002, error_msg: '' };
+      }
+      if (path === '/youth/listen/song') {
+        return { status: 1, data: '' };
+      }
+      if (path === '/user/vip/detail') {
+        await detailGate;
+        return {
+          status: 1,
+          authoritative: true,
+          data: { is_vip: 1, vip_end_time: '2026-12-31 23:59:59' },
+        };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    const run = claimVip({ adLoopMax: 1, adIntervalMs: 0, recheckAttempts: 0 });
+    await vi.waitFor(() => expect(userStore.claimStage).toBe('confirm'));
+    cancelClaim(); // 在确认 await 期间请求取消
+    releaseDetail();
+    await run;
+
+    expect(userStore.isVip).toBe(true);
+    expect(userStore.vipEndDate).toBe('2026-12-31 23:59:59');
+    expect(userStore.claimMessage).toContain('已激活每日 VIP');
+    expect(userStore.claimMessage).not.toBe('已取消领取');
+    expect(userStore.vipClaimPending).toBe(false);
+  });
+
+  it('logoutLocal stops an in-flight claim: no FFI after logout, store stays clean', async () => {
+    // 批次 C 审查 W1：确认重查期间登出 —— 重查循环必须在下一边界停止，
+    // 登出后不得再发起 fetchVipDetail、不得把 VIP 状态写回已登出的 store。
+    let releaseDetail: () => void = () => {};
+    const detailGate = new Promise<void>((resolve) => {
+      releaseDetail = resolve;
+    });
+    let detailCalls = 0;
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad' || path === '/youth/day/vip') {
+        return { status: 0, error_code: 51002, error_msg: '' };
+      }
+      if (path === '/youth/listen/song') {
+        return { status: 1, data: '' };
+      }
+      if (path === '/user/vip/detail') {
+        detailCalls += 1;
+        await detailGate;
+        return { status: 0, authoritative: false, error_code: 51002, data: null };
+      }
+      throw new Error(`unexpected path: ${path}`);
+    });
+
+    const run = claimVip({ adLoopMax: 1, adIntervalMs: 0, recheckAttempts: 3, recheckIntervalMs: 50 });
+    await vi.waitFor(() => expect(userStore.vipClaimPending).toBe(true));
+
+    logoutLocal(); // W1：取消标志置位 + 会话拆除
+    releaseDetail();
+    await run;
+
+    expect(detailCalls).toBe(1); // 登出后不再发起新的权威查询
+    expect(userStore.isLoggedIn).toBe(false);
+    expect(userStore.loading).toBe(false);
+    expect(userStore.claimStage).toBe('');
+    expect(userStore.vipClaimPending).toBe(false);
+    expect(userStore.isVip).toBe(false);
+  });
+
+  it('recheck exhaustion reports 未确认 without marking VIP, with an upper-bound message', async () => {
     // Stage 5b: 重查耗尽 → 转"未确认"（pending=false），绝不标成有效。
+    // W5（5c 完成标准）：确认中消息带整体最长等待上界（250ms×2 → 文案"1 秒"）。
     let detailCalls = 0;
     mockApiGet.mockImplementation(async (path: string) => {
       if (path === '/youth/vip/ad' || path === '/youth/day/vip') {
@@ -491,7 +569,9 @@ describe('claimVip snapshot overlay', () => {
       throw new Error(`unexpected path: ${path}`);
     });
 
-    await claimVip({ adLoopMax: 1, adIntervalMs: 0, recheckAttempts: 2, recheckIntervalMs: 5 });
+    const run = claimVip({ adLoopMax: 1, adIntervalMs: 0, recheckAttempts: 2, recheckIntervalMs: 250 });
+    await vi.waitFor(() => expect(userStore.claimMessage).toContain('最长约需'));
+    await run;
 
     expect(detailCalls).toBe(3); // 首次确认 + 2 次重查
     expect(userStore.isVip).toBe(false);

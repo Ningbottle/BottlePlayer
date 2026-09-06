@@ -291,7 +291,9 @@ async function confirmVipAfterClaim(opts: {
 }): Promise<string> {
   userStore.claimStage = 'confirm';
   let outcome = await tryConfirmOnce();
-  if (userStore.claimCancelRequested) return '已取消领取';
+  // W2：已落地的权威结论优先于取消 —— 结论写入 store 后若被"已取消领取"
+  // 覆盖，会出现"角标已激活、消息已取消"的自相矛盾。只有结论未落地
+  // （unavailable）时才让位给取消。
   if (outcome.kind === 'active') {
     userStore.vipClaimPending = false;
     return userStore.vipEndDate
@@ -302,12 +304,17 @@ async function confirmVipAfterClaim(opts: {
     userStore.vipClaimPending = false;
     return '领取上报成功，但权益未生效（权威接口未见 VIP），请稍后再次查询';
   }
+  if (userStore.claimCancelRequested) return '已取消领取';
 
   // 首次确认不可用（失败/非权威）→ 有上限重查，可取消（P3：与广告倒计时
   // 相同的 1s 步进粒度，取消最迟 1s 生效，而不是整个 interval）。
+  const totalUpperBoundSec = Math.ceil(
+    (opts.recheckIntervalMs * opts.recheckAttempts) / 1000,
+  );
   for (let attempt = 1; attempt <= opts.recheckAttempts; attempt++) {
     if (userStore.claimCancelRequested) return '已取消领取';
-    userStore.claimMessage = `权益确认中（重试 ${attempt}/${opts.recheckAttempts}）…`;
+    // W5（5c 完成标准）：整体最长等待上界文案。
+    userStore.claimMessage = `权益确认中，最长约需 ${totalUpperBoundSec} 秒（重试 ${attempt}/${opts.recheckAttempts}），可随时取消…`;
     let remainMs = opts.recheckIntervalMs;
     while (remainMs > 0) {
       if (userStore.claimCancelRequested) return '已取消领取';
@@ -317,7 +324,6 @@ async function confirmVipAfterClaim(opts: {
     }
     if (userStore.claimCancelRequested) return '已取消领取';
     outcome = await tryConfirmOnce();
-    if (userStore.claimCancelRequested) return '已取消领取';
     if (outcome.kind === 'active') {
       userStore.vipClaimPending = false;
       return userStore.vipEndDate
@@ -328,6 +334,7 @@ async function confirmVipAfterClaim(opts: {
       userStore.vipClaimPending = false;
       return '领取上报成功，但权益未生效（权威接口未见 VIP），请稍后再次查询';
     }
+    if (userStore.claimCancelRequested) return '已取消领取';
   }
   // 重查耗尽：转"未确认"，不是"有效"。
   userStore.vipClaimPending = false;
@@ -492,6 +499,9 @@ export async function claimVip(
     userStore.loading = false;
     userStore.claimStage = '';
     userStore.claimCancelRequested = false;
+    // W3（批次 C 审查）：取消路径返回时 pending 不残留 —— 两个调用方的
+    // finally 统一兜底复位（"未确认"语义）。
+    userStore.vipClaimPending = false;
   }
 }
 
@@ -555,12 +565,19 @@ export async function claimVipViaRoute(route: VipClaimRoute): Promise<void> {
     userStore.loading = false;
     userStore.claimStage = '';
     userStore.claimCancelRequested = false;
+    // W3：同 claimVip —— 取消/异常路径 pending 不残留。
+    userStore.vipClaimPending = false;
   }
 }
 
 export function logoutLocal() {
+  // W1（批次 C 审查）：在途领取（确认重查 ≤30s）在下一 1s 边界自行停止——
+  // 登出后不再发起 FFI、不再把 VIP 状态写回已登出的 store。
+  userStore.claimCancelRequested = true;
   // Local clear: resetLoginState already emits accountCleared.
   resetLoginState();
   userStore.claimMessage = '';
+  userStore.loading = false;
+  userStore.claimStage = '';
   notifyLocalLogout();
 }
