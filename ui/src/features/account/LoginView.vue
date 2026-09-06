@@ -2,7 +2,7 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import QRCode from 'qrcode';
 import { fetchQrKey, checkQrStatus, logoutAuth } from './accountGateway';
-import { userStore, checkLoginStatus, claimVip, claimVipViaRoute, logoutLocal, VIP_CLAIM_ROUTES, type VipClaimRoute } from './userStore';
+import { userStore, checkLoginStatus, claimVip, cancelClaim, claimVipViaRoute, logoutLocal, VIP_CLAIM_ROUTES, type VipClaimRoute } from './userStore';
 import { useThemeStore } from '../../app/appearance/themeStore';
 
 const themeStore = useThemeStore();
@@ -172,6 +172,14 @@ const vipUrgent = computed(
   () => userStore.isVip && vipEndMs.value != null && vipEndMs.value - now.value < 3_600_000,
 );
 
+// Stage 5a 三态展示约束：active → 剩余时间；expired → 明确"已过期"；
+// unknown（含权威无权益/证据缺失）→ 中性"权益状态未知"，不得声称过期。
+const vipRemainingText = computed(() => {
+  if (userStore.isVip) return remainingLabel.value;
+  if (userStore.vipStatus === 'expired') return '会员已过期';
+  return '权益状态未知';
+});
+
 onMounted(() => {
   nowTimer = setInterval(() => {
     now.value = Date.now();
@@ -227,7 +235,7 @@ onUnmounted(() => {
         <div class="membership-side">
           <div class="vip-info" :class="{ 'is-vip': userStore.isVip, 'is-urgent': vipUrgent }">
             <span class="vip-remaining">
-              {{ userStore.isVip ? remainingLabel : '未开通' }}
+              {{ vipRemainingText }}
             </span>
             <span
               class="vip-sub"
@@ -251,6 +259,14 @@ onUnmounted(() => {
           >
             {{ userStore.loading ? '领取中…' : (userStore.isVip ? '续领今日 VIP' : '领取每日免费 VIP') }}
           </button>
+          <!-- Stage 5c: 领取进行中可取消 —— 在阶段边界生效（下一轮广告前/倒计时中/下一通道前/下一次确认重查前）。 -->
+          <button
+            v-if="userStore.loading && userStore.claimStage"
+            class="channel-link"
+            type="button"
+            data-test="claim-cancel"
+            @click="cancelClaim"
+          >取消领取</button>
         </div>
       </div>
 

@@ -170,16 +170,103 @@ describe('resolveVip — 权威/未知输入', () => {
   });
 
   it('未知/缺失 data 不能被当成一次权威的“确认无 VIP”输入', () => {
-    expect(resolveVip(null, NOW)).toEqual({ isVip: false, vipEndDate: '', vipLevel: 0, vipType: 0 });
-    expect(resolveVip(undefined, NOW)).toEqual({ isVip: false, vipEndDate: '', vipLevel: 0, vipType: 0 });
+    expect(resolveVip(null, NOW)).toEqual({
+      isVip: false,
+      vipStatus: 'unknown',
+      vipEndDate: '',
+      vipLevel: 0,
+      vipType: 0,
+    });
+    expect(resolveVip(undefined, NOW)).toEqual({
+      isVip: false,
+      vipStatus: 'unknown',
+      vipEndDate: '',
+      vipLevel: 0,
+      vipType: 0,
+    });
     expect(resolveVip({}, NOW).isVip).toBe(false);
+  });
+});
+
+describe('resolveVip — Stage 5a: 判真必须有未过期证据（vipStatus 三态）', () => {
+  it('顶层 is_vip=1 但到期时间已过期 → isVip=false 且 vipStatus="expired"（不再判真）', () => {
+    const r = resolveVip({ is_vip: 1, vip_type: 1, vip_end_time: PAST }, NOW);
+    expect(r.isVip).toBe(false);
+    expect(r.vipStatus).toBe('expired');
+    expect(r.vipEndDate).toBe('');
+  });
+
+  it('顶层 is_vip=1 但到期时间非法 → isVip=false，vipStatus="unknown"，非法串不落 vipEndDate', () => {
+    const r = resolveVip({ is_vip: 1, vip_type: 1, vip_end_time: 'not-a-date' }, NOW);
+    expect(r.isVip).toBe(false);
+    expect(r.vipStatus).toBe('unknown');
+    expect(r.vipEndDate).toBe('');
+    expect(r.vipEndDate).not.toContain('not-a-date');
+  });
+
+  it('顶层 is_vip=1 但完全没有到期时间 → 无可信证据，isVip=false 且 "unknown"', () => {
+    const r = resolveVip({ is_vip: 1, vip_type: 1 }, NOW);
+    expect(r.isVip).toBe(false);
+    expect(r.vipStatus).toBe('unknown');
+  });
+
+  it('busi_vip svip is_vip=1 但到期时间非法 → 不判真（不得当永久）', () => {
+    const r = resolveVip(
+      { is_vip: 0, busi_vip: [{ product_type: 'svip', is_vip: 1, vip_end_time: 'not-a-date' }] },
+      NOW,
+    );
+    expect(r.isVip).toBe(false);
+    expect(r.vipStatus).toBe('unknown');
+  });
+
+  it('busi_vip music 非法日期 → 不解锁', () => {
+    const r = resolveVip(
+      { is_vip: 0, busi_vip: [{ product_type: 'music', is_vip: 1, vip_end_time: 'garbage-date' }] },
+      NOW,
+    );
+    expect(r.isVip).toBe(false);
+  });
+
+  it('有效未过期证据 → vipStatus="active"', () => {
+    const r = resolveVip({ is_vip: 1, vip_end_time: FUTURE }, NOW);
+    expect(r.vipStatus).toBe('active');
+    expect(r.isVip).toBe(true);
+  });
+
+  it('权威 is_vip=0（明确无权益）→ isVip=false，无过期表述依据 → "unknown"', () => {
+    const r = resolveVip({ is_vip: 0, vip_type: 0 }, NOW);
+    expect(r.isVip).toBe(false);
+    expect(r.vipStatus).toBe('unknown');
+  });
+
+  it('顶层过期 + busi_vip svip 未过期 → active（有效证据仍在）', () => {
+    const svipEnd = '2026-06-16 12:00:00';
+    const r = resolveVip(
+      { is_vip: 1, vip_end_time: PAST, busi_vip: [{ product_type: 'svip', is_vip: 1, vip_end_time: svipEnd }] },
+      NOW,
+    );
+    expect(r.isVip).toBe(true);
+    expect(r.vipStatus).toBe('active');
+    expect(r.vipEndDate).toBe(svipEnd);
   });
 });
 
 describe('resolveVip — 边界', () => {
   it('null/undefined data → 非 VIP 空状态', () => {
-    expect(resolveVip(null, NOW)).toEqual({ isVip: false, vipEndDate: '', vipLevel: 0, vipType: 0 });
-    expect(resolveVip(undefined, NOW)).toEqual({ isVip: false, vipEndDate: '', vipLevel: 0, vipType: 0 });
+    expect(resolveVip(null, NOW)).toEqual({
+      isVip: false,
+      vipStatus: 'unknown',
+      vipEndDate: '',
+      vipLevel: 0,
+      vipType: 0,
+    });
+    expect(resolveVip(undefined, NOW)).toEqual({
+      isVip: false,
+      vipStatus: 'unknown',
+      vipEndDate: '',
+      vipLevel: 0,
+      vipType: 0,
+    });
   });
 
   it('busi_vip 含 null 元素 → 跳过不崩', () => {
