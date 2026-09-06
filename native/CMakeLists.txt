@@ -8,6 +8,22 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 
+# Stage 0 (vip-stability remediation plan): stamp a hash of the native sources
+# into the diagnostics library so every crash report names the exact tree it
+# was built from. History must map faults to builds (audit G3: no build hash,
+# no dump, no stack → RTC#2 unattributable).
+file(GLOB_RECURSE ECHO_NATIVE_ALL_SOURCES
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
+  "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
+list(FILTER ECHO_NATIVE_ALL_SOURCES EXCLUDE REGEX "${CMAKE_CURRENT_SOURCE_DIR}/out/")
+list(SORT ECHO_NATIVE_ALL_SOURCES)
+file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt" ECHO_NATIVE_BUILD_HASH)
+foreach(_echo_src IN LISTS ECHO_NATIVE_ALL_SOURCES)
+  file(SHA256 "${_echo_src}" _echo_src_hash)
+  string(APPEND ECHO_NATIVE_BUILD_HASH "${_echo_src_hash}")
+endforeach()
+string(SHA256 ECHO_NATIVE_BUILD_HASH "${ECHO_NATIVE_BUILD_HASH}")
+
 add_compile_definitions(UNICODE _UNICODE WIN32_LEAN_AND_MEAN NOMINMAX)
 if(MSVC)
   add_compile_options(/utf-8)
@@ -78,9 +94,66 @@ add_library(EchoDiagnostics STATIC
   diagnostics/MemorySnapshot.cpp
   diagnostics/ScopedTimer.cpp
   diagnostics/Redaction.cpp
+  diagnostics/CrashCapture.cpp
 )
 target_include_directories(EchoDiagnostics PUBLIC include)
 target_link_libraries(EchoDiagnostics PRIVATE psapi)
+# dbghelp powers the crash forensics (MiniDumpWriteDump + symbol walk).
+target_link_libraries(EchoDiagnostics PRIVATE dbghelp)
+target_compile_definitions(EchoDiagnostics PRIVATE
+  ECHO_CRASH_BUILD_HASH="${ECHO_NATIVE_BUILD_HASH}")
+
+# Release/RelWithDebInfo must ship PDBs (audit G3: no symbols → no
+# attribution). NMake single-config generators honor CMAKE_BUILD_TYPE;
+# multi-config generators (VS) honor the config check below.
+set(CMAKE_PDB_OUTPUT_DIRECTORY_RELEASE "${CMAKE_BINARY_DIR}/pdb/Release")
+set(CMAKE_PDB_OUTPUT_DIRECTORY_RELWITHDEBINFO "${CMAKE_BINARY_DIR}/pdb/RelWithDebInfo")
+if(MSVC)
+  foreach(_echo_lang C CXX)
+    string(APPEND CMAKE_${_echo_lang}_FLAGS_RELEASE " /Zi")
+    string(APPEND CMAKE_${_echo_lang}_FLAGS_RELWITHDEBINFO " /Zi")
+  endforeach()
+  # /Zi alone produces a compiler PDB the linker never references (COFF-group
+  # debug dir only, no CodeView entry) — SymInitialize can't map it and the
+  # archived PDB would be an orphan. /DEBUG writes the CodeView entry;
+  # /OPT:REF/ICF restore the dead-strip/COMDAT folding that /DEBUG turns off.
+  foreach(_echo_linker EXE SHARED STATIC)
+    string(APPEND CMAKE_${_echo_linker}_LINKER_FLAGS_RELEASE
+      " /DEBUG /OPT:REF /OPT:ICF")
+    string(APPEND CMAKE_${_echo_linker}_LINKER_FLAGS_RELWITHDEBINFO
+      " /OPT:REF /OPT:ICF")
+  endforeach()
+endif()
+if(CMAKE_CONFIGURATION_TYPES)
+  # VS multi-config: EXE/PDB land side by side per config already; copy them
+  # into the archive dir per build.
+  add_custom_target(native_pdb_archive ALL
+    COMMAND ${CMAKE_COMMAND}
+      -DCONFIG=$<CONFIG>
+      -DBINARY_DIR=${CMAKE_BINARY_DIR}
+      -DARCHIVE_DIR=${CMAKE_BINARY_DIR}/pdb/$<CONFIG>
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ArchivePdb.cmake
+    COMMENT "Archiving PDBs for symbol retention")
+  add_dependencies(native_pdb_archive EchoCAPI EchoNativeSmokeTests)
+elseif(CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo")
+  add_custom_target(native_pdb_archive ALL
+    COMMAND ${CMAKE_COMMAND}
+      -DCONFIG=${CMAKE_BUILD_TYPE}
+      -DBINARY_DIR=${CMAKE_BINARY_DIR}
+      -DARCHIVE_DIR=${CMAKE_BINARY_DIR}/pdb/${CMAKE_BUILD_TYPE}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ArchivePdb.cmake
+    COMMENT "Archiving PDBs for symbol retention")
+  add_dependencies(native_pdb_archive EchoCAPI EchoNativeSmokeTests)
+endif()
+
+# Stage 0 fault-forensics probe: controlled fault generator for validating the
+# minidump/report pipeline end to end. NOT a CTest entry — it crashes by
+# design. Run manually:
+#   CrashForensicsProbe.exe <outdir>            (SEH access-violation path)
+# Expect <outdir>/crash-*.dmp + crash-*.txt with build hash + symbolized stack.
+add_executable(CrashForensicsProbe tools/crash_forensics_probe.cpp)
+target_include_directories(CrashForensicsProbe PRIVATE include)
+target_link_libraries(CrashForensicsProbe PRIVATE EchoDiagnostics)
 
 add_library(EchoAsync STATIC
   async/EventQueue.cpp
@@ -205,6 +278,12 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoRequestSchedulerResilienceTest PRIVATE EchoCore EchoAsync)
   add_test(NAME EchoRequestSchedulerResilienceTest COMMAND EchoRequestSchedulerResilienceTest)
 
+  # Crash forensics contract (Stage 0): build hash + report generation.
+  add_executable(EchoCrashCaptureContractTest tests/crash_capture_contract_test.cpp)
+  target_include_directories(EchoCrashCaptureContractTest PRIVATE include)
+  target_link_libraries(EchoCrashCaptureContractTest PRIVATE EchoDiagnostics)
+  add_test(NAME EchoCrashCaptureContractTest COMMAND EchoCrashCaptureContractTest)
+
   # Storage Actor lifecycle + WAL concurrent access (serialized; no TLS).
   add_executable(EchoDatabaseActorLifecycleTest tests/database_actor_lifecycle_test.cpp)
   target_include_directories(EchoDatabaseActorLifecycleTest PRIVATE include)
@@ -235,6 +314,7 @@ if(ECHO_NATIVE_BUILD_TESTS)
     EchoHomeContractTest
     EchoHttpClientResilienceTest
     EchoRequestSchedulerResilienceTest
+    EchoCrashCaptureContractTest
     EchoDatabaseActorLifecycleTest
     EchoPlayStatsTest
   )

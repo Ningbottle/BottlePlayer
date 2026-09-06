@@ -5,13 +5,14 @@
 #include "echo/async/RequestScheduler.h"
 #include "echo/storage/Database.h"
 #include "echo/storage/AppPaths.h"
+#include "echo/diagnostics/CrashCapture.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 #include "echo/stats/PlayStatsService.h"
 #include <nlohmann/json.hpp>
 #include <exception>
 #include <typeinfo>
 #include <cstdlib>
-#if defined(_MSC_VER) && defined(_DEBUG)
+#if defined(_MSC_VER)
 #include <crtdbg.h>
 #endif
 #include <atomic>
@@ -105,6 +106,18 @@ int EchoInitializeWithPathsV2(const char* app_data_dir) {
     std::unique_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     Ctx().shutdown.store(false, std::memory_order_release);  // allow re-init after shutdown
     Ctx().last_error.clear();
+    // Stage 0: crash forensics. Must never block/fail initialization; dumps
+    // land under <app_data>/crash (or temp fallback) so Release faults carry
+    // a minidump + build hash + stack (audit G3).
+    {
+        echo::diagnostics::CrashCaptureConfig crash_config;
+        if (app_data_dir) {
+            crash_config.dump_directory =
+                std::filesystem::path(reinterpret_cast<const char8_t*>(app_data_dir)) /
+                "crash";
+        }
+        echo::diagnostics::InstallCrashCapture(crash_config);
+    }
     try {
         EnsureInitializedLocked(app_data_dir);
         if (!Ctx().api || !Ctx().db || !Ctx().stats) {
@@ -344,13 +357,20 @@ void EchoSetLogCallback(EchoLogCallback cb, void* user_data) {
         std::abort();
     });
 
-#if defined(_MSC_VER) && defined(_DEBUG)
+#if defined(_MSC_VER)
     // CRT 错误报告（含 RTC 栈损坏 Run-Time Check Failure）默认弹模态对话框，
-    // 无人值守时表现为静默 exit(3)。挂钩后改落日志：消息含源文件与行号。
+    // 无人值守时表现为静默 exit(3)。挂钩后改落日志。Release 也必须挂钩：
+    // RTC#2（F20）不走 SEH/UnhandledExceptionFilter，CRT 报告是唯一观测点，
+    // 并在此生成取证报告（minidump 不适用于 fast-fail，写文本报告 + 栈）。
     _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL,
         [](int reportType, char* message, int* returnValue) -> int {
             if (reportType == _CRT_ERROR || reportType == _CRT_ASSERT) {
-                ECHO_LOG("CRASH", std::string("crt report: ") + (message ? message : "<empty>"));
+                const std::string msg = message ? message : "<empty>";
+                ECHO_LOG("CRASH", std::string("crt report: ") + msg);
+                // RTC 栈损坏类故障不会进入 SEH 过滤器（__fastfail 直接终止），
+                // 这里是唯一能留下取证记录的时机。
+                echo::diagnostics::WriteCrashReportForTest(
+                    "crt-report: " + msg);
             }
             *returnValue = 0; // 继续默认流程（仍可能弹窗/终止）
             return 0;
