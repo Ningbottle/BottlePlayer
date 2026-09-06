@@ -5,6 +5,7 @@
 #include <chrono>
 #include <future>
 #include <iostream>
+#include <stdexcept>
 #include <string>
 #include <thread>
 
@@ -229,6 +230,123 @@ int main() {
     // refuse — this is what EchoShutdown relies on to skip global teardown.
     CHECK(!s.Restart(),
           "Restart() returns false after a bounded shutdown abandoned a worker");
+  }
+
+  std::cout << "[Test] Testing SubmitWithDeadline preserves service exceptions (non-void, value + reference)...\n";
+  {
+    // Stage 1 (vip-stability-remediation-plan): the non-void branch wrapped
+    // set_value(fn(...)) in ONE try with an empty catch — fn's exception was
+    // swallowed, the promise was never satisfied, and callers observed
+    // std::future_error "broken promise" instead of the real service error.
+    // Contract: fn's exception type AND message reach the future intact.
+    // Reference ReturnType (int&) is pinned too: an earlier fix draft used
+    // std::move(value), which no longer compiles against
+    // std::promise<int&>::set_value(int&) (C2664) — forward keeps the
+    // reference semantics.
+    RequestScheduler s(1);
+    int refSink = 0;
+    auto futRef = s.SubmitWithDeadline(
+        RequestKind::Generic,
+        [&refSink](echo::async::CancellationToken) -> int& {
+          throw std::runtime_error("marker_service_failure");
+        },
+        /*deadlineMs=*/5000);
+    bool gotMarkerRef = false;
+    std::string whatRef;
+    try {
+      (void)futRef.get();
+    } catch (const std::runtime_error& e) {
+      gotMarkerRef = std::string(e.what()).find("marker_service_failure") != std::string::npos;
+      whatRef = e.what();
+    } catch (...) {
+      whatRef = "non-runtime_error exception";
+    }
+    CHECK(gotMarkerRef, "reference-return job exception is rethrown with its message (got: " + whatRef + ")");
+
+    auto futValue = s.SubmitWithDeadline(
+        RequestKind::Generic,
+        [](echo::async::CancellationToken) -> int {
+          throw std::runtime_error("marker_service_failure");
+        },
+        /*deadlineMs=*/5000);
+    bool gotMarkerValue = false;
+    std::string whatValue;
+    try {
+      (void)futValue.get();
+    } catch (const std::runtime_error& e) {
+      gotMarkerValue = std::string(e.what()).find("marker_service_failure") != std::string::npos;
+      whatValue = e.what();
+    } catch (...) {
+      whatValue = "non-runtime_error exception";
+    }
+    CHECK(gotMarkerValue, "value-return job exception is rethrown with its message (got: " + whatValue + ")");
+
+    (void)refSink;
+    s.Shutdown();
+  }
+
+  std::cout << "[Test] Testing SubmitWithDeadline preserves exceptions (void)...\n";
+  {
+    // Void branch had the correct two-layer structure already; pin it so the
+    // fix can't regress it into the single-try shape.
+    RequestScheduler s(1);
+    auto fut = s.SubmitWithDeadline(
+        RequestKind::Generic,
+        [](echo::async::CancellationToken) -> void {
+          throw std::runtime_error("marker_void_failure");
+        },
+        /*deadlineMs=*/5000);
+    bool gotMarker = false;
+    try {
+      fut.get();
+    } catch (const std::runtime_error& e) {
+      gotMarker = std::string(e.what()).find("marker_void_failure") != std::string::npos;
+    }
+    CHECK(gotMarker, "void job exception is rethrown with its message");
+    s.Shutdown();
+  }
+
+  std::cout << "[Test] Testing SubmitWithDeadline deadline error keeps job_deadline message...\n";
+  {
+    // Deadline wins the race (watchdog set_exception first); the error must
+    // remain the job_deadline runtime_error the deadline contract pins.
+    //
+    // Lifecycle note (review fix): the job must NOT outlive this scope as an
+    // uninterruptible sleeper — after bounded Shutdown the scheduler object
+    // is destroyed while the worker may still be inside the lambda. Use a
+    // releasable barrier instead: the job parks on an atomic wait (no sleep
+    // that ignores shutdown), we confirm the deadline fired, then release
+    // and require a FULL Shutdown() join before the scope ends. No thread
+    // may still reference scheduler members after destruction.
+    RequestScheduler s(1);
+    std::atomic<bool> releaseJob{false};
+    auto fut = s.SubmitWithDeadline(
+        RequestKind::Generic,
+        [&releaseJob](echo::async::CancellationToken token) -> int {
+          // Cooperative, releasable block: honors both the released flag and
+          // the deadline-cancel flag (mirrors HttpClientCancellationScope),
+          // so the worker always makes progress and never outlives the
+          // scheduler object.
+          while (!releaseJob.load(std::memory_order_acquire) &&
+                 !token.IsCancellationRequested()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(5));
+          }
+          return 42;
+        },
+        /*deadlineMs=*/100);
+    bool gotDeadline = false;
+    try {
+      (void)fut.get();
+    } catch (const std::runtime_error& e) {
+      gotDeadline = std::string(e.what()) == "job_deadline";
+    }
+    CHECK(gotDeadline, "deadline expiry throws runtime_error(\"job_deadline\")");
+
+    // Release the parked job, then join everything cleanly. The full
+    // (unbounded) Shutdown must return promptly here — if it hung, this
+    // test would block forever instead of leaking a dangling-worker window.
+    releaseJob.store(true, std::memory_order_release);
+    s.Shutdown();
   }
 
   std::cout << "[Test] All RequestScheduler resilience tests completed.\n";

@@ -177,7 +177,16 @@ auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadline
         fn(CancellationToken(tokenFlag));
         try { promise->set_value(); } catch (...) {}
       } else {
-        try { promise->set_value(fn(CancellationToken(tokenFlag))); } catch (...) {}
+        // Stage 1 (G1): fn's evaluation must NOT sit inside the same try as
+        // set_value — a service exception swallowed by the inner catch left
+        // the promise unsatisfied and callers saw "broken promise". fn's
+        // exception falls through to the outer catch -> set_exception; only
+        // set_value itself (promise already satisfied by the deadline
+        // watcher) is ignored here. forward (not move): ReturnType may be a
+        // reference (promise<T&>::set_value takes T&), which move would
+        // reject at compile time.
+        ReturnType value = fn(CancellationToken(tokenFlag));
+        try { promise->set_value(std::forward<ReturnType>(value)); } catch (...) {}
       }
     } catch (...) {
       try { promise->set_exception(std::current_exception()); } catch (...) {}
