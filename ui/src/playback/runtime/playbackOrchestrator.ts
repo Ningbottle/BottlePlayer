@@ -13,6 +13,9 @@ export interface QualityOption {
   fileSize?: number;
   bitRate?: number;
   extName?: string;
+  /** Stage 6a: 每条自带预览标志（native 逐条计算），切换音质时 isPreview
+   *  必须与最终 URL 同源取自该条目，而不是沿用上一轨的全局标志。 */
+  isPreview?: boolean;
 }
 
 export interface PlaybackStateSlice {
@@ -151,15 +154,21 @@ export class PlaybackOrchestrator {
 
     const availableQualities = result.data?.available_qualities || [];
     let finalUrl = result.url;
+    // Stage 6a（F11）: isPreview 与 finalUrl 同源 —— 从 available_qualities
+    // 选中条目时用该条自带的 is_preview，不沿用整轨解析的全局标志。
+    let finalIsPreview = !!result.is_preview;
     if (state.quality && availableQualities.length > 0) {
       const preferred = availableQualities.find((q) => q.quality === state.quality);
-      if (preferred?.url) finalUrl = preferred.url;
+      if (preferred?.url) {
+        finalUrl = preferred.url;
+        if (typeof preferred.isPreview === 'boolean') finalIsPreview = preferred.isPreview;
+      }
     }
 
     this.deps.patchState({
       availableQualities,
       errorMsg: '',
-      isPreview: !!result.is_preview,
+      isPreview: finalIsPreview,
       vipRequired: !!result.vip_required,
     });
 
@@ -243,6 +252,9 @@ export class PlaybackOrchestrator {
         || state.playbackPhase === 'recovering');
     const cached = state.availableQualities.find((q) => q.quality === quality && q.url);
     let finalUrl = cached?.url;
+    // Stage 6a（F11）: 缓存条目命中时 isPreview 同源取自该条目。
+    let finalIsPreview =
+      cached && typeof cached.isPreview === 'boolean' ? cached.isPreview : state.isPreview;
 
     if (!finalUrl) {
       let result: ResolveTrackResult;
@@ -262,6 +274,10 @@ export class PlaybackOrchestrator {
       const availableQualities = result.data?.available_qualities || [];
       const preferred = availableQualities.find((q) => q.quality === quality && q.url);
       finalUrl = preferred?.url || result.url;
+      finalIsPreview =
+        preferred && typeof preferred.isPreview === 'boolean'
+          ? preferred.isPreview
+          : !!result.is_preview;
       this.deps.patchState({ availableQualities });
     }
 
@@ -290,7 +306,8 @@ export class PlaybackOrchestrator {
       return { status: 'failed', message: '播放失败' };
     }
 
-    this.deps.patchState({ errorMsg: '' });
+    // Stage 6a（F11）: 切换完成后 isPreview/quality 与最终 URL 同源落库。
+    this.deps.patchState({ errorMsg: '', isPreview: finalIsPreview, quality });
     if (autoplay) this.applyPhase('playing');
     return { status: 'played' };
   }
