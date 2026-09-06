@@ -161,6 +161,13 @@
 - **问题**：watchdog 线程关闭正被同步调用使用的 request 句柄，违反 WinHTTP 官方并发契约（F15）。
 - **根因**：同步 session（`WinHttpOpen(..., 0)`）+ "另一线程 CloseHandle 即取消"模型。
 - **契约口径（2026-09-06 审查修订）**：微软的规则是**同步模式下句柄被阻塞调用使用期间不得从其他线程关闭该句柄**（WinHTTP 并发契约），并非禁止一切跨线程关闭。引用：concurrency-in-winhttp、WinHttpSetTimeouts 文档。
+- **3a 实测新事实（2026-09-06，与原假设冲突，已按纪律 #5 记录；表述按批次 A 审查收窄）**：本机观测到 per-op 超时存在**约 1.2s/阻塞调用的有效下限**（1667ms 被遵守、266ms 不被遵守——500ms 预算实测 ~3990ms、POST 800ms 实测 ~3490ms，而旧实现靠跨线程关闭把返回时间压到预算处）。该观测**仅代表特定环境与场景，不构成资源回收上界承诺**。因此 **3a 后 HttpClient 层的预算从"墙钟精确"退化为"per-op 包络"**；用户可见 deadline 由多层共同封顶（scheduler `job_deadline` → Rust `request_deadline` → frontend 14s），且 scheduler 完成 future 不释放仍在阻塞的 worker（弃置语义）、watchdog 饱和时 deadline action 允许延迟兑现——**任何一层都不承诺精确墙钟；同步调用无法及时退出是 3b 前的保留限制**。两个时序测试按实测包络更新并注明依据；**墙钟精确预算的恢复是 3b（异步 session）的验收项**。
+- **批次 A 集成缺陷（2026-09-06 五次审查后新增，均已修复并锁定）**：
+  - **P1 connect timeout 设错句柄**：`WINHTTP_OPTION_CONNECT_TIMEOUT` 原设在 connect 句柄上，WinHTTP 拒绝并返回 12018（句柄类型错误），代码静默忽略——移除强制关闭后该设置成为 3a 的关键防线。修复：全部 per-op 超时（connect/send/receive/response）设在 **request 句柄**上并**逐一检查结果**，任何失败以 `timeout_setup_failed` 显式失败该请求（不运行无法强制超时的请求）。结构契约测试锁定（`WinHttpSetOption(connect` 不存在 + `timeout_setup_failed` 存在）。
+  - **P1 setup-failed 路径泄漏配额 + GET 重试（2026-09-06 批次 A 审查新增）**：per-op 设置在 Arm 之后，`timeout_setup_failed` 早退路径首版未注销 entry（探针：`pending=3` 不释放），GET 又把它归入 transient 退避重试（探针：1000ms 预算实测 2518ms）。修复：该路径返回前 `Cancel(deadlineFiredFlag)`；GET 的 admission-failure 排除扩为 `watchdog_overload || timeout_setup_failed`。行为测试用 **test-only 故障注入**（`HttpClientSetTimeoutSetupFaultForTest`，见 HttpClient.h）确定性地到达该路径，锁定五断言：错误保真、立即返回（<300ms）、pending 归零、**请求未发送**（服务器计数不变）、句柄归零 + GET 同样即时。
+  - **P1 deadline 后仍可能返回"成功"**：服务器发送 200 + Content-Length 后停滞 body，原实现把 `WinHttpQueryDataAvailable` 失败当 EOF、清理路径不反映 deadline flag → 探针实测 `status=200 timedOut=false error="" body=0`。修复：接收循环每轮顶部检查 deadline flag 与 elapsed（命中 → `total_receive_timeout`）；查询失败显式报错；`read==0` 而 available>0 视为 `connection_closed_early`；**Content-Length 校验**（EOF 时短于承诺 → `incomplete_body`）；清理路径 flag 已 fire → 强制 `timedOut=true` + 非空 error。行为 RED 测试用 stall 服务器锁定（复现 3975ms/200/empty → GREEN）。
+  - **新事实：session 级 receive 超时封顶 ReceiveResponse 阶段（批次 A 压测发现）**：请求级 100ms 的 receive/response 超时对 `WinHttpReceiveResponse` 的等待**不被遵守**，实际边界是 session 级 `WinHttpSetTimeouts(raw, 5000, 5000, 10000, 10000)` 的 **receive=10s**（持连接请求实测 ~10s 解析）。合并进 3a 包络结论：HttpClient 层的等待边界 = max(per-op 下限观测, session 10s) 与调用阶段相关；用户可见 deadline 仍由 scheduler/Rust/frontend 多层封顶；3b 异步迁移前该边界不可压缩。
+  - **压力测试（GREEN ii，最终设计）**：两段式——①**reset 服务器**（accept 后立即 close，请求快速失败）：**默认 8 线程 × 125 = 1000 请求**（`ECHO_HTTP_STRESS_SCALE` 放大），全部解析为 `WinHttp*` 网络失败（零成功、零其他类别——empty error/设置失败/body 守卫类禁止）、accepts ≥ 发出数-8（验证请求真实到达服务器）、句柄归零、watchdog 排空；②**held 服务器**小样本（8 并发 × 1 请求，~10s/请求）：holding 服务器永不产生成功、全部解析、句柄归零。压测过程曾误判"卡死"：实为每请求 ~10s × 千次规模的长运行——unitbuf 逐条刷新 + 服务器 accept 计数器 + 两段式拆分后规模与时长均可控。
 - **修改范围**：`native/core/HttpClient.cpp`（移除 `ArmRequestHandleWatchdog` 对 request 句柄的关闭；超时改由 per-op `WinHttpSetOption`（已有）+ 协作取消 + "超时后 owner 线程自行关闭"），`native/async/RequestWatchdog.h`（相应 API 收缩）。**分两小步**：3a 过渡——超时只置 cancel flag，句柄一律由发起线程在 WinHTTP 调用返回后关闭（最坏泄露窗口被 per-op timeout 上界封死）；3b 根治——评估并迁移异步 session（`WINHTTP_FLAG_ASYNC` + 状态回调所有权），3b 可在 3a 稳定后单独排期，不阻塞 Stage 4-7。
 - **为什么**：这是卡死嫌疑链上唯一被官方契约确认的实现级违规；CAS 不解决"使用中关闭"。
 - **RED**：(i) 结构契约测试：grep 级测试或封装层断言"request 句柄的 `WinHttpCloseHandle` 调用点只存在于 `ExecuteRequest` 调用线程上下文"（当前因 watchdog lambda 存在而红）；(ii) 压力测试：高并发 + 极短超时（1-10ms）× N 千次，统计异常错误形态与句柄计数——当前实现下可观测非确定性异常（此测试在 3a 后必须稳定）。
@@ -299,3 +306,23 @@
 4. 不 commit、不 push，除非用户逐 Stage 显式批准；Stage 7a 在 7c 在线验收通过前禁止合入。
 5. 任何 Stage 中发现新事实与本文档冲突：停下，记录证据，更新计划后再继续；不得在报告中把推断写成事实。
 6. 验收口径：完整播放 = `delivery=full` + 实际越过试听边界 + seek 近尾 + 时长核对；`status=1`、URL 字样、数据库 `completed` 字段均不能单独充当证据。
+
+---
+
+## 6. 批次执行模型（2026-09-06 审查修订，覆盖 §4 的逐 Stage 审批节奏）
+
+剩余计划压缩为 5 个验收批次；**每批内小提交按主题独立保留（HTTP/VIP/凭证不混一个大提交），审批覆盖一组小提交**；每个明确缺陷仍保留有判别力的 RED→GREEN，但修复本身不再逐项请求批准。
+
+| 批次 | 合并范围 | 验收方式 |
+|---|---|---|
+| **A：HTTP 合规收尾** | 3a 两处集成缺陷修复 + per-op/超时语义修订 + 压力测试 | 一次完成后统一审核；3b 异步迁移单独排期 |
+| **B：统计不卡主线程** | Stage 4 全部 | async 化、permit 生命周期（存活上限）、排队超时、退出测试一起交付 |
+| **C：VIP 状态与领取** | 5a＋5b＋5c | 按顺序实现，共用 account 回归，一次审核 |
+| **D：播放与凭证闭环** | 6a＋6b＋6c＋7a/7b/7c | 先定 delivery 判据，再验证凭证与实际播放；内部保留独立提交；7c 在线验收门禁保留 |
+| **E：最终验证与整理** | 8＋9 | 夹具随 A-D 各批补齐，最后集中实机 soak 与小范围整理 |
+
+批次纪律：
+1. 实现过程中跑受影响的 targeted 测试；**每批收尾跑规定完整回归，涉及 Native 的批次统一跑 Debug+Release**。
+2. 每批交付一份审核材料：最终 diff（按小提交分组）、验证结果、未解决项。审核发现问题修完后整体复审。
+3. Stage 4、5 与 HTTP 修复无技术依赖，不必因 3a 停住整个计划；7a 材料可提前拆分（提交门禁仍是 7c 在线验收）。
+4. 基线表述收窄（同日审查修订）：①"per-op ~1.2s 下限、~4× 预算"是**特定环境与场景的观测**，不构成资源回收上界承诺；②scheduler 完成 future **不释放仍在阻塞的 worker**（弃置语义），watchdog 饱和时 deadline action 允许延迟兑现；③Rust 外层另有 `request_deadline`，用户可见超时由外层封顶，不保证精确等于 `job_deadline`；④**3b 前同步调用无法及时退出是保留限制**（per-op 包络封顶，非墙钟精确）。
