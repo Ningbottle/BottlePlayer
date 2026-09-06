@@ -104,7 +104,11 @@
 ## 4. Stage 计划（按依赖排序）
 
 依赖图：`S0 → {S1 → S2 → S3}；S0 → S4；S5a/S5b → S6 → S7；S2/S3/S4/S7 → S8 → S9`。
-理由：取证先行（否则后续无法判定成败）；native 诊断保真（S1）先于调度器/http 整改（S2/S3），否则整改期排障信号仍被吞；watchdog 分离（S2）是 WinHTTP 合规化（S3）的前提（S3 后 action 不再含阻塞性 CloseHandle）；业务语义（S5/S6）先于凭证链路验收（S7），否则"修没修好"无可信判定口径。
+理由：取证先行（否则后续无法判定成败）；native 诊断保真（S1）先于调度器/http 整改（S2/S3），否则整改期排障信号仍被吞；业务语义（S5/S6）先于凭证链路验收（S7），否则"修没修好"无可信判定口径。
+
+**依赖关系澄清（2026-09-06 审查修订）**：
+- S2 排在 S3 之前是**执行顺序安排**（先让计时器可信、再动 HTTP 取消，减少整改期变量），**不是 WinHTTP 合规修复（S3）的技术前提**。S3 的完成标准不依赖 S2 的任何产物；若 S2 遇阻，S3 可先行。（原文"watchdog 分离是 WinHTTP 合规化的前提"表述作废。）
+- S7a 的材料拆分（把 18 个未提交文件分成主线/非主线并评审）**可以提前整理**，不被 7b/7c 阻塞；真正依赖 S6 的是 7c 的完整播放验收（需要 `delivery` 字段做判据）。原有"**7c 在线验收通过前不 commit/合入任何 7a 内容**"的约束继续有效。
 
 ### Stage 0 — 取证与基线冻结（不改行为）
 
@@ -132,34 +136,57 @@
 
 - **问题**：单个阻塞 action 延迟全部后续 deadline（F16，探针已复现）。
 - **根因**：`RequestWatchdog::Loop` 在同一线程既做计时等待又同步执行 action。
-- **修改范围**：`native/async/RequestWatchdog.{h,cpp}`：Loop 只做"到期 → CAS 置 claimed → 把 action 移交独立执行线程（每 action 一个 detach 短线程或专用执行池）"；计时线程不再被 action 阻塞。
+- **修改范围**：`native/include/echo/async/RequestWatchdog.h`、`native/async/RequestWatchdog.cpp`、`native/include/echo/async/RequestScheduler.h`（Rule R）、`native/tests/request_scheduler_resilience_test.cpp`。
+- **执行方式（2026-09-06 三次审查定稿；作废首版"饱和时 timer 内联回退"——它与"timer 不执行 action"矛盾，且会造成 4 executor + 1 timer 超并发）**：
+  - 计时线程：只做"到期 → CAS 认领 → 入队"；**永不执行 action**。
+  - 执行设施：**共享有界 FIFO 队列（cap 64）+ 4 个 worker**。"运行中"与"已入队未取"是两种状态；worker 阻塞不占邮箱（首版槽位邮箱模型的缺陷：执行前清空槽位标志导致 Dispatch 把任务塞回阻塞线程的私有邮箱、其余空闲线程饿死——已由正式 RED 测试钉住）。
+  - **饱和协议 = 重试再入堆**：队列满时该 entry 以 +10ms 延迟重新入堆并保留认领权（`owned` 跳过二次 CAS）。已接受的 deadline **只延迟、不丢弃、不上 timer**。
+  - **整体积压硬上限（2026-09-06 三次审查新增）**：待处理量 = heap + 队列 + 运行中，原子计数 CAS 准入，上限 `kMaxPendingEntries=256`（**"上界等于 armed entry 数"只是数量关系不是容量限制**）。`Arm` 返回 bool；注册被拒的反馈协议：**scheduler → future 立即 `watchdog_overload`，job 不入队**；**HttpClient → `ArmRequestHandleWatchdog` 返回 bool，注册失败时请求立即以 `watchdog_overload` 错误返回并释放当前持有的 request 句柄（无 watchdog 时无关闭 CAS 竞争，直接关闭安全）；GET 包装层将 `watchdog_overload` 排除出 transient 分类，不进入退避重试，错误保真 + 立即返回（首版被归类为 transient 重试，1000ms 预算实测 2527ms——审查探针）；POST 单次尝试天然满足。全部调用点完成适配，"编译兼容不等于行为兼容"（2026-09-06 四次审查修订；HTTP 取消模型的完整迁移仍在 3a）**。
+  - **认领即注销（Cancel）**：worker/queue_full 赢得认领 CAS 后立即从堆中移除 entry 并释放预算；timer 的 lazy-drop 路径作为竞态安全网递减——两侧按"堆内是否还存在该 entry"互斥，恰好减一次。若无此注销，已解决任务的 entry 会占用准入预算直到 deadline 到期（生产中 10s），造成假性 `watchdog_overload`（该泄漏由饱和测试的精确账目断言发现：accepted=246≠251）。**Cancel 未命中（外来 flag/重复取消/entry 已被 timer 取走/无 deadline 任务的从未武装 flag）必须恢复堆中全部幸存 entry、只在真移除时减计数——首版在未命中路径丢失整个堆（scheduler 的 `deadlineMs=0` 正常调用链即可触发），由审查探针发现；回归覆盖四场景 + 幸存 deadline 断言（2026-09-06 四次审查修正）**。scheduler 侧仅在 `watchdogArmed` 时调用 Cancel（无 deadline 任务零扫描）。**HTTP 侧：owner 赢得关闭 CAS 的两条清理路径（send/receive 失败、成功收尾）同样立即 Cancel 释放配额——首版只关句柄不注销，每个完成请求泄漏预算直到 deadline 到期，256 个成功请求后必现假性 overload（审查 HTTP 探针复现）；watchdog 赢得 CAS 的路径由执行器完成时释放，不重复注销（2026-09-06 五次审查修正）**。
+  - **退出所有权**：全部可变状态收敛进 `shared_ptr<State>`，线程各自捕获其副本、只触碰 State；watchdog 对象仅持线程句柄。析构 = 置 stop + notify + **detach**（join 会正中阻塞 action，即本类要防的故障）；worker 停止前排空队列中已接受的 action，正在运行的 action 自行结束后随 State 释放。构造/析构公开：生产用 `Instance()` 单例，测试/嵌入式可持局部实例走同一退出协议。
+  - "action 必须可中断/有界，阻塞性资源回收禁止进入 watchdog action"为硬性契约（与 Stage 3 衔接）。
+- **CAS 胜负语义（Rule R："认领决定结果归属"，2026-09-06 定稿）**：
+  - 必须二选一并全程一致；本计划选择 **Rule R**：谁赢得 `watchdogClaimed` 的 CAS，谁拥有 promise；**输家不得触碰 promise**。
+  - scheduler 侧落实：worker 在 `fn` 完成后、触碰 promise 前**先 CAS**；CAS 失败（deadline 已认领）则业务结果/业务异常一律让位 `job_deadline`。`queue_full` 拒绝路径同样先认领再 set_exception。
+  - HttpClient 的 `ArmRequestHandleWatchdog` CAS 协议（双关保护）**不在本 Stage 改动**，其 action（关闭句柄）改由执行器线程承载——与 timer 隔离但仍是跨线程关闭，Stage 3a 移除。
+  - **W3 窗口测试（2026-09-06 三次审查修正：首版 W3 在 deadline action 完成 promise 后才释放业务任务——promise 已完成时任何实现都无法覆写，旧实现同样通过，锁不住 Rule R）**：正确窗口 = timer 已 CAS 认领、**deadline action 尚未执行（promise 仍空）**、业务任务完成。**确定性同步（2026-09-06 四次审查修订，取代固定 sleep 猜测）**：①认领用 `DebugClaimedCount` 计数门控（timer CAS 成功处递增，可观测"已认领"，不猜测 deadline 时刻）；②业务完成后的检查 = 屏障保持关闭期间的有限预算就绪轮询——屏障关闭时 deadline action 不可能运行，唯一可能 fulfiller 是业务路径，变体在此窗口必被检出；③放行屏障后断言最终 `job_deadline`。该测试**必须在旧 scheduler 变体上 RED（实测 6 处 FAIL）、Rule R 上 GREEN**；"deadline 明确先赢"场景（race B）只接受 `job_deadline`，不接受"二者之一"。
 - **为什么**：所有 deadline 承诺（含 Stage 3 的 HTTP 超时）依赖计时器可信。
-- **RED**：探针转正式测试——Arm 一个永久阻塞的 action 与一个 30ms 的 deadline，断言后者在阈值（如 500ms）内兑现（当前必红）。
-- **GREEN**：测试转绿；阻塞 action 不再影响其他 deadline。
-- **回归范围**：`request_scheduler_resilience_test`、`http_client_resilience_test`、全量 CTest。
-- **完成标准**：计时与执行解耦；测试锁定；文档注明"action 必须可中断/有界，阻塞性资源回收禁止进入 watchdog action"（与 Stage 3 衔接）。
+- **RED**：可释放屏障探针转正式测试——Arm 一个**可释放阻塞**的 action（atomic 屏障）与一个 30ms 的 deadline，断言后者的 **action 完成信号**（不是 claimed 标志）在 500ms 内出现；屏障释放后必须等待阻塞 action 退出才离开作用域；测试状态一律 shared_ptr 持有（CHECK 失败路径不得留下引用栈局部变量的 action）；"真正永久阻塞"行为放隔离子进程单独验证。**500ms 阈值只证明阻塞隔离性，不宣称 30ms 精度**。
+- **GREEN**：隔离性/W3/竞态/饱和/退出测试全绿；阻塞 action 不再影响其他 deadline。
+- **回归范围**：`request_scheduler_resilience_test`、`http_client_resilience_test`、全量 CTest。**HTTP 配额回归（2026-09-06 五次审查新增）：①超过 backlog 上限的连续成功请求永不触发 overload 且 pending 归零（配额按完成释放）；②失败清理路径的配额在 deadline 到期前释放（短窗口轮询，deadline=900ms、轮询 300ms）；③饱和下 GET/POST 错误保真 + GET 即时返回（<1s，无退避）+ 句柄归零**。
+- **完成标准**：计时与执行解耦（timer 零 action 执行）；并发上限 4 / 队列 cap 64 / 重试 10ms / 待处理硬上限 256 有定义且有测试（含超载反馈与认领即注销的精确账目、Cancel 四场景未命中回归、HTTP 配额三回归）；退出协议经局部实例真实测试（析构及时返回 + **以 entered==worker 数 且 queued==排队数 双门控确认"运行中/已入队"后再析构**——首版 `pending>kQueued` 条件恒真，等于没验证（四次审查修正）+ 队列排空 + shared_ptr 状态无 UAF），不以 CTest 超时充当退出测试；Rule R 由 W3 窗口测试锁定（旧实现 RED、新实现 GREEN 双向验证）；HTTP 调用点完成 Arm 返回值适配且 GET 层不重试准入失败。
 
 ### Stage 3 — WinHTTP 取消合规化（根因 R4，P0）
 
 - **问题**：watchdog 线程关闭正被同步调用使用的 request 句柄，违反 WinHTTP 官方并发契约（F15）。
 - **根因**：同步 session（`WinHttpOpen(..., 0)`）+ "另一线程 CloseHandle 即取消"模型。
+- **契约口径（2026-09-06 审查修订）**：微软的规则是**同步模式下句柄被阻塞调用使用期间不得从其他线程关闭该句柄**（WinHTTP 并发契约），并非禁止一切跨线程关闭。引用：concurrency-in-winhttp、WinHttpSetTimeouts 文档。
 - **修改范围**：`native/core/HttpClient.cpp`（移除 `ArmRequestHandleWatchdog` 对 request 句柄的关闭；超时改由 per-op `WinHttpSetOption`（已有）+ 协作取消 + "超时后 owner 线程自行关闭"），`native/async/RequestWatchdog.h`（相应 API 收缩）。**分两小步**：3a 过渡——超时只置 cancel flag，句柄一律由发起线程在 WinHTTP 调用返回后关闭（最坏泄露窗口被 per-op timeout 上界封死）；3b 根治——评估并迁移异步 session（`WINHTTP_FLAG_ASYNC` + 状态回调所有权），3b 可在 3a 稳定后单独排期，不阻塞 Stage 4-7。
 - **为什么**：这是卡死嫌疑链上唯一被官方契约确认的实现级违规；CAS 不解决"使用中关闭"。
 - **RED**：(i) 结构契约测试：grep 级测试或封装层断言"request 句柄的 `WinHttpCloseHandle` 调用点只存在于 `ExecuteRequest` 调用线程上下文"（当前因 watchdog lambda 存在而红）；(ii) 压力测试：高并发 + 极短超时（1-10ms）× N 千次，统计异常错误形态与句柄计数——当前实现下可观测非确定性异常（此测试在 3a 后必须稳定）。
-- **GREEN**：(i) 转绿；(ii) 压力测试在 3a 后稳定通过且 `HttpClientLiveRequestHandleCount` 归零；既有超时行为不变（请求仍在预算内返回错误）。
+- **GREEN（2026-09-06 审查修订，验收拆分为两项独立承诺）**：
+  - **调用方返回时间**：所有请求在调用方预算内返回错误或结果（per-op timeout + 总预算），压力测试下 P99 返回时间有界——这是对用户可见的承诺。
+  - **底层退出与资源回收**：句柄计数 `HttpClientLiveRequestHandleCount` 在请求结束后归零；超时后底层 WinHTTP 调用最迟在 per-op timeout 上界内退出并释放句柄（3a 阶段该上界可能大于调用方 deadline，须如实记录两者差值，不得宣称等价）。
+  - (i) 转绿；(ii) 压力测试在 3a 后稳定通过；**"超时语义等价"只能指调用方返回时间等价，底层退出时间等价须在 3b（异步 session）后才可声称**。
 - **回归范围**：`http_client_resilience_test`、SongUrl/Login/Playlist 契约测试、全量 CTest；手动冒烟：弱网（限速/丢包）下搜索、取链、封面加载。
-- **完成标准**：全库不存在跨线程 `WinHttpCloseHandle`；超时语义等价；句柄计数无泄露。
+- **完成标准**：全库不存在"同步调用期间跨线程 `WinHttpCloseHandle`"；调用方返回时间语义等价；句柄计数无泄露；两项承诺的差值有记录。
 
 ### Stage 4 — 统计 FFI 迁出主线程（根因 R5，P0）
 
 - **问题**：6 个统计命令在主线程同步执行 FFI，经 `shared_lock` + Storage Actor `future.get()`，无 deadline（F18）；磁盘慢/锁竞争/关闭竞态时 UI 冻结。
 - **根因**：`stats.rs` 命令未 async 化，且 FFI 路径绕过了带 deadline 的 `EchoHandleRequest` 调度链。
-- **修改范围**：`ui/src-tauri/src/stats.rs`（6 个命令改 `async fn`，内部 `spawn_blocking` + 复用或新增专用信号量 + `tokio::time::timeout`），`ui/src-tauri/src/lib.rs`（注册不变；必要时提取共享的 bounded-ffi 辅助）；C++ 侧不在本 Stage 改动（若要加 deadline 属后续 Stage）。
+- **修改范围**：`ui/src-tauri/src/stats.rs`（6 个命令改 `async fn`，内部 `spawn_blocking` + 专用信号量 + `tokio::time::timeout`），`ui/src-tauri/src/lib.rs`（注册不变；必要时提取共享的 bounded-ffi 辅助）；C++ 侧不在本 Stage 改动（若要加 deadline 属后续 Stage）。
+- **存活上限约束（2026-09-06 审查修订，取代"复用现有 timeout 辅助"的隐含方案）**：
+  - 现有 `dispatch_bounded_ffl` 语义是"超时立即归还 permit，`spawn_blocking` 闭包继续运行"（F19），那是**准入上限而非存活上限**。若统计命令直接复用它，被超时放弃的 FFI 仍会无限累积——正是本 Stage 要修的 R5 家族问题。
+  - 因此统计命令的 permit 必须由 blocking 闭包持有直到闭包真正结束（存活上限 = 并发上限），调用方超时只放弃**等待**、不释放 permit。
+  - **排队纳入超时**：`tokio::time::timeout` 包住 acquire+执行全程（排队慢也算超时），不是只包执行段。
+  - **关闭边界**：应用退出时在途统计 FFI 的处理策略须写明（与 EchoShutdown 的 bounded shutdown 语义一致：等待上界内 join，超界 detach 由进程退出回收），并有测试覆盖"超时后闭包仍在跑"场景不产生 use-after-free/死锁。
+  - 已开始的 `spawn_blocking` 不会随调用方超时停止（Tokio 语义），任何"取消"只是放弃等待，文档与测试都必须以此为准。
 - **为什么**：这是可证实的"主线程可被数据库等待占住"路径；修复成本低、收益直接。
 - **RED**：集成测试——对 stats FFI 注入人为延迟（测试专用路径或替换 DLL 符号的现有测试机制），并发调用一个快速命令与 `stats_get_summary`，断言快速命令 P95 延迟不因统计调用而超过阈值（当前同步实现下必红）。
-- **GREEN**：命令 async 化后测试转绿；超时与排队语义有测试（超时返回错误而非无限等待；超过并发上限排队）。
+- **GREEN**：命令 async 化后测试转绿；超时与排队语义有测试（超时返回错误而非无限等待；超过并发上限排队；**存活任务数不超过并发上限——超时放弃等待后闭包结束时才归还 permit**）。
 - **回归范围**：`stats.rs` 两个既有测试、`lib.rs` dispatch 测试、`cargo test --tests`；手动：统计页在播放下刷切不卡顿。
-- **完成标准**：统计命令不占用主线程；排队/超时/关闭边界有定义与测试覆盖。
+- **完成标准**：统计命令不占用主线程；排队/超时/关闭边界有定义与测试覆盖；存活 FFI 数有上界且被测试锁定。
 
 ### Stage 5 — VIP 状态语义修正（根因 R1，P0 业务）
 
@@ -170,6 +197,8 @@
 - **问题**：顶层 `is_vip=1`/`vip_type>0` 不看时间（F3）；非法日期按永久（F4）。
 - **根因**：判真与取时间分离，判真分支无时间校验。
 - **修改范围**：`ui/src/features/account/vipResolver.ts`：顶层判真要求"存在有效到期时间且未过期"或"字段缺失时按 unknown 而非 true"；非法日期串（非空但解析失败）不再按永久处理，视同缺失。保留 busi_vip svip/music/musicpack 未过期判真与"最晚未过期"选取；保留 tvip 不解锁。
+- **unknown 与明确无权益必须区分（2026-09-06 审查修订）**：`unknown`（无法解析/字段缺失）在 UI 语义上不等于"无权益"——不得显示"已过期"或"无权益"的确切断言，只能显示"权益状态未知/同步中"类中性文案；`expired` 才可以明确显示过期。语义三态（active/expired/unknown）各自的前端展示约束写入代码注释并测试锁定。
+- **busi_vip 非法日期同样覆盖（2026-09-06 审查修订）**：busi_vip.svip/music/musicpack 子对象内的非法日期串（非空但解析失败）同顶层一样按缺失→unknown 处理，不得按永久判真；RED 需含 busi_vip 子对象非法日期用例。
 - **为什么**：显示层把过期 VIP 判真是 S4 的一半根因。
 - **RED**：新增用例——`{is_vip:1, vip_end_time: PAST}` → `isVip:false`；`{is_vip:1, vip_end_time:'not-a-date'}` → 不判真且 `vipEndDate` 不落非法串（当前实现红，对应探针 expiredTopLevel/invalidExpiry）。`vipResolver.test.ts` 现有用例均使用 FUTURE 或 busi_vip 路径，无旧断言需推翻。
 - **GREEN**：新用例 + 全部既有用例绿。
@@ -202,7 +231,8 @@
 
 - **问题**：v6 选音质后不重算试听标志（F10）；前端二次选 URL 与标志错配（F11）。
 - **根因**：试听标志绑定在"最初选中的 URL"上，而非"最终输出的 URL"。
-- **修改范围**：`SongUrlService.cpp`（选音质替换 URL 时同步重算该 URL 的预览标志与元数据；`available_qualities` 每项携带各自 `is_preview`）、`playbackOrchestrator.ts`（选 `finalUrl` 时同步采用该项的标志，而非全局 `result.is_preview`）。`status=1 + is_preview=true` 的试听降级语义保留（F8），不改 status 口径。
+- **修改范围**：`SongUrlService.cpp`（选音质替换 URL 时同步重算该 URL 的预览标志与元数据；`available_qualities` 每项携带各自的 `is_preview` 与 `delivery`），`playbackOrchestrator.ts`（选 `finalUrl` 时同步采用该项的标志，而非全局 `result.is_preview`）。`status=1 + is_preview=true` 的试听降级语义保留（F8），不改 status 口径。
+- **每音质项 delivery 一致（2026-09-06 审查修订）**：`available_qualities` 的每一项必须携带与该项 URL 同源的 `is_preview`/`delivery`，顶层字段只描述"当前选中项"；防止"换一次音质、错配一次"。RED/夹具需覆盖"切换音质后新选中项的标志与 URL 仍一致"的断言。
 - **为什么**：标志错配会让"试听"横幅错误消失/出现，也让 Stage 7 的完整播放验收失真。
 - **RED**：把探针场景转契约测试——v6 响应含高音质完整 URL + 低音质片段 URL，请求低音质，断言输出 URL 为片段且 `is_preview=true`（当前红）。
 - **GREEN**：契约测试 + `basic_contract_tests.cpp:1849-1868`（现有 v6 选音质契约）全绿。
@@ -239,6 +269,7 @@
   - **7b 契约测试（离线）**：夹具回放——登录成功含 vip_token 的响应 → 落库 → v6 请求携带 viptoken → 返回完整 URL；RefreshSession 双族顺序与失败回退；vip_token 轮换。RED = 当前 HEAD（无此链路）下夹具断言失败；GREEN = 主线改动下通过。
   - **7c 在线人工验收**：三路径（旧保存会话恢复 / 全新登录 / token 轮换后）× 三曲目（一首免费对照 + 两首确认需会员且账号确有权益），核验：取链 `delivery=full`（Stage 6b 字段）、实际播放越过 60s、seek 至近尾、媒体时长与元数据一致。脱敏记录归档 `outputs/`。
 - **为什么**：S1 的核心根因链；审计已证实"权益有效 + vip_token 空 + 试听"并存，修复材料在未提交改动中，必须验证后定案，不得直接当已修复。
+- **R2 定性（2026-09-06 审查修订）**：`vip_token` 空**与**试听同时出现只是相关性证据，"补 token 必然恢复完整播放"未经因果验证（协议侧可能还有 dfid/签名/设备链等共同条件）。在 7c 对照验收通过前，R2 只能作为**待验证的故障解释**，任何报告/提交说明不得写成"已确认根因"。
 - **RED**：当前保存会话（vip_token 空）的离线契约——该状态下输出必须如实标记 preview（结合 6b），且不存在"假装完整"路径；在线基线 = F13 探针结果。
 - **GREEN**：7b 夹具全绿 + 7c 三路径三曲目全部完整播放验收通过；或明确记录剩余断点（哪条路径、哪个 errcode）。
 - **回归范围**：`login_contract_test`、`youth_vip_contract_test`、`route_contract_test`、`songurl_contract_test`、全量 CTest、account/播放 vitest。

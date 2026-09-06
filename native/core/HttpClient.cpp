@@ -54,10 +54,12 @@ bool IsCancelled(const std::atomic_bool* cancelled) {
 }
 
 // Thin WinHTTP arm: winhttp close stays in this TU's lambda (core → async).
-void ArmRequestHandleWatchdog(HINTERNET request, long timeoutMs,
+// Returns false when the watchdog rejects the registration (backlog cap) —
+// the caller must fail the request instead of running it unwatched.
+bool ArmRequestHandleWatchdog(HINTERNET request, long timeoutMs,
                               std::shared_ptr<std::atomic_bool> claimed) {
-  if (!request || timeoutMs <= 0 || !claimed) return;
-  echo::async::RequestWatchdog::Instance().Arm(
+  if (!request || timeoutMs <= 0 || !claimed) return false;
+  return echo::async::RequestWatchdog::Instance().Arm(
       timeoutMs, std::move(claimed), [request]() { CloseRequestHandle(request); });
 }
 
@@ -271,8 +273,17 @@ HttpResult ExecuteRequest(
   // send/receive failure). Early disarm after ReceiveResponse used to skip
   // the final close — leaking every successful request handle (P0-A).
   auto watchdogCancelled = std::make_shared<std::atomic_bool>(false);
-  if (totalTimeoutMs > 0) {
-    ArmRequestHandleWatchdog(request, totalTimeoutMs, watchdogCancelled);
+  if (totalTimeoutMs > 0 &&
+      !ArmRequestHandleWatchdog(request, totalTimeoutMs, watchdogCancelled)) {
+    // Watchdog rejected the registration (pending backlog cap). Running
+    // without deadline enforcement is not an option — a hung send/receive
+    // would hold the handle indefinitely. Fail explicitly and release the
+    // handle we own (no watchdog was armed, so there is no close CAS race;
+    // the pooled connect stays healthy — this is admission control, not a
+    // poisoned connection).
+    result.error = "watchdog_overload";
+    CloseRequestHandle(request);
+    return result;
   }
 
   // CDN 30x 跳转必须显式跟随，否则封面/签名媒体 URL 会静默退化为占位/播放失败。
@@ -337,7 +348,10 @@ HttpResult ExecuteRequest(
     result.timedOut = watchdogFired;
     result.error = LastErrorText("WinHttpSendRequest/WinHttpReceiveResponse");
     if (!watchdogFired) {
-      // We own the close.
+      // We own the close — and the deadline entry: release its admission
+      // budget now instead of holding it until the deadline expires.
+      // (Watchdog-won entries are released by the executor on completion.)
+      echo::async::RequestWatchdog::Instance().Cancel(watchdogCancelled);
       CloseRequestHandle(request);
     }
     pool.Evict(url.host, url.port);  // 剔除坏 connect，避免永久复用中毒句柄
@@ -384,6 +398,9 @@ HttpResult ExecuteRequest(
   bool watchdogClaimed = !watchdogCancelled->compare_exchange_strong(
       expectedFinal, true, std::memory_order_acq_rel);
   if (!watchdogClaimed) {
+    // Owner won: release the deadline entry's admission budget immediately
+    // (watchdog-won entries are released by the executor on completion).
+    echo::async::RequestWatchdog::Instance().Cancel(watchdogCancelled);
     CloseRequestHandle(request);  // 仅关 request；connect/session 由池管理
   }
   return result;
@@ -444,8 +461,15 @@ HttpResult HttpClient::Get(
       res.error = "cancelled";
       return res;
     }
-    bool transient = res.timedOut ||
-                     (!res.error.empty() && res.statusCode == 0);
+    // Watchdog admission failure is a LOCAL rejection, not a network
+    // condition: return it verbatim and immediately. Classifying it as
+    // transient used to send it through the backoff schedule, turning a
+    // fast deterministic error into a multi-second one (review probe:
+    // 2527ms) while hammering a saturated watchdog with more requests.
+    const bool admissionFailure = res.error == "watchdog_overload";
+    bool transient = !admissionFailure &&
+                     (res.timedOut ||
+                      (!res.error.empty() && res.statusCode == 0));
     if (!transient || attempt == 2) return res;
     std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs[attempt]));
   }

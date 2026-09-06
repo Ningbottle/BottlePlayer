@@ -3,10 +3,15 @@
 // Uses a local TCP listener that accepts but never responds, so timeout
 // behavior is deterministic and does not depend on external network.
 
+#include <atomic>
 #include <cassert>
+#include <cctype>
 #include <chrono>
+#include <cstdlib>
 #include <cstring>
 #include <iostream>
+#include <memory>
+#include <sstream>
 #include <string>
 #include <thread>
 #include <vector>
@@ -15,6 +20,7 @@
 #include <ws2tcpip.h>
 #include <windows.h>
 
+#include "echo/async/RequestWatchdog.h"
 #include "echo/core/HttpClient.h"
 
 using echo::core::HttpClient;
@@ -69,6 +75,11 @@ static void StartUnresponsiveServer() {
 }
 
 // Minimal local HTTP server that responds immediately with 200 OK.
+// Reads the ENTIRE request (headers + Content-Length body) before
+// responding: WinHTTP writes headers and body as separate TCP segments,
+// so the old single-recv + immediate-close could RST the client's body
+// write and turn an occasional POST into a connection error — the flaky
+// non-200 the review caught in the 306-request quota loop.
 // Used to exercise the SUCCESS path of ExecuteRequest (where request-handle
 // close must run — P0-A regression for WinHTTP handle leak).
 static int g_okPort = 0;
@@ -98,9 +109,39 @@ static void StartOkServer() {
       int clilen = sizeof(cli);
       SOCKET c = accept(srv, (sockaddr*)&cli, &clilen);
       if (c == INVALID_SOCKET) break;
-      char buf[1024];
-      // Drain request headers (best-effort; local only).
-      recv(c, buf, sizeof(buf), 0);
+      // Read until end-of-headers, then Content-Length body bytes.
+      std::string accum;
+      size_t headerEnd = std::string::npos;
+      long contentLength = 0;
+      bool headersDone = false;
+      bool complete = false;
+      char buf[2048];
+      while (!complete) {
+        int n = recv(c, buf, sizeof(buf), 0);
+        if (n <= 0) break;  // client went away or errored
+        accum.append(buf, static_cast<size_t>(n));
+        if (!headersDone) {
+          headerEnd = accum.find("\r\n\r\n");
+          if (headerEnd != std::string::npos) {
+            headersDone = true;
+            std::string lower;
+            lower.reserve(accum.size());
+            for (char ch : accum) {
+              lower.push_back(static_cast<char>(
+                  std::tolower(static_cast<unsigned char>(ch))));
+            }
+            auto pos = lower.find("content-length:");
+            if (pos != std::string::npos && pos < headerEnd) {
+              contentLength = strtol(accum.c_str() + pos + 15, nullptr, 10);
+              if (contentLength < 0) contentLength = 0;
+            }
+          }
+        }
+        if (headersDone &&
+            accum.size() >= headerEnd + 4 + static_cast<size_t>(contentLength)) {
+          complete = true;
+        }
+      }
       send(c, response, static_cast<int>(strlen(response)), 0);
       closesocket(c);
     }
@@ -245,6 +286,141 @@ int main() {
     // Post-fix every success closes → liveDelta == 0.
     CHECK(liveDelta == 0,
           "successful requests close every WinHTTP request handle (no live growth)");
+  }
+
+  std::cout << "[Test] HTTP quota: completed requests release watchdog admission budget...\n";
+  {
+    // Review P1: the owner-wins cleanup paths closed the request handle but
+    // never cancelled the deadline entry — every completed request held its
+    // admission budget until the deadline expired, so the new 256-entry cap
+    // produced spurious watchdog_overload after ~256 requests (review
+    // probe: 256 OK, then overload). Regression: more than the cap's worth
+    // of sequential requests must all succeed.
+    using echo::async::RequestWatchdog;
+    RequestWatchdog& wd = RequestWatchdog::Instance();
+    const int kRequests = static_cast<int>(RequestWatchdog::kMaxPendingEntries) + 50;
+    HttpClient client;
+    std::string url = "http://127.0.0.1:" + std::to_string(g_okPort) + "/quota";
+    int oks = 0;
+    bool overloaded = false;
+    std::string firstFailure;
+    for (int i = 0; i < kRequests; ++i) {
+      auto res = client.Post(url, "{}", {}, /*totalTimeoutMs=*/2000);
+      if (res.error == "watchdog_overload") { overloaded = true; break; }
+      if (res.statusCode == 200) {
+        ++oks;
+      } else if (firstFailure.empty()) {
+        // Review requirement: record the failing request's index, status,
+        // error and timedOut so a flake is diagnosable, and keep looping so
+        // a single failure cannot hide its siblings.
+        std::ostringstream ss;
+        ss << "i=" << i << " status=" << res.statusCode
+           << " timedOut=" << (res.timedOut ? "Y" : "N")
+           << " error=" << res.error;
+        firstFailure = ss.str();
+      }
+    }
+    if (!firstFailure.empty()) {
+      std::cout << "  [debug] first non-200 in success loop: " << firstFailure
+                << "\n";
+    }
+    CHECK(!overloaded,
+          "success loop past the backlog cap never hits watchdog_overload (quota released per completion)");
+    CHECK(firstFailure.empty() && oks == kRequests,
+          "all success-loop requests returned 200 (no connection/body races)");
+    bool drained = false;
+    for (int i = 0; i < 500 && !drained; ++i) {
+      drained = wd.DebugPendingActions() == 0;
+      if (!drained) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(drained, "watchdog pending returns to 0 after the success loop");
+    CHECK(echo::core::HttpClientLiveRequestHandleCount() == 0,
+          "no request handles leaked by the success loop");
+  }
+
+  std::cout << "[Test] HTTP failure cleanup releases the deadline quota promptly...\n";
+  {
+    using echo::async::RequestWatchdog;
+    RequestWatchdog& wd = RequestWatchdog::Instance();
+    HttpClient client;
+    // Unresponsive server: send succeeds, receive fails at its per-op
+    // timeout → owner-wins CAS cleanup path (the one that used to skip
+    // Cancel). The deadline (900ms) has NOT expired yet, so the quota must
+    // be released by the cleanup, not by the deadline.
+    std::string url = "http://127.0.0.1:" + std::to_string(g_listenPort) + "/fail";
+    auto res = client.Post(url, "{}", {}, /*totalTimeoutMs=*/900);
+    CHECK(!res.error.empty(), "unresponsive server produces an error (owner cleanup path)");
+    // Short poll on purpose: pending must hit 0 well before the 900ms
+    // deadline expires, proving the cleanup (not the deadline) released it.
+    bool drained = false;
+    for (int i = 0; i < 30 && !drained; ++i) {
+      drained = wd.DebugPendingActions() == 0;
+      if (!drained) std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    CHECK(drained, "quota released promptly after failure cleanup (not held until deadline)");
+    CHECK(echo::core::HttpClientLiveRequestHandleCount() == 0,
+          "no request handles leaked on the failure path");
+
+    std::string okUrl = "http://127.0.0.1:" + std::to_string(g_okPort) + "/after-fail";
+    auto ok = client.Post(okUrl, "{}", {}, /*totalTimeoutMs=*/2000);
+    CHECK(ok.statusCode == 200 && ok.error.empty(),
+          "watchdog still accepts new deadlines after failure cleanup");
+  }
+
+  std::cout << "[Test] watchdog saturation: HTTP admission failures are immediate and preserved...\n";
+  {
+    // Review P2: GET classified watchdog_overload as a transient network
+    // error and retried it through the backoff schedule (probe: 2527ms for
+    // a 1000ms budget). The admission failure must come back verbatim and
+    // immediately, for GET and POST alike, without leaking handles.
+    using echo::async::RequestWatchdog;
+    RequestWatchdog& wd = RequestWatchdog::Instance();
+
+    struct SatState {
+      std::atomic<bool> drain{false};
+      std::atomic<int> completed{0};
+    };
+    auto st = std::make_shared<SatState>();
+    auto blocking = [st] {
+      while (!st->drain.load(std::memory_order_acquire)) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      }
+      st->completed.fetch_add(1, std::memory_order_acq_rel);
+    };
+    int armed = 0;
+    while (wd.Arm(1, std::make_shared<std::atomic_bool>(false), blocking)) {
+      ++armed;
+      if (armed > 4000) break;  // safety net against a broken cap
+    }
+    CHECK(wd.DebugPendingActions() == RequestWatchdog::kMaxPendingEntries,
+          "http saturation setup: watchdog backlog at cap");
+
+    HttpClient client;
+    std::string url = "http://127.0.0.1:" + std::to_string(g_okPort) + "/sat";
+
+    auto start = std::chrono::steady_clock::now();
+    auto res = client.Get(url, {}, /*totalTimeoutMs=*/2000);
+    auto elapsedMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - start).count();
+    std::cout << "  [debug] GET elapsed=" << elapsedMs << "ms error=" << res.error << "\n";
+    CHECK(res.error == "watchdog_overload",
+          "GET: admission failure preserved verbatim (not classified transient)");
+    CHECK(elapsedMs < 1000,
+          "GET: returns immediately — no retry backoff on admission failure");
+    CHECK(res.statusCode == 0, "GET: no HTTP status for a local rejection");
+
+    auto pres = client.Post(url, "{}", {}, /*totalTimeoutMs=*/2000);
+    CHECK(pres.error == "watchdog_overload", "POST: admission failure preserved verbatim");
+    CHECK(echo::core::HttpClientLiveRequestHandleCount() == 0,
+          "rejected requests leak no request handles");
+
+    st->drain.store(true, std::memory_order_release);
+    bool drained = false;
+    for (int i = 0; i < 1000 && !drained; ++i) {
+      drained = st->completed.load() == armed && wd.DebugPendingActions() == 0;
+      if (!drained) std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    }
+    CHECK(drained, "http saturation teardown: watchdog fully drained");
   }
 
   std::cout << "[Test] All HttpClient resilience tests completed.\n";
