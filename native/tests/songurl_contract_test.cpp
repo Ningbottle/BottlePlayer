@@ -181,6 +181,11 @@ int main() {
     assert(qualities[0].contains("is_preview") && qualities[0]["is_preview"] == false);
     assert(qualities[1].contains("is_preview") && qualities[1]["is_preview"] == true);
 
+    // F10 元数据一致：切到 128/mp3 后，data 元数据描述最终条目（码率/扩展名
+    // 随之重算），而不是停留在最高码率的 320/flac。
+    assert(result["data"]["bit_rate"] == 128);
+    assert(result["data"]["ext_name"] == "mp3");
+
     // The reported quality follows the switched selection.
     assert(result.value("quality", std::string{}) == "128");
     std::cout << "  [ok] quality switch keeps URL/preview flag consistent" << std::endl;
@@ -189,12 +194,15 @@ int main() {
   // ── Stage 6a (reverse): switching to a FULL url must declare full ─────
   std::cout << "[SongUrlContract] Testing reverse switch (preview best → full entry)..." << std::endl;
   {
-    // Mirror direction: the best-bitrate pick is a preview-marked URL and
-    // the requested quality maps to a /full/ entry. After the replacement
-    // the output must declare FULL playback (is_preview=false) — the old
-    // implementation kept the preview flag from the original pick.
-    // The best URL is marker-less (a synthetic/complete address, no /yp/p_
-    // marker → not "degraded"), so the request stays on the v6 path.
+    // Mirror direction: the best-bitrate pick is a MARKER-LESS synthetic
+    // URL — under the current F9 heuristic (no /full/ → preview) it counts
+    // as preview and is not "degraded" (no /yp/p_ marker), so the request
+    // stays on the v6 path. NOTE for 6b: once the delivery matrix
+    // reclassifies marker-less URLs as unknown, this fixture must be
+    // revisited (a true /yp/p_ best would take the v5 fallback instead).
+    // After the replacement the output must declare FULL playback
+    // (is_preview=false) — the old implementation kept the preview flag
+    // from the original pick.
     echo::core::SongUrlService svc(
         [](const std::string&,
            const std::unordered_map<std::string, std::string>&) {

@@ -177,6 +177,7 @@ nlohmann::json BuildSongUrlOutput(SongUrlOutput out) {
       {"url", out.playUrl},
       {"play_url", out.playUrl},
       {"playUrl", out.playUrl},
+      {"quality", out.quality}, // Stage 6a: 顶层与 data.quality 同源（切换后由 Resolve 同步）
       {"is_preview", out.isPreview},
       {"vip_required", out.vipRequired},
       {"data",
@@ -441,8 +442,9 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
         if (!itemUrl.empty() || !itemBackup.empty()) {
           const auto entryUrl = itemUrl.empty() ? itemBackup : itemUrl;
           // Stage 6a: 条目级 is_preview —— 用与顶层相同的 URL 形状规则
-          // （!hasFullSegment）逐条计算。替换音质时（见 Resolve）依赖
-          // 此字段重算顶层标志，避免"URL 已切到试听、标志仍是完整"。
+          // （!hasFullSegment）逐条计算。替换音质时（见 Resolve）**读取此
+          // 字段**重算顶层标志，避免"URL 已切到试听、标志仍是完整"。
+          // 判定矩阵的唯一来源在此处；6b 的 delivery 也从这里派生。
           const bool entryIsPreview =
               entryUrl.find("/yp/full/") == std::string::npos &&
               entryUrl.find("/full/") == std::string::npos;
@@ -453,6 +455,11 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
               {"bitRate", itemBitRate},
               {"extName", itemExt},
               {"is_preview", entryIsPreview},
+              // 条目级元数据：音质切换时 data 层元数据随选中条目重算（F10）。
+              {"fileName", ReadString(info, "fileName")},
+              {"songName", ReadString(info, "songName")},
+              {"singerName", ReadString(info, "singerName")},
+              {"timeLength", ReadInt(info, "timeLength", 0)},
           };
           availableQualities.push_back(qualityEntry);
         }
@@ -643,14 +650,39 @@ nlohmann::json SongUrlService::Resolve(
               data["play_url"] = preferredUrl;
               data["playUrl"] = preferredUrl;
               data["quality"] = quality;
-              v6["quality"] = quality; // 顶层 quality 同步（BuildSongUrlOutput 写的是最高码率候选）
-              // Stage 6a: 重算顶层与 data 层的 is_preview —— 原标志描述的是
-              // 最高码率候选，而非切换后的最终 URL（F10：切到试听仍报完整）。
-              const bool switchedIsPreview =
-                  preferredUrl.find("/yp/full/") == std::string::npos &&
-                  preferredUrl.find("/full/") == std::string::npos;
+              v6["quality"] = quality; // 顶层 quality 由 BuildSongUrlOutput 提供（最高码率候选），切换后同步
+              // Stage 6a: is_preview 读取**条目级字段**（单一判定源，
+              // ResolveV6PrivUrl 已按各条 URL 形状算好）；6b 的 delivery
+              // 矩阵演化时只改那一处，顶层/条目不会分叉。
+              const bool switchedIsPreview = candidate.value("is_preview", false);
               v6["is_preview"] = switchedIsPreview;
               data["is_preview"] = switchedIsPreview;
+              // F10 元数据随选中条目重算：码率/扩展名/时长/文件名等描述
+              // 最终播放的条目，而不是最高码率候选。
+              if (candidate.contains("bitRate")) {
+                data["bit_rate"] = candidate["bitRate"];
+                data["bitRate"] = candidate["bitRate"];
+              }
+              if (candidate.contains("extName")) {
+                data["ext_name"] = candidate["extName"];
+                data["extName"] = candidate["extName"];
+              }
+              if (candidate.contains("timeLength")) {
+                data["time_length"] = candidate["timeLength"];
+                data["timeLength"] = candidate["timeLength"];
+              }
+              if (candidate.contains("fileName")) {
+                data["file_name"] = candidate["fileName"];
+                data["fileName"] = candidate["fileName"];
+              }
+              if (candidate.contains("songName")) {
+                data["song_name"] = candidate["songName"];
+                data["songName"] = candidate["songName"];
+              }
+              if (candidate.contains("singerName")) {
+                data["singer_name"] = candidate["singerName"];
+                data["singerName"] = candidate["singerName"];
+              }
               break;
             }
           }
