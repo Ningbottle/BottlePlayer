@@ -1,35 +1,58 @@
-use std::ffi::CStr;
-use std::ffi::CString;
 use crate::backend_api;
 use crate::dispatch_stats_ffi;
+use std::ffi::CStr;
+use std::ffi::CString;
 
 // Stage 4 (vip-stability remediation plan / F18): these six commands used to
 // be SYNC Tauri commands — the stats FFI ran on the main thread with no
 // deadline, freezing the UI on disk contention or the shutdown race. They
 // are now async and dispatch through the survival-bounded stats FFI helper
 // (lib.rs): dedicated 4-permit cap, permit held by the blocking closure
-// until it finishes, and a 3s timeout covering queueing + execution. The
-// C++ side (EchoStats*) is untouched — every call site below is the same
-// FFI call it always was, just off the main thread and bounded.
+// until it finishes, and a 3s timeout covering queueing + execution.
+//
+// B06: EchoStatsRecordPlay now reports its outcome (C_API.h
+// EchoStatsRecordStatus). The command maps those codes onto the Result —
+// a below-threshold listen stays Ok (a short listen is a normal outcome,
+// not an error and must never disturb playback), while invalid input,
+// unparseable JSON, missing backend, and storage failures surface as
+// `stats_*` errors the UI can log instead of silently pretending success.
+
+// C_API.h EchoStatsRecordStatus codes.
+const ECHO_STATS_RECORDED: i32 = 0;
+const ECHO_STATS_BELOW_THRESHOLD: i32 = 1;
+const ECHO_STATS_INVALID_RECORD: i32 = 2;
+const ECHO_STATS_BAD_JSON: i32 = 3;
+const ECHO_STATS_NOT_INITIALIZED: i32 = 4;
 
 #[tauri::command]
 pub async fn stats_record_play(json: String) -> Result<(), String> {
-    dispatch_stats_ffi(move || {
-        let guard = backend_api::api_handle()?;
+    dispatch_stats_ffi(move |control| {
+        let guard = backend_api::api_handle_for_request(&control)?;
         let handle = guard.as_ref().unwrap();
-        let cstr = CString::new(json).map_err(|e| e.to_string())?;
-        unsafe { (handle.stats_record_play)(cstr.as_ptr()) };
-        Ok(())
+        let cstr = CString::new(json).map_err(|e| format!("stats_bad_json: {e}"))?;
+        control.claim_dll_start()?;
+        let status = unsafe { (handle.stats_record_play)(cstr.as_ptr()) };
+        match status {
+            ECHO_STATS_RECORDED => Ok(()),
+            // Normal outcome: the listen is shorter than the counting
+            // threshold. Not recorded by design, not an error.
+            ECHO_STATS_BELOW_THRESHOLD => Ok(()),
+            ECHO_STATS_INVALID_RECORD => Err("stats_invalid_record".into()),
+            ECHO_STATS_BAD_JSON => Err("stats_bad_json".into()),
+            ECHO_STATS_NOT_INITIALIZED => Err("stats_not_initialized".into()),
+            _ => Err("stats_storage_error".into()),
+        }
     })
     .await
 }
 
 #[tauri::command]
 pub async fn stats_get_summary(range: String) -> Result<String, String> {
-    dispatch_stats_ffi(move || {
-        let guard = backend_api::api_handle()?;
+    dispatch_stats_ffi(move |control| {
+        let guard = backend_api::api_handle_for_request(&control)?;
         let handle = guard.as_ref().unwrap();
         let cstr = CString::new(range).map_err(|e| e.to_string())?;
+        control.claim_dll_start()?;
         let ptr = unsafe { (handle.stats_get_summary)(cstr.as_ptr()) };
         if ptr.is_null() {
             return Err("null summary".into());
@@ -43,11 +66,12 @@ pub async fn stats_get_summary(range: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn stats_get_top(kind: String, range: String, limit: i32) -> Result<String, String> {
-    dispatch_stats_ffi(move || {
-        let guard = backend_api::api_handle()?;
+    dispatch_stats_ffi(move |control| {
+        let guard = backend_api::api_handle_for_request(&control)?;
         let handle = guard.as_ref().unwrap();
         let c_kind = CString::new(kind).map_err(|e| e.to_string())?;
         let c_range = CString::new(range).map_err(|e| e.to_string())?;
+        control.claim_dll_start()?;
         let ptr = unsafe { (handle.stats_get_top)(c_kind.as_ptr(), c_range.as_ptr(), limit) };
         if ptr.is_null() {
             return Err("null top".into());
@@ -61,10 +85,11 @@ pub async fn stats_get_top(kind: String, range: String, limit: i32) -> Result<St
 
 #[tauri::command]
 pub async fn stats_get_timeline(range: String) -> Result<String, String> {
-    dispatch_stats_ffi(move || {
-        let guard = backend_api::api_handle()?;
+    dispatch_stats_ffi(move |control| {
+        let guard = backend_api::api_handle_for_request(&control)?;
         let handle = guard.as_ref().unwrap();
         let cstr = CString::new(range).map_err(|e| e.to_string())?;
+        control.claim_dll_start()?;
         let ptr = unsafe { (handle.stats_get_timeline)(cstr.as_ptr()) };
         if ptr.is_null() {
             return Err("null timeline".into());
@@ -78,9 +103,10 @@ pub async fn stats_get_timeline(range: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn stats_get_recent(limit: i32, offset: i32) -> Result<String, String> {
-    dispatch_stats_ffi(move || {
-        let guard = backend_api::api_handle()?;
+    dispatch_stats_ffi(move |control| {
+        let guard = backend_api::api_handle_for_request(&control)?;
         let handle = guard.as_ref().unwrap();
+        control.claim_dll_start()?;
         let ptr = unsafe { (handle.stats_get_recent)(limit, offset) };
         if ptr.is_null() {
             return Err("null recent".into());
@@ -94,9 +120,10 @@ pub async fn stats_get_recent(limit: i32, offset: i32) -> Result<String, String>
 
 #[tauri::command]
 pub async fn stats_get_recommendations(limit: i32) -> Result<String, String> {
-    dispatch_stats_ffi(move || {
-        let guard = backend_api::api_handle()?;
+    dispatch_stats_ffi(move |control| {
+        let guard = backend_api::api_handle_for_request(&control)?;
         let handle = guard.as_ref().unwrap();
+        control.claim_dll_start()?;
         let ptr = unsafe { (handle.stats_get_recommendations)(limit) };
         if ptr.is_null() {
             return Err("null recommendations".into());
@@ -151,17 +178,20 @@ mod tests {
 
     fn find_dll() -> String {
         let candidates: Vec<String> = {
-            let mut v: Vec<String> = std::env::var("ECHO_CAPI_DLL")
-                .ok()
-                .into_iter()
-                .collect();
+            let mut v: Vec<String> = std::env::var("ECHO_CAPI_DLL").ok().into_iter().collect();
             if cfg!(target_os = "windows") {
                 v.push("../../../native/out/bottlemusic-check/EchoCAPI.dll".into());
-                v.push(format!("{}/target/debug/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR")));
+                v.push(format!(
+                    "{}/target/debug/EchoCAPI.dll",
+                    env!("CARGO_MANIFEST_DIR")
+                ));
                 v.push(format!("{}/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR")));
             } else {
                 v.push("../../../native/out/bottlemusic-check/libEchoCAPI.so".into());
-                v.push(format!("{}/target/debug/libEchoCAPI.so", env!("CARGO_MANIFEST_DIR")));
+                v.push(format!(
+                    "{}/target/debug/libEchoCAPI.so",
+                    env!("CARGO_MANIFEST_DIR")
+                ));
             }
             v
         };
@@ -170,8 +200,11 @@ mod tests {
             .find(|p| std::path::Path::new(p.as_str()).exists())
             .cloned()
             .unwrap_or_else(|| {
-                panic!("Could not find EchoCAPI library in candidates: {:?}", candidates);
-        })
+                panic!(
+                    "Could not find EchoCAPI library in candidates: {:?}",
+                    candidates
+                );
+            })
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -233,21 +266,85 @@ mod tests {
 
         let records = vec![
             // album-1: 5 plays across Song A (3) + Song B (2)
-            make_record("hashA", "Song A", "Artist X", "album-1", "Album One", 240.0, true, 240.0, day1),
-            make_record("hashA", "Song A", "Artist X", "album-1", "Album One", 240.0, true, 240.0, day1 + 1000),
-            make_record("hashA", "Song A", "Artist X", "album-1", "Album One", 240.0, true, 240.0, day2 - 2000),
-            make_record("hashB", "Song B", "Artist X", "album-1", "Album One", 180.0, false, 90.0, day1 + 2000),
-            make_record("hashB", "Song B", "Artist X", "album-1", "Album One", 180.0, false, 90.0, day2 - 1000),
+            make_record(
+                "hashA",
+                "Song A",
+                "Artist X",
+                "album-1",
+                "Album One",
+                240.0,
+                true,
+                240.0,
+                day1,
+            ),
+            make_record(
+                "hashA",
+                "Song A",
+                "Artist X",
+                "album-1",
+                "Album One",
+                240.0,
+                true,
+                240.0,
+                day1 + 1000,
+            ),
+            make_record(
+                "hashA",
+                "Song A",
+                "Artist X",
+                "album-1",
+                "Album One",
+                240.0,
+                true,
+                240.0,
+                day2 - 2000,
+            ),
+            make_record(
+                "hashB",
+                "Song B",
+                "Artist X",
+                "album-1",
+                "Album One",
+                180.0,
+                false,
+                90.0,
+                day1 + 2000,
+            ),
+            make_record(
+                "hashB",
+                "Song B",
+                "Artist X",
+                "album-1",
+                "Album One",
+                180.0,
+                false,
+                90.0,
+                day2 - 1000,
+            ),
             // album-2: 1 play (Song C). Same display name "Album One" — must
             // NOT merge with album-1 when grouping by album_id.
-            make_record("hashC", "Song C", "Artist Y", "album-2", "Album One", 300.0, true, 300.0, day2),
+            make_record(
+                "hashC",
+                "Song C",
+                "Artist Y",
+                "album-2",
+                "Album One",
+                300.0,
+                true,
+                300.0,
+                day2,
+            ),
         ];
 
         for record in &records {
-            stats_record_play(record.clone()).await.expect("record_play failed");
+            stats_record_play(record.clone())
+                .await
+                .expect("record_play failed");
         }
 
-        let result = stats_get_summary("all".into()).await.expect("get_summary failed");
+        let result = stats_get_summary("all".into())
+            .await
+            .expect("get_summary failed");
         let j: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(j["total_plays"], 6);
         assert_eq!(j["unique_songs"], 3);
@@ -255,7 +352,9 @@ mod tests {
         assert_eq!(j["range"], "all");
         assert!((j["total_listened_seconds"].as_f64().unwrap() - 1200.0).abs() < 0.01);
 
-        let result = stats_get_top("song".into(), "all".into(), 10).await.expect("get_top failed");
+        let result = stats_get_top("song".into(), "all".into(), 10)
+            .await
+            .expect("get_top failed");
         let j: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(j["dim"], "song");
         assert_eq!(j["items"].as_array().unwrap().len(), 3);
@@ -266,7 +365,9 @@ mod tests {
         assert_eq!(j["items"][2]["name"], "Song C");
         assert_eq!(j["items"][2]["play_count"], 1);
 
-        let result = stats_get_top("artist".into(), "all".into(), 10).await.expect("get_top failed");
+        let result = stats_get_top("artist".into(), "all".into(), 10)
+            .await
+            .expect("get_top failed");
         let j: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(j["dim"], "artist");
         assert_eq!(j["items"].as_array().unwrap().len(), 2);
@@ -275,7 +376,9 @@ mod tests {
         assert_eq!(j["items"][1]["name"], "Artist Y");
         assert_eq!(j["items"][1]["play_count"], 1);
 
-        let result = stats_get_top("album".into(), "all".into(), 10).await.expect("get_top failed");
+        let result = stats_get_top("album".into(), "all".into(), 10)
+            .await
+            .expect("get_top failed");
         let j: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(j["dim"], "album");
         assert_eq!(j["items"].as_array().unwrap().len(), 2);
@@ -287,7 +390,9 @@ mod tests {
         assert_eq!(j["items"][1]["album_id"], "album-2");
         assert_eq!(j["items"][1]["play_count"], 1);
 
-        let result = stats_get_timeline("all".into()).await.expect("get_timeline failed");
+        let result = stats_get_timeline("all".into())
+            .await
+            .expect("get_timeline failed");
         let j: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert!(j["items"].is_array());
         assert_eq!(j["items"].as_array().unwrap().len(), 2);
@@ -309,16 +414,69 @@ mod tests {
         let j: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(j["items"].as_array().unwrap().len(), 3);
 
-        let result = stats_get_recommendations(5).await.expect("get_recommendations failed");
+        let result = stats_get_recommendations(5)
+            .await
+            .expect("get_recommendations failed");
         let j: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert!(j["items"].is_array());
         assert!(!j["items"].as_array().unwrap().is_empty());
         assert_eq!(j["items"][0]["singer"], "Artist X");
 
-        stats_record_play("not valid json".into()).await.expect("invalid json should be no-op");
-        let result = stats_get_summary("all".into()).await.expect("get_summary failed");
+        // B06: invalid input is no longer a silent no-op — the command
+        // surfaces a diagnosable error and the stored counts stay unchanged.
+        let invalid = stats_record_play("not valid json".into()).await;
+        assert!(
+            matches!(invalid, Err(ref e) if e.contains("stats_bad_json")),
+            "invalid json must surface as stats_bad_json, got {:?}",
+            invalid
+        );
+        stats_record_play(make_record(
+            "",
+            "No Identity",
+            "Artist X",
+            "album-1",
+            "Album One",
+            240.0,
+            true,
+            240.0,
+            day2,
+        ))
+        .await
+        .expect_err("empty song identity must be rejected");
+        stats_record_play(make_record(
+            "hashNeg",
+            "Neg",
+            "Artist X",
+            "album-1",
+            "Album One",
+            240.0,
+            true,
+            240.0,
+            -5,
+        ))
+        .await
+        .expect_err("negative played_at must be rejected");
+        // Below-threshold remains a NORMAL outcome (Ok) — short listens are
+        // not counted and must not disturb playback.
+        stats_record_play(make_record(
+            "hashShort",
+            "Short",
+            "Artist Z",
+            "album-s",
+            "Short Album",
+            120.0,
+            false,
+            30.0,
+            day2,
+        ))
+        .await
+        .expect("below-threshold listen is a normal outcome");
+        let result = stats_get_summary("all".into())
+            .await
+            .expect("get_summary failed");
         let j: serde_json::Value = serde_json::from_str(&result).unwrap();
         assert_eq!(j["total_plays"], 6);
+        assert_eq!(j["unique_songs"], 3);
 
         backend_api::shutdown_c_api();
         let _ = std::fs::remove_dir_all(&app_data_dir);
@@ -384,9 +542,11 @@ mod tests {
                 // abandonment (the exact shutdown-race shape from the plan).
                 let _ = crate::dispatch_stats_ffi_with(
                     &crate::stats_ffi_semaphore(),
+                    &crate::stats_ffi_waiter_semaphore(),
                     Duration::from_millis(250),
-                    move || {
-                        let _guard = backend_api::api_handle()?;
+                    move |control| {
+                        let _guard = backend_api::api_handle_for_request(&control)?;
+                        control.claim_dll_start()?;
                         entered.store(true, std::sync::atomic::Ordering::Release);
                         while !gate.load(std::sync::atomic::Ordering::Acquire) {
                             std::thread::sleep(Duration::from_millis(5));
@@ -399,9 +559,11 @@ mod tests {
             }
         });
 
-        let entered_ok =
-            wait_until(Duration::from_secs(5), || entered.load(Ordering::Acquire));
-        assert!(entered_ok, "the closure did not acquire the read guard in time");
+        let entered_ok = wait_until(Duration::from_secs(5), || entered.load(Ordering::Acquire));
+        assert!(
+            entered_ok,
+            "the closure did not acquire the read guard in time"
+        );
         tokio::time::sleep(Duration::from_millis(400)).await; // dispatcher deadline (250ms) has fired
 
         // Shutdown while the abandoned closure still holds the read guard:
@@ -418,9 +580,11 @@ mod tests {
         // The DLL was NOT unloaded: the gated closure finishes safely once
         // the barrier drops (a crashed/unmapped DLL would fail here).
         drop(_gate_guard);
-        let completed_ok =
-            wait_until(Duration::from_secs(5), || completed.load(Ordering::Acquire));
-        assert!(completed_ok, "the abandoned closure must finish safely after shutdown");
+        let completed_ok = wait_until(Duration::from_secs(5), || completed.load(Ordering::Acquire));
+        assert!(
+            completed_ok,
+            "the abandoned closure must finish safely after shutdown"
+        );
 
         task.await.unwrap();
         // Now uncontended: a second shutdown completes the real teardown.

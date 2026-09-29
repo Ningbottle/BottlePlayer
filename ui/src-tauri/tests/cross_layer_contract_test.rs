@@ -13,9 +13,9 @@
 //! * Error envelopes out of EchoHandleRequest:
 //!   - uninitialized backend -> structured 500 envelope, and
 //!   - unregistered route -> structured 404 "Unknown route" envelope.
-//!   Both are deterministic local decisions (see each test for the source) and
-//!   never depend on network reachability. A watchdog fails the test instead
-//!   of letting it hang.
+//!     Both are deterministic local decisions (see each test for the source) and
+//!     never depend on network reachability. A watchdog fails the test instead
+//!     of letting it hang.
 //!
 //! Hermetic guarantees: every test initializes the backend into a fresh
 //! temp directory (never the real app data directory) and removes it
@@ -43,28 +43,39 @@ fn lock_contract() -> std::sync::MutexGuard<'static, ()> {
     CONTRACT_LOCK.lock().unwrap_or_else(|p| p.into_inner())
 }
 
-/// Same candidate chain as tests/playback_ffi_test.rs: packaged debug build
-/// first, then libs/, then the ECHO_CAPI_DLL override, then the CMake tree.
+/// DLL selection for integration tests.
+/// Prefer `ECHO_CAPI_DLL` when set so a freshly built candidate can be pinned;
+/// then packaged `target/debug` (sqlite3 colocated by build.rs), then `libs/`,
+/// then the CMake check tree. Always log the selected path for identity proof.
 fn find_dll() -> PathBuf {
-    let candidates = [
-        Some(format!(
-            "{}/target/debug/EchoCAPI.dll",
-            env!("CARGO_MANIFEST_DIR")
-        )),
-        Some(format!("{}/libs/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR"))),
-        std::env::var("ECHO_CAPI_DLL").ok(),
-        Some(format!(
-            "{}/../../native/out/bottlemusic-check/EchoCAPI.dll",
-            env!("CARGO_MANIFEST_DIR")
-        )),
-    ];
-    for c in candidates.into_iter().flatten() {
-        let p = PathBuf::from(c);
+    let mut candidates: Vec<String> = Vec::new();
+    if let Ok(override_path) = std::env::var("ECHO_CAPI_DLL") {
+        if !override_path.trim().is_empty() {
+            candidates.push(override_path);
+        }
+    }
+    candidates.push(format!(
+        "{}/target/debug/EchoCAPI.dll",
+        env!("CARGO_MANIFEST_DIR")
+    ));
+    candidates.push(format!("{}/libs/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR")));
+    candidates.push(format!(
+        "{}/../../native/out/bottlemusic-check/EchoCAPI.dll",
+        env!("CARGO_MANIFEST_DIR")
+    ));
+    let mut tried = Vec::new();
+    for c in candidates {
+        let p = PathBuf::from(&c);
+        tried.push(p.display().to_string());
         if p.exists() {
+            eprintln!("[find_dll] selected {}", p.display());
             return p;
         }
     }
-    panic!("Could not find EchoCAPI.dll");
+    panic!(
+        "Could not find EchoCAPI.dll. Tried:\n  {}",
+        tried.join("\n  ")
+    );
 }
 
 /// Fresh per-run temp data dir: pid + nanos make collisions across runs
@@ -136,9 +147,7 @@ impl EchoCapi {
                 .get::<unsafe extern "C" fn(*const c_char)>(b"EchoStatsRecordPlay")
                 .expect("EchoStatsRecordPlay must exist");
             let stats_get_summary = *lib
-                .get::<unsafe extern "C" fn(*const c_char) -> *mut c_char>(
-                    b"EchoStatsGetSummary",
-                )
+                .get::<unsafe extern "C" fn(*const c_char) -> *mut c_char>(b"EchoStatsGetSummary")
                 .expect("EchoStatsGetSummary must exist");
 
             EchoCapi {
@@ -249,7 +258,12 @@ fn raw_request(
 
 /// Run a request under a watchdog: the test FAILS (rather than hangs) if the
 /// call does not return within `timeout`.
-fn request_with_watchdog(capi: &EchoCapi, method: &str, path: &str, timeout: Duration) -> serde_json::Value {
+fn request_with_watchdog(
+    capi: &EchoCapi,
+    method: &str,
+    path: &str,
+    timeout: Duration,
+) -> serde_json::Value {
     let handle_request = capi.handle_request;
     let free_str = capi.free_str;
     let method = method.to_string();
@@ -257,7 +271,8 @@ fn request_with_watchdog(capi: &EchoCapi, method: &str, path: &str, timeout: Dur
     let message = format!("EchoHandleRequest({method} {path})");
     let (tx, rx) = std::sync::mpsc::channel();
     std::thread::spawn(move || {
-        let outcome = std::panic::catch_unwind(|| raw_request(handle_request, free_str, &method, &path));
+        let outcome =
+            std::panic::catch_unwind(|| raw_request(handle_request, free_str, &method, &path));
         let _ = tx.send(outcome);
     });
     match rx.recv_timeout(timeout) {
@@ -314,7 +329,13 @@ fn assert_summary_contract_shape(value: &serde_json::Value, context: &str) {
 /// EchoStatsRecordPlay (field names from native/core/C_API.cpp). listened
 /// must exceed kMinCountedListenedSeconds (60s, PlayStatsService.cpp) or the
 /// record is deliberately not counted.
-fn play_record(song_hash: &str, song_name: &str, singer: &str, listened: f64, completed: bool) -> String {
+fn play_record(
+    song_hash: &str,
+    song_name: &str,
+    singer: &str,
+    listened: f64,
+    completed: bool,
+) -> String {
     serde_json::json!({
         "song_hash": song_hash,
         "song_name": song_name,
@@ -342,9 +363,21 @@ fn stats_round_trip_matches_cpp_summary_contract_shape() {
     // Empty database: values must all be zero within the contract shape.
     let before = capi.get_summary("all");
     assert_summary_contract_shape(&before, "empty-db summary");
-    assert_eq!(before["total_plays"].as_u64(), Some(0), "empty-db total_plays");
-    assert_eq!(before["unique_songs"].as_u64(), Some(0), "empty-db unique_songs");
-    assert_eq!(before["unique_artists"].as_u64(), Some(0), "empty-db unique_artists");
+    assert_eq!(
+        before["total_plays"].as_u64(),
+        Some(0),
+        "empty-db total_plays"
+    );
+    assert_eq!(
+        before["unique_songs"].as_u64(),
+        Some(0),
+        "empty-db unique_songs"
+    );
+    assert_eq!(
+        before["unique_artists"].as_u64(),
+        Some(0),
+        "empty-db unique_artists"
+    );
     assert!(
         (before["total_listened_seconds"].as_f64().unwrap_or(-1.0)).abs() < 1e-9,
         "empty-db total_listened_seconds: {}",
@@ -355,7 +388,11 @@ fn stats_round_trip_matches_cpp_summary_contract_shape() {
         "empty-db completion_rate: {}",
         before["completion_rate"]
     );
-    assert_eq!(before["range"].as_str(), Some("all"), "summary echoes the requested range");
+    assert_eq!(
+        before["range"].as_str(),
+        Some("all"),
+        "summary echoes the requested range"
+    );
 
     // Write one completed play (240s listened > 60s minimum, so it counts).
     capi.record_play(&play_record(
@@ -372,7 +409,12 @@ fn stats_round_trip_matches_cpp_summary_contract_shape() {
     assert_eq!(after_one["unique_songs"].as_u64(), Some(1));
     assert_eq!(after_one["unique_artists"].as_u64(), Some(1));
     assert!(
-        (after_one["total_listened_seconds"].as_f64().unwrap_or(f64::NAN) - 240.0).abs() < 1e-6,
+        (after_one["total_listened_seconds"]
+            .as_f64()
+            .unwrap_or(f64::NAN)
+            - 240.0)
+            .abs()
+            < 1e-6,
         "total_listened_seconds after one play: {}",
         after_one["total_listened_seconds"]
     );
@@ -398,7 +440,12 @@ fn stats_round_trip_matches_cpp_summary_contract_shape() {
     assert_eq!(after_two["unique_songs"].as_u64(), Some(2));
     assert_eq!(after_two["unique_artists"].as_u64(), Some(1));
     assert!(
-        (after_two["total_listened_seconds"].as_f64().unwrap_or(f64::NAN) - 360.0).abs() < 1e-6,
+        (after_two["total_listened_seconds"]
+            .as_f64()
+            .unwrap_or(f64::NAN)
+            - 360.0)
+            .abs()
+            < 1e-6,
         "total_listened_seconds after two plays: {}",
         after_two["total_listened_seconds"]
     );
@@ -413,7 +460,11 @@ fn stats_round_trip_matches_cpp_summary_contract_shape() {
     let weekly = capi.get_summary("7d");
     assert_summary_contract_shape(&weekly, "7d summary");
     assert_eq!(weekly["range"].as_str(), Some("7d"));
-    assert_eq!(weekly["total_plays"].as_u64(), Some(2), "both plays happened just now, so 7d sees them");
+    assert_eq!(
+        weekly["total_plays"].as_u64(),
+        Some(2),
+        "both plays happened just now, so 7d sees them"
+    );
 
     drop(capi);
     std::fs::remove_dir_all(&dir).expect("clean up contract test data dir");
@@ -433,7 +484,11 @@ fn error_envelopes_are_structured_and_network_independent() {
     // shut down"}}. No socket is opened on this path, so the result cannot
     // depend on external connectivity.
     let uninitialized = request_with_watchdog(&capi, "GET", "/health", Duration::from_secs(30));
-    assert_eq!(uninitialized["status"].as_u64(), Some(500), "uninitialized envelope status");
+    assert_eq!(
+        uninitialized["status"].as_u64(),
+        Some(500),
+        "uninitialized envelope status"
+    );
     assert_eq!(
         uninitialized["body"]["error"].as_str(),
         Some("C API is not initialized or was shut down"),
@@ -459,7 +514,11 @@ fn error_envelopes_are_structured_and_network_independent() {
         "/contract-test/nonexistent-route",
         Duration::from_secs(30),
     );
-    assert_eq!(not_found["status"].as_u64(), Some(404), "404 envelope status");
+    assert_eq!(
+        not_found["status"].as_u64(),
+        Some(404),
+        "404 envelope status"
+    );
     assert_eq!(not_found["body"]["error"].as_str(), Some("Unknown route"));
     assert_eq!(not_found["body"]["error_code"].as_u64(), Some(404));
     assert_eq!(not_found["body"]["status"].as_u64(), Some(0));
@@ -473,9 +532,22 @@ fn error_envelopes_are_structured_and_network_independent() {
     // locally by native/core/compat_routes/DiagnosticsRoutes.cpp with no
     // upstream call, so this stays deterministic offline.
     let health = request_with_watchdog(&capi, "GET", "/health", Duration::from_secs(30));
-    assert_eq!(health["status"].as_u64(), Some(200), "health envelope status");
-    assert_eq!(health["body"]["status"].as_u64(), Some(1), "health body status");
-    assert_eq!(health["body"]["data"]["state"].as_str(), Some("ok"), "health body: {}", health["body"]);
+    assert_eq!(
+        health["status"].as_u64(),
+        Some(200),
+        "health envelope status"
+    );
+    assert_eq!(
+        health["body"]["status"].as_u64(),
+        Some(1),
+        "health body status"
+    );
+    assert_eq!(
+        health["body"]["data"]["state"].as_str(),
+        Some("ok"),
+        "health body: {}",
+        health["body"]
+    );
 
     drop(capi);
     std::fs::remove_dir_all(&dir).expect("clean up contract test data dir");

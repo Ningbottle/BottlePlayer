@@ -102,7 +102,11 @@ pub async fn ai_analyze(
         .map_err(|e| format!("Failed to read response body: {}", e))?;
 
     if !status.is_success() {
-        return Err(format!("DeepSeek API error ({}): {}", status.as_u16(), body));
+        return Err(format!(
+            "DeepSeek API error ({}): {}",
+            status.as_u16(),
+            body
+        ));
     }
 
     let chat_response: ChatResponse = serde_json::from_str(&body)

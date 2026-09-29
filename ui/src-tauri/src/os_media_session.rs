@@ -189,7 +189,8 @@ fn install_tray(app: &tauri::AppHandle) -> Result<(), String> {
         .map_err(|e| e.to_string())?;
     let quit =
         MenuItem::with_id(app, "quit", "退出", true, None::<&str>).map_err(|e| e.to_string())?;
-    let menu = Menu::with_items(app, &[&play, &next, &prev, &show, &quit]).map_err(|e| e.to_string())?;
+    let menu =
+        Menu::with_items(app, &[&play, &next, &prev, &show, &quit]).map_err(|e| e.to_string())?;
 
     let app_handle = app.clone();
     let icon = app
@@ -201,28 +202,26 @@ fn install_tray(app: &tauri::AppHandle) -> Result<(), String> {
         .icon(icon)
         .menu(&menu)
         .tooltip("BottleMusic")
-        .on_menu_event(move |_app, event| {
-            match event.id.as_ref() {
-                "play_pause" => {
-                    let _ = inject_button(MediaButton::PlayPause);
-                }
-                "next" => {
-                    let _ = inject_button(MediaButton::Next);
-                }
-                "prev" => {
-                    let _ = inject_button(MediaButton::Prev);
-                }
-                "show" => {
-                    if let Some(w) = app_handle.get_webview_window("main") {
-                        let _ = w.show();
-                        let _ = w.set_focus();
-                    }
-                }
-                "quit" => {
-                    app_handle.exit(0);
-                }
-                _ => {}
+        .on_menu_event(move |_app, event| match event.id.as_ref() {
+            "play_pause" => {
+                let _ = inject_button(MediaButton::PlayPause);
             }
+            "next" => {
+                let _ = inject_button(MediaButton::Next);
+            }
+            "prev" => {
+                let _ = inject_button(MediaButton::Prev);
+            }
+            "show" => {
+                if let Some(w) = app_handle.get_webview_window("main") {
+                    let _ = w.show();
+                    let _ = w.set_focus();
+                }
+            }
+            "quit" => {
+                app_handle.exit(0);
+            }
+            _ => {}
         })
         .on_tray_icon_event(|tray, event| {
             if let TrayIconEvent::Click {
