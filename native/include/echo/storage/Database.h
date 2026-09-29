@@ -27,6 +27,16 @@ namespace echo::storage {
 // Bound parameter for ExecuteBound / ExecuteQueryBound.
 using BindValue = std::variant<std::int64_t, double, std::string>;
 
+// TEST SEAM (B04): when installed, quarantine renames go through this hook
+// instead of std::filesystem::rename; returning false (with ec set) forces
+// the recovery paths to observe a rename failure, so tests can verify the
+// original database and its WAL/SHM sidecars survive byte-for-byte. Storage
+// of the hook is global; production code never installs one.
+using QuarantineRenameHook = bool (*)(const std::filesystem::path& from,
+                                      const std::filesystem::path& to,
+                                      std::error_code& ec);
+void SetQuarantineRenameHookForTest(QuarantineRenameHook hook);
+
 class Database {
  public:
   Database();
@@ -47,13 +57,28 @@ class Database {
   void ExecuteBound(const std::string& sql, const std::vector<BindValue>& params);
 
   // Reads share the same actor serialization as writes (linearizable).
-  // Prepare failure returns empty rows (legacy tolerance).
+  // Prepare, bind, and step failures throw std::runtime_error — a failed
+  // query must never be observable as an empty result (B03: missing tables,
+  // SQL errors, locks, and I/O faults used to masquerade as "no rows" and
+  // partial row sets as complete ones). Normal zero-row results remain
+  // normal results.
   std::vector<std::vector<std::string>> ExecuteQuery(const std::string& sql) const;
   std::vector<std::vector<std::string>> ExecuteQueryBound(
       const std::string& sql, const std::vector<BindValue>& params) const;
 
   void SetJson(const std::string& key, const nlohmann::json& value);
   std::optional<nlohmann::json> GetJson(const std::string& key) const;
+  // Atomic read-modify-write of one JSON key, executed as a single actor
+  // operation. The mutator receives the current value (nullopt when the key
+  // is absent) and returns the new value; returning nullopt leaves the key
+  // unchanged (a "reject / no-op" outcome). To CLEAR the key, return an
+  // explicit empty object instead. Because read, decide, and write all run
+  // inside one actor task, no interleaving operation can observe or modify
+  // the key between them — this is the primitive that makes conditional
+  // session commits (account-generation checks) race-free.
+  std::optional<nlohmann::json> UpdateJson(
+      const std::string& key,
+      const std::function<std::optional<nlohmann::json>(std::optional<nlohmann::json>)>& mutator);
   void PutApiCache(const std::string& key, const nlohmann::json& value, std::int64_t expiresAt);
   std::optional<nlohmann::json> GetApiCache(const std::string& key, std::int64_t now) const;
   void PruneExpiredApiCache(std::int64_t now);
@@ -119,6 +144,9 @@ class Database {
       const std::string& sql, const std::vector<BindValue>& params) const;
   void SetJsonLocked(const std::string& key, const nlohmann::json& value);
   std::optional<nlohmann::json> GetJsonLocked(const std::string& key) const;
+  std::optional<nlohmann::json> UpdateJsonLocked(
+      const std::string& key,
+      const std::function<std::optional<nlohmann::json>(std::optional<nlohmann::json>)>& mutator);
   void PutApiCacheLocked(const std::string& key, const nlohmann::json& value, std::int64_t expiresAt);
   std::optional<nlohmann::json> GetApiCacheLocked(const std::string& key, std::int64_t now) const;
   void PruneExpiredApiCacheLocked(std::int64_t now);
@@ -129,6 +157,9 @@ class Database {
   void FlushFallback() const;
   void SetJsonLocked(const std::string& key, const nlohmann::json& value);
   std::optional<nlohmann::json> GetJsonLocked(const std::string& key) const;
+  std::optional<nlohmann::json> UpdateJsonLocked(
+      const std::string& key,
+      const std::function<std::optional<nlohmann::json>(std::optional<nlohmann::json>)>& mutator);
   void PutApiCacheLocked(const std::string& key, const nlohmann::json& value, std::int64_t expiresAt);
   std::optional<nlohmann::json> GetApiCacheLocked(const std::string& key, std::int64_t now) const;
   void PruneExpiredApiCacheLocked(std::int64_t now);

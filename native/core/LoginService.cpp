@@ -112,6 +112,11 @@ LoginService::LoginService(LoginHttpGet httpGet, LoginHttpPost httpPost)
     : httpGet_(std::move(httpGet)), httpPost_(std::move(httpPost)) {}
 
 nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
+  if (!httpGet_) {
+    // Same guard as PollQrLogin: an unwired GET must fail the call, not invoke
+    // an empty std::function.
+    return MakeErrorJson("No HTTP GET handler available", 0);
+  }
   const auto profile = GetKuGouProfile(kProjectEdition);
   // For /v2/qrcode, KuGou expects appid=1001 or 1014 in the GET parameters,
   // while qrcode_txt carries the target Android edition. Keep generation and
@@ -164,6 +169,13 @@ nlohmann::json LoginService::BeginQrLogin(const DeviceInfo& device) const {
 }
 
 nlohmann::json LoginService::PollQrLogin(const DeviceInfo& device, const std::string& key) const {
+  if (!httpGet_) {
+    // Never invoke an empty std::function: it throws std::bad_function_call and
+    // terminates the process instead of failing the call. A host that wires
+    // only the POST verb must still receive a JSON answer (mirrors the
+    // SongUrlService GET/POST guards).
+    return MakeErrorJson("No HTTP GET handler available", 0);
+  }
   const auto profile = GetKuGouProfile(kProjectEdition);
   std::unordered_map<std::string, std::string> params = {
       {"plat", "4"},
@@ -203,6 +215,12 @@ std::optional<LoginRefreshResult> LoginService::RefreshSession(
     const std::string& userId,
     const std::string& token,
     const std::string& t1) const {
+  if (!httpPost_) {
+    // Never invoke an empty std::function: it throws std::bad_function_call and
+    // terminates the process. A host that wired only the GET verb gets a plain
+    // "no refresh" answer instead of a crash or a real network call.
+    return std::nullopt;
+  }
   auto refreshOnce = [&](KuGouEdition edition,
                          const std::string& currentToken,
                          const std::string& currentT1)
@@ -347,7 +365,10 @@ std::optional<LoginRefreshResult> LoginService::RefreshSession(
       standard && !standard->t1.empty() ? standard->t1 : t1;
   auto conceptResult = refreshOnce(
       KuGouEdition::Concept, conceptToken, conceptT1);
-  if (conceptResult && !conceptResult->vipToken.empty()) return conceptResult;
+  // A successful refresh may rotate the ordinary token without granting VIP.
+  // Keep that latest credential bundle; falling back to Standard would revive
+  // a token that the successful Concept refresh may already have invalidated.
+  if (conceptResult) return conceptResult;
   return standard;
 }
 

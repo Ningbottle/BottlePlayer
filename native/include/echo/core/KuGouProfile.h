@@ -36,6 +36,14 @@ struct ConceptUrlParams {
 // 这些字面量是项目中唯一允许出现 3116 / 1005 / 11440 / 20489 的地方。
 KuGouProfileParams GetKuGouProfile(KuGouEdition edition);
 
+// 日志/诊断用的人类可读 profile 名：按 appid/clientver/saltKind 反查预置表，
+// 返回 "standard" / "concept"；都匹配不上时返回 "custom"。
+// 禁止在日志里手写 profile 名——必须经此函数或 GetKuGouProfile 派生。
+std::string KuGouProfileName(const KuGouProfileParams& profile);
+
+// 日志/诊断用盐名："lite" / "standard"。
+const char* KuGouSaltKindName(KuGouSaltKind kind);
+
 // 返回概念版 URL 硬编码常量（后续可替换为 MakcRe dataMap 动态化）
 ConceptUrlParams GetConceptUrlParams();
 

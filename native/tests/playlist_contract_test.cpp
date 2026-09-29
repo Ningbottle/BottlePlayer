@@ -7,6 +7,7 @@
 #include <unordered_map>
 
 #include "echo/core/PlaylistService.h"
+#include "echo/core/PlayHistoryService.h"
 #include "echo/core/CompatApiUtils.h"
 #include "echo/core/Crypto.h"
 #include "echo/core/HttpClient.h"
@@ -293,6 +294,115 @@ int main() {
     assert(pub["data"]["list"].size() == 1);
 
     std::cout << "  [ok] pubsongs vs special/song are exclusive" << std::endl;
+  }
+
+  // ── B08: structured track entries survive commas/pipes/percents/CJK ──
+  std::cout << "[PlaylistContract] Testing B08 structured add-tracks..." << std::endl;
+  {
+    std::string capturedBody;
+    auto mockPost = [&](const std::string&,
+                        const std::string& body,
+                        const std::unordered_map<std::string, std::string>&) -> echo::core::HttpResult {
+      capturedBody = body;
+      return {200, R"({"status":1})", ""};
+    };
+    echo::core::PlaylistService svc(
+        [](const std::string&, const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{200, "{}", ""};
+        },
+        mockPost);
+
+    const nlohmann::json tracks = nlohmann::json::array({
+        {{"name", "Song, with comma | pipe %7C and 中文"},
+         {"hash", "HASH1"},
+         {"album_id", 111},
+         {"mixsongid", 222}},
+        {{"name", ""},
+         {"hash", "HASH2"}},
+    });
+    const auto resp = svc.AddPlaylistTracksStructured(
+        echo::core::DeviceInfo{}, "42", "tok", "collection_3_42_98765_0", tracks);
+    assert(resp.value("status", 0) == 1);
+    const auto payload = nlohmann::json::parse(capturedBody);
+    assert(payload["data"].is_array() && payload["data"].size() == 2);
+    // Verbatim: no escaping, no splitting, no corruption.
+    assert(payload["data"][0]["name"] == "Song, with comma | pipe %7C and 中文");
+    assert(payload["data"][0]["hash"] == "HASH1");
+    assert(payload["data"][0]["album_id"] == 111);
+    assert(payload["data"][0]["mixsongid"] == 222);
+    assert(payload["listid"] == 98765);  // collection_ prefix still normalized
+    assert(payload["data"][1]["name"] == "");
+    assert(payload["data"][1]["hash"] == "HASH2");
+    std::cout << "  [ok] B08 structured entries round-trip verbatim" << std::endl;
+
+    // Identity validation: a record without a hash is rejected, nothing sent.
+    capturedBody.clear();
+    const nlohmann::json noHash = nlohmann::json::array({
+        {{"name", "No Identity"}},
+    });
+    const auto rejected = svc.AddPlaylistTracksStructured(
+        echo::core::DeviceInfo{}, "42", "tok", "98765", noHash);
+    assert(rejected.value("status", 0) == 0);
+    assert(rejected.value("error", "").find("missing hash") != std::string::npos);
+    assert(capturedBody.empty());
+    std::cout << "  [ok] B08 empty-hash record rejected before the network" << std::endl;
+  }
+
+  // ── B08 legacy string protocol: %7C restored inside names ────────────
+  std::cout << "[PlaylistContract] Testing B08 legacy %7C restore..." << std::endl;
+  {
+    std::string capturedBody;
+    auto mockPost = [&](const std::string&,
+                        const std::string& body,
+                        const std::unordered_map<std::string, std::string>&) -> echo::core::HttpResult {
+      capturedBody = body;
+      return {200, R"({"status":1})", ""};
+    };
+    echo::core::PlaylistService svc(
+        [](const std::string&, const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{200, "{}", ""};
+        },
+        mockPost);
+
+    const auto resp = svc.AddPlaylistTracks(
+        echo::core::DeviceInfo{}, "42", "tok", "98765",
+        "Pipe%7CName|HASHA|55|66,Plain|HASHB|0|0");
+    assert(resp.value("status", 0) == 1);
+    const auto payload = nlohmann::json::parse(capturedBody);
+    assert(payload["data"].size() == 2);
+    assert(payload["data"][0]["name"] == "Pipe|Name");  // %7C decoded
+    assert(payload["data"][0]["hash"] == "HASHA");
+    assert(payload["data"][0]["mixsongid"] == 66);
+    assert(payload["data"][1]["name"] == "Plain");
+    std::cout << "  [ok] B08 legacy %7C restored (comma-split limitation documented)" << std::endl;
+  }
+
+  // ── B07: pagesize reaches the upstream get_songs body; bp forwarded ──
+  std::cout << "[PlaylistContract] Testing B07 history pagesize/bp forwarding..." << std::endl;
+  {
+    std::string capturedBody;
+    echo::core::PlayHistoryService history(
+        [&](const std::string&,
+            const std::string& body,
+            const std::unordered_map<std::string, std::string>&) -> echo::core::HttpResult {
+      capturedBody = body;
+      return {200, R"({"status":1,"data":{"songs":[]}})", ""};
+    });
+
+    (void)history.GetUserHistory("42", "tok", "", 100);
+    auto payload = nlohmann::json::parse(capturedBody);
+    assert(payload.value("pagesize", 0) == 100);
+    assert(!payload.contains("bp"));
+
+    (void)history.GetUserHistory("42", "tok", "cursor-123", 50);
+    payload = nlohmann::json::parse(capturedBody);
+    assert(payload.value("pagesize", 0) == 50);
+    assert(payload.value("bp", "") == "cursor-123");
+
+    (void)history.GetUserHistory("42", "tok", "", 0);
+    payload = nlohmann::json::parse(capturedBody);
+    assert(!payload.contains("pagesize"));  // non-positive pagesize must not be sent
+    std::cout << "  [ok] B07 pagesize/bp forwarded (bp never invented)" << std::endl;
   }
 
   std::cout << "[PlaylistContract] All tests passed!" << std::endl;

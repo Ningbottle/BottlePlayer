@@ -8,6 +8,7 @@
 #include <stdexcept>
 #include <string>
 #include <thread>
+#include <vector>
 
 #include "echo/async/RequestScheduler.h"
 #include "echo/async/RequestWatchdog.h"
@@ -30,26 +31,38 @@ static int g_failed = 0;
   } while (0)
 
 int main() {
+  // Unbuffered stdout: a hard teardown fault in a detached worker must not
+  // silently drop the buffered tail and make a crash look like a clean pass.
+  std::cout << std::unitbuf;
   std::cout << "[Test] Testing RequestScheduler job deadline...\n";
   {
     RequestScheduler s(1);
+    std::promise<void> jobStarted, releaseJob;
+    auto startedFut = jobStarted.get_future();
+    auto releaseFut = releaseJob.get_future().share();
     auto fut = s.SubmitWithDeadline(
         RequestKind::Generic,
-        [](echo::async::CancellationToken) -> int {
-          std::this_thread::sleep_for(std::chrono::seconds(10));
+        [&jobStarted, releaseFut](echo::async::CancellationToken) -> int {
+          jobStarted.set_value();
+          releaseFut.wait();
           return 42;
         },
-        /*deadlineMs=*/100);
-    bool gotException = false;
-    try {
-      (void)fut.get();
-    } catch (const std::runtime_error&) {
-      gotException = true;
+        /*deadlineMs=*/500);
+    CHECK(startedFut.wait_for(std::chrono::seconds(2)) == std::future_status::ready,
+          "deadline setup: fn started and is parked before completion");
+    bool gotDeadline = false;
+    if (fut.wait_for(std::chrono::seconds(2)) == std::future_status::ready) {
+      try {
+        (void)fut.get();
+      } catch (const std::runtime_error& e) {
+        gotDeadline = std::string(e.what()) == "job_deadline";
+      }
     }
-    CHECK(gotException, "job that exceeds deadlineMs throws runtime_error");
-    // Use bounded Shutdown so the test doesn't wait the full 10s for the
-    // worker to finish its uninterruptible sleep.
-    s.Shutdown(std::chrono::milliseconds(500));
+    CHECK(gotDeadline, "running job reports job_deadline while fn is still parked");
+    // Release and join before destroying the stack scheduler. A bounded
+    // shutdown would leave its worker accessing the destroyed owner.
+    releaseJob.set_value();
+    s.Shutdown();
   }
 
   std::cout << "[Test] Testing RequestScheduler normal job completes...\n";
@@ -60,6 +73,13 @@ int main() {
         [](echo::async::CancellationToken) -> int { return 42; },
         /*deadlineMs=*/5000);
     CHECK(fut.get() == 42, "normal job returns 42 within deadline");
+    int refSink = 17;
+    auto refFut = s.SubmitWithDeadline(
+        RequestKind::Generic,
+        [&refSink](echo::async::CancellationToken) -> int& { return refSink; },
+        /*deadlineMs=*/5000);
+    CHECK(&refFut.get() == &refSink,
+          "reference-return job preserves the identity of its referent");
     s.Shutdown();
   }
 
@@ -203,34 +223,43 @@ int main() {
 
   std::cout << "[Test] Testing bounded Shutdown(3s) abandons hung workers...\n";
   {
-    // Contract: a worker stuck in a long uninterruptible job (no deadline,
-    // no cancellation) must NOT block Shutdown beyond the configured
-    // deadline. The process is exiting so abandoning the worker is safe.
-    // We use a 10s sleep instead of 60s to keep the test fast — the
-    // 3s deadline still proves that Shutdown doesn't wait for the job.
-    // The return value MUST report abandoned=1 to prove the worker was
-    // actually abandoned (not just joined slowly).
-    RequestScheduler s(1);
-    std::atomic<bool> jobStarted{false};
-    s.SubmitDetached(RequestKind::Generic,
-        [&jobStarted](echo::async::CancellationToken) {
-          jobStarted.store(true);
-          std::this_thread::sleep_for(std::chrono::seconds(10));
+    // The job ignores cancellation until the test opens its gate. Bounded
+    // shutdown exposes no later join handle, so this scheduler intentionally
+    // has process lifetime: even after fn returns, WorkerLoop may still
+    // access its owner. Never destroy a stack owner under a detached worker.
+    static RequestScheduler* const s = new RequestScheduler(1);
+    struct HungJobState {
+      std::promise<void> started;
+      std::promise<void> release;
+      std::promise<void> returned;
+    };
+    auto st = std::make_shared<HungJobState>();
+    auto startedFut = st->started.get_future();
+    auto releaseFut = st->release.get_future().share();
+    auto returnedFut = st->returned.get_future();
+    s->SubmitDetached(RequestKind::Generic,
+        [st, releaseFut](echo::async::CancellationToken) {
+          st->started.set_value();
+          releaseFut.wait();
+          st->returned.set_value();
         });
-    while (!jobStarted.load()) std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    CHECK(startedFut.wait_for(std::chrono::seconds(2)) == std::future_status::ready,
+          "bounded shutdown setup: worker entered the closed gate");
     auto start = std::chrono::steady_clock::now();
-    auto abandoned = s.Shutdown(std::chrono::milliseconds(3000));
+    auto abandoned = s->Shutdown(std::chrono::milliseconds(3000));
     auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - start).count();
     CHECK(elapsed < 3500,
-          "Bounded Shutdown(3s) returns within 3.5s despite a 10s hung job");
+          "Bounded Shutdown(3s) returns within 3.5s while the job gate stays closed");
     CHECK(abandoned == 1,
           "Bounded Shutdown(3s) abandons exactly 1 stuck worker (proves abandon path fired)");
     // The detached worker may still reference this scheduler, so Restart() must
     // refuse — this is what EchoShutdown relies on to skip global teardown.
-    CHECK(!s.Restart(),
+    CHECK(!s->Restart(),
           "Restart() returns false after a bounded shutdown abandoned a worker");
+    st->release.set_value();
+    CHECK(returnedFut.wait_for(std::chrono::seconds(2)) == std::future_status::ready,
+          "bounded shutdown teardown: released job leaves its gate");
   }
 
   std::cout << "[Test] Testing SubmitWithDeadline preserves service exceptions (non-void, value + reference)...\n";
@@ -769,10 +798,12 @@ int main() {
     RequestScheduler s(1);
     std::atomic<bool> holdJob{false};
     std::atomic<bool> jobFinished{false};
-    const std::uint64_t claimedBaseline = wd.DebugClaimedCount();
+    std::promise<void> jobStarted;
+    auto startedFut = jobStarted.get_future();
     auto fut = s.SubmitWithDeadline(
         RequestKind::Generic,
-        [&holdJob, &jobFinished](echo::async::CancellationToken) -> int {
+        [&holdJob, &jobFinished, &jobStarted](echo::async::CancellationToken) -> int {
+          jobStarted.set_value();
           while (!holdJob.load(std::memory_order_acquire)) {
             std::this_thread::sleep_for(std::chrono::milliseconds(2));
           }
@@ -780,13 +811,15 @@ int main() {
           return 42;
         },
         /*deadlineMs=*/120);
+    CHECK(startedFut.wait_for(std::chrono::seconds(2)) == std::future_status::ready,
+          "W3 setup: business fn actually started before the deadline");
 
-    // 1. Deterministic claim gate: the timer has CAS-claimed the entry
-    // (DebugClaimedCount increments exactly there). No sleep-guessing — the
-    // action itself may still sit queued behind the barriers.
+    // 1. The target action can only reach the executor queue after its claim.
+    // DebugQueuedActions takes execMu, giving this observation a mutex
+    // synchronization edge from the timer rather than a relaxed counter read.
     bool timerClaimed = false;
     for (int i = 0; i < 2000 && !timerClaimed; ++i) {
-      timerClaimed = wd.DebugClaimedCount() > claimedBaseline;
+      timerClaimed = wd.DebugQueuedActions() == 1;
       if (!timerClaimed) std::this_thread::sleep_for(std::chrono::milliseconds(2));
     }
     CHECK(timerClaimed,
@@ -794,22 +827,14 @@ int main() {
 
     // 2. Business job completes AFTER the claim. While the barriers stay
     // closed the deadline action CANNOT run, so the only possible fulfiller
-    // is the business path: poll readiness for a bounded budget. Rule R:
-    // never ready. A pre-Rule-R scheduler fills the business value here and
-    // is caught deterministically (verified RED against that variant).
+    // is the business path. Joining the scheduler proves the completion
+    // arbitration has finished; a timed negative observation could otherwise
+    // pass before the worker reached its promise code.
     holdJob.store(true, std::memory_order_release);
-    for (int i = 0; i < 2000 && !jobFinished.load(); ++i) {
-      std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    }
-    bool businessFulfilled = false;
-    for (int i = 0; i < 250; ++i) {  // 500ms observation budget
-      if (fut.wait_for(std::chrono::milliseconds(0)) == std::future_status::ready) {
-        businessFulfilled = true;
-        break;
-      }
-      std::this_thread::sleep_for(std::chrono::milliseconds(2));
-    }
-    CHECK(!businessFulfilled,
+    s.Shutdown();
+    CHECK(jobFinished.load(std::memory_order_acquire),
+          "W3: the started business fn finished before readiness is checked");
+    CHECK(fut.wait_for(std::chrono::milliseconds(0)) == std::future_status::timeout,
           "W3: business completion after claim (action still queued) does not fulfill the promise");
 
     // 3. Release the barriers: the queued deadline action fulfills.
@@ -821,13 +846,289 @@ int main() {
     }
     CHECK(exitedAll, "W3 teardown: barrier actions exited");
     bool finalDeadline = false;
-    try {
-      (void)fut.get();
-    } catch (const std::runtime_error& e) {
-      finalDeadline = std::string(e.what()) == "job_deadline";
+    if (fut.wait_for(std::chrono::seconds(2)) == std::future_status::ready) {
+      try {
+        (void)fut.get();
+      } catch (const std::runtime_error& e) {
+        finalDeadline = std::string(e.what()) == "job_deadline";
+      }
     }
     CHECK(finalDeadline, "W3: queued deadline action fulfills the promise with job_deadline");
+  }
+
+  std::cout << "[Test] B01: expired-while-queued job must not start fn (value)...\n";
+  {
+    // Audit B01 (converted from the saved expired_job_probe, which asserted
+    // the OLD buggy behavior and waited unconditionally for fn to run). The
+    // deadline fires while the job is still queued (the only worker is
+    // parked); when the worker later dequeues it, fn must NOT run — the
+    // caller already observed job_deadline. Join before the negative fn
+    // assertion so a slow dequeue cannot make a broken gate look correct.
+    RequestScheduler s(1);
+    std::promise<void> blockerStarted, releaseBlocker;
+    auto releaseFut = releaseBlocker.get_future().share();
+    auto blocker = s.Submit(
+        RequestKind::Generic,
+        [&](echo::async::CancellationToken) {
+          blockerStarted.set_value();
+          releaseFut.wait();
+        });
+    blockerStarted.get_future().wait();
+
+    std::atomic<bool> mutated{false};
+    auto expired = s.SubmitWithDeadline(
+        RequestKind::Generic,
+        [&](echo::async::CancellationToken) -> int {
+          mutated.store(true, std::memory_order_release);
+          return 1;
+        },
+        /*deadlineMs=*/80);
+
+    bool gotDeadline = false;
+    if (expired.wait_for(std::chrono::seconds(2)) == std::future_status::ready) {
+      try {
+        (void)expired.get();
+      } catch (const std::runtime_error& e) {
+        gotDeadline = std::string(e.what()) == "job_deadline";
+      }
+    }
+    CHECK(gotDeadline, "B01: queued job expired before start -> future is job_deadline");
+    CHECK(!mutated.load(), "B01: fn has not run while the blocker still parks the worker");
+
+    // Free the worker and drain the queue. A buggy scheduler runs fn during
+    // this join; the fixed one skips it.
+    releaseBlocker.set_value();
+    blocker.get();
+    const auto shutdownStart = std::chrono::steady_clock::now();
     s.Shutdown();
+    const auto shutdownMs = std::chrono::duration_cast<std::chrono::milliseconds>(
+        std::chrono::steady_clock::now() - shutdownStart).count();
+    CHECK(!mutated.load(std::memory_order_acquire),
+          "B01: expired-queued job never executes fn after the worker frees up");
+    CHECK(shutdownMs < 2000,
+          "B01: Shutdown after an expired-queued skip completes promptly");
+  }
+
+  std::cout << "[Test] B01: expired-while-queued job must not start fn (void)...\n";
+  {
+    // Void branch takes the same gate (it sits before the try/fn dispatch).
+    RequestScheduler s(1);
+    std::promise<void> blockerStarted, releaseBlocker;
+    auto releaseFut = releaseBlocker.get_future().share();
+    auto blocker = s.Submit(
+        RequestKind::Generic,
+        [&](echo::async::CancellationToken) {
+          blockerStarted.set_value();
+          releaseFut.wait();
+        });
+    blockerStarted.get_future().wait();
+
+    std::atomic<bool> fnRan{false};
+    auto expired = s.SubmitWithDeadline(
+        RequestKind::Generic,
+        [&](echo::async::CancellationToken) -> void {
+          fnRan.store(true, std::memory_order_release);
+        },
+        /*deadlineMs=*/80);
+    bool gotDeadline = false;
+    if (expired.wait_for(std::chrono::seconds(2)) == std::future_status::ready) {
+      try {
+        expired.get();
+      } catch (const std::runtime_error& e) {
+        gotDeadline = std::string(e.what()) == "job_deadline";
+      }
+    }
+    CHECK(gotDeadline, "B01 void: expired-queued void job reports job_deadline");
+
+    releaseBlocker.set_value();
+    blocker.get();
+    s.Shutdown();
+    CHECK(!fnRan.load(std::memory_order_acquire),
+          "B01 void: expired-queued void job never executes fn");
+  }
+
+  std::cout << "[Test] B01: queued jobs whose deadline has NOT fired still run...\n";
+  {
+    // The gate must not over-skip: a queued job with a live deadline runs
+    // normally once the worker frees up.
+    RequestScheduler s(1);
+    std::promise<void> blockerStarted, releaseBlocker;
+    auto releaseFut = releaseBlocker.get_future().share();
+    auto blocker = s.Submit(
+        RequestKind::Generic,
+        [&](echo::async::CancellationToken) {
+          blockerStarted.set_value();
+          releaseFut.wait();
+        });
+    blockerStarted.get_future().wait();
+
+    auto queued = s.SubmitWithDeadline(
+        RequestKind::Generic,
+        [](echo::async::CancellationToken) -> int { return 99; },
+        /*deadlineMs=*/10000);
+    releaseBlocker.set_value();
+    blocker.get();
+    bool gotValue = false;
+    try {
+      gotValue = queued.get() == 99;
+    } catch (...) {}
+    CHECK(gotValue, "B01: queued job with a live deadline executes and returns its value");
+    s.Shutdown();
+  }
+
+  std::cout << "[Test] B01: burst of queued deadlines expiring behind one worker...\n";
+  {
+    // Concurrency race: several queued jobs expire while one worker is
+    // parked; every one of them must be skipped and every future must be
+    // job_deadline (no partial runs, no lost promises).
+    RequestScheduler s(1);
+    constexpr int kJobs = 4;  // maxQueueSize_ = workerCount*4: fill the queue exactly,
+                              // so every job is queued (none rejected as queue_full).
+    std::promise<void> blockerStarted, releaseBlocker;
+    auto releaseFut = releaseBlocker.get_future().share();
+    auto blocker = s.Submit(
+        RequestKind::Generic,
+        [&](echo::async::CancellationToken) {
+          blockerStarted.set_value();
+          releaseFut.wait();
+        });
+    blockerStarted.get_future().wait();
+
+    std::atomic<int> ranCount{0};
+    std::vector<std::future<int>> futs;
+    for (int i = 0; i < kJobs; ++i) {
+      futs.push_back(s.SubmitWithDeadline(
+          RequestKind::Generic,
+          [&ranCount, i](echo::async::CancellationToken) -> int {
+            ranCount.fetch_add(1, std::memory_order_acq_rel);
+            return i;
+          },
+          /*deadlineMs=*/80));
+    }
+    int deadlineCount = 0;
+    for (auto& f : futs) {
+      if (f.wait_for(std::chrono::seconds(2)) != std::future_status::ready) continue;
+      try {
+        (void)f.get();
+      } catch (const std::runtime_error& e) {
+        if (std::string(e.what()) == "job_deadline") ++deadlineCount;
+      }
+    }
+    CHECK(deadlineCount == kJobs,
+          "B01 burst: every expired-queued future resolves to job_deadline");
+
+    releaseBlocker.set_value();
+    blocker.get();
+    s.Shutdown();
+    CHECK(ranCount.load() == 0,
+          "B01 burst: no expired-queued job executed its side effect");
+  }
+
+  std::cout << "[Test] B01: claimed queued jobs skip before deadline actions run...\n";
+  {
+    // Hold every watchdog executor, then expire three jobs behind one busy
+    // scheduler worker. The timer can claim and enqueue their actions, but
+    // tokenFlag and the promises remain untouched. This distinguishes the
+    // claimed gate from a token-only check for value, void, and reference.
+    using echo::async::RequestWatchdog;
+    RequestWatchdog& wd = RequestWatchdog::Instance();
+    for (int i = 0; i < 2000 && wd.DebugPendingActions() != 0; ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    CHECK(wd.DebugPendingActions() == 0,
+          "B01 claim setup: earlier watchdog actions drained");
+
+    struct BarrierState {
+      std::atomic<bool> open{false};
+      std::atomic<int> entered{0};
+      std::atomic<int> exited{0};
+    };
+    auto barriers = std::make_shared<BarrierState>();
+    constexpr int kWorkers = static_cast<int>(RequestWatchdog::kExecutorThreads);
+    bool allArmed = true;
+    for (int i = 0; i < kWorkers; ++i) {
+      const bool armed = wd.Arm(5, std::make_shared<std::atomic_bool>(false), [barriers] {
+        barriers->entered.fetch_add(1, std::memory_order_acq_rel);
+        while (!barriers->open.load(std::memory_order_acquire)) {
+          std::this_thread::sleep_for(std::chrono::milliseconds(2));
+        }
+        barriers->exited.fetch_add(1, std::memory_order_acq_rel);
+      });
+      allArmed = allArmed && armed;
+    }
+    for (int i = 0; i < 2000 && barriers->entered.load() < kWorkers; ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    CHECK(allArmed && barriers->entered.load() == kWorkers,
+          "B01 claim setup: all watchdog executors are parked");
+
+    RequestScheduler s(1);
+    std::promise<void> blockerStarted, releaseBlocker;
+    auto startedFut = blockerStarted.get_future();
+    auto releaseFut = releaseBlocker.get_future().share();
+    auto blocker = s.Submit(RequestKind::Generic,
+        [&blockerStarted, releaseFut](echo::async::CancellationToken) {
+          blockerStarted.set_value();
+          releaseFut.wait();
+        });
+    CHECK(startedFut.wait_for(std::chrono::seconds(2)) == std::future_status::ready,
+          "B01 claim setup: scheduler worker is parked");
+
+    std::atomic<int> valueRuns{0}, voidRuns{0}, referenceRuns{0};
+    int referenceValue = 17;
+    auto valueFut = s.SubmitWithDeadline(RequestKind::Generic,
+        [&valueRuns](echo::async::CancellationToken) -> int {
+          valueRuns.fetch_add(1, std::memory_order_relaxed);
+          return 42;
+        }, 80);
+    auto voidFut = s.SubmitWithDeadline(RequestKind::Generic,
+        [&voidRuns](echo::async::CancellationToken) -> void {
+          voidRuns.fetch_add(1, std::memory_order_relaxed);
+        }, 80);
+    auto referenceFut = s.SubmitWithDeadline(RequestKind::Generic,
+        [&referenceRuns, &referenceValue](echo::async::CancellationToken) -> int& {
+          referenceRuns.fetch_add(1, std::memory_order_relaxed);
+          return referenceValue;
+        }, 80);
+
+    // The queue snapshot locks execMu: observing these three actions also
+    // observes the timer's preceding claims. No deadline action can run
+    // while all four executors remain in the closed barriers.
+    bool allClaimed = false;
+    for (int i = 0; i < 2000 && !allClaimed; ++i) {
+      allClaimed = wd.DebugQueuedActions() == 3;
+      if (!allClaimed) std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    CHECK(allClaimed, "B01 claim setup: all three deadline actions queued after claiming");
+
+    releaseBlocker.set_value();
+    s.Shutdown();  // every target was dequeued; negative assertions cannot race it
+    blocker.get();
+    CHECK(valueRuns.load() == 0, "B01 claimed value: fn skipped before cancellation action");
+    CHECK(voidRuns.load() == 0, "B01 claimed void: fn skipped before cancellation action");
+    CHECK(referenceRuns.load() == 0, "B01 claimed reference: fn skipped before cancellation action");
+    CHECK(valueFut.wait_for(std::chrono::milliseconds(0)) == std::future_status::timeout &&
+              voidFut.wait_for(std::chrono::milliseconds(0)) == std::future_status::timeout &&
+              referenceFut.wait_for(std::chrono::milliseconds(0)) == std::future_status::timeout,
+          "B01 claimed jobs: skipped workers leave promise ownership with pending actions");
+
+    barriers->open.store(true, std::memory_order_release);
+    for (int i = 0; i < 2000 && barriers->exited.load() < kWorkers; ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    CHECK(barriers->exited.load() == kWorkers, "B01 claim teardown: executor barriers exited");
+    const auto hasDeadline = [](auto& future) {
+      if (future.wait_for(std::chrono::seconds(2)) != std::future_status::ready) return false;
+      try {
+        (void)future.get();
+      } catch (const std::runtime_error& e) {
+        return std::string(e.what()) == "job_deadline";
+      } catch (...) {}
+      return false;
+    };
+    CHECK(hasDeadline(valueFut), "B01 claimed value: deadline action fulfills job_deadline");
+    CHECK(hasDeadline(voidFut), "B01 claimed void: deadline action fulfills job_deadline");
+    CHECK(hasDeadline(referenceFut), "B01 claimed reference: deadline action fulfills job_deadline");
   }
 
   std::cout << "[Test] All RequestScheduler resilience tests completed.\n";

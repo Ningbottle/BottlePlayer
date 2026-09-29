@@ -760,7 +760,7 @@ int main() {
         200,
         R"({"status":1,"hash":"ABC123","url":"http://audio.example/song.mp3","backup_url":["http://audio.example/backup.mp3"],"fileName":"周杰伦 - 晴天","songName":"晴天","singerName":"周杰伦","albumid":966846,"album_audio_id":32100650,"audio_id":20505418,"timeLength":269000,"bitRate":128,"extName":"mp3","privilege":0,"pay_type":0})",
         ""};
-  });
+  }, {});
   const auto songUrl = songUrlService.Resolve("abc123", "", "");
   assert(songUrl["status"] == 1);
   assert(songUrl["url"] == "http://audio.example/song.mp3");
@@ -778,7 +778,7 @@ int main() {
         200,
         R"({"status":1,"hash":"ABCDEF","url":"http://audio.example/authed.mp3"})",
         ""};
-  });
+  }, {});
   const echo::core::DeviceInfo qrLoginDevice{
       .dfid = "dfid123",
       .mid = "mid123",
@@ -851,7 +851,7 @@ int main() {
         200,
         R"({"status":1,"hash":"OFFSETHASH","url":["http://audio.example/preview.mp3"]})",
         ""};
-  });
+  }, {});
   const auto previewSongUrl = previewSongUrlService.Resolve(
       "VIPHASH", "123", "456", "", "", "42", "tok", qrLoginDevice);
   assert(previewSongUrl["status"] == 1);
@@ -863,7 +863,7 @@ int main() {
                                                     const std::string&,
                                                     const std::unordered_map<std::string, std::string>&) {
     return echo::core::HttpResult{200, R"({"status":0,"url":"","error":"需要付费"})", ""};
-  });
+  }, {});
   const auto paidSongUrl = paidSongUrlService.Resolve("paidhash", "", "");
   assert(paidSongUrl["status"] == 0);
   assert(paidSongUrl["url"] == "");
@@ -925,6 +925,85 @@ int main() {
   const auto missingFacadeLyric = emptyLyricService.GetDetail("", "");
   assert(missingFacadeLyric["status"] == 0);
   assert(missingFacadeLyric["error_code"] == "native_lyric_missing_params");
+
+  echo::core::LyricService timedOutLyric([](const std::string&,
+                                            const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{0, "", "WINHTTP_TIMEOUT", true};
+  });
+  const auto timedOutSearch = timedOutLyric.Search("abcdef1234567890");
+  assert(timedOutSearch["status"] == 0);
+  assert(timedOutSearch["error_code"] == "native_lyric_search_failed");
+  assert(timedOutSearch.contains("diagnostics"));
+  assert(timedOutSearch["diagnostics"]["timed_out"] == true);
+  assert(timedOutSearch["diagnostics"]["upstream_http_status"] == 0);
+  assert(timedOutSearch["diagnostics"]["parse_status"] == "network_error");
+  assert(timedOutSearch["diagnostics"]["winhttp_error"] == "WINHTTP_TIMEOUT");
+  assert(timedOutSearch["diagnostics"]["hash_fingerprint"].get<std::string>().find("abcdef1234567890") ==
+         std::string::npos);
+  assert(timedOutSearch["diagnostics"].contains("duration_ms"));
+  assert(timedOutSearch["diagnostics"].contains("candidate_count"));
+
+  echo::core::LyricService businessRejectedLyric([](const std::string&,
+                                                    const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{
+        200, R"({"status":0,"error_code":20007,"error":"","candidates":[]})", ""};
+  });
+  const auto rejectedSearch = businessRejectedLyric.Search("abcdef1234567890");
+  assert(rejectedSearch["status"] == 0);
+  assert(rejectedSearch["error_code"] == 20007);
+  assert(rejectedSearch["diagnostics"]["parse_status"] == "ok");
+  assert(rejectedSearch["diagnostics"]["upstream_status"] == 0);
+  assert(rejectedSearch["diagnostics"]["upstream_error_code"] == 20007);
+  assert(rejectedSearch["diagnostics"]["candidates_present"] == true);
+  assert(rejectedSearch["diagnostics"]["candidates_type"] == "array");
+  assert(rejectedSearch["diagnostics"]["candidate_count"] == 0);
+
+  echo::core::LyricService emptyListLyric([](const std::string&,
+                                             const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{200, R"({"status":200,"candidates":[]})", ""};
+  });
+  const auto emptyListSearch = emptyListLyric.Search("abcdef1234567890");
+  assert(emptyListSearch["status"] == 200);
+  assert(emptyListSearch["candidates"].is_array());
+  assert(emptyListSearch["candidates"].empty());
+  assert(emptyListSearch["diagnostics"]["parse_status"] == "ok");
+  assert(emptyListSearch["diagnostics"]["candidates_present"] == true);
+  assert(emptyListSearch["diagnostics"]["candidates_type"] == "array");
+  assert(emptyListSearch["diagnostics"]["candidate_count"] == 0);
+
+  echo::core::LyricService wrongTypeLyric([](const std::string&,
+                                             const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{200, R"({"status":200,"candidates":"nope"})", ""};
+  });
+  const auto wrongTypeSearch = wrongTypeLyric.Search("abcdef1234567890");
+  assert(wrongTypeSearch["diagnostics"]["parse_status"] == "ok");
+  assert(wrongTypeSearch["diagnostics"]["candidates_present"] == true);
+  assert(wrongTypeSearch["diagnostics"]["candidates_type"] == "string");
+  assert(wrongTypeSearch["diagnostics"]["candidate_count"].is_null());
+
+  echo::core::LyricService invalidJsonLyric([](const std::string&,
+                                               const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{200, "not-json", ""};
+  });
+  const auto invalidJsonSearch = invalidJsonLyric.Search("abcdef1234567890");
+  assert(invalidJsonSearch["status"] == 0);
+  assert(invalidJsonSearch["error_code"] == "native_lyric_search_invalid_json");
+  assert(invalidJsonSearch["diagnostics"]["parse_status"] == "invalid_json");
+  assert(!invalidJsonSearch["diagnostics"].contains("upstream_status") ||
+         invalidJsonSearch["diagnostics"]["upstream_status"].is_null());
+
+  echo::core::LyricService rejectedDownload([](const std::string&,
+                                              const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{
+        200, R"({"status":0,"error_code":20008,"error_msg":"not found","content":""})", ""};
+  });
+  const auto rejectedDetail = rejectedDownload.GetDetail("274944371", "access123");
+  assert(rejectedDetail["status"] == 0);
+  assert(rejectedDetail["error_code"] == 20008);
+  assert(rejectedDetail["diagnostics"]["parse_status"] == "ok");
+  assert(rejectedDetail["diagnostics"]["upstream_status"] == 0);
+  assert(rejectedDetail["diagnostics"]["upstream_error_code"] == 20008);
+  assert(rejectedDetail["diagnostics"]["content_present"] == true);
 
   echo::core::PlaylistService playlistService([](
                                                   const std::string& url,
@@ -1811,7 +1890,7 @@ int main() {
           200,
           R"({"status":1,"hash":"ABC123","url":"http://cdn.example/abc.flac","backup_url":["http://cdn.example/bak.flac"],"fileName":"歌手 - 歌名","songName":"歌名","singerName":"歌手","albumid":966846,"album_audio_id":32100650,"audio_id":20505418,"timeLength":269000,"bitRate":320,"extName":"flac","privilege":10,"pay_type":3})",
           ""};
-    });
+    }, {});
 
     // Public shape contract: every resolve call must return these fields.
     const auto contractUrl = songUrlContractSvc.Resolve("ABC123", "", "");

@@ -34,6 +34,39 @@ std::string UpstreamErrorMessage(const nlohmann::json& json) {
   return {};
 }
 
+constexpr const char* kUnspecifiedUpstreamRejection = "上游拒绝，原因未明确";
+
+nlohmann::json NormalizeClaimFailure(
+    const nlohmann::json& json,
+    const char* localError,
+    const char* endpointTag) {
+  const auto upstreamCode =
+      json.contains("error_code") ? json["error_code"] : nlohmann::json(0);
+  const auto upstreamMsg = UpstreamErrorMessage(json);
+  const std::string localFallback =
+      upstreamMsg.empty() ? kUnspecifiedUpstreamRejection : "";
+  std::ostringstream diagnostic;
+  diagnostic << endpointTag
+             << " upstream status=" << json.value("status", 0)
+             << " error_code=" << upstreamCode.dump()
+             << " upstream_message="
+             << (upstreamMsg.empty() ? "<empty>" : upstreamMsg)
+             << " local_fallback_message="
+             << (localFallback.empty() ? "<none>" : localFallback);
+  ECHO_LOG("VipClaim", diagnostic.str());
+  return {
+      {"status", 0},
+      {"error_code", upstreamCode},
+      {"error_msg", upstreamMsg},
+      {"error", upstreamMsg.empty() ? localFallback : upstreamMsg},
+      {"upstream_message", upstreamMsg},
+      {"local_fallback_message", localFallback},
+      {"local_error", localError},
+      {"data", json.contains("data") ? json["data"] : nlohmann::json(nullptr)},
+      {"raw", json},
+  };
+}
+
 }  // namespace
 
 UserService::UserService()
@@ -68,6 +101,13 @@ nlohmann::json UserService::GetUserDetail(
     const std::string& token) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
+  }
+
+  // get_my_info is POST-only. An absent POST verb is an explicit configuration
+  // failure (partial transport injection), never a reason to reach the default
+  // network, and calling an empty std::function would abort the process.
+  if (!httpPost_) {
+    return MakeError("No HTTP POST handler available");
   }
 
   const auto clienttime = std::to_string(std::time(nullptr));
@@ -138,8 +178,10 @@ nlohmann::json UserService::GetUserDetail(
 nlohmann::json UserService::GetUserVip(
     const DeviceInfo& device,
     const std::string& userId,
-    const std::string& token) const {
+    const std::string& token,
+    KuGouEdition edition) const {
   const auto clienttime = std::to_string(std::time(nullptr));
+  const auto profile = GetKuGouProfile(edition);
 
   // Use the device fingerprint already normalized by DeviceService.
   // Do NOT re-derive from dfid here — that breaks the guid bloodline
@@ -148,10 +190,34 @@ nlohmann::json UserService::GetUserVip(
   const std::string mid = ResolveAndroidMid(device);
   const std::string uuid = "-";
 
-  auto DoGetVip = [&](const KuGouProfileParams& profile) -> nlohmann::json {
+  // Diagnostic (20017 investigation): request-side identity summary before
+  // signing. uuid_param is the value that actually enters the signature;
+  // uuid_default_source shows what BuildSignedUrl would have used otherwise.
+  // profile/appid/clientver/salt are derived from the actual profile object —
+  // never hand-written labels.
+  {
+    std::ostringstream diag;
+    diag << "request profile=" << KuGouProfileName(profile)
+         << " appid=" << profile.appid
+         << " clientver=" << profile.clientver
+         << " salt=" << KuGouSaltKindName(profile.saltKind)
+         << " dfid_fp="
+         << (dfid == "-" ? std::string("-") : CalculateMd5(dfid).substr(0, 8))
+         << " dfid_len=" << (dfid == "-" ? 0 : dfid.size())
+         << " uuid_param=" << uuid
+         << " uuid_default_source=" << (device.guid.empty() ? "none" : "guid")
+         << " guid_len=" << device.guid.size()
+         << " uuid_len=" << device.uuid.size()
+         << " token_len=" << token.size()
+         << " userid_present=" << (userId.empty() ? "N" : "Y")
+         << " cookie=Y";
+    ECHO_LOG("UserVip", diag.str());
+  }
+
+  auto DoGetVip = [&](const KuGouProfileParams& signingProfile) -> nlohmann::json {
     KuGouAndroidRequest req;
     req.endpoint = "https://kugouvip.kugou.com/v1/get_union_vip";
-    req.profile = profile;
+    req.profile = signingProfile;
     req.params = {
         {"busi_type", "concept"},
         {"userid", userId.empty() ? "0" : userId},
@@ -176,8 +242,7 @@ nlohmann::json UserService::GetUserVip(
 
     try {
       auto json = nlohmann::json::parse(result.body);
-      if (json.value("status", 0) == 1 && json.contains("data") && json["data"].is_object()) {
-        const auto& data = json["data"];
+      if (json.value("status", 0) == 1 && json.contains("data") && json["data"].is_object()) {        const auto& data = json["data"];
         const auto field = [&](const char* key) {
           return data.contains(key) ? data[key].dump() : std::string("missing");
         };
@@ -219,6 +284,7 @@ nlohmann::json UserService::GetUserVip(
       }
       #ifdef _DEBUG
       json["_debug_profile_appid"] = profile.appid;
+      json["_debug_http_status"] = result.statusCode;
       #endif
       return json;
     } catch (const nlohmann::json::exception& e) {
@@ -226,18 +292,21 @@ nlohmann::json UserService::GetUserVip(
     }
   };
 
-  // 实测（2026-09-03，配对后）：令牌与真指纹配对后概念族仍被 20017 全拒，
-  // 官方 App 正常 → 上游拒的是概念族本身；改标准族（1005/20489/标准盐），
-  // busi_type=concept 保留（参考仓 youth_union_vip.js 同约）。
-  auto conceptResult = DoGetVip(GetKuGouProfile(KuGouEdition::Standard));
-  if (conceptResult.value("status", 0) == 1) {
+  // 生产契约（默认）：整套 Standard profile（1005/20489/标准盐）。2026-09-03
+  // 配对实测：令牌与真指纹配对后概念族仍被 20017 全拒，官方 App 正常。
+  // edition 参数（默认 Standard）供签名族 A/B 对照；appid/clientver/盐必须
+  // 整套一起换，busi_type=concept 对两族都保留（参考仓 youth_union_vip.js 同约）。
+  auto vipResult = DoGetVip(profile);
+  if (vipResult.value("status", 0) == 1) {
     bool hasVipFields = false;
-    if (conceptResult.contains("data") && conceptResult["data"].is_object()) {
-      auto& d = conceptResult["data"];
+    if (vipResult.contains("data") && vipResult["data"].is_object()) {
+      auto& d = vipResult["data"];
       hasVipFields = d.contains("is_vip") || d.contains("busi_vip") || d.contains("vip_type");
 
       // 修正顶层 is_vip：busi_vip list 里有 is_vip=1 且未过期的记录时，data.is_vip 应为 1。
-      // 只认解锁歌曲的产品（svip/music/musicpack）；tvip 是听书权益，对音乐 App 不算 VIP。
+      // 音乐解锁白名单仅 svip/music/musicpack。tvip 等其他 product_type 用途未以
+      // 一手协议证实（曾有项目注释称听书，属假设）；不解锁音乐 VIP，也不因此伪造
+      // 顶层 is_vip=1。
       if (hasVipFields && d.contains("busi_vip") && d["busi_vip"].is_array()) {
         const auto now = std::time(nullptr);
         bool realVip = false;
@@ -268,17 +337,18 @@ nlohmann::json UserService::GetUserVip(
       }
     }
     if (hasVipFields) {
-      return conceptResult;
+      return vipResult;
     }
   }
 
-  return conceptResult;
+  return vipResult;
 }
 
 nlohmann::json UserService::ClaimVip(
     const DeviceInfo& device,
     const std::string& userId,
-    const std::string& token) const {
+    const std::string& token,
+    KuGouEdition edition) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
@@ -311,11 +381,10 @@ nlohmann::json UserService::ClaimVip(
   //   鈥?2026-08-31 upstream update: content-type must be
   //     application/x-www-form-urlencoded and every request carries the
   //     dfid/clienttime/mid/kg-* fingerprint headers (util/request.js).
-  //   鈥?identity is the STANDARD Android app (appid=1005, clientver=20489,
-  //     standard salt per util/config.json), not the Concept/lite edition;
-  //     the reference sends no 'plat' param. The old Concept identity was a
-  //     candidate root cause of the blanket 51002 rejections.
-  const auto profile = GetKuGouProfile(KuGouEdition::Standard);
+  //   identity profile is explicit: production default Standard (1005/20489/
+  //   standard salt). Concept is a day-claim candidate only — never auto-selected.
+  //   uuid/headers/device are not part of this profile switch.
+  const auto profile = GetKuGouProfile(edition);
   KuGouAndroidRequest req;
   req.endpoint = "https://gateway.kugou.com/youth/v1/recharge/receive_vip_listen_song";
   req.profile = profile;
@@ -336,7 +405,11 @@ nlohmann::json UserService::ClaimVip(
 
   // Redacted request log: token never leaves in diagnostics.
   ECHO_LOG("VipClaim", std::string(">>> receive_vip_listen_song userid=") + userId
-      + " receive_day=" + receiveDay);
+      + " receive_day=" + receiveDay
+      + " profile=" + KuGouProfileName(profile)
+      + " appid=" + profile.appid
+      + " clientver=" + profile.clientver
+      + " salt=" + KuGouSaltKindName(profile.saltKind));
 
   const auto result = httpPost_(
       url,
@@ -351,22 +424,7 @@ nlohmann::json UserService::ClaimVip(
     // KuGou's success response is `{status:1, data:{...}, error_msg:""}`.
     // On failure it returns `{status:0, error_msg:"浠婃棩宸查鍙? / "骞垮憡鏈鐪? / ...}`.
     if (json.value("status", 0) != 1) {
-      std::string msg = json.value("error_msg", json.value("error", std::string{}));
-      if (msg.empty()) msg = "广告 VIP 升级失败（需要酷狗官方 App 内的广告 SDK 凭证）";
-      const auto upstreamCode = json.contains("error_code") ? json["error_code"] : nlohmann::json(0);
-      ECHO_LOG("VipClaim", std::string("<<< receive_vip_listen_song upstream status=")
-          + std::to_string(json.value("status", 0))
-          + " error_code=" + upstreamCode.dump()
-          + " message=" + (msg.empty() ? std::string("<empty>") : msg));
-      return {
-          {"status", 0},
-          {"error", msg},
-          {"error_msg", msg},
-          {"error_code", upstreamCode},
-          {"local_error", "kugou_vip_claim_failed"},
-          {"data", json.contains("data") ? json["data"] : nlohmann::json(nullptr)},
-          {"raw", json},
-      };
+      return NormalizeClaimFailure(json, "kugou_vip_claim_failed", "<<< receive_vip_listen_song");
     }
     return json;
   } catch (const nlohmann::json::exception& e) {
@@ -437,21 +495,7 @@ nlohmann::json UserService::UpgradeVipReward(
   try {
     auto json = nlohmann::json::parse(result.body);
     if (json.value("status", 0) != 1) {
-      std::string msg = json.value("error_msg", json.value("error", std::string{}));
-      if (msg.empty()) msg = "广告 VIP 升级失败（需要酷狗官方 App 内的广告 SDK 凭证）";
-      const auto upstreamCode = json.contains("error_code") ? json["error_code"] : nlohmann::json(0);
-      ECHO_LOG("VipClaim", std::string("<<< upgrade_vip_reward upstream status=")
-          + std::to_string(json.value("status", 0))
-          + " error_code=" + upstreamCode.dump()
-          + " message=" + (msg.empty() ? std::string("<empty>") : msg));
-      return {
-          {"status", 0},
-          {"error", msg},
-          {"error_msg", msg},
-          {"error_code", upstreamCode},
-          {"local_error", "kugou_vip_upgrade_failed"},
-          {"raw", json},
-      };
+      return NormalizeClaimFailure(json, "kugou_vip_upgrade_failed", "<<< upgrade_vip_reward");
     }
     return json;
   } catch (const nlohmann::json::exception& e) {
@@ -512,12 +556,17 @@ nlohmann::json UserService::ClaimYouthListenSong(
   try {
     auto json = nlohmann::json::parse(result.body);
     const auto upstreamError = UpstreamErrorMessage(json);
-    if (json.value("status", 0) != 1) {
+    const bool rejected = json.value("status", 0) != 1;
+    const std::string localFallback =
+        rejected && upstreamError.empty() ? kUnspecifiedUpstreamRejection : "";
+    if (rejected) {
       std::ostringstream diagnostic;
       diagnostic << "upstream status=" << json.value("status", 0)
                  << " error_code="
                  << (json.contains("error_code") ? json["error_code"].dump() : "missing")
-                 << " message=" << (upstreamError.empty() ? "<empty>" : upstreamError)
+                 << " upstream_message=" << (upstreamError.empty() ? "<empty>" : upstreamError)
+                 << " local_fallback_message="
+                 << (localFallback.empty() ? "<none>" : localFallback)
                  << " data_type="
                  << (json.contains("data") ? json["data"].type_name() : "missing");
       ECHO_LOG("YouthListen", diagnostic.str());
@@ -526,14 +575,11 @@ nlohmann::json UserService::ClaimYouthListenSong(
         {"status", json.value("status", 0)},
         {"error_code", json.contains("error_code") ? json["error_code"] : nlohmann::json(0)},
         {"error_msg", upstreamError},
-        {"error", upstreamError},
+        {"error", upstreamError.empty() ? localFallback : upstreamError},
+        {"upstream_message", upstreamError},
+        {"local_fallback_message", localFallback},
         {"data", json.contains("data") && json["data"].is_object() ? json["data"] : nlohmann::json::object()},
     };
-
-    // 放宽拦截：为 130012 业务限制注入明确的提示，让前端不再只显示“网络异常”
-    if (out["status"] == 0 && out["error_code"] == 130012 && out["error_msg"] == "") {
-      out["error_msg"] = "今日已通过广告领过，或需要去酷狗官方 App 内先听完整歌曲 (Err: 130012)";
-    }
 
     if (json.contains("data") && json["data"].is_object()) {
       auto& d = json["data"];
@@ -599,22 +645,29 @@ nlohmann::json UserService::ClaimYouthAdVip(
 
   try {
     auto json = nlohmann::json::parse(result.body);
+    const auto upstreamError = UpstreamErrorMessage(json);
+    const bool rejected = json.value("status", 0) != 1;
+    const std::string localFallback =
+        rejected && upstreamError.empty() ? kUnspecifiedUpstreamRejection : "";
+    if (rejected) {
+      std::ostringstream diagnostic;
+      diagnostic << "upstream status=" << json.value("status", 0)
+                 << " error_code="
+                 << (json.contains("error_code") ? json["error_code"].dump() : "missing")
+                 << " upstream_message=" << (upstreamError.empty() ? "<empty>" : upstreamError)
+                 << " local_fallback_message="
+                 << (localFallback.empty() ? "<none>" : localFallback);
+      ECHO_LOG("YouthAdVip", diagnostic.str());
+    }
     nlohmann::json out = {
         {"status", json.value("status", 0)},
-        {"error_code", json.value("error_code", 0)},
-        {"error_msg", json.value("error_msg", "")},
+        {"error_code", json.contains("error_code") ? json["error_code"] : nlohmann::json(0)},
+        {"error_msg", upstreamError},
+        {"error", upstreamError.empty() ? localFallback : upstreamError},
+        {"upstream_message", upstreamError},
+        {"local_fallback_message", localFallback},
         {"data", json.contains("data") && json["data"].is_object() ? json["data"] : nlohmann::json::object()},
     };
-    
-    // 放宽拦截
-    if (out["status"] == 0 && out["error_msg"] == "") {
-        if (out["error_code"] == 130012) {
-             out["error_msg"] = "今日领取可能已达上限，或存在互斥冲突 (Err: 130012)";
-        } else {
-             out["error_msg"] = "广告 SDK 凭证校验失败或网络问题 (Err: " + std::to_string(out.value("error_code", 0)) + ")";
-        }
-    }
-    
     return out;
   } catch (const nlohmann::json::exception& e) {
     return MakeError(std::string("JSON parse error: ") + e.what());

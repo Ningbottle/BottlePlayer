@@ -12,6 +12,7 @@
 #include "echo/storage/Database.h"
 
 #include "echo/core/Dto.h"
+#include "echo/core/LoginService.h"
 
 namespace echo::core {
 
@@ -41,6 +42,10 @@ struct CompatApiHandlers {
   std::function<nlohmann::json(std::string userId, std::string token)> userDetail;
   std::function<nlohmann::json(std::string userId, std::string token)> userVip;
   std::function<nlohmann::json(std::string userId, std::string token)> everydayRecommend;
+  // Transport injection for credential-chain contract tests. Unlike the
+  // result handlers above, these retain route parsing, persistence and signing.
+  LoginHttpGet sessionHttpGet;
+  LoginHttpPost sessionHttpPost;
 };
 
 class CompatApi {

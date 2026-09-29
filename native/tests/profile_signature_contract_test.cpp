@@ -3,10 +3,16 @@
 
 #include <cassert>
 #include <iostream>
+#include <map>
+#include <sstream>
 #include <string>
+#include <unordered_map>
 
 #include "echo/core/KuGouProfile.h"
 #include "echo/core/KuGouAndroidRequest.h"
+#include "echo/core/Crypto.h"
+#include "echo/core/PlaylistService.h"
+#include "echo/core/UserService.h"
 
 #if defined(_MSC_VER)
 #include <crtdbg.h>
@@ -168,6 +174,167 @@ int main() {
     assert(url1 == url2);
 
     std::cout << "  [ok] Same inputs produce identical signatures" << std::endl;
+  }
+
+  // ── 签名族 A/B：GetUserVip / GetUserPlaylists 整套 profile 切换 ────────
+  // 离线注入 HTTP。clienttime 由服务端生成，从捕获的 URL 解出后用于重算
+  // 签名，从而对每个 edition 精确校验 appid/clientver/盐三件套、身份字段、
+  // query/header 一致性，以及「省略 edition 时生产默认仍是 Standard」。
+  std::cout << "[ProfileSignatureContract] Testing signature-family A/B editions..." << std::endl;
+  {
+    using namespace echo::core;
+
+    DeviceInfo device;
+    device.dfid = "abdfid000000000000000000001";
+    device.guid = "ab-guid-1234-5678-901234567890";
+    device.mid = "123456789012345678901234567890123456789";
+    device.registered = true;
+    const auto conceptProfile = GetKuGouProfile(KuGouEdition::Concept);
+    device.appid = conceptProfile.appid;
+    device.clientver = conceptProfile.clientver;
+
+    auto ParseQuery = [](const std::string& url) {
+      std::map<std::string, std::string> out;
+      const auto qpos = url.find('?');
+      if (qpos == std::string::npos) return out;
+      std::istringstream pairs(url.substr(qpos + 1));
+      std::string pair;
+      while (std::getline(pairs, pair, '&')) {
+        const auto eq = pair.find('=');
+        if (eq == std::string::npos) continue;
+        out[pair.substr(0, eq)] = pair.substr(eq + 1);
+      }
+      return out;
+    };
+
+    auto assertEditionContract = [&](const std::map<std::string, std::string>& query,
+                                     const std::unordered_map<std::string, std::string>& headers,
+                                     const std::string& signature,
+                                     const std::string& body,
+                                     KuGouEdition edition) {
+      const auto profile = GetKuGouProfile(edition);
+      assert(query.at("appid") == profile.appid);
+      assert(query.at("clientver") == profile.clientver);
+
+      // query 与 header 的 dfid/mid/clienttime 一致
+      assert(query.at("dfid") == device.dfid);
+      assert(headers.at("dfid") == device.dfid);
+      assert(query.at("mid") == headers.at("mid"));
+      assert(query.at("clienttime") == headers.at("clienttime"));
+
+      // 签名重算：与所选盐一致；与另一族的盐不一致（盐选择被钉死）。
+      std::unordered_map<std::string, std::string> signedParams;
+      for (const auto& [k, v] : query) {
+        if (k != "signature") signedParams[k] = v;
+      }
+      assert(SignatureAndroidParams(signedParams, body, profile.saltKind) == signature);
+      const KuGouSaltKind otherSalt = profile.saltKind == KuGouSaltKind::Standard
+                                          ? KuGouSaltKind::Lite
+                                          : KuGouSaltKind::Standard;
+      assert(SignatureAndroidParams(signedParams, body, otherSalt) != signature);
+    };
+
+    // VIP：GET /v1/get_union_vip，两族 busi_type=concept、uuid="-"、Cookie 会话。
+    auto checkVipEdition = [&](KuGouEdition edition) {
+      std::string capturedUrl;
+      std::unordered_map<std::string, std::string> capturedHeaders;
+      UserService svc(
+          [&](const std::string& url,
+              const std::unordered_map<std::string, std::string>& headers) {
+            capturedUrl = url;
+            capturedHeaders = headers;
+            return HttpResult{200, R"({"status":1,"data":{"is_vip":0,"vip_type":0}})", ""};
+          },
+          [](const std::string&, const std::string&,
+             const std::unordered_map<std::string, std::string>&) {
+            return HttpResult{0, "", "POST not used by GetUserVip"};
+          });
+      const auto result = svc.GetUserVip(device, "42", "tok", edition);
+      assert(result.value("status", 0) == 1);
+
+      const auto query = ParseQuery(capturedUrl);
+      assert(query.at("busi_type") == "concept");
+      assert(query.at("uuid") == "-");
+      assert(query.at("userid") == "42");
+      assert(query.count("signature") == 1);
+      assert(capturedHeaders.count("Cookie"));
+      assert(capturedHeaders.at("Cookie").find("userid=42") != std::string::npos);
+
+      assertEditionContract(query, capturedHeaders, query.at("signature"), "",
+                            edition);
+    };
+    checkVipEdition(KuGouEdition::Standard);
+    checkVipEdition(KuGouEdition::Concept);
+
+    // 歌单：POST /v7/get_all_list，签名携带 body；合法空列表也算成功。
+    auto checkPlaylistEdition = [&](KuGouEdition edition) {
+      std::string capturedUrl;
+      std::string capturedBody;
+      std::unordered_map<std::string, std::string> capturedHeaders;
+      PlaylistService svc(
+          [](const std::string&,
+             const std::unordered_map<std::string, std::string>&) {
+            return HttpResult{0, "", "GET not used by GetUserPlaylists"};
+          },
+          [&](const std::string& url, const std::string& body,
+              const std::unordered_map<std::string, std::string>& headers) {
+            capturedUrl = url;
+            capturedBody = body;
+            capturedHeaders = headers;
+            return HttpResult{200, R"({"status":1,"data":{"info":[]}})", ""};
+          });
+      const auto result = svc.GetUserPlaylists(device, "42", "tok", 1, 30, edition);
+      assert(result.value("status", 0) == 1);
+      assert(result.contains("data") && result["data"].is_object() &&
+             result["data"].contains("info") && result["data"]["info"].is_array());
+
+      const auto query = ParseQuery(capturedUrl);
+      assert(query.at("uuid") == "-");
+      assert(query.at("userid") == "42");
+      assert(query.count("signature") == 1);
+      assert(capturedBody.find("\"userid\":42") != std::string::npos);
+      assert(capturedBody.find("\"token\":\"tok\"") != std::string::npos);
+
+      assertEditionContract(query, capturedHeaders, query.at("signature"), capturedBody,
+                            edition);
+    };
+    checkPlaylistEdition(KuGouEdition::Standard);
+    checkPlaylistEdition(KuGouEdition::Concept);
+
+    // 省略 edition：生产默认仍是整套 Standard（1005/20489），行为不变。
+    {
+      std::string capturedVipUrl;
+      UserService vipSvc(
+          [&](const std::string& url,
+              const std::unordered_map<std::string, std::string>&) {
+            capturedVipUrl = url;
+            return HttpResult{200, R"({"status":1,"data":{"is_vip":0}})", ""};
+          },
+          [](const std::string&, const std::string&,
+             const std::unordered_map<std::string, std::string>&) {
+            return HttpResult{0, "", "POST not used"};
+          });
+      (void)vipSvc.GetUserVip(device, "42", "tok");
+      assert(capturedVipUrl.find("appid=1005") != std::string::npos);
+      assert(capturedVipUrl.find("clientver=20489") != std::string::npos);
+
+      std::string capturedPlUrl;
+      PlaylistService plSvc(
+          [](const std::string&, const std::unordered_map<std::string, std::string>&) {
+            return HttpResult{0, "", "GET not used"};
+          },
+          [&](const std::string& url, const std::string&,
+              const std::unordered_map<std::string, std::string>&) {
+            capturedPlUrl = url;
+            return HttpResult{200, R"({"status":1,"data":{"info":[]}})", ""};
+          });
+      (void)plSvc.GetUserPlaylists(device, "42", "tok", 1, 30);
+      assert(capturedPlUrl.find("appid=1005") != std::string::npos);
+      assert(capturedPlUrl.find("clientver=20489") != std::string::npos);
+    }
+
+    std::cout << "  [ok] VIP+playlist A/B: whole-profile switch, salt selection pinned, "
+                 "query/header identity consistent, default stays Standard" << std::endl;
   }
 
   std::cout << "[ProfileSignatureContract] All tests passed!" << std::endl;

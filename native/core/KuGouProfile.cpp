@@ -23,6 +23,21 @@ KuGouProfileParams GetKuGouProfile(KuGouEdition edition) {
   return GetKuGouProfile(KuGouEdition::Concept);
 }
 
+const char* KuGouSaltKindName(KuGouSaltKind kind) {
+  return kind == KuGouSaltKind::Standard ? "standard" : "lite";
+}
+
+std::string KuGouProfileName(const KuGouProfileParams& profile) {
+  for (const KuGouEdition edition : {KuGouEdition::Standard, KuGouEdition::Concept}) {
+    const auto preset = GetKuGouProfile(edition);
+    if (preset.appid == profile.appid && preset.clientver == profile.clientver &&
+        preset.saltKind == profile.saltKind) {
+      return edition == KuGouEdition::Standard ? "standard" : "concept";
+    }
+  }
+  return "custom";
+}
+
 ConceptUrlParams GetConceptUrlParams() {
   return ConceptUrlParams{
       .pageId = "967177915",

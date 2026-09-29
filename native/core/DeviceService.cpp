@@ -1,6 +1,7 @@
 #include "echo/core/DeviceService.h"
 #include "echo/core/Crypto.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/diagnostics/EchoDiagnostics.h"
 
 #include <algorithm>
 #include <array>
@@ -39,6 +40,8 @@ void NormalizeDeviceInfo(DeviceInfo& device) {
 
   if (device.appid != profile.appid) {
     device.registered = false;
+    ECHO_LOG("DeviceSvc", "normalize appid_mismatch stored=" + device.appid +
+        " expected=" + profile.appid + " -> registered=N");
   }
   device.appid = profile.appid;
   device.clientver = profile.clientver;
@@ -48,13 +51,7 @@ void NormalizeDeviceInfo(DeviceInfo& device) {
     return;
   }
 
-  if (device.mid.empty()) {
-    const std::string md5Dfid = CalculateMd5(device.dfid);
-    device.mid = md5Dfid + md5Dfid.substr(0, 7);
-  }
-  if (device.uuid.empty()) {
-    device.uuid = CalculateMd5(device.dfid + device.mid);
-  }
+  device = BackfillInMemoryIdentity(std::move(device));
 }
 
 DeviceInfo CreateDeviceInfo() {
@@ -77,15 +74,47 @@ DeviceInfo CreateDeviceInfo() {
 
 }  // namespace
 
+DeviceInfo BackfillInMemoryIdentity(DeviceInfo device) {
+  const bool placeholderDfid = device.dfid.empty() || device.dfid == "-";
+  if (placeholderDfid) return device;
+  if (device.mid.empty()) {
+    const std::string md5Dfid = CalculateMd5(device.dfid);
+    device.mid = md5Dfid + md5Dfid.substr(0, 7);
+  }
+  if (device.uuid.empty()) {
+    device.uuid = CalculateMd5(device.dfid + device.mid);
+  }
+  return device;
+}
+
 DeviceService::DeviceService(storage::DeviceRepository& devices) : devices_(devices) {}
 
 DeviceInfo DeviceService::EnsureDeviceReady() {
   DeviceInfo device;
+  bool recordUsable = false;
   if (auto existing = devices_.Load(); existing) {
-    device = *existing;
-  } else {
+    // DeviceRepository::Clear() persists `{}` and Load() hands that tombstone
+    // back as if a device existed. A record without any identity anchor
+    // (guid AND uuid empty AND no real dfid) cannot carry the registration
+    // bloodline: the QR chain would run on an identity with no
+    // guid/dfid/mid/uuid (observed 2026-09-14 22:45). Treat it as missing.
+    // A legacy dfid-bearing record is NOT covered by this rule — the
+    // uuid/guid backfill migration below must keep its dfid bloodline.
+    const bool dfidPlaceholder = existing->dfid.empty() || existing->dfid == "-";
+    const bool noIdentityAnchor =
+        existing->guid.empty() && existing->uuid.empty() && dfidPlaceholder;
+    if (!noIdentityAnchor) {
+      device = *existing;
+      recordUsable = true;
+    } else {
+      ECHO_LOG("DeviceSvc",
+               "empty device record treated as missing -> recreating identity");
+    }
+  }
+  if (!recordUsable) {
     device = CreateDeviceInfo();
     devices_.Save(device);
+    ECHO_LOG("DeviceSvc", "created fresh device identity (registered=N dfid=-)");
   }
 
   // Normalize in-memory before returning to business code.
@@ -102,6 +131,7 @@ DeviceInfo DeviceService::EnsureDeviceReady() {
     device.guid = device.uuid;
     device.registered = false;
     devices_.Save(device);
+    ECHO_LOG("DeviceSvc", "backfilled guid from uuid -> registered=N (re-registration required)");
   }
 
   return device;

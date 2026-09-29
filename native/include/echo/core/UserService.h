@@ -9,6 +9,7 @@
 #include "echo/core/HttpClient.h"
 
 #include "echo/core/Dto.h"
+#include "echo/core/KuGouProfile.h"
 
 namespace echo::core {
 
@@ -38,7 +39,14 @@ class UserService {
 
   // Calls GET https://kugouvip.kugou.com/v1/get_union_vip.
   // Returns VIP status, type and expiry timestamps.
-  nlohmann::json GetUserVip(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
+  //
+  // `edition` swaps the WHOLE signature profile (appid+clientver+salt move
+  // together — never appid alone). Default is Standard (1005/20489/standard
+  // salt), the current production contract; Concept is for the signature-
+  // family A/B probe only. busi_type stays "concept" for both editions
+  // (get_union_vip only understands busi_type; youth_union_vip.js).
+  nlohmann::json GetUserVip(const DeviceInfo& device, const std::string& userId, const std::string& token,
+                            KuGouEdition edition = KuGouEdition::Standard) const;
   nlohmann::json GetUserVip(const std::string& userId, const std::string& token) const;
 
   // Claims 1-day VIP automatically for the user.
@@ -48,7 +56,14 @@ class UserService {
   // v1.6.0) was updated on 2026-08-31 to send content-type
   // application/x-www-form-urlencoded plus the standard Android fingerprint
   // headers, so the route was re-enabled on 2026-09-02 to retest upstream.
-  nlohmann::json ClaimVip(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
+  //
+  // `edition` swaps the WHOLE signature profile for this day-claim endpoint
+  // only. Production default remains Standard (reference-aligned). Concept is
+  // an explicit candidate for offline contract checks / single-channel user
+  // experiments — never auto-selected. Other claim routes have no edition
+  // parameter and stay Standard.
+  nlohmann::json ClaimVip(const DeviceInfo& device, const std::string& userId, const std::string& token,
+                          KuGouEdition edition = KuGouEdition::Standard) const;
   nlohmann::json ClaimVip(const std::string& userId, const std::string& token) const;
 
   // Upgrade VIP reward — the "watch 5s ad then get listen-song VIP" endpoint.

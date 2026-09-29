@@ -8,6 +8,7 @@
 
 #include "echo/core/HttpClient.h"
 #include "echo/core/Dto.h"
+#include "echo/core/KuGouProfile.h"
 
 namespace echo::core {
 
@@ -46,6 +47,9 @@ class PlaylistService {
        const std::string& userId,
        const std::string& token) const;
 
+   // `edition` swaps the WHOLE signature profile (appid+clientver+salt move
+   // together). Default is Standard (1005/20489/standard salt), the current
+   // production contract; Concept is for the signature-family A/B probe only.
    nlohmann::json GetUserPlaylists(
        const std::string& userId,
        const std::string& token,
@@ -56,7 +60,8 @@ class PlaylistService {
        const std::string& userId,
        const std::string& token,
        int page,
-       int pageSize) const;
+       int pageSize,
+       KuGouEdition edition = KuGouEdition::Standard) const;
 
    nlohmann::json AddPlaylist(
        const std::string& userId,
@@ -99,6 +104,17 @@ class PlaylistService {
        const std::string& token,
        const std::string& listId,
        const std::string& commaSeparatedTracks) const;
+   // B08 structured track entries: a JSON array of objects
+   // [{name, hash, album_id, mixsongid}, ...]. Names may contain ANY
+   // characters (commas, pipes, percent signs, CJK) — no escaping protocol.
+   // Records with an empty hash are rejected (song identity); a missing
+   // name degrades to "". Returns {status:0, error} on malformed input.
+   nlohmann::json AddPlaylistTracksStructured(
+       const DeviceInfo& device,
+       const std::string& userId,
+       const std::string& token,
+       const std::string& listId,
+       const nlohmann::json& tracks) const;
 
    nlohmann::json DeletePlaylistTracks(
        const std::string& userId,
@@ -115,6 +131,14 @@ class PlaylistService {
  private:
   PlaylistHttpGet httpGet_;
   PlaylistHttpPost httpPost_;
+  // Shared tail of both add-tracks paths: listId normalization, payload
+  // assembly, and the upstream POST.
+  nlohmann::json SendAddTracksPayload(
+      const DeviceInfo& device,
+      const std::string& userId,
+      const std::string& token,
+      const std::string& listId,
+      const nlohmann::json& resource) const;
 };
 
 }  // namespace echo::core

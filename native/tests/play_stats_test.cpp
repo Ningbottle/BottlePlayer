@@ -3,11 +3,14 @@
 // verifying field correctness, ordering, range filtering, and pagination.
 
 #include <cassert>
+#include <io.h>
+#include <process.h>
 #include <cmath>
 #include <chrono>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <limits>
 #include <string>
 
 #include <nlohmann/json.hpp>
@@ -21,16 +24,27 @@
 namespace {
 
 std::filesystem::path TestDirPath(const wchar_t* name) {
-  auto path = std::filesystem::temp_directory_path() / name;
+  // Unique per run: a wedged leftover process holding locks inside a
+  // fixed-name directory wedged every later run's remove_all (2026-09-27
+  // incident). A per-run suffix removes that failure mode; each run cleans
+  // only its own directory.
+  const auto stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
+                         std::chrono::system_clock::now().time_since_epoch())
+                         .count();
+  std::wstring unique = std::wstring(name) + L"-" + std::to_wstring(::_getpid()) +
+                        L"-" + std::to_wstring(stamp);
+  auto path = std::filesystem::temp_directory_path() / unique;
   std::filesystem::remove_all(path);
   std::filesystem::create_directories(path);
   return path;
 }
 
-void RecordPlay(const nlohmann::json& j) {
+int RecordPlayStatus(const nlohmann::json& j) {
   std::string s = j.dump();
-  EchoStatsRecordPlay(s.c_str());
+  return EchoStatsRecordPlay(s.c_str());
 }
+
+void RecordPlay(const nlohmann::json& j) { RecordPlayStatus(j); }
 
 nlohmann::json ParseAndFree(const char* result) {
   assert(result != nullptr);
@@ -335,6 +349,238 @@ int main() {
       return 1;
     }
     std::cout << "  special-char round-trip ok" << std::endl;
+  }
+
+  // ── B06/B10: EchoStatsRecordPlay outcomes are diagnosable ────────────
+  std::cout << "[PlayStatsTest] Testing RecordPlay status codes..." << std::endl;
+  {
+    auto base = ParseAndFree(EchoStatsGetSummary("all"));
+    const long long playsBefore = base["total_plays"].get<long long>();
+
+    // Valid record -> kEchoStatsRecorded (0).
+    const int okCode = RecordPlayStatus(makeRecord(
+        "hashB06", "B06 Song", "Artist X", "album-1", "Album One",
+        "", 240.0, true, 240.0, "128", day2 + 9000));
+    if (okCode != kEchoStatsRecorded) {
+      std::cerr << "FAIL valid record status=" << okCode << std::endl;
+      return 1;
+    }
+
+    // Below-threshold listen -> kEchoStatsRecordBelowThreshold (1), normal.
+    const int shortCode = RecordPlayStatus(makeRecord(
+        "hashB06s", "B06 Short", "Artist X", "album-1", "Album One",
+        "", 240.0, false, 45.0, "128", day2 + 9001));
+    if (shortCode != kEchoStatsRecordBelowThreshold) {
+      std::cerr << "FAIL below-threshold status=" << shortCode << std::endl;
+      return 1;
+    }
+
+    // Invalid inputs -> kEchoStatsInvalidRecord (2), nothing inserted.
+    const nlohmann::json invalidChecks[] = {
+        makeRecord("", "No Identity", "A", "album-1", "Album", "", 240.0, true, 240.0, "128", day2 + 9002),
+        makeRecord("hashB06n", "Neg Duration", "A", "album-1", "Album", "", -5.0, true, 240.0, "128", day2 + 9003),
+        makeRecord("hashB06p", "Neg Time", "A", "album-1", "Album", "", 240.0, true, 240.0, "128", -1),
+    };
+    for (const auto& invalid : invalidChecks) {
+      const int code = RecordPlayStatus(invalid);
+      if (code != kEchoStatsInvalidRecord) {
+        std::cerr << "FAIL invalid record accepted, status=" << code << " record="
+                  << invalid.dump() << std::endl;
+        return 1;
+      }
+    }
+
+    // A non-finite float cannot survive JSON (nlohmann serializes it to
+    // null): the FFI must classify that payload as malformed, not storage.
+    const int infCode = RecordPlayStatus(makeRecord(
+        "hashB06i", "Inf Listen", "A", "album-1", "Album", "", 240.0, true,
+        std::numeric_limits<double>::infinity(), "128", day2 + 9004));
+    if (infCode != kEchoStatsBadJson) {
+      std::cerr << "FAIL non-finite payload status=" << infCode << std::endl;
+      return 1;
+    }
+
+    // Unparseable JSON -> kEchoStatsBadJson (3).
+    if (EchoStatsRecordPlay("not valid json") != kEchoStatsBadJson) {
+      std::cerr << "FAIL bad json status" << std::endl;
+      return 1;
+    }
+    auto wrongStringType = makeRecord(
+        "hash-type", "Wrong Type", "A", "album-1", "Album", "",
+        240.0, true, 240.0, "128", day2 + 9005);
+    wrongStringType["song_hash"] = 17;
+    auto wrongBoolType = makeRecord(
+        "hash-type-2", "Wrong Bool", "A", "album-1", "Album", "",
+        240.0, true, 240.0, "128", day2 + 9006);
+    wrongBoolType["completed"] = "yes";
+    auto wrongTimestampType = makeRecord(
+        "hash-type-3", "Wrong Timestamp", "A", "album-1", "Album", "",
+        240.0, true, 240.0, "128", day2 + 9007);
+    wrongTimestampType["played_at"] = "now";
+    for (const auto& malformed : {wrongStringType, wrongBoolType, wrongTimestampType}) {
+      if (RecordPlayStatus(malformed) != kEchoStatsBadJson) {
+        std::cerr << "FAIL malformed field type was not classified as bad JSON: "
+                  << malformed.dump() << std::endl;
+        return 1;
+      }
+    }
+
+    // played_at == 0 degrades to "now" and records (no epoch-zero poisoning).
+    const int zeroTimeCode = RecordPlayStatus(makeRecord(
+        "hashB06z", "Zero Time", "Artist X", "album-1", "Album One",
+        "", 240.0, true, 240.0, "128", 0));
+    if (zeroTimeCode != kEchoStatsRecorded) {
+      std::cerr << "FAIL zero played_at status=" << zeroTimeCode << std::endl;
+      return 1;
+    }
+
+    auto after = ParseAndFree(EchoStatsGetSummary("all"));
+    const long long playsAfter = after["total_plays"].get<long long>();
+    // +1 valid +1 zero-time-recorded; short/invalid inserted nothing.
+    if (playsAfter != playsBefore + 2) {
+      std::cerr << "FAIL plays after B06 section: before=" << playsBefore
+                << " after=" << playsAfter << std::endl;
+      return 1;
+    }
+    std::cout << "  record status codes ok" << std::endl;
+  }
+
+  // ── B09: song top keeps album identity; unknown albums do not merge ──
+  std::cout << "[PlayStatsTest] Testing song album_id + unknown album groups..." << std::endl;
+  {
+    auto songTop = ParseAndFree(EchoStatsGetTop("song", "all", 50));
+    bool sawB06 = false;
+    for (const auto& item : songTop["items"]) {
+      if (item.value("song_hash", "") == "hashB06") {
+        sawB06 = true;
+        if (item.value("album_id", "MISSING") != "album-1") {
+          std::cerr << "FAIL song top lost album_id: " << item.dump() << std::endl;
+          return 1;
+        }
+      }
+    }
+    if (!sawB06) {
+      std::cerr << "FAIL hashB06 missing from song top" << std::endl;
+      return 1;
+    }
+
+    // Audit-probe scenario: two distinct albums, both WITHOUT an album_id,
+    // different display names — they must stay two groups. Previously both
+    // collapsed into the album_id='' group and the group name was an
+    // arbitrary row's album_name.
+    const long long tUnknown = day2 + 10000;
+    RecordPlay(makeRecord("hashUA", "Unknown A", "Artist U", "", "Album A",
+                          "", 240.0, true, 240.0, "128", tUnknown));
+    RecordPlay(makeRecord("hashUB", "Unknown B", "Artist U", "", "Album B",
+                          "", 240.0, true, 240.0, "128", tUnknown + 1));
+    auto albumTop = ParseAndFree(EchoStatsGetTop("album", "all", 50));
+    int namedUnknownGroups = 0;
+    for (const auto& item : albumTop["items"]) {
+      const std::string name = item.value("name", "");
+      if (name == "Album A") ++namedUnknownGroups;
+      if (name == "Album B") ++namedUnknownGroups;
+      if (name == "Album A" && item.value("album_id", "x") != "") {
+        std::cerr << "FAIL unknown-album group exposed a synthetic id: "
+                  << item.dump() << std::endl;
+        return 1;
+      }
+    }
+    if (namedUnknownGroups != 2) {
+      std::cerr << "FAIL unknown albums merged; groups found=" << namedUnknownGroups
+                << " in " << albumTop.dump() << std::endl;
+      return 1;
+    }
+    std::cout << "  song album_id + unknown album groups ok" << std::endl;
+  }
+
+  // ── Input boundary: a negative LIMIT must not disable the row bound. ──
+  // SQLite interprets LIMIT -1 as "no limit" (and a negative OFFSET as an
+  // error). These "top N / paged" queries must stay bounded regardless of
+  // what an FFI/UI caller passes: non-positive limits resolve to zero rows
+  // and negative offsets clamp to zero. Temp data only.
+  std::cout << "[PlayStatsTest] Testing non-positive limit / negative offset..." << std::endl;
+  {
+    auto negTop = ParseAndFree(EchoStatsGetTop("song", "all", -1));
+    if (!negTop["items"].is_array() || negTop["items"].size() != 0) {
+      std::cerr << "FAIL negative top limit must be bounded to 0 rows, got "
+                << negTop.dump() << std::endl;
+      return 1;
+    }
+    auto zeroTop = ParseAndFree(EchoStatsGetTop("artist", "all", 0));
+    if (zeroTop["items"].size() != 0) {
+      std::cerr << "FAIL zero top limit must return 0 rows, got "
+                << zeroTop.dump() << std::endl;
+      return 1;
+    }
+    auto invalidDim = ParseAndFree(EchoStatsGetTop("not-a-dimension", "all", 10));
+    if (invalidDim["items"].size() != 0) {
+      std::cerr << "FAIL invalid stats dimension must return 0 rows, got "
+                << invalidDim.dump() << std::endl;
+      return 1;
+    }
+    auto zeroRecent = ParseAndFree(EchoStatsGetRecent(0, 2));
+    if (zeroRecent["items"].size() != 0) {
+      std::cerr << "FAIL zero recent limit must return 0 rows, got "
+                << zeroRecent.dump() << std::endl;
+      return 1;
+    }
+    auto negRecent = ParseAndFree(EchoStatsGetRecent(-1, 0));
+    if (negRecent["items"].size() != 0) {
+      std::cerr << "FAIL negative recent limit must be bounded to 0 rows, got "
+                << negRecent.dump() << std::endl;
+      return 1;
+    }
+    // Negative OFFSET clamps to 0; a positive limit still yields rows and
+    // must not degrade into an error payload.
+    auto negOffset = ParseAndFree(EchoStatsGetRecent(3, -1));
+    if (negOffset["items"].size() != 3) {
+      std::cerr << "FAIL negative offset must clamp to 0, wanted 3 rows, got "
+                << negOffset.dump() << std::endl;
+      return 1;
+    }
+    auto negRecs = ParseAndFree(EchoStatsGetRecommendations(-1));
+    if (negRecs["items"].size() != 0) {
+      std::cerr << "FAIL negative recommendations limit must be bounded to 0 rows, got "
+                << negRecs.dump() << std::endl;
+      return 1;
+    }
+    auto zeroRecs = ParseAndFree(EchoStatsGetRecommendations(0));
+    if (zeroRecs["items"].size() != 0) {
+      std::cerr << "FAIL zero recommendations limit must return 0 rows, got "
+                << zeroRecs.dump() << std::endl;
+      return 1;
+    }
+
+    // A huge positive LIMIT is also attacker-controlled at the C boundary.
+    // Seed just over the documented cap and prove every row-returning query
+    // stays bounded rather than allocating an INT_MAX-sized response.
+    for (int i = 0; i < ECHO_C_API_MAX_STATS_ROWS + 1; ++i) {
+      const auto suffix = std::to_string(i);
+      const int code = RecordPlayStatus(makeRecord(
+          "hash-cap-" + suffix, "Cap Song " + suffix,
+          "Cap Artist " + suffix, "album-cap-" + suffix,
+          "Cap Album " + suffix, "", 180.0, true, 120.0, "128",
+          day2 + 20000 + i));
+      if (code != kEchoStatsRecorded) {
+        std::cerr << "FAIL cap fixture insert status=" << code << " at " << i
+                  << std::endl;
+        return 1;
+      }
+    }
+    const int huge = std::numeric_limits<int>::max();
+    auto cappedRecent = ParseAndFree(EchoStatsGetRecent(huge, 0));
+    auto cappedTop = ParseAndFree(EchoStatsGetTop("song", "all", huge));
+    auto cappedRecs = ParseAndFree(EchoStatsGetRecommendations(huge));
+    if (cappedRecent["items"].size() != ECHO_C_API_MAX_STATS_ROWS ||
+        cappedTop["items"].size() != ECHO_C_API_MAX_STATS_ROWS ||
+        cappedRecs["items"].size() != ECHO_C_API_MAX_STATS_ROWS) {
+      std::cerr << "FAIL huge positive stats limits were not capped: recent="
+                << cappedRecent["items"].size() << " top="
+                << cappedTop["items"].size() << " recommendations="
+                << cappedRecs["items"].size() << std::endl;
+      return 1;
+    }
+    std::cout << "  non-positive limit / negative offset bounded ok" << std::endl;
   }
 
   EchoShutdown();

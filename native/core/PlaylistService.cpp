@@ -460,6 +460,23 @@ int ReadTotal(const nlohmann::json& upstream, const nlohmann::json& playlists) {
 }
 
 nlohmann::json NormalizeUserPlaylistsResponse(nlohmann::json upstream, int page, int pageSize) {
+  // 诊断模式：保留原始 info 字段存在性，用于区分"真空列表"与"缺字段"
+  bool hasOriginalInfo = false;
+  // 2026-09-15 计划 1b：归一化前记录契约列表字段（data.info/list/lists）的
+  // 原始类型与数组长度。归一化会用收集结果覆盖这些字段（补出空数组），
+  // 原始类型信息只有在这里可见；探针据此区分合法空歌单 / 缺字段 / 类型错误。
+  nlohmann::json debugRawLists = nlohmann::json::array();
+  if (upstream.contains("data") && upstream["data"].is_object()) {
+    const auto& data = upstream["data"];
+    for (const char* key : {"info", "list", "lists"}) {
+      if (!data.contains(key)) continue;
+      hasOriginalInfo = true;
+      const auto& field = data.at(key);
+      nlohmann::json entry = {{"field", key}, {"type", std::string(field.type_name())}};
+      if (field.is_array()) entry["length"] = field.size();
+      debugRawLists.push_back(std::move(entry));
+    }
+  }
   nlohmann::json playlists = nlohmann::json::array();
   std::unordered_set<std::string> seen;
   int skipped = 0;
@@ -499,6 +516,11 @@ nlohmann::json NormalizeUserPlaylistsResponse(nlohmann::json upstream, int page,
   data["pagesize"] = pageSize;
   data["skipped_invalid_id_count"] = skipped;
   upstream["status"] = status;
+  // 诊断字段：原始结构是否有 info
+  upstream["_debug_has_original_info"] = hasOriginalInfo;
+  // 1b：原始列表字段类型/长度（归一化前捕获；仅字段名、类型名、长度，无内容）
+  upstream["_debug_raw_lists"] = std::move(debugRawLists);
+
   return upstream;
 }
 
@@ -808,7 +830,8 @@ nlohmann::json PlaylistService::GetUserPlaylists(
     const std::string& userId,
     const std::string& token,
     int page,
-    int pageSize) const {
+    int pageSize,
+    KuGouEdition edition) const {
   if (userId.empty() || userId == "0") {
     return {{"status", 0}, {"error", "not logged in"}, {"data", {{"list", nlohmann::json::array()}, {"total", 0}}}};
   }
@@ -834,9 +857,10 @@ nlohmann::json PlaylistService::GetUserPlaylists(
   KuGouAndroidRequest req;
   req.endpoint = "https://gateway.kugou.com/v7/get_all_list";
   // 2026-09-03 配对实测：令牌与真指纹配对后，概念族（3116）仍被上游 20017
-  // 全拒，官方 App 正常 → 上游拒的是概念族本身。改按参考仓默认的标准族
-  // （1005/20489）签名，与登录令牌同族。
-  req.profile = GetKuGouProfile(KuGouEdition::Standard);
+  // 全拒，官方 App 正常 → 上游拒的是概念族本身。生产默认整套标准族
+  // （1005/20489/标准盐）；edition 参数（默认 Standard）供签名族 A/B 对照，
+  // appid/clientver/盐必须整套一起换，禁止只改 appid 留旧盐。
+  req.profile = GetKuGouProfile(edition);
   req.device = device;
   req.body = body;
   req.params["clienttime"] = clienttime;
@@ -851,9 +875,16 @@ nlohmann::json PlaylistService::GetUserPlaylists(
   // directly gives WinHttp 12175 (SSL certificate validation failure).
   const auto url = BuildSignedUrl(req);
 
-  ECHO_LOG("UserPlaylist", std::string("request_profile=concept appid=") +
-                               req.profile.appid + " clientver=" + req.profile.clientver +
-                               " uuid=- " + DescribeDeviceIdentity(device));
+  // 真实 profile 标签：由 profile 对象派生（KuGouProfileName），
+  // 禁止手写 request_profile=…（曾把 Standard 请求标成 concept 干扰排障）。
+  ECHO_LOG("UserPlaylist", std::string("request_profile=") +
+                               KuGouProfileName(req.profile) +
+                               " appid=" + req.profile.appid +
+                               " clientver=" + req.profile.clientver +
+                               " salt=" + KuGouSaltKindName(req.profile.saltKind) +
+                               " uuid=- token_len=" + std::to_string(token.size()) +
+                               " userid_present=" + (userId.empty() ? "N" : "Y") +
+                               " " + DescribeDeviceIdentity(device));
 
   const auto result = httpPost_(
       url,
@@ -878,7 +909,20 @@ nlohmann::json PlaylistService::GetUserPlaylists(
 
   try {
     auto upstream = nlohmann::json::parse(result.body);
+#ifdef _DEBUG
+    // 签名族诊断探针需要区分「上游 JSON」与「归一化结果」。归一化会覆盖
+    // status，所以先快照上游字段再归一化。仅 Debug 构建附加，不含凭证。
+    const int debugUpstreamStatus = upstream.value("status", -1);
+    nlohmann::json debugUpstreamErrorCode = nullptr;
+    if (upstream.contains("error_code")) debugUpstreamErrorCode = upstream["error_code"];
+    else if (upstream.contains("errcode")) debugUpstreamErrorCode = upstream["errcode"];
+#endif
     auto normalized = NormalizeUserPlaylistsResponse(upstream, page, pageSize);
+#ifdef _DEBUG
+    normalized["_debug_upstream_status"] = debugUpstreamStatus;
+    normalized["_debug_upstream_error_code"] = debugUpstreamErrorCode;
+    normalized["_debug_http_status"] = result.statusCode;
+#endif
     if (normalized.value("status", 0) != 1) {
       const auto errorCode = upstream.contains("error_code")
                                  ? upstream["error_code"].dump()
@@ -1078,6 +1122,26 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
     const std::string& listId,
     const std::string& commaSeparatedTracks) const {
   
+  // B08 legacy string protocol: comma-separated `name|hash|album_id|mixsongid`
+  // records. A song name containing a comma splits into bogus records — the
+  // structured array API (AddPlaylistTracksStructured) is the fix for that;
+  // this path remains for compatibility. The frontend escapes `|` -> `%7C`
+  // inside the name; restore it here (it used to be stored verbatim, so a
+  // name with a pipe reached the playlist corrupted).
+  auto restoreEscapedPipe = [](std::string field) {
+    std::size_t pos = 0;
+    while ((pos = field.find("%7C", pos)) != std::string::npos) {
+      field.replace(pos, 3, "|");
+      pos += 1;
+    }
+    std::size_t upper = 0;
+    while ((upper = field.find("%7c", upper)) != std::string::npos) {
+      field.replace(upper, 3, "|");
+      upper += 1;
+    }
+    return field;
+  };
+
   nlohmann::json resource = nlohmann::json::array();
   std::stringstream ss(commaSeparatedTracks);
   std::string track;
@@ -1091,7 +1155,7 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
     }
     nlohmann::json item = {
         {"number", 1},
-        {"name", parts.size() > 0 ? parts[0] : ""},
+        {"name", parts.size() > 0 ? restoreEscapedPipe(parts[0]) : ""},
         {"hash", parts.size() > 1 ? parts[1] : ""},
         {"size", 0},
         {"sort", 0},
@@ -1102,7 +1166,64 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
     };
     resource.push_back(item);
   }
+  return SendAddTracksPayload(device, userId, token, listId, resource);
+}
 
+// B08 structured track entries: [{name, hash, album_id, mixsongid}, ...].
+// No escaping protocol — every field reaches the upstream verbatim. The
+// song hash is the identity and must be present; a missing name degrades.
+nlohmann::json PlaylistService::AddPlaylistTracksStructured(
+    const DeviceInfo& device,
+    const std::string& userId,
+    const std::string& token,
+    const std::string& listId,
+    const nlohmann::json& tracks) const {
+  if (!tracks.is_array()) {
+    return {{"status", 0}, {"error", "structured tracks must be a JSON array"}};
+  }
+  nlohmann::json resource = nlohmann::json::array();
+  for (const auto& entry : tracks) {
+    if (!entry.is_object()) {
+      return {{"status", 0}, {"error", "structured track entry must be an object"}};
+    }
+    const auto getString = [&entry](const char* key) -> std::string {
+      if (!entry.contains(key)) return "";
+      const auto& v = entry[key];
+      if (v.is_string()) return v.get<std::string>();
+      if (v.is_number_integer()) return std::to_string(v.get<long long>());
+      if (v.is_number()) return std::to_string(static_cast<long long>(v.get<double>()));
+      return "";
+    };
+    const std::string hash = getString("hash");
+    if (hash.empty()) {
+      return {{"status", 0},
+              {"error", "invalid track: missing hash"},
+              {"track", entry}};
+    }
+    resource.push_back({
+        {"number", 1},
+        {"name", getString("name")},
+        {"hash", hash},
+        {"size", 0},
+        {"sort", 0},
+        {"timelen", 0},
+        {"bitrate", 0},
+        {"album_id", SafeStoll(getString("album_id"))},
+        {"mixsongid", SafeStoll(getString("mixsongid"))}
+    });
+  }
+  if (resource.empty()) {
+    return {{"status", 0}, {"error", "no tracks to add"}};
+  }
+  return SendAddTracksPayload(device, userId, token, listId, resource);
+}
+
+nlohmann::json PlaylistService::SendAddTracksPayload(
+    const DeviceInfo& device,
+    const std::string& userId,
+    const std::string& token,
+    const std::string& listId,
+    const nlohmann::json& resource) const {
   // 从 collection_3_<userid>_<listid>_0 格式中提取纯数字 listid
   std::string effectiveListId = listId;
   if (listId.rfind("collection_", 0) == 0) {
@@ -1116,10 +1237,6 @@ nlohmann::json PlaylistService::AddPlaylistTracks(
       effectiveListId = parts[3];
     }
   }
-
-  auto isNumeric = [](const std::string& s) {
-    return !s.empty() && s.find_first_not_of("0123456789") == std::string::npos;
-  };
 
   nlohmann::json dataPayload = {
       {"userid", SafeStoll(userId)},

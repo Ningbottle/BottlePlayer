@@ -180,12 +180,38 @@ auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadline
   auto execute = [fn = std::move(fn), promise, tokenFlag, kind, watchdogArmed, watchdogClaimed,
                   enqueueStopwatch = std::move(enqueueStopwatch)]() mutable {
     const auto queueWaitMs = enqueueStopwatch->ElapsedMs();
-    const bool canceled = tokenFlag->load(std::memory_order_acquire);
 
     auto runStopwatch = diagnostics::Stopwatch::Start();
 
-    // Stage 2 rule R ("claim decides"): whoever wins the CAS on
-    // watchdogClaimed owns the promise; the loser must not touch it. The
+    // B01 expired-while-queued gate. The watchdog CAS-claims the entry
+    // BEFORE its cancel action runs, so claim=true (not tokenFlag) is the
+    // authoritative "deadline fired" signal — there is a window where the
+    // claim is taken but the action has not yet set the flag or the promise.
+    // A successful false->false RMW is the logical queued->running point.
+    // Unlike a load that reads the initial false, it participates in the
+    // same modification order as the watchdog's claim; a later successful
+    // watchdog CAS acquires this release. A failed strong CAS observes true
+    // and skips fn even if the deadline action has not run yet.
+    // Keeping false does NOT claim the result: a deadline after this start
+    // point still cancels the running job and competes under rule R below.
+    // Such a deadline may occur before the actual fn call; running work and
+    // its side effects remain cooperatively cancellable, not retractable.
+    bool unclaimed = false;
+    if (watchdogArmed && !watchdogClaimed->compare_exchange_strong(
+                             unclaimed, false, std::memory_order_acq_rel,
+                             std::memory_order_acquire)) {
+      std::ostringstream skipped;
+      skipped << "kind=" << static_cast<int>(kind)
+              << " queue_wait_ms=" << queueWaitMs
+              << " skipped=job_deadline_before_start";
+      ECHO_LOG("RequestScheduler", skipped.str());
+      return;
+    }
+
+    const bool canceled = tokenFlag->load(std::memory_order_acquire);
+
+    // Stage 2 rule R ("claim decides"): whoever changes watchdogClaimed
+    // from false to true owns the promise; the loser must not touch it. The
     // worker claims AFTER fn completes but BEFORE fulfilling, so a business
     // completion that races a fired deadline deterministically yields to
     // job_deadline (the W3 window pinned by the resilience test).
@@ -210,8 +236,10 @@ auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadline
         // Stage 1 (G1): fn's evaluation must NOT sit inside the same try as
         // set_value — a service exception swallowed by the inner catch left
         // the promise unsatisfied and callers saw "broken promise". fn's
-        // exception falls through to the outer catch -> set_exception; only
-        // set_value itself is ignored here. forward (not move): ReturnType
+        // exception falls through to the outer catch -> set_exception.
+        // A delivery exception after we win the claim is delivered by that
+        // same owner below; it must not compete for the claim a second time.
+        // forward (not move): ReturnType
         // may be a reference (promise<T&>::set_value takes T&), which move
         // would reject at compile time.
         ReturnType value = fn(CancellationToken(tokenFlag));
@@ -219,7 +247,14 @@ auto RequestScheduler::SubmitWithDeadline(RequestKind kind, Fn fn, long deadline
           if (watchdogArmed) {
             RequestWatchdog::Instance().Cancel(watchdogClaimed);
           }
-          try { promise->set_value(std::forward<ReturnType>(value)); } catch (...) {}
+          try {
+            promise->set_value(std::forward<ReturnType>(value));
+          } catch (...) {
+            // A user-defined value may throw while entering the shared state.
+            // We already own completion and have cancelled the watchdog.
+            // Preserve that exception instead of abandoning the promise.
+            try { promise->set_exception(std::current_exception()); } catch (...) {}
+          }
         }
       }
     } catch (...) {

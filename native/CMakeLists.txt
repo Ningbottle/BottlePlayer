@@ -12,11 +12,28 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 # into the diagnostics library so every crash report names the exact tree it
 # was built from. History must map faults to builds (audit G3: no build hash,
 # no dump, no stack → RTC#2 unattributable).
-file(GLOB_RECURSE ECHO_NATIVE_ALL_SOURCES
-  "${CMAKE_CURRENT_SOURCE_DIR}/*.cpp"
-  "${CMAKE_CURRENT_SOURCE_DIR}/*.h")
-list(FILTER ECHO_NATIVE_ALL_SOURCES EXCLUDE REGEX "${CMAKE_CURRENT_SOURCE_DIR}/out/")
+# ECHO_NATIVE_FINGERPRINT_POLICY_BEGIN
+set(ECHO_NATIVE_SOURCE_DIRS
+  async
+  core
+  diagnostics
+  image
+  include
+  stats
+  storage
+  tests
+  tools)
+set(ECHO_NATIVE_ALL_SOURCES)
+foreach(_echo_source_dir IN LISTS ECHO_NATIVE_SOURCE_DIRS)
+  file(GLOB_RECURSE _echo_sources CONFIGURE_DEPENDS
+    "${CMAKE_CURRENT_SOURCE_DIR}/${_echo_source_dir}/*.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/${_echo_source_dir}/*.h")
+  list(APPEND ECHO_NATIVE_ALL_SOURCES ${_echo_sources})
+endforeach()
 list(SORT ECHO_NATIVE_ALL_SOURCES)
+# Track contents as well as additions/removals. Otherwise an incremental
+# object rebuild can keep the previous crash-report source fingerprint.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${ECHO_NATIVE_ALL_SOURCES})
 file(SHA256 "${CMAKE_CURRENT_SOURCE_DIR}/CMakeLists.txt" ECHO_NATIVE_BUILD_HASH)
 foreach(_echo_src IN LISTS ECHO_NATIVE_ALL_SOURCES)
   file(SHA256 "${_echo_src}" _echo_src_hash)
@@ -155,6 +172,29 @@ add_executable(CrashForensicsProbe tools/crash_forensics_probe.cpp)
 target_include_directories(CrashForensicsProbe PRIVATE include)
 target_link_libraries(CrashForensicsProbe PRIVATE EchoDiagnostics)
 
+# Signature-family A/B probe runner (Debug-only diagnostic instrument).
+# Opens the SAME production database the app uses (AppPaths: ECHO_NATIVE_DATA_DIR
+# or %LOCALAPPDATA%\EchoMusicNative), runs HandleSignatureFamilyProbe once with
+# real transports, prints the redacted JSON summary. NOT a CTest entry.
+# In Release (NDEBUG) it refuses to run: the diag route does not exist there.
+add_executable(EchoSignatureFamilyProbeRunner tools/signature_family_probe_runner.cpp)
+target_include_directories(EchoSignatureFamilyProbeRunner PRIVATE include)
+target_link_libraries(EchoSignatureFamilyProbeRunner PRIVATE EchoCore EchoStorage)
+
+# R-external probe (agent B 2026-09-28): read-only real-environment check of
+# the playhistory bp pagination contract. Manual run only — deliberately NOT
+# registered with CTest because it touches a copied real database.
+add_executable(EchoBpPaginationProbe EXCLUDE_FROM_ALL tools/bp_pagination_probe.cpp)
+target_include_directories(EchoBpPaginationProbe PRIVATE include)
+target_link_libraries(EchoBpPaginationProbe PRIVATE EchoCAPI)
+
+# R-external probe (agent B 2026-09-28): read-only real-CDN If-Range probe.
+# Manual run only — makes one song-url resolution plus three <=100-byte
+# range requests against the production CDN.
+add_executable(EchoCdnIfRangeProbe EXCLUDE_FROM_ALL tools/cdn_ifrange_probe.cpp)
+target_include_directories(EchoCdnIfRangeProbe PRIVATE include)
+target_link_libraries(EchoCdnIfRangeProbe PRIVATE EchoCAPI winhttp)
+
 add_library(EchoAsync STATIC
   async/EventQueue.cpp
   async/TaskScheduler.cpp
@@ -233,6 +273,17 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoRouteContractTest PRIVATE EchoCore EchoStorage)
   add_test(NAME EchoRouteContractTest COMMAND EchoRouteContractTest)
 
+  # Signature-family A/B probe offline contract — DEBUG ONLY. The handler is
+  # compiled out of Release (#ifndef NDEBUG), so building this test in Release
+  # would fail to link BY DESIGN. Release behavior (route absent → 404) is
+  # covered by EchoRouteContractTest.
+  if(NOT CMAKE_BUILD_TYPE STREQUAL "Release")
+    add_executable(EchoSignatureFamilyProbeTest tests/signature_family_probe_test.cpp)
+    target_include_directories(EchoSignatureFamilyProbeTest PRIVATE include)
+    target_link_libraries(EchoSignatureFamilyProbeTest PRIVATE EchoCore EchoStorage)
+    add_test(NAME EchoSignatureFamilyProbeTest COMMAND EchoSignatureFamilyProbeTest)
+  endif()
+
   add_executable(EchoDeviceIdentityContractTest tests/device_identity_contract_test.cpp)
   target_include_directories(EchoDeviceIdentityContractTest PRIVATE include)
   target_link_libraries(EchoDeviceIdentityContractTest PRIVATE EchoCore EchoStorage)
@@ -258,6 +309,18 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoLoginContractTest PRIVATE EchoCore)
   add_test(NAME EchoLoginContractTest COMMAND EchoLoginContractTest)
 
+  # B1: route -> encrypted session store -> reopen -> credential chain.
+  add_executable(EchoSessionChainContractTest tests/session_chain_contract_test.cpp)
+  target_include_directories(EchoSessionChainContractTest PRIVATE include)
+  target_link_libraries(EchoSessionChainContractTest PRIVATE EchoCore EchoStorage)
+  add_test(NAME EchoSessionChainContractTest COMMAND EchoSessionChainContractTest)
+
+  # B1 review: /login/qr/check must poll through the injected transport seam.
+  add_executable(EchoQrTransportContractTest tests/qr_transport_contract_test.cpp)
+  target_include_directories(EchoQrTransportContractTest PRIVATE include)
+  target_link_libraries(EchoQrTransportContractTest PRIVATE EchoCore EchoStorage)
+  add_test(NAME EchoQrTransportContractTest COMMAND EchoQrTransportContractTest)
+
   add_executable(EchoProfileSignatureContractTest tests/profile_signature_contract_test.cpp)
   target_include_directories(EchoProfileSignatureContractTest PRIVATE include)
   target_link_libraries(EchoProfileSignatureContractTest PRIVATE EchoCore)
@@ -281,6 +344,23 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_include_directories(EchoRequestSchedulerResilienceTest PRIVATE include)
   target_link_libraries(EchoRequestSchedulerResilienceTest PRIVATE EchoCore EchoAsync)
   add_test(NAME EchoRequestSchedulerResilienceTest COMMAND EchoRequestSchedulerResilienceTest)
+
+  # R04 (agent B 2026-09-28): pin the generic set_value-throw delivery
+  # behavior and the production CompatResponse noexcept move traits.
+  add_executable(EchoRequestDeliveryExceptionTest tests/request_delivery_exception_test.cpp)
+  target_include_directories(EchoRequestDeliveryExceptionTest PRIVATE include)
+  target_link_libraries(EchoRequestDeliveryExceptionTest PRIVATE EchoCore EchoAsync)
+  add_test(NAME EchoRequestDeliveryExceptionTest COMMAND EchoRequestDeliveryExceptionTest)
+  set_tests_properties(EchoRequestDeliveryExceptionTest PROPERTIES TIMEOUT 30)
+
+  # R01 (agent B 2026-09-28): native scheduler/watchdog/HttpClient lifecycle
+  # against a controlled slow upstream, exceeding its worker + queue budget.
+  # This does not measure the Rust admission permits or pre-FFI lock wait.
+  add_executable(EchoRequestLifecycleStressTest tests/request_lifecycle_stress_test.cpp)
+  target_include_directories(EchoRequestLifecycleStressTest PRIVATE include)
+  target_link_libraries(EchoRequestLifecycleStressTest PRIVATE EchoCore EchoAsync ws2_32)
+  add_test(NAME EchoRequestLifecycleStressTest COMMAND EchoRequestLifecycleStressTest)
+  set_tests_properties(EchoRequestLifecycleStressTest PROPERTIES TIMEOUT 180)
 
   # Crash forensics contract (Stage 0): build hash + report generation.
   add_executable(EchoCrashCaptureContractTest tests/crash_capture_contract_test.cpp)
@@ -306,6 +386,13 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoPlayStatsTest PRIVATE EchoCore EchoCAPI)
   add_test(NAME EchoPlayStatsTest COMMAND EchoPlayStatsTest)
 
+  # C ABI boundary regression: malformed UTF-8 filesystem input must return an
+  # error instead of unwinding a C++ exception through the exported function.
+  add_executable(EchoCapiBoundaryTest tests/c_api_boundary_test.cpp)
+  target_include_directories(EchoCapiBoundaryTest PRIVATE include)
+  target_link_libraries(EchoCapiBoundaryTest PRIVATE EchoCAPI)
+  add_test(NAME EchoCapiBoundaryTest COMMAND EchoCapiBoundaryTest)
+
   set(ECHO_NATIVE_TESTS
     EchoNativeSmokeTests
     EchoRouteContractTest
@@ -314,16 +401,25 @@ if(ECHO_NATIVE_BUILD_TESTS)
     EchoPlaylistContractTest
     EchoYouthVipContractTest
     EchoLoginContractTest
+    EchoSessionChainContractTest
+    EchoQrTransportContractTest
     EchoProfileSignatureContractTest
     EchoHomeContractTest
     EchoHttpClientResilienceTest
     EchoRequestSchedulerResilienceTest
+    EchoRequestDeliveryExceptionTest
+    EchoRequestLifecycleStressTest
     EchoCrashCaptureContractTest
     EchoDatabaseActorLifecycleTest
     EchoPlayStatsTest
+    EchoCapiBoundaryTest
   )
   if(ECHO_NATIVE_SQLITE_AVAILABLE)
     list(APPEND ECHO_NATIVE_TESTS EchoDatabaseWalConcurrencyTest)
+  endif()
+  # The debug-only probe test exists only in Debug builds (see target guard).
+  if(TARGET EchoSignatureFamilyProbeTest)
+    list(APPEND ECHO_NATIVE_TESTS EchoSignatureFamilyProbeTest)
   endif()
   # These test binaries use the standard assert macro as their failure
   # mechanism. Keep assertions enabled even when a Release preset defines

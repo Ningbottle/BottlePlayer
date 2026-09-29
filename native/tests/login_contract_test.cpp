@@ -280,6 +280,76 @@ int main() {
     return 1;
   }
 
+  // Stage 7b: lack of VIP entitlement does not invalidate a successful token
+  // rotation. Persist the latest successful edition as a whole session.
+  for (const bool standardSucceeds : {false, true}) {
+    int calls = 0;
+    echo::core::LoginService rotationService({}, [&](const auto&, const auto&, const auto&) {
+      ++calls;
+      if (calls == 1) return echo::core::HttpResult{200, standardSucceeds
+        ? R"({"status":1,"data":{"token":"standard-new","vip_token":"","vip_type":0,"t1":"standard-t1"}})"
+        : R"({"status":0,"error_code":20018})", ""};
+      return echo::core::HttpResult{200,
+        R"({"status":1,"data":{"token":"concept-new","vip_token":"","vip_type":0,"t1":"concept-new-t1"}})", ""};
+    });
+    const auto rotated = rotationService.RefreshSession(conceptDevice, "42", "old-token", "old-t1");
+    if (!rotated || calls != 2 || rotated->token != "concept-new" ||
+        rotated->t1 != "concept-new-t1" || !rotated->vipToken.empty() || rotated->vipType != 0) {
+      std::cerr << "[LoginContract] successful concept rotation without VIP was discarded" << std::endl;
+      return 1;
+    }
+  }
+
+  // B1: the full dual-family ordering, each branch identified by the returned
+  // credential bundle. A successful rotation must never be reverted to an
+  // older token, and a rejected rotation must never invent entitlement.
+  {
+    // (a) Standard already issued a VIP token: the Concept family is not tried.
+    int calls = 0;
+    echo::core::LoginService standardVip({}, [&](const auto&, const auto&, const auto&) {
+      ++calls;
+      return echo::core::HttpResult{200,
+        R"({"status":1,"data":{"token":"std-token","vip_token":"std-vip","vip_type":2,"t1":"std-t1"}})", ""};
+    });
+    const auto result = standardVip.RefreshSession(conceptDevice, "42", "old", "old-t1");
+    if (!result || calls != 1 || result->token != "std-token" ||
+        result->vipToken != "std-vip" || result->vipType != 2 || result->t1 != "std-t1") {
+      std::cerr << "[LoginContract] standard VIP refresh did not stop after the first family" << std::endl;
+      return 1;
+    }
+  }
+  {
+    // (b) Standard rotated the token but the Concept retry failed: keep the
+    // last successful credential instead of discarding it.
+    int calls = 0;
+    echo::core::LoginService conceptFails({}, [&](const auto&, const auto&, const auto&) {
+      ++calls;
+      if (calls == 1) return echo::core::HttpResult{200,
+        R"({"status":1,"data":{"token":"std-kept","vip_token":"","vip_type":0,"t1":"std-t1"}})", ""};
+      return echo::core::HttpResult{200, R"({"status":0,"error_code":20018})", ""};
+    });
+    const auto result = conceptFails.RefreshSession(conceptDevice, "42", "old", "old-t1");
+    if (!result || calls != 2 || result->token != "std-kept" || result->t1 != "std-t1" ||
+        !result->vipToken.empty() || result->vipType != 0) {
+      std::cerr << "[LoginContract] failed concept retry discarded the last successful rotation" << std::endl;
+      return 1;
+    }
+  }
+  {
+    // (c) Both families rejected: no credential is produced, so the caller
+    // keeps the existing session untouched.
+    int calls = 0;
+    echo::core::LoginService bothFail({}, [&](const auto&, const auto&, const auto&) {
+      ++calls;
+      return echo::core::HttpResult{200, R"({"status":0,"error_code":20018})", ""};
+    });
+    const auto result = bothFail.RefreshSession(conceptDevice, "42", "old", "old-t1");
+    if (result || calls != 2) {
+      std::cerr << "[LoginContract] rejected dual-family refresh produced a credential" << std::endl;
+      return 1;
+    }
+  }
+
   std::cout << "[LoginContract] passed" << std::endl;
   return 0;
 }
