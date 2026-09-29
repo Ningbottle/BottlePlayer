@@ -10,6 +10,7 @@ import {
 } from '../../playback/index';
 import SkinPageHeader from '../../shared/ui/SkinPageHeader.vue';
 import SkinButton from '../../shared/ui/SkinButton.vue';
+import { safeSetItem } from '../../platform/storage/safeStorage';
 
 const eqExpanded = ref(true);
 
@@ -20,8 +21,8 @@ function applyEffect(name: string) {
   const gains = normalizeEqBands(preset);
   playerStore.activePreset = name;
   playerStore.eqBands = gains;
-  localStorage.setItem('player_eq_preset', name);
-  localStorage.setItem('player_eq_bands', JSON.stringify(gains));
+  safeSetItem('player_eq_preset', name);
+  safeSetItem('player_eq_bands', JSON.stringify(gains));
   gains.forEach((gain, index) => setWebAudioEqBand(index, gain));
 }
 </script>

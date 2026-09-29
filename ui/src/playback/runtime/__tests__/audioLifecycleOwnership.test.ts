@@ -30,6 +30,7 @@ function makeRuntimeDeps() {
     setRate: vi.fn(async () => {}),
     getState: vi.fn(async () => ({ state: 'stopped', position: 0, duration: 0 })),
     shutdown: vi.fn(async () => {}),
+    dispose: vi.fn(),
     onEvent: vi.fn(() => unsubSpy),
   };
   const deps: MediaRuntimeDeps = {
@@ -293,6 +294,8 @@ describe('mediaRuntime: single global owner contract', () => {
     // Old backend ref dropped together with its event subscription.
     expect(second.getBackend()).toBeNull();
     expect(gen1.unsubSpy).toHaveBeenCalledTimes(1);
+    expect(gen1.backend.dispose).toHaveBeenCalledTimes(1);
+    expect(gen1.backend.shutdown).not.toHaveBeenCalled();
     // New runtime does not create a backend until ensureBackend.
     expect(gen2.deps.createBackend).not.toHaveBeenCalled();
     // The element was never paused, reloaded, or scrubbed.
@@ -332,6 +335,7 @@ describe('mediaRuntime: single global owner contract', () => {
     await runtime.shutdown('shutdown');
 
     expect(backend.shutdown).toHaveBeenCalledTimes(1);
+    expect(backend.dispose).toHaveBeenCalledTimes(1);
     expect(unsubSpy).toHaveBeenCalledTimes(1);
     expect(runtime.getBackend()).toBeNull();
 

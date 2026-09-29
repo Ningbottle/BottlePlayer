@@ -13,11 +13,19 @@ const props = defineProps<{
   open: boolean;
   tracks: Track[];
   activeHash: string | null;
+  /**
+   * Position of the playing track in `tracks` (the real queue index). Position
+   * is the identity the shelf must follow: the same song can legitimately
+   * appear twice in a queue, and when the queue grows/shrinks the hash lookup
+   * below would re-anchor on the *first* match and highlight the wrong card.
+   * Optional so callers without a queue index keep working.
+   */
+  activeIndex?: number | null;
 }>();
 
 const emit = defineEmits<{
   (e: 'close'): void;
-  (e: 'select', track: Track): void;
+  (e: 'select', track: Track, index: number): void;
 }>();
 
 const rootRef = ref<HTMLElement | null>(null);
@@ -35,13 +43,27 @@ const WINDOW_SIZE = 32;
 const followPaused = computed(() => pointerActive.value || dragging.value || hovering.value);
 
 const activeQueueIndex = computed(() => {
+  // Position wins over content: the caller knows the queue index of what is
+  // playing, and a duplicated track must not snap the highlight back to the
+  // first copy. Hash lookup remains the fallback for callers that pass no index.
+  const provided = props.activeIndex;
+  if (typeof provided === 'number' && Number.isFinite(provided)) {
+    const idx = Math.trunc(provided);
+    if (idx >= 0 && idx < props.tracks.length) return idx;
+  }
   if (!props.activeHash) return 0;
   const index = props.tracks.findIndex((track) => track.FileHash === props.activeHash);
   return index >= 0 ? index : 0;
 });
 
+/** Last valid window start — the window is a viewport, not a queue boundary. */
+const maxWindowStart = computed(() => Math.max(0, props.tracks.length - WINDOW_SIZE));
+const clampedWindowStart = computed(() =>
+  Math.min(Math.max(0, windowStart.value), maxWindowStart.value),
+);
+
 const visibleTracks = computed(() =>
-  props.tracks.slice(windowStart.value, windowStart.value + WINDOW_SIZE),
+  props.tracks.slice(clampedWindowStart.value, clampedWindowStart.value + WINDOW_SIZE),
 );
 
 function desiredWindowStart(): number {
@@ -56,10 +78,26 @@ function syncActiveFocus(force = false): void {
   if (!force && followPaused.value) return;
 
   windowStart.value = desiredWindowStart();
-  const activeVisibleIndex = props.activeHash
-    ? visibleTracks.value.findIndex((track) => track.FileHash === props.activeHash)
-    : 0;
-  focusIndex.value = activeVisibleIndex >= 0 ? activeVisibleIndex : 0;
+  // Derive the focused card from position, not from a hash scan: after a queue
+  // change the active track's *position* is what stayed valid.
+  const visibleIndex = activeQueueIndex.value - windowStart.value;
+  focusIndex.value =
+    visibleIndex >= 0 && visibleIndex < visibleTracks.value.length ? visibleIndex : 0;
+}
+
+/** Is this window-local card the one that is playing? */
+function isActiveCard(visibleIndex: number): boolean {
+  const globalIndex = clampedWindowStart.value + visibleIndex;
+  if (typeof props.activeIndex === 'number' && Number.isFinite(props.activeIndex)) {
+    return globalIndex === Math.trunc(props.activeIndex);
+  }
+  const track = visibleTracks.value[visibleIndex];
+  return !!props.activeHash && track?.FileHash === props.activeHash;
+}
+
+/** Queue position of a window-local card — what playback must jump to. */
+function globalIndexOf(visibleIndex: number): number {
+  return clampedWindowStart.value + visibleIndex;
 }
 
 watch(
@@ -75,12 +113,13 @@ watch(
     syncActiveFocus(true);
     await nextTick();
     playOpen();
+    stripRef.value?.focus({ preventScroll: true });
   },
   { immediate: true, flush: 'post' },
 );
 
 watch(
-  [() => props.activeHash, () => props.tracks.map((track) => track.FileHash)],
+  [() => props.activeHash, () => props.activeIndex, () => props.tracks.map((track) => track.FileHash)],
   () => syncActiveFocus(),
 );
 
@@ -125,8 +164,22 @@ function playOpen(): void {
   }
 }
 
+/**
+ * Move focus to a window-local position, sliding the visible window when the
+ * target runs past either edge. Clamping at the window end would trap browsing
+ * at item 31: from item 0 of a 40-track queue, wheel/keys/drag must reach
+ * item 39 — the whole logical queue, not just the first 32 cards.
+ */
 function spinTo(i: number): void {
-  focusIndex.value = Math.max(0, Math.min(visibleTracks.value.length - 1, i));
+  const start = clampedWindowStart.value;
+  const visibleCount = Math.min(WINDOW_SIZE, props.tracks.length - start);
+  const target = Math.max(0, Math.min(props.tracks.length - 1, start + i));
+  if (target < start) {
+    windowStart.value = Math.max(0, target);
+  } else if (target >= start + visibleCount) {
+    windowStart.value = Math.min(maxWindowStart.value, target - (visibleCount - 1));
+  }
+  focusIndex.value = target - clampedWindowStart.value;
 }
 
 function onWheel(e: WheelEvent): void {
@@ -142,13 +195,17 @@ function onPointerDown(e: PointerEvent): void {
   dragAccum.value = 0;
   pointerActive.value = true;
   dragging.value = false;
-  (e.currentTarget as HTMLElement | null)?.setPointerCapture?.(e.pointerId);
 }
 
 function onPointerMove(e: PointerEvent): void {
   if (dragStartX.value == null) return;
   const dx = e.clientX - dragStartX.value;
-  if (Math.abs(dx) > 8) dragging.value = true;
+  if (Math.abs(dx) > 8 && !dragging.value) {
+    dragging.value = true;
+    // Capture only an actual drag. Capturing pointerdown on the parent
+    // retargets ordinary card clicks to the strip and makes cards inert.
+    (e.currentTarget as HTMLElement | null)?.setPointerCapture?.(e.pointerId);
+  }
   // step every ~90px of drag
   const steps = Math.trunc((dx - dragAccum.value) / -90);
   if (steps !== 0) {
@@ -184,6 +241,11 @@ function onStageLeave(): void {
 
 function onKey(e: KeyboardEvent): void {
   if (!props.open) return;
+  if (!['Escape', 'ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Enter'].includes(e.key)) return;
+  if (e.key === 'Enter' && (e.target as Element | null)?.closest?.('.shelf-backdrop')) return;
+  // The modal owns these keys before the lyric stage's fullscreen listeners.
+  e.preventDefault();
+  e.stopImmediatePropagation();
   if (e.key === 'Escape') {
     e.preventDefault();
     emit('close');
@@ -195,25 +257,28 @@ function onKey(e: KeyboardEvent): void {
     spinTo(focusIndex.value - 1);
   } else if (e.key === 'Enter') {
     const t = visibleTracks.value[focusIndex.value];
-    if (t) emit('select', t);
+    if (t) emit('select', t, globalIndexOf(focusIndex.value));
   }
 }
 
 watch(
   () => props.open,
   (open) => {
-    if (open) window.addEventListener('keydown', onKey);
-    else window.removeEventListener('keydown', onKey);
+    if (open) window.addEventListener('keydown', onKey, true);
+    else window.removeEventListener('keydown', onKey, true);
   },
+  { immediate: true },
 );
 
 onBeforeUnmount(() => {
-  window.removeEventListener('keydown', onKey);
+  window.removeEventListener('keydown', onKey, true);
+  if (rootRef.value) gsap.killTweensOf(rootRef.value);
+  if (stripRef.value) gsap.killTweensOf(stripRef.value);
 });
 
-function onSelect(t: Track): void {
+function onSelect(t: Track, visibleIndex: number): void {
   if (dragging.value) return;
-  emit('select', t);
+  emit('select', t, globalIndexOf(visibleIndex));
 }
 </script>
 
@@ -240,6 +305,7 @@ function onSelect(t: Track): void {
         class="shelf-stage"
         data-test="shelf-stage"
         ref="stripRef"
+        tabindex="-1"
         @wheel.prevent="onWheel"
         @mouseenter="onStageEnter"
         @mouseleave="onStageLeave"
@@ -257,13 +323,13 @@ function onSelect(t: Track): void {
             class="shelf-card"
             :class="{
               'is-focus': i === focusIndex,
-              'is-active': t.FileHash === activeHash,
+              'is-active': isActiveCard(i),
             }"
             :style="cardStyle(i)"
             :data-test="`shelf-card-${i}`"
             :aria-label="t.SongName || '曲目'"
             :tabindex="i === focusIndex ? 0 : -1"
-            @click="onSelect(t)"
+            @click="onSelect(t, i)"
           >
             <div class="shelf-card-face">
               <img v-if="coverOf(t)" :src="coverOf(t)" alt="" />

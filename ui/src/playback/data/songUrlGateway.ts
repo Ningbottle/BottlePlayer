@@ -1,6 +1,7 @@
 import { apiGet } from '../../platform/tauri/nativeClient';
 import type { Track } from '../../shared/music/track';
-import type { ResolveTrackResult } from '../types';
+import type { Delivery, ResolveTrackResult } from '../types';
+import type { QualityOption } from '../runtime/playbackOrchestrator';
 
 export interface ProbeSongUrlParams {
   hash: string;
@@ -16,16 +17,29 @@ export interface ProbeSongUrlResponse {
   [key: string]: unknown;
 }
 
-export function resolveTrack(
+export async function resolveTrack(
   track: Track,
   quality: string,
 ): Promise<ResolveTrackResult> {
-  return apiGet<ResolveTrackResult>('/song/url', {
+  const result = await apiGet<ResolveTrackResult>('/song/url', {
     hash: track.FileHash,
     album_id: track.AlbumID || '',
     album_audio_id: track.AlbumAudioID || '',
     quality,
   });
+  const normalizeDelivery = (value: unknown, preview: boolean): Delivery =>
+    value === 'full' || value === 'preview' || value === 'unknown'
+      ? value : preview ? 'preview' : 'unknown';
+  result.delivery = normalizeDelivery(result.delivery, !!result.is_preview);
+  result.is_preview = result.delivery === 'preview';
+  if (result.data?.available_qualities) {
+    result.data.available_qualities = result.data.available_qualities.map((entry) => {
+      const raw = entry as QualityOption & { is_preview?: boolean };
+      const delivery = normalizeDelivery(raw.delivery, raw.is_preview ?? !!raw.isPreview);
+      return { ...entry, delivery, isPreview: delivery === 'preview' };
+    });
+  }
+  return result;
 }
 
 export function probeSongUrl(params: ProbeSongUrlParams): Promise<ProbeSongUrlResponse> {

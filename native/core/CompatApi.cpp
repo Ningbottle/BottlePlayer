@@ -11,6 +11,7 @@
 
 #include "echo/core/CompatRequestContext.h"
 #include "echo/core/DeviceRegisterService.h"
+#include "echo/core/RequestDeadlines.h"
 #include "echo/core/SongUrlService.h"
 
 namespace echo::core {
@@ -50,8 +51,13 @@ CompatResponse DispatchSongUrl(const RouteContext& ctx, const std::string&) {
   const auto album_audio_id = QueryValue(ctx.query, "album_audio_id");
   const auto& session = reqCtx.Session();
   const std::string vipToken = (session && !session->vipToken.empty()) ? session->vipToken : "";
-  SongUrlService songUrl;
-  auto result = songUrl.Resolve(hash, album_id, album_audio_id, quality, ppageId, userId, token, device, vipToken);
+  const int vipType = session ? session->vipType : 0;
+  SongUrlService songUrl = ctx.handlers.sessionHttpGet || ctx.handlers.sessionHttpPost
+      ? SongUrlService(ctx.handlers.sessionHttpGet, ctx.handlers.sessionHttpPost)
+      : SongUrlService();
+  auto result = songUrl.Resolve(
+      hash, album_id, album_audio_id, quality, ppageId, userId, token,
+      device, vipToken, vipType);
   return JsonResponse(result);
 }
 
@@ -68,6 +74,21 @@ const std::unordered_map<std::string, RouteHandlerFn>& GetRouteTable() {
       {"/healthz",            [](const RouteContext&, const std::string&) { return HandleHealth(); }},  // alias for /health
       {"/server/now",        [](const RouteContext&, const std::string&) { return HandleServerNow(); }},
       {"/diagnostics/memory",[](const RouteContext&, const std::string&) { return HandleDiagnosticsMemory(); }},
+#ifndef NDEBUG
+      // Debug-only signature-family A/B probe (VIP/playlist × Standard/Concept
+      // under one immutable session/device snapshot). Release must never serve
+      // it: IsKnownCompatRoute reads this same table, so Release answers 404.
+      // The contract test asserts this path is NOT callable in Release builds.
+      {"/diagnostics/signature-family",
+       [](const RouteContext& ctx, const std::string&) {
+         // `order=reverse` runs Concept before Standard (judgement-table
+         // retest); anything else is the forward order.
+         return HandleSignatureFamilyProbe(
+             ctx.database, ctx.handlers.sessionHttpGet, ctx.handlers.sessionHttpPost,
+             kSignatureFamilyProbeBudgetMs,
+             QueryValue(ctx.query, "order") == "reverse");
+       }},
+#endif
 
       // Register
       {"/register/dev", [](const RouteContext& ctx, const std::string&) { return HandleRegisterDev(ctx.database, ctx.query); }},
@@ -75,7 +96,7 @@ const std::unordered_map<std::string, RouteHandlerFn>& GetRouteTable() {
       // Login
       {"/login/qr/key",   [](const RouteContext& ctx, const std::string&) { return HandleLoginQrKey(ctx.database, ctx.handlers.loginQrKey); }},
       {"/login/qr/create",[](const RouteContext& ctx, const std::string&) { return HandleLoginQrCreate(ctx.query); }},
-      {"/login/qr/check", [](const RouteContext& ctx, const std::string&) { return HandleLoginQrCheck(ctx.database, ctx.query, ctx.handlers.loginQrCheck); }},
+      {"/login/qr/check", [](const RouteContext& ctx, const std::string&) { return HandleLoginQrCheck(ctx.database, ctx.query, ctx.handlers.loginQrCheck, ctx.handlers.sessionHttpGet, ctx.handlers.sessionHttpPost); }},
       {"/auth/logout",    [](const RouteContext& ctx, const std::string&) { return HandleAuthLogout(ctx.database); }},
       {"/settings/device",[](const RouteContext& ctx, const std::string&) { return HandleSettingsDevice(ctx.database, ctx.query); }},
       {"/captcha/sent",   nullptr},  // not yet ported
@@ -122,17 +143,17 @@ const std::unordered_map<std::string, RouteHandlerFn>& GetRouteTable() {
       {"/top/playlist",  [](const RouteContext& ctx, const std::string&) { return HandleTopPlaylist(ctx.database, ctx.query); }},
 
       // User
-      {"/user/detail",     [](const RouteContext& ctx, const std::string&) { return HandleUserDetail(ctx.database, ctx.handlers.userDetail); }},
-      {"/user/vip/detail", [](const RouteContext& ctx, const std::string&) { return HandleUserVipDetail(ctx.database, ctx.handlers.userVip); }},
-      {"/user/playlist",   [](const RouteContext& ctx, const std::string&) { return HandleUserPlaylist(ctx.database, ctx.query, ctx.handlers.userPlaylist, ctx.handlers.registerDevice); }},
+      {"/user/detail",     [](const RouteContext& ctx, const std::string&) { return HandleUserDetail(ctx.database, ctx.handlers.userDetail, ctx.handlers.sessionHttpGet, ctx.handlers.sessionHttpPost); }},
+      {"/user/vip/detail", [](const RouteContext& ctx, const std::string&) { return HandleUserVipDetail(ctx.database, ctx.handlers.userVip, ctx.handlers.sessionHttpGet, ctx.handlers.sessionHttpPost); }},
+      {"/user/playlist",   [](const RouteContext& ctx, const std::string&) { return HandleUserPlaylist(ctx.database, ctx.query, ctx.handlers.userPlaylist, ctx.handlers.registerDevice, ctx.handlers.sessionHttpGet, ctx.handlers.sessionHttpPost); }},
       {"/user/history",    [](const RouteContext& ctx, const std::string&) { return HandleUserHistory(ctx.database, ctx.query); }},
       {"/user/cloud",      [](const RouteContext& ctx, const std::string&) { return HandleUserCloud(ctx.database, ctx.query); }},
       {"/user/cloud/url",  nullptr},  // not yet ported
       {"/playhistory/upload",[](const RouteContext& ctx, const std::string&) { return HandlePlayHistoryUpload(ctx.database, ctx.query); }},
 
       // Youth / VIP
-      {"/youth/day/vip",        [](const RouteContext&, const std::string&) { return HandleYouthDayVip(); }},
-      {"/youth/day/vip/upgrade",[](const RouteContext&, const std::string&) { return HandleYouthDayVip(); }},
+      {"/youth/day/vip",        [](const RouteContext& ctx, const std::string&) { return HandleYouthDayVip(ctx.database, ctx.query, ctx.handlers.sessionHttpGet, ctx.handlers.sessionHttpPost); }},
+      {"/youth/day/vip/upgrade",[](const RouteContext& ctx, const std::string&) { return HandleYouthDayVipUpgrade(ctx.database); }},
       {"/youth/listen/song",   [](const RouteContext& ctx, const std::string&) { return HandleYouthListenSong(ctx.database); }},
       {"/youth/vip/ad",        [](const RouteContext& ctx, const std::string&) { return HandleYouthVipAd(ctx.database); }},
       {"/youth/month/vip/record",nullptr},  // not yet ported
@@ -231,11 +252,26 @@ CompatResponse CompatApi::Handle(
   }
 
   auto sw = diagnostics::Stopwatch::Start();
+  // Correlate UI → Rust → Native when the frontend supplies x-echo-request-id.
+  std::string requestId;
+  {
+    auto it = headers.find("x-echo-request-id");
+    if (it == headers.end()) it = headers.find("X-Echo-Request-Id");
+    if (it != headers.end()) requestId = it->second;
+  }
+  if (!requestId.empty()) {
+    std::ostringstream startLog;
+    startLog << "phase=start request_id=" << requestId
+             << " method=" << method << " route=" << path;
+    ECHO_LOG("CompatApi", startLog.str());
+  }
   auto response = HandleKnownRoute(method, path, query, headers, body);
   StripSessionCredentials(response.body);
   {
     std::ostringstream log;
-    log << "route=" << path
+    log << "phase=end";
+    if (!requestId.empty()) log << " request_id=" << requestId;
+    log << " route=" << path
         << " status=" << (response.body.is_object() ? response.body.value("status", 0) : 0)
         << " http=" << response.httpStatus
         << " elapsed_ms=" << sw.ElapsedMs();

@@ -1,6 +1,8 @@
 use std::env;
 use std::fs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
+
+mod build_support;
 
 /// Extract `inline constexpr long kName = N;` from RequestDeadlines.h.
 fn generate_deadlines_rs() {
@@ -70,20 +72,65 @@ fn generate_deadlines_rs() {
     fs::write(&out_path, out).expect("write deadlines_generated.rs");
 }
 
-fn copy_runtime_dll(src: &PathBuf, dst: &PathBuf, name: &str) {
-    if dst.exists() {
-        let _ = std::fs::rename(dst, dst.with_file_name(format!("{}.old", name)));
-    }
+fn copy_runtime_dll(src: &Path, dst: &Path, name: &str) {
+    build_support::copy_runtime_dll(src, dst).unwrap_or_else(|e| {
+        panic!(
+            "Failed to stage native runtime {name}: {} -> {}: {e}",
+            src.display(),
+            dst.display()
+        )
+    });
+    println!(
+        "cargo:warning=Native runtime ready: {} → {}",
+        src.display(),
+        dst.display()
+    );
+}
 
-    if let Err(e) = std::fs::copy(src, dst) {
+fn verify_native_runtime(manifest_dir: &Path, native_root: &Path, dll: &Path) {
+    let verifier = manifest_dir.join("../scripts/verify-native-runtime.ps1");
+    println!("cargo:rerun-if-changed={}", verifier.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        native_root.join("CMakeLists.txt").display()
+    );
+    // Track only source-owned trees. Watching build/, out/, or
+    // vcpkg_installed/ makes generated objects and dependency extraction
+    // invalidate every Rust build that verifies the native runtime.
+    for source_dir in [
+        "async",
+        "core",
+        "diagnostics",
+        "image",
+        "include",
+        "stats",
+        "storage",
+        "tests",
+        "tools",
+    ] {
         println!(
-            "cargo:warning=Failed to copy native runtime DLL {} to {}: {}",
-            name,
-            dst.display(),
-            e
+            "cargo:rerun-if-changed={}",
+            native_root.join(source_dir).display()
         );
-    } else {
-        println!("cargo:warning=Copied native runtime DLL: {} → {}", src.display(), dst.display());
+    }
+    let output = std::process::Command::new("powershell.exe")
+        .args(["-NoProfile", "-ExecutionPolicy", "Bypass", "-File"])
+        .arg(&verifier)
+        .arg("-Dll")
+        .arg(dll)
+        .arg("-NativeRoot")
+        .arg(native_root)
+        .output()
+        .expect("run native source-fingerprint verifier");
+    if !output.status.success() {
+        panic!(
+            "Native runtime verification failed before staging. Rebuild the selected native preset.\n{}\n{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        );
+    }
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        println!("cargo:warning={line}");
     }
 }
 
@@ -105,14 +152,31 @@ fn main() {
     let src = manifest_dir.join(format!("../../native/out/{}/{}", preset, dll_name));
     let sqlite_src = manifest_dir.join("../../native/vcpkg_installed/x64-windows/bin/sqlite3.dll");
 
-    if src.exists() {
+    if src.is_file() {
+        if cfg!(target_os = "windows") && !sqlite_src.is_file() {
+            panic!("Required SQLite runtime not found at {}. Rebuild the native dependencies before packaging.", sqlite_src.display());
+        }
+        if cfg!(target_os = "windows")
+            && fs::metadata(&sqlite_src)
+                .expect("read required SQLite runtime metadata")
+                .len()
+                == 0
+        {
+            panic!(
+                "Required SQLite runtime is empty at {}",
+                sqlite_src.display()
+            );
+        }
+        if cfg!(target_os = "windows") {
+            verify_native_runtime(&manifest_dir, &manifest_dir.join("../../native"), &src);
+        }
         // OUT_DIR ≈ target/debug/build/ui-<hash>/out
         // Go up three levels to reach target/debug/ or target/release/
         let out_dir = PathBuf::from(env::var("OUT_DIR").expect("OUT_DIR not set"));
         let target_profile_dir = out_dir
-            .parent()                          // build/ui-<hash>/
-            .and_then(|p| p.parent())          // build/
-            .and_then(|p| p.parent())          // debug/ or release/
+            .parent() // build/ui-<hash>/
+            .and_then(|p| p.parent()) // build/
+            .and_then(|p| p.parent()) // debug/ or release/
             .expect("OUT_DIR structure unexpected");
         let dst = target_profile_dir.join(dll_name);
 
@@ -120,7 +184,7 @@ fn main() {
 
         // Also copy it to a stable staging directory for tauri.conf.json bundling.
         let staging_dir = manifest_dir.join("libs");
-        let _ = std::fs::create_dir_all(&staging_dir);
+        std::fs::create_dir_all(&staging_dir).expect("create native runtime staging directory");
         let staging_dst = staging_dir.join(dll_name);
         copy_runtime_dll(&src, &staging_dst, dll_name);
 

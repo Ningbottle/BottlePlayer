@@ -1,6 +1,10 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import { toggleMaximizeCurrentWindow } from '../../platform/tauri/windows';
 import WindowControls from './WindowControls.vue';
+import SidebarResizeHandle from './SidebarResizeHandle.vue';
+
+const sidebarWidth = ref(240);
 
 withDefaults(defineProps<{
   lyricFullscreen?: boolean;
@@ -21,6 +25,7 @@ function handleTitlebarDoubleClick(event: MouseEvent): void {
     data-shell="aurora"
     data-layout="immersive"
     :class="{ 'lyric-fullscreen-active': lyricFullscreen }"
+    :style="{ '--sidebar-width': `${sidebarWidth}px` }"
   >
     <div class="titlebar" data-tauri-drag-region @dblclick="handleTitlebarDoubleClick">
       <div class="titlebar-logo" aria-label="BottleMusic">
@@ -38,6 +43,7 @@ function handleTitlebarDoubleClick(event: MouseEvent): void {
 
     <nav class="shell-sidebar" v-show="!lyricFullscreen">
       <slot name="sidebar" />
+      <SidebarResizeHandle @resize="sidebarWidth = $event" />
     </nav>
 
     <main class="shell-main">

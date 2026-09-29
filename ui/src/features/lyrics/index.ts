@@ -37,6 +37,7 @@ export {
   useLyricStage,
   parseLrc,
   fetchLyrics,
+  LyricLoadError,
   type LyricStageModel,
   type LyricStageCommands,
   type UseLyricStageReturn,

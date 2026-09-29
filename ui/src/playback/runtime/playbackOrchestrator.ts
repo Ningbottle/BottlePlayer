@@ -5,7 +5,7 @@ import {
   flagsFromPhase,
   type PlaybackPhase,
 } from '../playbackPhase';
-import type { ResolveTrackResult } from '../types';
+import type { Delivery, ResolveTrackResult } from '../types';
 
 export interface QualityOption {
   quality: string;
@@ -13,6 +13,10 @@ export interface QualityOption {
   fileSize?: number;
   bitRate?: number;
   extName?: string;
+  /** Stage 6a: 每条自带预览标志（native 逐条计算），切换音质时 isPreview
+   *  必须与最终 URL 同源取自该条目，而不是沿用上一轨的全局标志。 */
+  isPreview?: boolean;
+  delivery?: Delivery;
 }
 
 export interface PlaybackStateSlice {
@@ -25,6 +29,7 @@ export interface PlaybackStateSlice {
   isLoading: boolean;
   errorMsg: string;
   isPreview: boolean;
+  delivery?: Delivery;
   vipRequired: boolean;
   quality: string;
   availableQualities: QualityOption[];
@@ -44,6 +49,8 @@ interface PlaybackBackendLike {
   stop(): Promise<void>;
   resume(): Promise<void>;
   seek(seconds: number): Promise<void>;
+  /** 可选能力：读取 playUrl 最近一次 false 出口的首败归因（Html5AudioBackend）。 */
+  getLastPlayFailureReason?(): string | null;
 }
 
 interface PlaySessionLike {
@@ -89,7 +96,12 @@ export class PlaybackOrchestrator {
       detail: normalized.SongName || normalized.FileHash,
       trackKey: normalized.FileHash,
     });
-    let idx = state.queue.findIndex((t) => t.FileHash === normalized.FileHash);
+    // A queue may legitimately contain repeated hashes (for example the same
+    // recording in two album contexts). Queue-index selection passes the exact
+    // queue object, so preserve that occurrence instead of collapsing it to the
+    // first hash match. Direct play requests still reuse the first hash match.
+    let idx = state.queue.indexOf(track);
+    if (idx === -1) idx = state.queue.findIndex((t) => t.FileHash === normalized.FileHash);
     if (idx === -1) {
       state.queue.push(normalized);
       idx = state.queue.length - 1;
@@ -103,7 +115,7 @@ export class PlaybackOrchestrator {
       errorMsg: '正在加载音频源…',
       // isPlaying/isLoading projected from playbackPhase (applyPhase above)
     });
-    this.fetchMissingCover(normalized);
+    this.fetchMissingCover(normalized, idx, state.queue[idx]);
 
     let result: ResolveTrackResult;
     this.deps.recordDiagnostic({
@@ -151,15 +163,24 @@ export class PlaybackOrchestrator {
 
     const availableQualities = result.data?.available_qualities || [];
     let finalUrl = result.url;
+    // Stage 6a（F11）: isPreview 与 finalUrl 同源 —— 从 available_qualities
+    // 选中条目时用该条自带的 is_preview，不沿用整轨解析的全局标志。
+    let finalIsPreview = !!result.is_preview;
+    let finalDelivery: Delivery = result.delivery ?? (finalIsPreview ? 'preview' : 'unknown');
     if (state.quality && availableQualities.length > 0) {
       const preferred = availableQualities.find((q) => q.quality === state.quality);
-      if (preferred?.url) finalUrl = preferred.url;
+      if (preferred?.url) {
+        finalUrl = preferred.url;
+        if (typeof preferred.isPreview === 'boolean') finalIsPreview = preferred.isPreview;
+        finalDelivery = preferred.delivery ?? (finalIsPreview ? 'preview' : 'unknown');
+      }
     }
 
     this.deps.patchState({
       availableQualities,
       errorMsg: '',
-      isPreview: !!result.is_preview,
+      isPreview: finalIsPreview,
+      delivery: finalDelivery,
       vipRequired: !!result.vip_required,
     });
 
@@ -172,6 +193,15 @@ export class PlaybackOrchestrator {
     } catch (err) {
       if (!this.isCurrent(seq)) return this.superseded(normalized, 'switchTrack play rejected');
       const message = err instanceof Error ? err.message : '播放失败';
+      // 首败定位（2026-09-15 审阅）：playUrl 抛错（当前实现仅
+      // prepareSourceUrl 代理准备会抛）—— rollback 前先把失败层写进诊断环，
+      // 与 url_resolve ok 事件按 trackKey 关联。
+      this.deps.recordDiagnostic({
+        kind: 'play_fail',
+        phase: 'fail',
+        detail: `rollback: playUrl threw; first_fail_reason=play_threw; error=${message}`,
+        trackKey: normalized.FileHash,
+      });
       this.deps.playSession.skip();
       this.rollback(prevIndex, prevTrack, message);
       return { status: 'failed', message };
@@ -180,6 +210,16 @@ export class PlaybackOrchestrator {
       return this.superseded(normalized, 'switchTrack play completed');
     }
     if (!ok) {
+      // 首败定位（2026-09-15 审阅）：false 可能来自 media_error / lease_stale /
+      // attach_stale / eq_init / play_reject —— rollback 前把后端给出的归因
+      // 写入诊断环（detail 不携带 URL，脱敏由诊断层负责）。
+      const reason = backend.getLastPlayFailureReason?.() ?? 'unknown';
+      this.deps.recordDiagnostic({
+        kind: 'play_fail',
+        phase: 'fail',
+        detail: `rollback: playUrl returned false; first_fail_reason=${reason}`,
+        trackKey: normalized.FileHash,
+      });
       this.deps.playSession.skip();
       this.rollback(prevIndex, prevTrack, '播放失败');
       return { status: 'failed', message: '播放失败' };
@@ -243,6 +283,10 @@ export class PlaybackOrchestrator {
         || state.playbackPhase === 'recovering');
     const cached = state.availableQualities.find((q) => q.quality === quality && q.url);
     let finalUrl = cached?.url;
+    // Stage 6a（F11）: 缓存条目命中时 isPreview 同源取自该条目。
+    let finalIsPreview =
+      cached && typeof cached.isPreview === 'boolean' ? cached.isPreview : state.isPreview;
+    let finalDelivery: Delivery = cached?.delivery ?? (finalIsPreview ? 'preview' : 'unknown');
 
     if (!finalUrl) {
       let result: ResolveTrackResult;
@@ -262,6 +306,13 @@ export class PlaybackOrchestrator {
       const availableQualities = result.data?.available_qualities || [];
       const preferred = availableQualities.find((q) => q.quality === quality && q.url);
       finalUrl = preferred?.url || result.url;
+      finalIsPreview =
+        preferred && typeof preferred.isPreview === 'boolean'
+          ? preferred.isPreview
+          : !!result.is_preview;
+      finalDelivery = preferred
+        ? preferred.delivery ?? (finalIsPreview ? 'preview' : 'unknown')
+        : result.delivery ?? (finalIsPreview ? 'preview' : 'unknown');
       this.deps.patchState({ availableQualities });
     }
 
@@ -290,7 +341,8 @@ export class PlaybackOrchestrator {
       return { status: 'failed', message: '播放失败' };
     }
 
-    this.deps.patchState({ errorMsg: '' });
+    // Stage 6a（F11）: 切换完成后 isPreview/quality 与最终 URL 同源落库。
+    this.deps.patchState({ errorMsg: '', isPreview: finalIsPreview, delivery: finalDelivery, quality });
     if (autoplay) this.applyPhase('playing');
     return { status: 'played' };
   }
@@ -415,18 +467,15 @@ export class PlaybackOrchestrator {
     return { status: 'superseded' };
   }
 
-  private fetchMissingCover(track: Track): void {
+  private fetchMissingCover(track: Track, queueIndex: number, queueEntry: Track): void {
     if (track.Image) return;
     this.deps.fetchCover(track.FileHash).then((image) => {
       if (!image) return;
       const state = this.deps.getState();
-      if (state.currentTrack?.FileHash !== track.FileHash) return;
+      if (state.currentTrack !== track || state.queue[queueIndex] !== queueEntry) return;
 
       state.currentTrack.Image = image;
-      const queueIndex = state.queue.findIndex((item) => item.FileHash === track.FileHash);
-      if (queueIndex !== -1) {
-        state.queue[queueIndex].Image = image;
-      }
+      queueEntry.Image = image;
       this.deps.saveQueue();
     }).catch(() => {});
   }
@@ -436,6 +485,7 @@ export class PlaybackOrchestrator {
       currentIndex: prevIndex,
       currentTrack: prevTrack,
       isPreview: false,
+      delivery: 'unknown',
       vipRequired: false,
       errorMsg,
     });

@@ -1,13 +1,15 @@
 # 构建原生后端 EchoCAPI.dll（FFI 架构，由 Rust 通过 libloading 加载）。
-# 用法：pnpm backend:build  或  pnpm backend:build -- -Preset bottlemusic-release
+# 用法：pnpm backend:build  或  pnpm backend:build -Preset bottlemusic-release
 param(
-    [string]$Preset = 'bottlemusic-check'
+    [ValidateSet('bottlemusic-check', 'bottlemusic-release')]
+    [string]$Preset
 )
 $ErrorActionPreference = 'Stop'
+. (Join-Path $PSScriptRoot 'backend-preset.ps1')
 
 $root      = Split-Path -Parent $PSScriptRoot                   # ui/
 $nativeDir = Resolve-Path "$root\..\native"
-$preset    = $Preset
+$preset    = Resolve-BackendPreset -RequestedPreset $Preset -DebugFlag $env:TAURI_ENV_DEBUG
 $config    = if ($preset -eq 'bottlemusic-release') { 'Release' } else { 'Debug' }
 $buildDir  = Join-Path $nativeDir "out\$preset"
 

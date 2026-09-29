@@ -43,7 +43,6 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     isLyricView: false,
     isFavorite: false,
     showQualityMenu: false,
-    showAddModal: false,
     toastMsg: '',
     favoriteMsg: '',
     qualityOptions: ['128', '320', 'flac'],
@@ -62,9 +61,6 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     handleFavorite: vi.fn(),
     handleSelectQuality: vi.fn(),
     closeQualityMenu: vi.fn(),
-    closeAddModal: vi.fn(),
-    handleFavoriteSuccess: vi.fn(),
-    handleFavoriteError: vi.fn(),
     getQualityLabel: (q: string) => {
       const labels: Record<string, string> = { '128': '标准', '320': '高品', 'flac': '无损', 'hires': 'Hi-Res', 'master': '臻品' };
       return labels[q] || q;
@@ -75,6 +71,14 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
 }
 
 describe('AuroraPlayerBar', () => {
+  it('shows neutral unknown delivery even after a VIP rejection', () => {
+    const wrapper = mount(AuroraPlayerBar, { props: { controller: createStubController({
+      currentTrack: mkTrack(), delivery: 'unknown', isPreview: false, vipRequired: true,
+    }) } });
+    expect(wrapper.text()).toContain('完整性待确认');
+    expect(wrapper.text()).not.toContain('试听');
+    expect(wrapper.text()).not.toContain('完整版');
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -456,34 +460,18 @@ describe('AuroraPlayerBar', () => {
     wrapper.unmount();
   });
 
-  it('sets volume on pointerdown and follows a drag', async () => {
+  it('uses a native range control for pointer and keyboard volume changes', async () => {
     const ctrl = createStubController({ currentTrack: mkTrack() });
     const wrapper = mount(AuroraPlayerBar, {
       props: { controller: ctrl },
     });
 
-    const bar = wrapper.get('.aurora-pb-vol-bar');
-    bar.element.getBoundingClientRect = vi.fn(() => ({
-      left: 0,
-      width: 100,
-      top: 0,
-      right: 100,
-      bottom: 16,
-      height: 16,
-      x: 0,
-      y: 0,
-      toJSON: () => ({}),
-    })) as unknown as () => DOMRect;
-
-    // jsdom lacks PointerEvent; dispatch MouseEvent with the pointer type instead.
-    bar.element.dispatchEvent(new MouseEvent('pointerdown', { bubbles: true, clientX: 25 }));
+    const input = wrapper.get<HTMLInputElement>('[data-test="aurora-volume"]');
+    expect(input.attributes()).toMatchObject({
+      type: 'range', min: '0', max: '100', step: '1', 'aria-label': '音量',
+    });
+    expect(input.element.value).toBe('70');
+    await input.setValue('25');
     expect(ctrl.setVolume).toHaveBeenLastCalledWith(0.25);
-
-    bar.element.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 75 }));
-    expect(ctrl.setVolume).toHaveBeenLastCalledWith(0.75);
-
-    bar.element.dispatchEvent(new MouseEvent('pointerup', { bubbles: true }));
-    bar.element.dispatchEvent(new MouseEvent('pointermove', { bubbles: true, clientX: 10 }));
-    expect(ctrl.setVolume).toHaveBeenLastCalledWith(0.75); // drag ended
   });
 });

@@ -71,7 +71,9 @@ function createMediaRuntime(audio: HTMLAudioElement, deps: MediaRuntimeDeps): Me
   const dropBackendRef = () => {
     backendUnsub?.();
     backendUnsub = null;
+    const retiring = backend;
     backend = null;
+    retiring?.dispose?.();
   };
 
   return {

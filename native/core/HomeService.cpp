@@ -5,6 +5,7 @@
 #include "echo/core/KuGouProfile.h"
 #include "echo/core/SafeStoll.h"
 #include "echo/core/StringUtils.h"
+#include "echo/diagnostics/EchoDiagnostics.h"
 
 #include <ctime>
 #include <sstream>
@@ -134,7 +135,53 @@ nlohmann::json HomeService::GetEverydayRecommend(
   if (!result.error.empty()) return MakeError(result.error, result.statusCode);
 
   try {
-    return nlohmann::json::parse(result.body);
+    auto json = nlohmann::json::parse(result.body);
+    // Cover diagnostics (sanitized): count image-bearing items across the list
+    // shapes the UI consumes. Counts only — never logs URLs. Separates
+    // "upstream returned empty cover fields" from "WebView/CDN load failure".
+    std::size_t total = 0;
+    std::size_t withImage = 0;
+    const auto hasNonEmptyStr = [](const nlohmann::json& obj, const char* key) {
+      return obj.contains(key) && obj[key].is_string() &&
+             !obj[key].get<std::string>().empty();
+    };
+    const auto countArray = [&](const nlohmann::json& array) {
+      for (const auto& item : array) {
+        if (!item.is_object()) continue;
+        ++total;
+        bool has = hasNonEmptyStr(item, "imgurl") || hasNonEmptyStr(item, "img") ||
+                   hasNonEmptyStr(item, "cover") || hasNonEmptyStr(item, "pic") ||
+                   hasNonEmptyStr(item, "pic_url") ||
+                   hasNonEmptyStr(item, "sizable_cover") ||
+                   hasNonEmptyStr(item, "album_sizable_cover") ||
+                   hasNonEmptyStr(item, "album_cover");
+        if (!has && item.contains("trans_param") && item["trans_param"].is_object()) {
+          has = hasNonEmptyStr(item["trans_param"], "union_cover");
+        }
+        if (!has && item.contains("albuminfo") && item["albuminfo"].is_object()) {
+          has = hasNonEmptyStr(item["albuminfo"], "sizable_cover") ||
+                hasNonEmptyStr(item["albuminfo"], "imgurl");
+        }
+        if (has) ++withImage;
+      }
+    };
+    const auto countKey = [&](nlohmann::json& container, const char* key) {
+      if (container.is_object() && container.contains(key) && container[key].is_array()) {
+        countArray(container[key]);
+      }
+    };
+    if (json.is_object() && json.contains("data")) {
+      auto& data = json["data"];
+      for (const char* key : {"song_list", "info", "list"}) {
+        countKey(data, key);
+        if (data.is_object() && data.contains("data")) {
+          countKey(data["data"], key);
+        }
+      }
+    }
+    ECHO_LOG("HomeCover", "everyday_recommend image_fields present=" +
+        std::to_string(withImage) + "/" + std::to_string(total));
+    return json;
   } catch (const nlohmann::json::exception& e) {
     return MakeError(std::string("JSON parse error: ") + e.what());
   }

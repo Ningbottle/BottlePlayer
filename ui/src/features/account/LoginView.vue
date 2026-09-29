@@ -2,7 +2,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import QRCode from 'qrcode';
 import { fetchQrKey, checkQrStatus, logoutAuth } from './accountGateway';
-import { userStore, checkLoginStatus, claimVip, logoutLocal } from './userStore';
+import { userStore, checkLoginStatus, claimVip, cancelClaim, claimVipViaRoute, claimDayVipConceptCandidate, isDayConceptCandidateUiEnabled, logoutLocal, refreshLiveVip, VIP_CLAIM_ROUTES, type VipClaimRoute } from './userStore';
+import { liveVipView } from './vipResolver';
 import { useThemeStore } from '../../app/appearance/themeStore';
 
 const themeStore = useThemeStore();
@@ -19,6 +20,9 @@ const statusMessage = ref('正在生成登录二维码…');
 let pollTimer: any = null;
 let pollAbort = false;
 let pollFailures = 0;
+let qrGeneration = 0;
+let pollingGeneration = 0;
+let disposed = false;
 /** Login-success delayed navigate; cleared on unmount. */
 let postLoginTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -26,33 +30,39 @@ const POLL_BASE_MS = 2_000;
 const POLL_MAX_MS = 10_000;
 
 async function generateQrCode() {
+  if (disposed) return;
+  // A refresh and an unmount both invalidate any in-flight key/QR image work.
+  const generation = ++qrGeneration;
+  stopPolling();
+  if (postLoginTimer) {
+    clearTimeout(postLoginTimer);
+    postLoginTimer = null;
+  }
   loginStatus.value = 0;
   statusMessage.value = '正在请求安全通道…';
   qrKey.value = '';
   qrCodeImg.value = '';
 
   try {
-    // 1. Get Key
     const keyRes = await fetchQrKey();
+    if (disposed || generation !== qrGeneration) return;
     if (keyRes.status === 1 && keyRes.data && keyRes.data.qrcode) {
       qrKey.value = keyRes.data.qrcode;
-      // KuGou may return the QR image under different field names.
       const imgData = (keyRes.data.qrcode_img || keyRes.data.imgurl || keyRes.data.img_url || keyRes.data.img) as string | undefined;
       if (imgData) {
         qrCodeImg.value = imgData;
       } else if (typeof keyRes.data.qrcodeurl === 'string') {
-        // Fall back to generating the QR code locally from the scan URL.
         qrCodeImg.value = await QRCode.toDataURL(keyRes.data.qrcodeurl, { width: 200, margin: 1 });
+        if (disposed || generation !== qrGeneration) return;
       }
-
-      // 2. Start Polling
       loginStatus.value = 1;
       statusMessage.value = '请使用酷狗音乐手机 App 扫码登录';
-      startPolling();
+      startPolling(generation);
     } else {
       throw new Error('初始化登录通道失败');
     }
   } catch (err: any) {
+    if (disposed || generation !== qrGeneration) return;
     console.error('Failed to generate login QR', err);
     loginStatus.value = -1;
     statusMessage.value = err.message || '二维码初始化失败，请重试';
@@ -78,23 +88,29 @@ function handleQrResponse(res: any) {
     stopPolling();
 
     if (postLoginTimer) clearTimeout(postLoginTimer);
+    const generation = qrGeneration;
     postLoginTimer = setTimeout(async () => {
       postLoginTimer = null;
+      if (disposed || generation !== qrGeneration) return;
       await checkLoginStatus();
-      if (userStore.isLoggedIn) {
+      if (!disposed && generation === qrGeneration && userStore.isLoggedIn) {
         emit('navigate', 'home');
       }
     }, 1000);
   }
 }
 
-async function pollLoop() {
-  if (!qrKey.value || pollAbort) return;
+async function pollLoop(generation: number, pollGeneration: number, key: string) {
+  const stale = () => disposed || generation !== qrGeneration ||
+    pollGeneration !== pollingGeneration || pollAbort;
+  if (stale()) return;
   try {
-    const res = await checkQrStatus(qrKey.value);
+    const res = await checkQrStatus(key);
+    if (stale()) return;
     pollFailures = 0;
     handleQrResponse(res);
   } catch (e) {
+    if (stale()) return;
     pollFailures += 1;
     console.error('Polling QR status error', e);
     if (pollFailures >= 5) {
@@ -102,19 +118,21 @@ async function pollLoop() {
       return;
     }
   }
-  if (pollAbort) return;
+  if (stale()) return;
   const delay = Math.min(POLL_BASE_MS * (1 + pollFailures), POLL_MAX_MS);
-  pollTimer = setTimeout(pollLoop, delay);
+  pollTimer = setTimeout(() => void pollLoop(generation, pollGeneration, key), delay);
 }
 
-function startPolling() {
+function startPolling(generation: number) {
+  if (disposed || generation !== qrGeneration || !qrKey.value) return;
   stopPolling();
   pollAbort = false;
   pollFailures = 0;
-  pollLoop();
+  void pollLoop(generation, pollingGeneration, qrKey.value);
 }
 
 function stopPolling() {
+  pollingGeneration += 1;
   pollAbort = true;
   if (pollTimer) {
     clearTimeout(pollTimer);
@@ -126,6 +144,14 @@ async function handleClaimVip() {
   await claimVip();
 }
 
+async function handleClaimVia(route: VipClaimRoute) {
+  await claimVipViaRoute(route);
+}
+
+async function handleClaimDayConceptCandidate() {
+  await claimDayVipConceptCandidate();
+}
+
 async function handleLogout() {
   if (confirm('确认退出当前账号吗？')) {
     try {
@@ -135,19 +161,42 @@ async function handleLogout() {
     } catch (e) {
       console.warn('Logout backend call failed (continuing)', e);
     }
+    if (disposed) return;
     logoutLocal();
-    generateQrCode();
+    void generateQrCode();
   }
 }
 
+// ── 会员剩余时间（顶部平铺展示用）──────────────────────────────────────
+// vipEndDate 是上游的 "YYYY-MM-DD HH:MM:SS" 字符串；本地每 30 秒刷新一次
+// 相对剩余时间。有效/过期由 liveVipView 按当前时钟从缓存证据派生，
+// 不能只信上次网络写入的 isVip。权威复查仍走 /user/vip/detail。
+const now = ref(Date.now());
+let nowTimer: ReturnType<typeof setInterval> | null = null;
+
+const liveVip = computed(() => liveVipView(userStore, now.value));
+
+function tickVipClock() {
+  now.value = Date.now();
+  void refreshLiveVip(now.value);
+}
+
 onMounted(() => {
+  tickVipClock();
+  nowTimer = setInterval(tickVipClock, 30_000);
   if (!userStore.isLoggedIn) {
-    generateQrCode();
+    void generateQrCode();
   }
 });
 
 onUnmounted(() => {
+  disposed = true;
+  qrGeneration += 1;
   stopPolling();
+  if (nowTimer) {
+    clearInterval(nowTimer);
+    nowTimer = null;
+  }
   if (postLoginTimer) {
     clearTimeout(postLoginTimer);
     postLoginTimer = null;
@@ -167,28 +216,58 @@ onUnmounted(() => {
       </div>
     </div>
 
-    <div class="login-card">
-      <div class="retro-box" :class="{ 'retro-box--aurora': isAurora }">
-        <!-- Logged in state -->
-        <div v-if="userStore.isLoggedIn" class="logged-in-profile">
-          <div class="avatar-large">
-            <img v-if="userStore.avatar" :src="userStore.avatar" alt="avatar" />
-            <div v-else class="avatar-placeholder">听</div>
+    <!-- 已登录：无卡片，内容直接平铺，细线分区 -->
+    <div v-if="userStore.isLoggedIn" class="account-flat">
+      <!-- 第一行：资料在左，会员状态+领取按钮在右 -->
+      <div class="flat-row profile-row">
+        <div class="profile-side">
+          <div class="avatar-wrap">
+            <div class="avatar-large" :class="{ 'is-vip': liveVip.isVip }">
+              <img v-if="userStore.avatar" :src="userStore.avatar" alt="avatar" />
+              <div v-else class="avatar-placeholder">听</div>
+            </div>
+            <span v-if="liveVip.isVip" class="avatar-badge">VIP</span>
           </div>
-          <h2 class="profile-name">{{ userStore.username }}</h2>
-          <p class="user-id">ID {{ userStore.userId }}</p>
+          <div class="profile-meta">
+            <h2 class="profile-name">{{ userStore.username }}</h2>
+            <p class="user-id">ID {{ userStore.userId }}</p>
+          </div>
+        </div>
 
-          <!-- Membership is plain profile copy + one CTA — no nested card. -->
-          <p class="membership-line" :class="{ 'is-vip': userStore.isVip }">
-            <template v-if="userStore.isVip">
-              VIP · Lv.{{ userStore.vipLevel }}
-              <span class="membership-sep" aria-hidden="true">·</span>
-              至 {{ userStore.vipEndDate || '无期限' }}
-            </template>
-            <template v-else>
-              普通用户 · 领取后可解锁更高音质
-            </template>
-          </p>
+        <div class="membership-side">
+          <div class="vip-info" :class="{ 'is-vip': liveVip.isVip, 'is-urgent': liveVip.urgent }">
+            <span class="vip-remaining">
+              {{ liveVip.remainingLabel }}
+            </span>
+            <span
+              class="vip-sub"
+              :title="userStore.vipEndDate ? `到期时间 ${userStore.vipEndDate}` : undefined"
+            >
+              <template v-if="liveVip.isVip">
+                VIP · Lv.{{ userStore.vipLevel }}<template v-if="userStore.vipEndDate"> · 至 {{ userStore.vipEndDate.replace(/:\d\d$/, '') }}</template>
+              </template>
+              <template v-else-if="userStore.musicPermission === 'observed_non_music'">
+                已观察到权益 · 音乐适用性待确认
+              </template>
+              <template v-else>
+                领取后解锁更高音质
+              </template>
+            </span>
+            <span
+              v-if="userStore.claimLedger.lastAcceptedAt"
+              class="vip-sub claim-ledger-line"
+              data-test="claim-ledger-accepted"
+            >
+              受理记录：{{ userStore.claimLedger.lastAcceptedAt }}<template v-if="userStore.claimLedger.lastAcceptedRoute"> · {{ userStore.claimLedger.lastAcceptedRoute }}</template>
+            </span>
+            <span
+              v-if="userStore.claimLedger.lastFailureAt && userStore.claimLedger.lastFailureMessage"
+              class="vip-sub claim-ledger-line"
+              data-test="claim-ledger-failure"
+            >
+              最近拒绝：{{ userStore.claimLedger.lastFailureCode ?? '' }}（不抹掉此前受理）
+            </span>
+          </div>
 
           <button
             class="play-cta claim-cta"
@@ -197,89 +276,192 @@ onUnmounted(() => {
             @click="handleClaimVip"
             :disabled="userStore.loading"
           >
-            {{ userStore.loading ? '领取中…' : (userStore.isVip ? '续领今日 VIP' : '领取每日免费 VIP') }}
+            {{ userStore.loading ? '领取中…' : (liveVip.isVip ? '续领今日 VIP' : '领取每日免费 VIP') }}
           </button>
-          <p v-if="userStore.claimMessage" class="claim-msg" role="status">
-            {{ userStore.claimMessage }}
-          </p>
-
-          <button class="logout-btn" type="button" @click="handleLogout">
-            退出登录
-          </button>
+          <!-- Stage 5c: 领取进行中可取消 —— 在阶段边界生效（下一轮广告前/倒计时中/下一通道前/下一次确认重查前）。 -->
+          <button
+            v-if="userStore.loading && userStore.claimStage"
+            class="channel-link"
+            type="button"
+            data-test="claim-cancel"
+            @click="cancelClaim"
+          >取消领取</button>
         </div>
+      </div>
 
-        <!-- Logged out QR state -->
-        <div v-else class="qr-login-flow">
-          <div class="qr-container">
-            <img v-if="qrCodeImg" :src="qrCodeImg" alt="QR Code" class="qr-code" />
-            <div v-else class="qr-loading-placeholder">
-              <span class="spinner-icon"></span>
-            </div>
+      <!-- 领取状态 -->
+      <p v-if="userStore.claimMessage" class="claim-msg" role="status">
+        {{ userStore.claimMessage }}
+      </p>
 
-            <!-- Overlays for expired or success -->
-            <div v-if="loginStatus === 3" class="qr-overlay" @click="generateQrCode">
-              <span>点击刷新</span>
-            </div>
-            <div v-if="loginStatus === 4" class="qr-overlay success">
-              <span>✓ 成功</span>
-            </div>
+      <!-- 其他领取通道 -->
+      <div class="flat-row channels-row">
+        <span class="flat-caption">其他领取通道</span>
+        <div class="channel-links">
+          <button
+            v-for="route in VIP_CLAIM_ROUTES"
+            :key="route.id"
+            class="channel-link"
+            type="button"
+            :disabled="userStore.loading"
+            @click="handleClaimVia(route.id)"
+          >{{ route.label }}</button>
+        </div>
+      </div>
+
+      <!-- Debug 专用：day Concept 候选单通道实验。生产 day 仍走 Standard；
+           主领取按钮的自动 fallback 不能代替本入口。 -->
+      <div
+        v-if="isDayConceptCandidateUiEnabled"
+        class="flat-row channels-row"
+        data-test="day-concept-candidate-row"
+      >
+        <span class="flat-caption">Debug 候选实验</span>
+        <div class="channel-links">
+          <button
+            class="channel-link"
+            type="button"
+            data-test="claim-day-concept-candidate"
+            :disabled="userStore.loading"
+            @click="handleClaimDayConceptCandidate"
+          >day Concept 候选（单次）</button>
+        </div>
+      </div>
+
+      <!-- 退出 -->
+      <div class="flat-row logout-row">
+        <button
+          class="logout-link"
+          type="button"
+          :disabled="userStore.loading"
+          @click="handleLogout"
+        >退出登录</button>
+      </div>
+    </div>
+
+    <!-- 未登录：左二维码右指引，平铺无卡片 -->
+    <div v-else class="qr-flat">
+      <div class="qr-side">
+        <div class="qr-container">
+          <img v-if="qrCodeImg" :src="qrCodeImg" alt="QR Code" class="qr-code" />
+          <div v-else class="qr-loading-placeholder">
+            <span class="spinner-icon"></span>
           </div>
 
-          <p class="status-text" :class="{ error: loginStatus === -1, success: loginStatus === 4 }">
-            {{ statusMessage }}
-          </p>
-
-          <div class="help-info">
-            请打开 <b>酷狗音乐 App</b>，点击右上角或侧边栏的 <b>“扫一扫”</b> 扫描上方二维码。
-          </div>
-
-          <button v-if="loginStatus === 3 || loginStatus === -1" class="icon-btn refresh-btn" @click="generateQrCode">
-            刷新二维码 ↻
+          <!-- Overlays for expired or success -->
+          <button
+            v-if="loginStatus === 3"
+            type="button"
+            class="qr-overlay"
+            aria-label="二维码已过期，刷新二维码"
+            data-test="expired-qr-refresh"
+            @click="generateQrCode"
+          >
+            <span>点击刷新</span>
           </button>
+          <div v-if="loginStatus === 4" class="qr-overlay success">
+            <span>✓ 成功</span>
+          </div>
         </div>
+        <p class="status-text" :class="{ error: loginStatus === -1, success: loginStatus === 4 }">
+          {{ statusMessage }}
+        </p>
+      </div>
+
+      <div class="qr-guide">
+        <h2 class="qr-guide-title">用酷狗音乐 App 扫码</h2>
+        <ol class="qr-guide-steps">
+          <li>打开手机上的 <b>酷狗音乐 App</b></li>
+          <li>点右上角或侧边栏的 <b>“扫一扫”</b></li>
+          <li>扫描左侧二维码并在手机上确认</li>
+        </ol>
+        <p class="qr-guide-note">登录后可领取每日免费 VIP，解锁更高音质。</p>
+        <button
+          v-if="loginStatus === 3 || loginStatus === -1"
+          class="icon-btn refresh-btn"
+          @click="generateQrCode"
+        >
+          刷新二维码 ↻
+        </button>
       </div>
     </div>
   </div>
 </template>
 
 <style scoped>
+/* 铺满内容区，无卡片：细线 + 留白分区 */
 .login-view {
-  max-width: 600px;
-  margin: 0 auto;
-  padding: 20px;
+  padding: 22px 34px 48px;
 }
 
-.login-card {
-  margin-top: 40px;
-  display: flex;
-  justify-content: center;
-}
-
-.retro-box {
-  width: 100%;
-  max-width: 420px;
-  border: 2px solid var(--ink);
-  padding: 30px;
-  background-color: var(--paper-alt);
-  box-shadow: 6px 6px 0 var(--ink-soft);
-  text-align: center;
-}
-
-.logged-in-profile {
+.account-flat {
+  margin-top: 26px;
   display: flex;
   flex-direction: column;
+  gap: 36px;
+}
+
+.flat-row {
+  display: flex;
   align-items: center;
+  justify-content: space-between;
+  gap: 18px 40px;
+  flex-wrap: wrap;
+}
+
+.flat-caption {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--ink-mute, #8a7e6a);
+}
+
+/* ── 资料 + 会员 ─────────────────────────────────────────────── */
+.profile-row {
+  border-top: 2px solid var(--ink);
+  padding-top: 28px;
+}
+
+.profile-side {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  min-width: 0;
+}
+
+.avatar-wrap {
+  position: relative;
+  flex: none;
+}
+
+.avatar-badge {
+  position: absolute;
+  bottom: -8px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--accent, #a8311b);
+  color: var(--paper);
+  border: 1.5px solid var(--ink);
+  box-shadow: 2px 2px 0 var(--ink-soft);
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.1em;
+  white-space: nowrap;
 }
 
 .avatar-large {
-  width: 90px;
-  height: 90px;
+  width: 96px;
+  height: 96px;
+  flex: none;
   border-radius: 50%;
   border: 2px solid var(--ink);
   overflow: hidden;
-  margin-bottom: 16px;
   background: var(--paper);
-  box-shadow: 3px 3px 0 var(--rule);
+}
+
+.avatar-large.is-vip {
+  border-color: var(--accent, #a8311b);
 }
 
 .avatar-large img {
@@ -294,51 +476,89 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 32px;
+  font-size: 34px;
   font-family: 'Noto Serif SC', serif;
   color: var(--ink-soft);
   font-weight: 700;
 }
 
+.profile-meta {
+  min-width: 0;
+}
+
 .profile-name {
   margin: 0;
-  font-size: 1.35rem;
+  font-size: 1.7rem;
   font-weight: 700;
-  line-height: 1.25;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .user-id {
-  margin: 6px 0 0;
+  margin: 8px 0 0;
   font-family: ui-monospace, monospace;
   font-size: 12px;
   color: var(--ink-mute, #8a7e6a);
   letter-spacing: 0.02em;
 }
 
-/* Inline membership row — part of the profile stack, not a nested card. */
-.membership-line {
-  margin: 14px 0 0;
-  max-width: 28em;
-  font-size: 13px;
-  line-height: 1.5;
+.membership-side {
+  display: flex;
+  align-items: center;
+  gap: 34px;
+  flex-wrap: wrap;
+}
+
+/* 会员信息 = 纯文字，剩余时长是视觉焦点 */
+.vip-info {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  min-width: 170px;
+}
+
+.vip-remaining {
+  font-size: 34px;
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: 0.01em;
+  color: var(--ink-soft);
+}
+
+.vip-sub {
+  margin-top: 6px;
+  font-size: 12px;
   color: var(--ink-mute, #8a7e6a);
 }
 
-.membership-line.is-vip {
+.vip-info.is-vip .vip-remaining {
   color: var(--accent, #a8311b);
-  font-weight: 600;
 }
 
-.membership-sep {
-  margin: 0 0.35em;
-  opacity: 0.55;
+.vip-info.is-vip .vip-sub {
+  color: color-mix(in srgb, var(--accent, #a8311b) 72%, var(--ink-soft));
 }
 
 .claim-cta {
-  margin-top: 22px;
-  width: 100%;
-  max-width: 280px;
+  display: inline-flex;
+  align-items: center;
   justify-content: center;
+  min-width: 220px;
+  padding: 10px 26px;
+  border-radius: 999px;
+  background: var(--ink);
+  color: var(--paper);
+  font-size: 14px;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.claim-cta:hover:not(:disabled) {
+  background: var(--accent, #a8311b);
 }
 
 .claim-cta:disabled {
@@ -347,102 +567,83 @@ onUnmounted(() => {
 }
 
 .claim-msg {
-  margin: 12px 0 0;
-  max-width: 28em;
-  font-size: 12px;
-  line-height: 1.45;
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
   color: var(--accent, #a8311b);
 }
 
-.logout-btn {
-  margin-top: 28px;
+/* ── 其他领取通道 ────────────────────────────────────────────── */
+.channel-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 26px;
+}
+
+.channel-link {
+  background: none;
+  border: none;
+  padding: 2px 0;
+  font-size: 13px;
+  color: var(--ink-soft);
+  text-decoration: underline;
+  text-underline-offset: 4px;
+  cursor: pointer;
+}
+
+.channel-link:hover:not(:disabled) {
+  color: var(--accent);
+}
+
+.channel-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* ── 退出 ────────────────────────────────────────────────────── */
+.logout-row {
+  justify-content: flex-end;
+}
+
+.logout-link {
   background: none;
   border: none;
   color: var(--ink-mute, #8a7e6a);
   text-decoration: underline;
-  text-underline-offset: 3px;
+  text-underline-offset: 4px;
   cursor: pointer;
-  font-size: 12px;
+  font-size: 13px;
 }
 
-/* Aurora: one surface only — profile copy + CTA sit on the same glass panel. */
-.login-view--aurora {
-  max-width: min(560px, 100%);
-}
-
-.login-view--aurora .page-head h1 {
-  letter-spacing: -0.02em;
-}
-
-.login-view--aurora .login-card {
-  margin-top: 28px;
-}
-
-.retro-box--aurora {
-  max-width: 100%;
-  border: 1px solid color-mix(in srgb, var(--text-primary, #e8e6f2) 10%, transparent);
-  background: color-mix(in srgb, var(--surface-elevated, #1a1b28) 82%, transparent);
-  box-shadow:
-    0 20px 50px rgba(0, 0, 0, 0.32),
-    inset 0 1px 0 color-mix(in srgb, #fff 7%, transparent);
-  border-radius: 20px;
-  padding: 36px 32px 32px;
-  color: var(--text-primary, #e8e6f2);
-  backdrop-filter: blur(20px);
-}
-
-.login-view--aurora .avatar-large {
-  border-color: color-mix(in srgb, var(--text-primary, #e8e6f2) 18%, transparent);
-  box-shadow: none;
-  background: color-mix(in srgb, var(--text-primary, #e8e6f2) 6%, transparent);
-}
-
-.login-view--aurora .user-id,
-.login-view--aurora .membership-line:not(.is-vip),
-.login-view--aurora .logout-btn {
-  color: var(--text-muted, #9a97ad);
-}
-
-.login-view--aurora .membership-line.is-vip {
-  color: color-mix(in srgb, var(--accent, #8b7cf6) 85%, #fff);
-}
-
-.login-view--aurora .claim-cta {
-  max-width: 100%;
-  border: 0;
-  border-radius: 999px;
-  min-height: 44px;
-  background: linear-gradient(
-    135deg,
-    var(--accent, #8b7cf6),
-    color-mix(in srgb, var(--accent, #8b7cf6) 55%, #5ad1ff)
-  );
-  color: #0b0c12;
-  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent, #8b7cf6) 30%, transparent);
-}
-
-.login-view--aurora .claim-msg {
-  color: color-mix(in srgb, var(--accent, #8b7cf6) 80%, #fff);
-}
-
-.logout-btn:hover {
+.logout-link:hover {
   color: var(--accent);
 }
 
-.qr-login-flow {
+/* ── 未登录：二维码 + 指引，平铺 ─────────────────────────────── */
+.qr-flat {
+  margin-top: 30px;
+  padding-top: 28px;
+  border-top: 2px solid var(--ink);
+  display: flex;
+  gap: 56px;
+  align-items: flex-start;
+  flex-wrap: wrap;
+}
+
+.qr-side {
   display: flex;
   flex-direction: column;
   align-items: center;
+  gap: 14px;
 }
 
 .qr-container {
   position: relative;
-  width: 200px;
-  height: 200px;
+  width: 210px;
+  height: 210px;
   border: 1px solid var(--ink);
   background: #fff;
   padding: 6px;
-  box-shadow: 4px 4px 0 var(--rule);
 }
 
 .qr-code {
@@ -486,6 +687,13 @@ onUnmounted(() => {
   font-weight: 700;
   font-size: 16px;
   color: var(--accent);
+  border: 0;
+  font: inherit;
+}
+
+.qr-overlay:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
 }
 
 .qr-overlay.success {
@@ -494,9 +702,10 @@ onUnmounted(() => {
 }
 
 .status-text {
-  margin-top: 16px;
+  margin: 0;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 13px;
+  text-align: center;
 }
 
 .status-text.error {
@@ -507,21 +716,114 @@ onUnmounted(() => {
   color: green;
 }
 
-.help-info {
-  margin-top: 16px;
-  font-size: 12px;
+.qr-guide-title {
+  margin: 0 0 14px;
+  font-size: 1.35rem;
+  font-weight: 700;
+}
+
+.qr-guide-steps {
+  margin: 0;
+  padding-left: 1.4em;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 14px;
+  line-height: 1.6;
   color: var(--ink-soft);
-  line-height: 1.5;
-  border-top: 1px solid var(--rule);
-  padding-top: 14px;
-  width: 100%;
+}
+
+.qr-guide-note {
+  margin: 16px 0 0;
+  font-size: 12px;
+  color: var(--ink-mute, #8a7e6a);
 }
 
 .refresh-btn {
-  margin-top: 14px;
+  margin-top: 16px;
   font-size: 12px;
   width: auto;
   padding: 4px 14px;
+}
+
+/* ── 极光皮肤：同样平铺，只换颜色 ───────────────────────────── */
+.login-view--aurora .page-head h1 {
+  letter-spacing: -0.02em;
+}
+
+.login-view--aurora .profile-row,
+.login-view--aurora .qr-flat {
+  border-top-color: color-mix(in srgb, var(--text-primary, #e8e6f2) 22%, transparent);
+}
+
+.login-view--aurora .avatar-large {
+  border-color: color-mix(in srgb, var(--text-primary, #e8e6f2) 18%, transparent);
+  background: color-mix(in srgb, var(--text-primary, #e8e6f2) 6%, transparent);
+}
+
+.login-view--aurora .avatar-large.is-vip {
+  border-color: color-mix(in srgb, var(--accent, #8b7cf6) 65%, transparent);
+}
+
+.login-view--aurora .avatar-badge {
+  border: none;
+  box-shadow: 0 6px 16px color-mix(in srgb, var(--accent, #8b7cf6) 40%, transparent);
+  background: linear-gradient(
+    135deg,
+    var(--accent, #8b7cf6),
+    color-mix(in srgb, var(--accent, #8b7cf6) 55%, #5ad1ff)
+  );
+  color: #0b0c12;
+}
+
+.login-view--aurora .user-id,
+.login-view--aurora .flat-caption,
+.login-view--aurora .vip-sub,
+.login-view--aurora .qr-guide-note,
+.login-view--aurora .logout-link {
+  color: var(--text-muted, #9a97ad);
+}
+
+.login-view--aurora .vip-remaining {
+  color: var(--text-primary, #e8e6f2);
+}
+
+.login-view--aurora .vip-info.is-vip .vip-remaining {
+  color: color-mix(in srgb, var(--accent, #8b7cf6) 85%, #fff);
+}
+
+.login-view--aurora .vip-info.is-vip .vip-sub {
+  color: color-mix(in srgb, var(--accent, #8b7cf6) 70%, var(--text-muted, #9a97ad));
+}
+
+.login-view--aurora .claim-cta {
+  border: 0;
+  border-radius: 999px;
+  min-height: 44px;
+  background: linear-gradient(
+    135deg,
+    var(--accent, #8b7cf6),
+    color-mix(in srgb, var(--accent, #8b7cf6) 55%, #5ad1ff)
+  );
+  color: #0b0c12;
+  box-shadow: 0 10px 24px color-mix(in srgb, var(--accent, #8b7cf6) 30%, transparent);
+}
+
+.login-view--aurora .claim-msg {
+  color: color-mix(in srgb, var(--accent, #8b7cf6) 80%, #fff);
+}
+
+.login-view--aurora .channel-link {
+  color: var(--text-muted, #9a97ad);
+}
+
+.login-view--aurora .channel-link:hover:not(:disabled) {
+  color: color-mix(in srgb, var(--accent, #8b7cf6) 85%, #fff);
+}
+
+.login-view--aurora .qr-container {
+  border-radius: 12px;
+  border-color: color-mix(in srgb, var(--text-primary, #e8e6f2) 16%, transparent);
 }
 
 /* Dark mode overrides */
@@ -533,11 +835,5 @@ onUnmounted(() => {
 }
 :global(:root[data-mode="dark"]) .qr-overlay.success {
   background: rgba(30, 30, 30, 0.97);
-}
-:global(:root[data-mode="dark"]) .vip-status-box {
-  background: rgba(255,255,255,0.03);
-}
-:global(:root[data-mode="dark"]) .vip-status-box.is-vip {
-  background: rgba(168,49,27,0.12);
 }
 </style>

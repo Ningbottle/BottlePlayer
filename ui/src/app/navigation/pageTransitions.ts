@@ -21,7 +21,7 @@ export function transitionEnter(el: Element, done?: () => void): void {
   const spec = currentProfile().pageEnter;
   const isAurora = useThemeStore().skinId.value === 'aurora';
   const dir = navigationDirection.value === 'back' ? -1 : 1;
-  const fromVars = isAurora ? { opacity: 0, x: 24 * dir } : { opacity: 0, y: spec.fromY ?? 16 };
+  const fromVars = isAurora ? { opacity: 0, x: (spec.fromY ?? 12) * dir } : { opacity: 0, y: spec.fromY ?? 16 };
   const toVars = isAurora ? { opacity: 1, x: 0 } : { opacity: 1, y: 0 };
   gsap.fromTo(el, fromVars, {
     ...toVars,
@@ -46,7 +46,11 @@ export function transitionLeave(el: Element, done?: () => void): void {
   gsap.killTweensOf(el);
   if (isReducedMotion()) {
     gsap.set(el, { opacity: 0, x: 0, y: 0, clearProps: 'transform,opacity' });
-    session.complete();
+    // out-in installs its placeholder after this hook returns. Completing
+    // synchronously re-enters Vue's patch before that subtree exists (notably
+    // with KeepAlive), leaving navigation blank. No visual delay is needed;
+    // let the current patch finish before removing the old page.
+    queueMicrotask(() => session.complete());
     return;
   }
   const spec = currentProfile().pageLeave;
@@ -54,7 +58,7 @@ export function transitionLeave(el: Element, done?: () => void): void {
   const dir = navigationDirection.value === 'back' ? -1 : 1;
   gsap.to(el, {
     opacity: 0,
-    ...(isAurora ? { x: -16 * dir } : { y: -16 }),
+    ...(isAurora ? { x: -8 * dir } : { y: -16 }),
     duration: spec.duration,
     ease: spec.ease,
     delay: spec.delay ?? 0,

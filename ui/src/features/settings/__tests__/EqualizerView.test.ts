@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import EqualizerView from '../EqualizerView.vue';
+import { EQ_PRESETS } from '../../../playback/eq/equalizerConfig';
 
 vi.mock('@tauri-apps/api/core', () => ({
   invoke: vi.fn().mockResolvedValue(undefined),
@@ -15,10 +16,12 @@ vi.mock('../../../playback/playerStore', async () => {
   };
 });
 
-import { playerStore, eqState } from '../../../playback/playerStore';
+import { playerStore, eqState, setWebAudioEqBand } from '../../../playback/playerStore';
 
 describe('EqualizerView', () => {
   beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(setWebAudioEqBand).mockClear();
     playerStore.eqEnabled = true;
     playerStore.eqBands = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
     playerStore.activePreset = 'Flat';
@@ -48,5 +51,22 @@ describe('EqualizerView', () => {
     expect(effectSection.text()).toContain('哈曼卡顿');
     expect(effectSection.text()).toContain('Harman Kardon');
     expect(wrapper.findAll('input[type="range"]')).toHaveLength(10);
+  });
+
+  it('keeps sound-effect buttons, panel sliders, EQ state and persisted preset in sync', async () => {
+    const wrapper = mount(EqualizerView);
+    const presetButton = wrapper.findAll('button').find((button) => button.text().includes('哈曼卡顿'));
+    expect(presetButton).toBeDefined();
+
+    await presetButton!.trigger('click');
+
+    const expectedBands = EQ_PRESETS['Harman Kardon'];
+    expect(playerStore.activePreset).toBe('Harman Kardon');
+    expect(playerStore.eqBands).toEqual(expectedBands);
+    expect(localStorage.getItem('player_eq_preset')).toBe('Harman Kardon');
+    expect(localStorage.getItem('player_eq_bands')).toBe(JSON.stringify(expectedBands));
+    expect(wrapper.findAll('input[type="range"]').map((slider) => Number((slider.element as HTMLInputElement).value)))
+      .toEqual(expectedBands);
+    expect(setWebAudioEqBand).toHaveBeenCalledTimes(expectedBands.length);
   });
 });

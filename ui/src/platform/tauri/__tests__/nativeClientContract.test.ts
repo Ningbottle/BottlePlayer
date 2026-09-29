@@ -58,13 +58,19 @@ describe('cross-layer contract: C++ envelope shapes -> nativeClient', () => {
     await expect(apiGet('/health')).resolves.toEqual(HEALTH_BODY);
 
     expect(mockInvoke).toHaveBeenCalledTimes(1);
-    expect(mockInvoke).toHaveBeenCalledWith('native_request', {
+    const invokeArgs = mockInvoke.mock.calls[0];
+    expect(invokeArgs[0]).toBe('native_request');
+    expect(invokeArgs[1]).toMatchObject({
       method: 'GET',
       path: '/health',
       queryJson: undefined,
-      headersJson: undefined,
       body: undefined,
     });
+    // T2: every UI request carries a correlation id (not a credential).
+    const headersJson = invokeArgs[1].headersJson as string;
+    expect(headersJson).toBeTruthy();
+    const headers = JSON.parse(headersJson);
+    expect(headers['x-echo-request-id']).toMatch(/^ui-/);
   });
 
   it('apiGet rejects with the HTTP status carried by the real 404 Unknown-route envelope', async () => {
@@ -107,4 +113,14 @@ describe('cross-layer contract: C++ envelope shapes -> nativeClient', () => {
     await expect(apiGet('/health')).rejects.toBe('request_deadline');
     expect(describeBackendError(new Error('request_deadline'), '请求失败')).toBe('请求失败');
   });
+
+  it.each(['ffi_overloaded', 'ffi_live_capacity'])(
+    'maps native_request %s rejection to a retryable busy message',
+    async (error) => {
+      mockInvoke.mockRejectedValue(error);
+
+      await expect(apiGet('/health')).rejects.toBe(error);
+      expect(describeBackendError(error, '请求失败')).toBe('请求繁忙，请稍后再试');
+    },
+  );
 });

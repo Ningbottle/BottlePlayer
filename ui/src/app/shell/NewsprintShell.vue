@@ -1,6 +1,10 @@
 <script setup lang="ts">
+import { ref } from 'vue';
 import { toggleMaximizeCurrentWindow } from '../../platform/tauri/windows';
 import WindowControls from './WindowControls.vue';
+import SidebarResizeHandle from './SidebarResizeHandle.vue';
+
+const sidebarWidth = ref(240);
 
 withDefaults(defineProps<{
   lyricFullscreen?: boolean;
@@ -16,7 +20,7 @@ function handleTitlebarDoubleClick(event: MouseEvent): void {
 </script>
 
 <template>
-  <div class="app" data-shell="newsprint" :class="{ 'lyric-fullscreen-active': lyricFullscreen }">
+  <div class="app" data-shell="newsprint" :class="{ 'lyric-fullscreen-active': lyricFullscreen }" :style="{ '--sidebar-width': `${sidebarWidth}px` }">
     <!-- Newsprint procedural background layers -->
     <div class="paper-base"></div>
     <div class="paper-fibers"></div>
@@ -39,6 +43,7 @@ function handleTitlebarDoubleClick(event: MouseEvent): void {
 
     <aside class="shell-sidebar" v-show="!lyricFullscreen">
       <slot name="sidebar" />
+      <SidebarResizeHandle @resize="sidebarWidth = $event" />
     </aside>
 
     <article class="shell-main">

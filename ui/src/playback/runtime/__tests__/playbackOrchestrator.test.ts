@@ -56,6 +56,8 @@ function makeHarness(options: { calls?: string[] } = {}) {
     seek: vi.fn(async (seconds: number) => {
       calls.push(`seek:${seconds}`);
     }),
+    // 首败定位（2026-09-15 审阅）：可选能力，默认无失败。
+    getLastPlayFailureReason: vi.fn((): string | null => null),
   };
   const playSession = {
     skip: vi.fn(() => {
@@ -220,6 +222,31 @@ describe('PlaybackOrchestrator', () => {
     expect(h.state.queue[0]?.Image).toBe('http://img/new.jpg');
   });
 
+  it('keeps a duplicate-hash queue selection and late cover on its exact occurrence', async () => {
+    const h = makeHarness();
+    const pendingCover = deferred<string>();
+    h.fetchCover.mockReturnValue(pendingCover.promise);
+    const first = mkTrack('duplicate-hash', 'First album copy');
+    const second = mkTrack('duplicate-hash', 'Second album copy');
+    delete first.Image;
+    delete second.Image;
+    h.state.queue = [first, second];
+
+    const result = await h.orchestrator.switchTrack(second);
+
+    expect(result).toEqual({ status: 'played' });
+    expect(h.state.currentIndex).toBe(1);
+    expect(h.state.currentTrack?.SongName).toBe('Second album copy');
+
+    pendingCover.resolve('http://img/second-album.jpg');
+    await vi.waitFor(() => {
+      expect(h.state.currentTrack?.Image).toBe('http://img/second-album.jpg');
+    });
+
+    expect(first.Image).toBeUndefined();
+    expect(second.Image).toBe('http://img/second-album.jpg');
+  });
+
   it('rolls back current pointer when Resolve fails without removing queued track', async () => {
     const h = makeHarness();
     const good = mkTrack('good');
@@ -264,9 +291,50 @@ describe('PlaybackOrchestrator', () => {
       'diag:url_resolve:ok',
       'intend:bad',
       'playUrl:http://x/song.mp3',
+      'diag:play_fail:fail',
       'skip',
       'saveQueue',
     ]);
+    // 首败定位：rollback 前先记录 playUrl 的失败归因（默认 mock 无归因）。
+    expect(h.recordDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'play_fail',
+      phase: 'fail',
+      detail: expect.stringContaining('first_fail_reason=unknown'),
+      trackKey: 'bad',
+    }));
+  });
+
+  it('records the backend first-fail reason before rolling back when playUrl returns false', async () => {
+    const h = makeHarness();
+    h.backend.playUrl.mockResolvedValue(false);
+    h.backend.getLastPlayFailureReason.mockReturnValue('eq_init');
+
+    const result = await h.orchestrator.switchTrack(mkTrack('bad'));
+
+    expect(result).toEqual({ status: 'failed', message: '播放失败' });
+    expect(h.state.playbackPhase).toBe('error');
+    expect(h.recordDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'play_fail',
+      phase: 'fail',
+      detail: expect.stringContaining('first_fail_reason=eq_init'),
+      trackKey: 'bad',
+    }));
+  });
+
+  it('records first_fail_reason=play_threw when playUrl rejects', async () => {
+    const h = makeHarness();
+    h.backend.playUrl.mockRejectedValueOnce(new Error('proxy down'));
+
+    const result = await h.orchestrator.switchTrack(mkTrack('a'));
+
+    expect(result).toEqual({ status: 'failed', message: 'proxy down' });
+    expect(h.recordDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'play_fail',
+      phase: 'fail',
+      detail: expect.stringContaining('first_fail_reason=play_threw'),
+      trackKey: 'a',
+    }));
+    expect(h.state.isLoading).toBe(false);
   });
 
   it('turns a current playUrl rejection into a failed result and clears loading', async () => {
@@ -317,6 +385,137 @@ describe('PlaybackOrchestrator', () => {
     expect(h.state.isLoading).toBe(false);
     expect(h.state.isPlaying).toBe(false);
     expect(h.state.errorMsg).toBe('quality proxy down');
+  });
+
+  // ── Stage 6a (F11): isPreview 与最终 URL 同源 ──────────────────────────
+  it.each(['track', 'cached', 'fresh'] as const)('keeps unknown delivery on %s selection', async (mode) => {
+    const h = makeHarness();
+    const current = mkTrack('a');
+    h.state.currentTrack = current;
+    h.state.queue = [current];
+    h.state.currentIndex = 0;
+    h.state.quality = '128';
+    h.state.delivery = 'full';
+    const entries = [
+      { quality: '320', url: 'https://cdn/full', isPreview: false, delivery: 'full' as const },
+      { quality: '128', url: 'https://cdn/opaque', isPreview: false, delivery: 'unknown' as const },
+    ];
+    if (mode === 'cached') h.state.availableQualities = entries;
+    else h.resolveTrack.mockResolvedValueOnce({ status: 1, url: entries[0]!.url,
+      is_preview: false, delivery: 'full', data: { available_qualities: entries } });
+    h.backend.switchUrl.mockResolvedValueOnce(true);
+    if (mode === 'track') await h.orchestrator.switchTrack(current);
+    else await h.orchestrator.switchQuality('128');
+    expect(h.state.delivery).toBe('unknown');
+    expect(h.state.isPreview).toBe(false);
+    expect(mode === 'track' ? h.backend.playUrl : h.backend.switchUrl)
+      .toHaveBeenCalledWith('https://cdn/opaque', ...(mode === 'track' ? [] : [expect.anything()]));
+  });
+
+  it('switchTrack honors the selected entry isPreview over the aggregate flag', async () => {
+    // native 顶层 is_preview 描述最高码率候选（full），用户 quality=128
+    // 命中条目级 preview —— patchState 的 isPreview 必须取条目标志。
+    const h = makeHarness();
+    const current = mkTrack('a');
+    h.state.currentTrack = current;
+    h.state.queue = [current];
+    h.state.currentIndex = 0;
+    h.state.quality = '128';
+    h.resolveTrack.mockResolvedValueOnce({
+      status: 1,
+      url: 'http://x/full/320.flac',
+      is_preview: false,
+      data: {
+        available_qualities: [
+          { quality: '320', url: 'http://x/full/320.flac', isPreview: false },
+          { quality: '128', url: 'http://x/yp/p_128/preview.mp3', isPreview: true },
+        ],
+      },
+    } as unknown as ResolveTrackResult);
+
+    await h.orchestrator.switchTrack(current);
+
+    expect(h.state.isPreview).toBe(true);
+    expect(h.backend.playUrl).toHaveBeenCalledWith('http://x/yp/p_128/preview.mp3');
+  });
+
+  it('switchQuality from a cached entry syncs isPreview with the final URL', async () => {
+    // F11 的核心场景：switchQuality 走缓存条目换 URL，却沿用旧 isPreview。
+    // 条目级标志到位后，缓存路径同样必须同源。
+    const h = makeHarness();
+    const current = mkTrack('a');
+    h.state.currentTrack = current;
+    h.state.queue = [current];
+    h.state.currentIndex = 0;
+    h.state.isPlaying = true;
+    h.state.isPreview = false; // 上一轨/上一音质：full
+    h.state.quality = '128';
+    h.state.availableQualities = [
+      { quality: '320', url: 'http://x/full/320.flac' },
+      { quality: '128', url: 'http://x/yp/p_128/preview.mp3', isPreview: true },
+    ];
+    h.backend.switchUrl.mockResolvedValueOnce(true);
+
+    await expect(h.orchestrator.switchQuality('128')).resolves.toEqual({
+      status: 'played',
+    });
+    expect(h.backend.switchUrl).toHaveBeenCalledWith(
+      'http://x/yp/p_128/preview.mp3',
+      expect.anything(),
+    );
+    expect(h.state.isPreview).toBe(true);
+    expect(h.state.quality).toBe('128');
+  });
+
+  it('switchQuality resolves fresh and syncs isPreview from the preferred entry', async () => {
+    // 缓存未命中：重新解析后从 preferred 条目取标志。
+    const h = makeHarness();
+    const current = mkTrack('a');
+    h.state.currentTrack = current;
+    h.state.queue = [current];
+    h.state.currentIndex = 0;
+    h.state.isPlaying = true;
+    h.state.isPreview = false;
+    h.state.quality = '128';
+    h.resolveTrack.mockResolvedValueOnce({
+      status: 1,
+      url: 'http://x/full/320.flac',
+      is_preview: false,
+      data: {
+        available_qualities: [
+          { quality: '320', url: 'http://x/full/320.flac', isPreview: false },
+          { quality: '128', url: 'http://x/yp/p_128/preview.mp3', isPreview: true },
+        ],
+      },
+    } as unknown as ResolveTrackResult);
+    h.backend.switchUrl.mockResolvedValueOnce(true);
+
+    await expect(h.orchestrator.switchQuality('128')).resolves.toEqual({
+      status: 'played',
+    });
+    expect(h.state.isPreview).toBe(true);
+  });
+
+  it('keeps the aggregate flag when entries carry no isPreview (legacy native)', async () => {
+    // 向后兼容：旧 native 输出无条目级标志 → 回落聚合标志，不误报。
+    const h = makeHarness();
+    const current = mkTrack('a');
+    h.state.currentTrack = current;
+    h.state.queue = [current];
+    h.state.currentIndex = 0;
+    h.state.isPlaying = true;
+    h.state.isPreview = false;
+    h.state.quality = '128';
+    h.state.availableQualities = [
+      { quality: '320', url: 'http://x/full/320.flac' },
+      { quality: '128', url: 'http://x/yp/p_128/preview.mp3' },
+    ];
+    h.backend.switchUrl.mockResolvedValueOnce(true);
+
+    await expect(h.orchestrator.switchQuality('128')).resolves.toEqual({
+      status: 'played',
+    });
+    expect(h.state.isPreview).toBe(false);
   });
 
   it('keeps the current playback phase when quality resolution fails before switching source', async () => {

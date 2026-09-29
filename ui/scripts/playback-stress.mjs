@@ -50,7 +50,7 @@ function main() {
       'exec',
       'vitest',
       'run',
-      'src/api/__tests__/playbackStress.gate.test.ts',
+      'src/playback/commands/__tests__/playbackStress.gate.test.ts',
       '--reporter=verbose',
     ],
     {

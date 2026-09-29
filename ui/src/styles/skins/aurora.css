@@ -8,11 +8,11 @@
   position: relative;
   z-index: 2;
   display: grid;
-  grid-template-columns: clamp(232px, 16vw, 252px) minmax(0, 1fr);
+  grid-template-columns: var(--sidebar-width, 240px) minmax(0, 1fr);
   /* Compact player row — less chrome, more content */
   grid-template-rows: 32px auto minmax(0, 1fr) 104px;
   height: 100vh;
-  min-height: 720px;
+  min-height: 0;
   background: var(--app-bg);
 }
 
@@ -227,12 +227,13 @@
 }
 
 /* Mid-narrow: sidebar becomes a 64px icon rail (text hidden, icons kept) */
-@media (min-width: 900px) and (max-width: 1099px) {
+@media (min-width: 700px) and (max-width: 899px) {
   .app[data-shell="aurora"] {
     grid-template-columns: 64px minmax(0, 1fr);
   }
 
   [data-skin-chrome='aurora'].sidebar .sidebar-wordmark,
+  [data-shell='aurora'] .sidebar-resize-handle,
   [data-skin-chrome='aurora'].sidebar .aurora-nav-label,
   [data-skin-chrome='aurora'].sidebar .section-label,
   [data-skin-chrome='aurora'].sidebar .playlists,
@@ -273,7 +274,7 @@
 }
 
 /* Narrow: collapse sidebar and hide desktop home rail */
-@media (max-width: 899px) {
+@media (max-width: 699px) {
   .app[data-shell="aurora"] {
     grid-template-columns: minmax(0, 1fr);
     grid-template-rows: 32px auto minmax(0, 1fr) auto;
@@ -467,21 +468,6 @@
   background: var(--accent);
   color: var(--app-bg);
   border-color: var(--accent);
-}
-
-/* SkinListRow: card-like with subtle shadow */
-[data-skin='aurora'] .skin-list-row {
-  border-radius: 10px;
-  padding: 8px 12px;
-  margin-bottom: 4px;
-}
-[data-skin='aurora'] .skin-list-row:hover {
-  background: var(--surface-1);
-}
-[data-skin='aurora'] .skin-list-row-index {
-  font-family: var(--font-sans, system-ui, sans-serif);
-  font-variant-numeric: tabular-nums;
-  font-weight: 500;
 }
 
 /* SkinEmptyState: centered, muted, no icon */

@@ -167,7 +167,8 @@ function handlePlaylist(playlist: { id: string; name: string }) {
     <!-- 检查更新（常驻入口；启动静默 check() 检测到新版本时自动高亮，点击去设置页检查/安装） -->
     <a
       class="update-entry"
-      @click="handleNav('settings')"
+      href="/settings"
+      @click.prevent="handleNav('settings')"
       :title="updateAvailable ? `发现新版本 v${updateVersion}，点击前往安装` : '点击前往设置检查更新'"
       :style="updateAvailable
         ? 'display:flex; align-items:center; gap:6px; margin:0 0 10px; padding:4px 8px; font-size:11px; color:var(--paper); background:var(--accent); border-radius:4px; cursor:pointer; width:fit-content;'
@@ -180,7 +181,7 @@ function handlePlaylist(playlist: { id: string; name: string }) {
     </a>
 
     <!-- User Section -->
-    <div class="user" @click="handleNav('login')" style="cursor: pointer;">
+    <div class="user" role="button" tabindex="0" aria-label="账户中心" @click="handleNav('login')" @keydown.enter.prevent="handleNav('login')" @keydown.space.prevent="handleNav('login')" style="cursor: pointer;">
       <div class="avatar" :class="{'has-img': !!userStore.avatar}" :style="userStore.avatar ? { backgroundImage: `url(${userStore.avatar})`, backgroundSize: 'cover' } : {}">
         <span v-if="!userStore.avatar && userStore.isLoggedIn" style="font-size:10px; font-weight:700; color:var(--paper); display:flex; align-items:center; justify-content:center; height:100%;">{{ userStore.username.slice(0,1) }}</span>
       </div>
@@ -199,8 +200,12 @@ function handlePlaylist(playlist: { id: string; name: string }) {
         v-for="item in sidebarNav"
         :key="item.id"
         data-test="sidebar-nav-item"
+        :href="item.id === 'home' ? '/' : `/${item.id}`"
+        :title="item.name"
+        :aria-label="item.name"
+        :aria-current="activeView === item.id ? 'page' : undefined"
         :class="{ active: activeView === item.id }"
-        @click="handleNav(item.id)"
+        @click.prevent="handleNav(item.id)"
       >
         <span
           v-if="skinId === 'aurora' && activeView === item.id"
@@ -224,7 +229,9 @@ function handlePlaylist(playlist: { id: string; name: string }) {
             v-for="pl in playlists"
             :key="pl.id"
             data-test="sidebar-user-playlist"
-            @click="handlePlaylist(pl)"
+            :href="`/playlist/${encodeURIComponent(pl.id)}`"
+            :title="pl.name"
+            @click.prevent="handlePlaylist(pl)"
           >
             <span class="dot"></span>
             {{ pl.name }}
@@ -248,9 +255,9 @@ function handlePlaylist(playlist: { id: string; name: string }) {
         </button>
         <div v-else-if="playlists.length === 0" class="playlist-placeholder">暂无歌单</div>
       </template>
-      <div v-else class="playlist-placeholder" @click="handleNav('login')" style="cursor: pointer;">
+      <button v-else type="button" class="playlist-placeholder playlist-retry" @click="handleNav('login')">
         扫码登录后查看歌单
-      </div>
+      </button>
     </nav>
 
     <!-- Footer Stamp (newsprint editorial chrome only) -->

@@ -16,7 +16,8 @@ export default defineConfig(async () => ({
   server: {
     port: 1420,
     strictPort: true,
-    host: host || false,
+    // Vite 解析 localhost 得到 ::1；本机 IPv6 回环不通（Mihomo TUN），只监听 IPv6 会让 Tauri 连不上 dev server
+    host: host || "127.0.0.1",
     hmr: host
       ? {
           protocol: "ws",

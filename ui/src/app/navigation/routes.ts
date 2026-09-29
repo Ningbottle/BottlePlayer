@@ -1,13 +1,6 @@
 import type { RouteLocationNormalizedLoaded, RouteRecordRaw } from 'vue-router';
 
 import { HomeView } from '../../features/home';
-import { LoginView } from '../../features/account';
-import { HistoryView, PlaylistView } from '../../features/library';
-import { LyricView } from '../../features/lyrics';
-import { SearchView } from '../../features/search';
-import { EqualizerView, SettingsView } from '../../features/settings';
-import { StatsView } from '../../features/stats';
-import { DesktopLyricView, IslandView } from '../../features/overlays';
 
 export const routeNames = {
   home: 'home',
@@ -19,8 +12,6 @@ export const routeNames = {
   playlist: 'playlist',
   lyric: 'lyric',
   login: 'login',
-  overlayIsland: 'overlayIsland',
-  overlayLyric: 'overlayLyric',
 } as const;
 
 export type AppRouteName = typeof routeNames[keyof typeof routeNames];
@@ -36,28 +27,29 @@ function routeParam(route: RouteLocationNormalizedLoaded, name: string): string 
 
 export const routeRecords: RouteRecordRaw[] = [
   { path: '/', name: routeNames.home, component: HomeView, meta: { keepAlive: true } },
-  { path: '/stats', name: routeNames.stats, component: StatsView },
-  { path: '/history', name: routeNames.history, component: HistoryView },
-  { path: '/equalizer', name: routeNames.equalizer, component: EqualizerView },
-  { path: '/settings', name: routeNames.settings, component: SettingsView },
+  { path: '/stats', name: routeNames.stats, component: () => import('../../features/stats').then(({ StatsView }) => StatsView) },
+  { path: '/history', name: routeNames.history, component: () => import('../../features/library').then(({ HistoryView }) => HistoryView) },
+  { path: '/equalizer', name: routeNames.equalizer, component: () => import('../../features/settings').then(({ EqualizerView }) => EqualizerView) },
+  { path: '/settings', name: routeNames.settings, component: () => import('../../features/settings').then(({ SettingsView }) => SettingsView) },
   {
     path: '/search',
     name: routeNames.search,
-    component: SearchView,
+    component: () => import('../../features/search').then(({ SearchView }) => SearchView),
     props: (route) => ({ query: queryValue(route.query.q) }),
   },
   {
     path: '/playlist/:id',
     name: routeNames.playlist,
-    component: PlaylistView,
+    component: () => import('../../features/library').then(({ PlaylistView }) => PlaylistView),
     props: (route) => ({
       playlistId: routeParam(route, 'id'),
       playlistName: queryValue(route.query.name),
       playlistSource: queryValue(route.query.source),
     }),
   },
-  { path: '/lyric', name: routeNames.lyric, component: LyricView },
-  { path: '/login', name: routeNames.login, component: LoginView },
-  { path: '/overlay/island', name: routeNames.overlayIsland, component: IslandView, meta: { overlay: true } },
-  { path: '/overlay/lyric', name: routeNames.overlayLyric, component: DesktopLyricView, meta: { overlay: true } },
+  { path: '/lyric', name: routeNames.lyric, component: () => import('../../features/lyrics').then(({ LyricView }) => LyricView) },
+  { path: '/login', name: routeNames.login, component: () => import('../../features/account').then(({ LoginView }) => LoginView) },
+  // Direct launches, stale shortcuts, and malformed deep links still need a
+  // real page. Keep this unnamed so AppRouteName remains the navigable pages.
+  { path: '/:pathMatch(.*)*', redirect: { name: routeNames.home } },
 ];

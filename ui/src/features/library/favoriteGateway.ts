@@ -6,11 +6,18 @@ export interface ModifyPlaylistTracksResponse {
   [key: string]: unknown;
 }
 
+export interface PlaylistTrackInput {
+  name: string;
+  hash: string;
+  album_id: string | number;
+  mixsongid: string | number;
+}
+
 export async function addPlaylistTracks(params: {
   listid: string;
-  data: string;
+  data: PlaylistTrackInput[];
 }): Promise<ModifyPlaylistTracksResponse> {
-  return apiPost<ModifyPlaylistTracksResponse>("/playlist/tracks/add", undefined, params);
+  return apiPost<ModifyPlaylistTracksResponse>("/playlist/tracks/add", JSON.stringify(params));
 }
 
 export async function removePlaylistTracks(params: {

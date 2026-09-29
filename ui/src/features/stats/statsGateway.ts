@@ -32,9 +32,19 @@ export interface StatsTimelineItem {
   count: number;
 }
 
+function parseStatsPayload<T>(raw: string): T {
+  const parsed = JSON.parse(raw);
+  // Native preserves the success shape on failure for ABI compatibility.
+  // Never interpret its fallback zeros as a valid empty listening history.
+  if (parsed?.degraded === true) {
+    throw new Error('统计暂不可用，请稍后重试');
+  }
+  return parsed as T;
+}
+
 export async function getStatsSummary(range: StatsRange): Promise<StatsSummary> {
   const raw = await invokeTauri<string>('stats_get_summary', { range });
-  return JSON.parse(raw) as StatsSummary;
+  return parseStatsPayload<StatsSummary>(raw);
 }
 
 export async function getStatsTop(
@@ -43,13 +53,13 @@ export async function getStatsTop(
   limit: number,
 ): Promise<StatsTopItem[]> {
   const raw = await invokeTauri<string>('stats_get_top', { kind, range, limit });
-  const parsed = JSON.parse(raw) as { items?: StatsTopItem[] };
+  const parsed = parseStatsPayload<{ items?: StatsTopItem[] }>(raw);
   return parsed.items ?? [];
 }
 
 export async function getStatsTimeline(range: StatsRange): Promise<StatsTimelineItem[]> {
   const raw = await invokeTauri<string>('stats_get_timeline', { range });
-  const parsed = JSON.parse(raw) as { items?: StatsTimelineItem[] };
+  const parsed = parseStatsPayload<{ items?: StatsTimelineItem[] }>(raw);
   return parsed.items ?? [];
 }
 

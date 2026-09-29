@@ -153,8 +153,7 @@ describe('favoriteStore', () => {
       expect(favoriteStore.isFavorite('new1')).toBe(true);
       expect(mockApiPost).toHaveBeenCalledWith(
         '/playlist/tracks/add',
-        undefined,
-        expect.objectContaining({ listid: '999' }),
+        JSON.stringify({ listid: '999', data: [{ name: 'new1', hash: 'new1', album_id: 0, mixsongid: 0 }] }),
       );
     });
 
@@ -245,8 +244,7 @@ describe('favoriteStore', () => {
       expect(favoriteStore.pendingOutbox).toBe(0);
       expect(mockApiPost).toHaveBeenCalledWith(
         '/playlist/tracks/add',
-        undefined,
-        expect.objectContaining({ listid: '999' }),
+        JSON.stringify({ listid: '999', data: [{ name: 'off1', hash: 'off1', album_id: 0, mixsongid: 0 }] }),
       );
     });
   });
@@ -761,8 +759,8 @@ describe('favoriteStore', () => {
       // Session 2: onLogin with a GATED add (flushOutbox replay) so sync stays in flight.
       let resolveReplay!: (v: unknown) => void;
       let addCalls = 0;
-      mockApiPost.mockImplementation((_path: string, _body: unknown, query?: Record<string, unknown>) => {
-        if (query && 'data' in query) {
+      mockApiPost.mockImplementation((path: string, body?: string) => {
+        if (path === '/playlist/tracks/add' && Array.isArray(JSON.parse(body || '{}').data)) {
           addCalls++;
           return new Promise((r) => { resolveReplay = r; });
         }

@@ -27,6 +27,7 @@ describe('playStatsGateway.recordPlay', () => {
     vi.resetModules();
     mockInvoke.mockReset();
     mockInvoke.mockResolvedValue('');
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
   });
 
   afterEach(() => {
@@ -87,5 +88,24 @@ describe('playStatsGateway.recordPlay', () => {
 
     const passed = mockInvoke.mock.calls[0]?.[1]?.json as string;
     expect(JSON.parse(passed)).toEqual(record);
+  });
+
+  it.each(['stats_invalid_record', 'stats_bad_json', 'stats_not_initialized', 'stats_storage_error'])(
+    'reports %s once without retrying or blocking playback', async (error) => {
+      mockInvoke.mockRejectedValue(error);
+      const { recordPlay } = await import('../playStatsGateway');
+      expect(recordPlay(mkRecord())).toBeUndefined();
+      await Promise.resolve();
+      expect(console.warn).toHaveBeenCalledWith('播放统计记录失败（不影响播放）:', error);
+      expect(mockInvoke).toHaveBeenCalledTimes(1);
+    },
+  );
+
+  it('does not warn when the backend accepts or filters a short play', async () => {
+    mockInvoke.mockResolvedValue(undefined);
+    const { recordPlay } = await import('../playStatsGateway');
+    recordPlay(mkRecord());
+    await Promise.resolve();
+    expect(console.warn).not.toHaveBeenCalled();
   });
 });

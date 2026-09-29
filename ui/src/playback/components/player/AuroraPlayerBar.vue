@@ -1,11 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch, onMounted, onUnmounted } from 'vue';
 import {
-  PhAppWindow,
   PhArrowsOutSimple,
   PhDisc,
   PhHeart,
-  PhNote,
   PhPause,
   PhPlay,
   PhQueue,
@@ -20,18 +18,6 @@ import {
 import type { PlayerController } from './usePlayerControls';
 import PlayerProgress from './PlayerProgress.vue';
 import { pressBounceDown, pressBounceUp, attachMagnet } from '../../../shared/motion/motion';
-import { toggleOverlay } from '../../../platform/tauri/windows';
-
-/** Overlay toggles surface failures on-screen (the windows themselves can't toast). */
-async function onToggleOverlay(kind: 'island' | 'lyric'): Promise<void> {
-  const result = await toggleOverlay(kind);
-  if (result === 'failed') {
-    c.value.toastMsg = kind === 'island' ? '灵动岛打开失败（见控制台）' : '桌面歌词打开失败（见控制台）';
-    window.setTimeout(() => {
-      if (c.value.toastMsg.includes('打开失败')) c.value.toastMsg = '';
-    }, 2600);
-  }
-}
 import { flyCoverToElement } from '../coverFlight';
 
 const props = defineProps<{
@@ -66,31 +52,9 @@ const qualityChip = computed(() => {
   return label;
 });
 
-/** Volume knob: click or drag — pointer capture keeps drags inside the bar. */
-let volumeDragging = false;
-
-function updateVolumeFromPointer(e: PointerEvent): void {
-  const barEl = e.currentTarget as HTMLElement;
-  const rect = barEl.getBoundingClientRect();
-  if (rect.width <= 0) return;
-  const pct = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-  c.value.setVolume(pct);
-}
-
-function onVolumePointerDown(e: PointerEvent) {
-  volumeDragging = true;
-  (e.currentTarget as HTMLElement).setPointerCapture?.(e.pointerId);
-  updateVolumeFromPointer(e);
-}
-
-function onVolumePointerMove(e: PointerEvent) {
-  if (volumeDragging) updateVolumeFromPointer(e);
-}
-
-function onVolumePointerUp(e: PointerEvent) {
-  if (!volumeDragging) return;
-  volumeDragging = false;
-  (e.currentTarget as HTMLElement).releasePointerCapture?.(e.pointerId);
+function onVolumeInput(e: Event): void {
+  const value = Number((e.currentTarget as HTMLInputElement).value);
+  if (Number.isFinite(value)) c.value.setVolume(Math.max(0, Math.min(100, value)) / 100);
 }
 
 /** Q-bounce: squash → elastic spring (elastic.out). */
@@ -214,8 +178,9 @@ async function onFavoriteClick(): Promise<void> {
       </button>
 
       <span v-if="c.errorMsg" class="aurora-pb-status">{{ c.errorMsg }}</span>
-      <span v-else-if="c.vipRequired" class="aurora-pb-status">VIP 试听</span>
+      <span v-else-if="c.vipRequired && c.isPreview" class="aurora-pb-status">VIP 试听</span>
       <span v-else-if="c.isPreview" class="aurora-pb-status">试听</span>
+      <span v-else-if="c.currentTrack && c.delivery === 'unknown'" class="aurora-pb-status">完整性待确认</span>
 
       <button
         type="button"
@@ -300,30 +265,8 @@ async function onFavoriteClick(): Promise<void> {
       </div>
     </div>
 
-    <!-- Right: loop · overlays · quality · lyric · volume -->
+    <!-- Right: loop · quality · lyric · volume -->
     <div class="aurora-pb-right">
-      <button
-        type="button"
-        class="aurora-pb-icon aurora-pb-overlay"
-        aria-label="灵动岛"
-        title="灵动岛（悬浮迷你播放器）"
-        data-test="aurora-overlay-island"
-        @click="onToggleOverlay('island')"
-      >
-        <PhAppWindow :size="16" weight="regular" aria-hidden="true" />
-      </button>
-
-      <button
-        type="button"
-        class="aurora-pb-icon aurora-pb-overlay-lyric"
-        aria-label="桌面歌词"
-        title="桌面歌词（悬浮歌词条）"
-        data-test="aurora-overlay-lyric"
-        @click="onToggleOverlay('lyric')"
-      >
-        <PhNote :size="16" weight="regular" aria-hidden="true" />
-      </button>
-
       <button
         type="button"
         class="aurora-pb-icon aurora-pb-loop"
@@ -405,16 +348,22 @@ async function onFavoriteClick(): Promise<void> {
 
       <div class="aurora-pb-volume" title="音量">
         <PhSpeakerHigh class="aurora-pb-vol-icon" :size="16" weight="regular" aria-hidden="true" />
-        <div
-          class="aurora-pb-vol-bar"
-          @pointerdown="onVolumePointerDown"
-          @pointermove="onVolumePointerMove"
-          @pointerup="onVolumePointerUp"
-          @pointercancel="onVolumePointerUp"
-        >
+        <div class="aurora-pb-vol-bar">
           <div class="aurora-pb-vol-fill" :style="{ width: c.volumePercent + '%' }">
             <i class="aurora-pb-vol-thumb" />
           </div>
+          <input
+            class="aurora-pb-vol-input"
+            data-test="aurora-volume"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            :value="c.volumePercent"
+            aria-label="音量"
+            title="音量"
+            @input="onVolumeInput"
+          />
         </div>
       </div>
     </div>
@@ -990,6 +939,23 @@ async function onFavoriteClick(): Promise<void> {
   align-items: center;
   cursor: pointer;
   touch-action: none;
+}
+
+.aurora-pb-vol-bar:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 999px;
+}
+
+.aurora-pb-vol-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
 }
 
 .aurora-pb-vol-bar::before {

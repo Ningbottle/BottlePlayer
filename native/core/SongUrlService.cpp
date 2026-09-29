@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cctype>
 #include <iomanip>
+#include <optional>
 #include <sstream>
 #include <string_view>
 #include <utility>
@@ -74,6 +75,8 @@ nlohmann::json EmptySongUrl(std::string hash, std::string quality, std::string e
       {"url", ""},
       {"play_url", ""},
       {"playUrl", ""},
+      {"delivery", "unknown"},
+      {"is_preview", false},
       {"data",
        {
            {"hash", std::move(hash)},
@@ -81,6 +84,8 @@ nlohmann::json EmptySongUrl(std::string hash, std::string quality, std::string e
            {"url", ""},
            {"play_url", ""},
            {"playUrl", ""},
+           {"delivery", "unknown"},
+           {"is_preview", false},
            {"backup_url", nlohmann::json::array()},
        }},
   };
@@ -123,6 +128,279 @@ bool HasFailProcess(const nlohmann::json& upstream, std::initializer_list<std::s
   return false;
 }
 
+// ── Duration-unit provenance ────────────────────────────────────────────
+//
+// The unit of a duration field is read from the FIELD NAME; it is never
+// inferred from magnitude. Crucially, a field yields a unit ONLY when the
+// exact (endpoint, response-level, field) combination it was read from is
+// listed in the evidence table below. A spelling observed at one endpoint or
+// level is NOT generalised into a contract for every endpoint or every nested
+// object — the previous flat-list model did exactly that and is the defect
+// this type closes.
+enum class SongUrlEndpoint { kV6PrivUrl, kV5Url };
+enum class ResponseLevel { kEnvelope, kData, kItem, kInfo };
+
+// A JSON object together with the surface it was read from. Every object that
+// takes part in a duration decision carries its source, so the unit lookup can
+// key on (endpoint, level, field) instead of the field name alone.
+struct SourcedJson {
+  nlohmann::json object;
+  SongUrlEndpoint endpoint;
+  ResponseLevel level;
+};
+
+SourcedJson V6Source(ResponseLevel level, const nlohmann::json& object) {
+  return SourcedJson{object, SongUrlEndpoint::kV6PrivUrl, level};
+}
+
+SourcedJson V5Source(ResponseLevel level, const nlohmann::json& object) {
+  return SourcedJson{object, SongUrlEndpoint::kV5Url, level};
+}
+
+// The explicit evidence table. A row may only exist here WITH a provenance
+// citation — there must be no row without evidence. Only rows in this table
+// establish a track length, and today there is exactly one.
+struct UnitEvidence {
+  SongUrlEndpoint endpoint;
+  ResponseLevel level;
+  const char* field;
+  long long millisPerTick;
+  const char* provenance;
+};
+
+const UnitEvidence kUnitEvidence[] = {
+    {SongUrlEndpoint::kV5Url, ResponseLevel::kEnvelope, "timeLength", 1000LL,
+     "outputs/vip-stability-audit-2026-09-05/live-session-probe-results.json: "
+     "song.data.raw.timeLength = 294 beside song.data.raw.hash_offset.end_ms = "
+     "60000 on a real ~5 min track. `raw` is the v5 upstream envelope (Resolve "
+     "assigns raw = upstream for v5), so the sample is (v5/url, Envelope). "
+     "Reading 294 as milliseconds would place the 60000 ms window far past the "
+     "whole track (not self-consistent) -> seconds (x1000)."},
+    // No further rows. v6/priv_url at Envelope/Data/Item/Info, and v5/url at
+    // Data, are UNEVIDENCED. Adding a row requires a cited capture for that
+    // exact (endpoint, level, field) — never a magnitude guess, never a copy
+    // of another row's unit.
+};
+
+// Duration spellings that are NEVER a unit basis on /song/url. They are read
+// only to detect a self-contradictory payload once a basis exists, and are
+// converted by their DOCUMENTED meaning before comparison:
+//   duration     seconds  seconds on Catalog/Playlist/Rank; never captured on
+//                         /song/url.
+//   time_length  seconds  PROJECT ALIAS emitted by this service from
+//                         timeLength (BuildSongUrlOutput / quality switch).
+//   timelen      millis   PROJECT ALIAS built by Catalog/Playlist/Rank as
+//                         duration * 1000.
+//   timelength   seconds  unverified spelling; never captured anywhere.
+struct DurationAlias {
+  const char* field;
+  long long millisPerTick;
+};
+
+const DurationAlias kDurationAliases[] = {
+    {"duration", 1000LL},
+    {"time_length", 1000LL},
+    {"timelen", 1LL},
+    {"timelength", 1000LL},
+};
+
+// Establishes the track length in milliseconds, or nullopt when no sourced
+// field does. Pass 1 consults ONLY the evidence table; pass 2 only checks the
+// remaining spellings for agreement with an already-established basis.
+std::optional<long long> ResolveTrackMillis(
+    std::initializer_list<SourcedJson> sources) {
+  // Pass 1: only a (endpoint, level, field) row present in kUnitEvidence may
+  // establish the unit. Same-endpoint, different-level objects do not share a
+  // row, so a v5 envelope sample cannot establish a v6 or nested-field unit.
+  std::optional<long long> track;
+  for (const auto& source : sources) {
+    if (!source.object.is_object()) continue;
+    for (const auto& row : kUnitEvidence) {
+      if (row.endpoint != source.endpoint || row.level != source.level) continue;
+      if (!source.object.contains(row.field)) continue;
+      const int ticks = ReadInt(source.object, row.field, 0);
+      if (ticks <= 0) continue;
+      const long long millis = static_cast<long long>(ticks) * row.millisPerTick;
+      if (track && *track != millis) return std::nullopt;
+      track = millis;
+    }
+  }
+  if (!track) {
+    // No evidence-backed source at all (unevidenced endpoint/level, alias-only,
+    // or absent): the length is unknowable, so the caller must not decide.
+    return std::nullopt;
+  }
+
+  // Pass 2: every alias present in the response must agree with the basis. The
+  // aliases never supply the unit themselves.
+  for (const auto& source : sources) {
+    if (!source.object.is_object()) continue;
+    for (const auto& alias : kDurationAliases) {
+      if (!source.object.contains(alias.field)) continue;
+      const int ticks = ReadInt(source.object, alias.field, 0);
+      if (ticks <= 0) continue;
+      if (static_cast<long long>(ticks) * alias.millisPerTick != *track) {
+        return std::nullopt;  // a disagreement leaves the unit unresolved
+      }
+    }
+  }
+  return track;
+}
+
+// Delivery describes this URL, never an earlier failed attempt. Explicit clip
+// evidence (a /yp/p_ path, a restrictive fail_process, a window opening past
+// zero) wins over a /full/ path. A missing marker is not proof of a preview:
+// when the duration unit has no evidence-backed source (for the endpoint and
+// level each object was read from) and there is no independent clip evidence
+// either, the delivery stays "unknown".
+//
+// Each source carries the (endpoint, level) it came from, so the same
+// envelope window on the v5 side (evidence-backed unit) and the v6 side
+// (unevidenced) can legitimately classify differently.
+std::string ClassifyDelivery(const std::string& url,
+                            std::initializer_list<SourcedJson> sources,
+                            bool requestedPreview = false) {
+  if (url.empty()) return "unknown";
+  const auto pathStart = url.find('/', url.find("://") == std::string::npos ? 0 : url.find("://") + 3);
+  const auto pathEnd = url.find_first_of("?#");
+  const auto path = pathStart == std::string::npos || pathStart >= pathEnd
+      ? std::string{} : url.substr(pathStart, pathEnd - pathStart);
+  bool preview = requestedPreview || path.find("/yp/p_") != std::string::npos;
+  bool uncertainOffset = false;
+  const auto trackMillis = ResolveTrackMillis(sources);
+  for (const auto& sourced : sources) {
+    const auto& source = sourced.object;
+    if (!source.is_object()) continue;
+    if (source.contains("fail_process")) {
+      const auto& failure = source["fail_process"];
+      auto restricted = [](const nlohmann::json& v) {
+        return v == 12 || v == "12" || v == "pkg" || v == "buy" || v == "vip";
+      };
+      if (failure.is_array()) {
+        for (const auto& reason : failure) preview = preview || restricted(reason);
+      } else {
+        preview = preview || restricted(failure);
+      }
+    }
+    if (!source.contains("hash_offset") || source["hash_offset"].is_null()) continue;
+    const auto& offset = source["hash_offset"];
+    if (!offset.is_object() || offset.empty()) continue;
+    const int start = ReadInt(offset, "start_ms", 0);
+    const int end = ReadInt(offset, "end_ms", 0);
+    if (start < 0 || end <= start) {
+      // Not a valid window; nothing may be concluded from it.
+      uncertainOffset = true;
+    } else if (start > 0) {
+      // Provable without knowing the track length: the *_ms field names are
+      // explicit, and a window opening past zero is necessarily an excerpt.
+      preview = true;
+    } else if (trackMillis) {
+      if (end > *trackMillis) {
+        // The window outruns the track it describes: the payload contradicts
+        // itself, so no delivery may be claimed from it.
+        uncertainOffset = true;
+      } else if (end < *trackMillis) {
+        preview = true;  // the window stops short of the track end
+      }
+      // end == track: the window covers the whole track; no preview signal.
+    } else {
+      // The window opens at zero and no field established the track length
+      // (absent, unrecognised, or two fields disagreeing). The unit is not
+      // resolved, so the delivery stays unclaimed instead of being guessed.
+      uncertainOffset = true;
+    }
+  }
+  if (preview) return "preview";
+  if (uncertainOffset) return "unknown";
+  return path.find("/full/") != std::string::npos ? "full" : "unknown";
+}
+
+nlohmann::json MakeAttempt(const char* endpoint, const HttpResult& result,
+                           const nlohmann::json& response, bool anonymous,
+                           const std::string& quality, const std::string& delivery) {
+  auto failure = response.is_object()
+      ? response.value("fail_process", nlohmann::json{}) : nlohmann::json{};
+  // v6 also nests rejection codes in data[].info. Preserve those when the
+  // envelope has no code; a usable URL must not erase the nested rejection.
+  if (failure.is_null() && response.contains("data")) {
+    nlohmann::json reasons = nlohmann::json::array();
+    auto collect = [&](const nlohmann::json& source) {
+      if (!source.is_object() || !source.contains("fail_process")) return;
+      const auto& value = source["fail_process"];
+      if (value.is_null()) return;
+      if (value.is_array()) {
+        for (const auto& reason : value) reasons.push_back(reason);
+      } else reasons.push_back(value);
+    };
+    const auto& data = response["data"];
+    if (data.is_array()) {
+      for (const auto& item : data) {
+        collect(item);
+        if (item.is_object()) collect(item.value("info", nlohmann::json{}));
+      }
+    } else collect(data);
+    if (reasons.size() == 1) failure = reasons[0];
+    else if (!reasons.empty()) failure = std::move(reasons);
+  }
+  const int errcode = ReadInt(response, "errcode", ReadInt(response, "error_code", 0));
+  // Sanitized upstream message for diagnostics only (no URLs / tokens).
+  std::string message;
+  if (response.is_object()) {
+    for (const char* key : {"message", "error_msg", "errmsg"}) {
+      if (!response.contains(key) || !response[key].is_string()) continue;
+      message = response[key].get<std::string>();
+      break;
+    }
+    if (message.size() > 120) message.resize(120);
+  }
+  const bool hasEntitlementSignal = [&]() {
+    if (failure.is_null() || failure.empty()) return false;
+    auto match = [](const nlohmann::json& v) {
+      const auto s = v.is_string() ? v.get<std::string>() : v.dump();
+      return s.find("pkg") != std::string::npos
+          || s.find("buy") != std::string::npos
+          || s.find("vip") != std::string::npos;
+    };
+    if (failure.is_array()) {
+      for (const auto& item : failure) if (match(item)) return true;
+      return false;
+    }
+    return match(failure);
+  }();
+  // Bare 20018 is auth rejection evidence (owner logs: "token api error"),
+  // not proof of missing VIP package. Entitlement only when fail_process says so.
+  std::string rejectClass;
+  if (hasEntitlementSignal) {
+    rejectClass = "entitlement_required";
+  } else if (errcode == 20018 || message.find("token api error") != std::string::npos) {
+    rejectClass = "auth_rejected";
+  } else if (!result.error.empty()) {
+    rejectClass = "transport";
+  } else if (result.statusCode < 200 || result.statusCode >= 300) {
+    rejectClass = "http";
+  } else if (!response.is_object() || response.empty()) {
+    rejectClass = "invalid_json";
+  } else if (errcode != 0) {
+    rejectClass = "upstream_error";
+  }
+  // Only diagnostic fields: never copy signed URLs, request params, or bodies.
+  return {{"endpoint", endpoint}, {"http_status", result.statusCode},
+          {"errcode", errcode},
+          {"fail_process", failure}, {"anonymous", anonymous},
+          {"quality", quality}, {"delivery", delivery}, {"is_preview", delivery == "preview"},
+          {"message", message},
+          {"reject_class", rejectClass},
+          {"error", !result.error.empty() ? "transport"
+              : result.statusCode < 200 || result.statusCode >= 300 ? "http"
+              : !response.is_object() || response.empty() ? "invalid_json" : ""}};
+}
+
+nlohmann::json WithAttempts(nlohmann::json output, const nlohmann::json& attempts) {
+  output["attempts"] = attempts;
+  output["data"]["attempts"] = attempts;
+  return output;
+}
+
 void ClearAuth(std::unordered_map<std::string, std::string>& params) {
   params.erase("userid");
   params.erase("token");
@@ -145,7 +423,7 @@ struct SongUrlOutput {
   std::string reqHash;
   std::string quality;
   std::string playUrl;
-  bool isPreview = false;
+  std::string delivery = "unknown";
   bool vipRequired = false;
   nlohmann::json backupUrls = nlohmann::json::array();
   nlohmann::json availableQualities = nlohmann::json::array();
@@ -177,7 +455,9 @@ nlohmann::json BuildSongUrlOutput(SongUrlOutput out) {
       {"url", out.playUrl},
       {"play_url", out.playUrl},
       {"playUrl", out.playUrl},
-      {"is_preview", out.isPreview},
+      {"quality", out.quality}, // Stage 6a: 顶层与 data.quality 同源（切换后由 Resolve 同步）
+      {"delivery", out.delivery},
+      {"is_preview", out.delivery == "preview"},
       {"vip_required", out.vipRequired},
       {"data",
        {
@@ -187,7 +467,8 @@ nlohmann::json BuildSongUrlOutput(SongUrlOutput out) {
            {"url", out.playUrl},
            {"play_url", out.playUrl},
            {"playUrl", out.playUrl},
-           {"is_preview", out.isPreview},
+           {"delivery", out.delivery},
+           {"is_preview", out.delivery == "preview"},
            {"vip_required", out.vipRequired},
            {"backup_url", out.backupUrls},
            {"file_name", out.fileName},
@@ -260,9 +541,12 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
   }
 
   // ── 1. Build signed URL via KAR ──────────────────────────────────────────
-  // v6/priv_url 与参考实现(song_url_new.js)同约：Standard(appid=1005) + Lite key salt
-  // (参考硬编码 185672dd… 即使 appid=1005) + 会话 Cookie。
-  const auto profile = GetKuGouProfile(KuGouEdition::Standard);
+  // 签名族必须与铸造会话的那一族一致。LoginService 的两条刷新路径都用
+  // kProjectEdition(Concept, appid=3116) 铸造，因此这里跟随会话版型；沿用参考
+  // 实现的 Standard(1005) 去签 Concept 会话会被上游判 20018 —— 09-15 起 v6
+  // 全败的成因，双轮反向 A/B 见 docs/signature-family-experiment-2026-09-15.md。
+  // key salt 仍按参考实现硬编码 Lite(185672dd…)，它不随 appid 族变化，见下方 SignKey。
+  const auto profile = GetKuGouProfile(kProjectEdition);
   KuGouAndroidRequest req;
   req.endpoint = "http://tracker.kugou.com/v6/priv_url";
   req.profile = profile;
@@ -361,22 +645,21 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
     ECHO_LOG("SongUrlV6", log.str());
   }
 
+  auto upstream = nlohmann::json::parse(result.body, nullptr, false);
+  if (upstream.is_discarded()) upstream = nlohmann::json{};
+  auto finish = [&](nlohmann::json output) {
+    return WithAttempts(output, nlohmann::json::array({MakeAttempt(
+        "v6", result, upstream, userId.empty() || token.empty(),
+        output.value("quality", ""), output.value("delivery", "unknown"))}));
+  };
   if (!result.error.empty()) {
-    return EmptySongUrl(hash, "", "v6 HTTP error: " + result.error);
+    return finish(EmptySongUrl(hash, "", "v6 HTTP error: " + result.error));
   }
   if (result.statusCode < 200 || result.statusCode >= 300) {
-    return EmptySongUrl(hash, "", "v6 upstream returned HTTP " + std::to_string(result.statusCode));
+    return finish(EmptySongUrl(hash, "", "v6 upstream returned HTTP " + std::to_string(result.statusCode)));
   }
-
-  nlohmann::json upstream;
-  try {
-    upstream = nlohmann::json::parse(result.body);
-  } catch (const nlohmann::json::exception&) {
-    return EmptySongUrl(hash, "", "v6 invalid JSON response");
-  }
-
-  if (upstream.is_null() || upstream.empty()) {
-    return EmptySongUrl(hash, "", "v6 empty response");
+  if (!upstream.is_object() || upstream.empty()) {
+    return finish(EmptySongUrl(hash, "", "v6 invalid JSON response"));
   }
 
   // ── 6. Parse response ────────────────────────────────────────────────────
@@ -384,7 +667,7 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
   const int status = ReadInt(upstream, "status", 0);
   const int errcode = ReadInt(upstream, "errcode", ReadInt(upstream, "error_code", 0));
   if (status == 0 && errcode != 0) {
-    return EmptySongUrl(hash, "", "v6 errcode " + std::to_string(errcode));
+    return finish(EmptySongUrl(hash, "", "v6 errcode " + std::to_string(errcode)));
   }
 
   std::string playUrl;
@@ -439,12 +722,24 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
         
         // 仅在有 URL 时才加入可用音质列表
         if (!itemUrl.empty() || !itemBackup.empty()) {
+          const auto entryUrl = itemUrl.empty() ? itemBackup : itemUrl;
+          const auto entryDelivery = ClassifyDelivery(
+              entryUrl, {V6Source(ResponseLevel::kInfo, info),
+                         V6Source(ResponseLevel::kItem, item),
+                         V6Source(ResponseLevel::kEnvelope, upstream)});
           nlohmann::json qualityEntry = {
               {"quality", itemQuality},
-              {"url", itemUrl.empty() ? itemBackup : itemUrl},
+              {"url", entryUrl},
               {"fileSize", itemSize},
               {"bitRate", itemBitRate},
               {"extName", itemExt},
+              {"delivery", entryDelivery},
+              {"is_preview", entryDelivery == "preview"},
+              // 条目级元数据：音质切换时 data 层元数据随选中条目重算（F10）。
+              {"fileName", ReadString(info, "fileName")},
+              {"songName", ReadString(info, "songName")},
+              {"singerName", ReadString(info, "singerName")},
+              {"timeLength", ReadInt(info, "timeLength", 0)},
           };
           availableQualities.push_back(qualityEntry);
         }
@@ -489,6 +784,8 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
             {"fileSize", itemSize},
             {"bitRate", itemBitRate},
             {"extName", itemExt},
+            {"delivery", ClassifyDelivery(itemUrl, {V6Source(ResponseLevel::kItem, item), V6Source(ResponseLevel::kData, data), V6Source(ResponseLevel::kEnvelope, upstream)})},
+            {"is_preview", ClassifyDelivery(itemUrl, {V6Source(ResponseLevel::kItem, item), V6Source(ResponseLevel::kData, data), V6Source(ResponseLevel::kEnvelope, upstream)}) == "preview"},
         });
         if (playUrl.empty()) {
           playUrl = itemUrl;
@@ -533,14 +830,19 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
           {"url", urlStr},
           {"bitRate", bitRateV5},
           {"extName", extNameV5},
+          {"delivery", ClassifyDelivery(urlStr, {V6Source(ResponseLevel::kEnvelope, upstream)})},
+          {"is_preview", ClassifyDelivery(urlStr, {V6Source(ResponseLevel::kEnvelope, upstream)}) == "preview"},
       });
     }
   }
 
-  const bool ok = !playUrl.empty();
-  const bool hasFullSegment = playUrl.find("/yp/full/") != std::string::npos
-                           || playUrl.find("/full/") != std::string::npos;
-  const bool isPreview = ok && !hasFullSegment;
+  auto delivery = ClassifyDelivery(playUrl, {V6Source(ResponseLevel::kData, upstream.value("data", nlohmann::json{})), V6Source(ResponseLevel::kEnvelope, upstream)});
+  for (const auto& entry : availableQualities) {
+    if (entry.value("url", "") == playUrl) {
+      delivery = entry.value("delivery", "unknown");
+      break;
+    }
+  }
 
   // Pass through other useful fields from v6 response
   // 元数据已在 v6 数组路径中提取；以下为 v5 对象路径的 fallback
@@ -554,11 +856,11 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
     extName = ReadString(data, "extName");
   }
 
-  return BuildSongUrlOutput(SongUrlOutput{
+  return finish(BuildSongUrlOutput(SongUrlOutput{
       .hash = hash,
       .quality = bestQuality,
       .playUrl = playUrl,
-      .isPreview = isPreview,
+      .delivery = delivery,
       .backupUrls = backupUrls,
       .availableQualities = availableQualities,
       .raw = upstream,
@@ -568,7 +870,7 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
       .timeLength = timeLength,
       .bitRate = bitRate,
       .extName = extName,
-  });
+  }));
 }
 
 nlohmann::json SongUrlService::Resolve(
@@ -581,42 +883,123 @@ nlohmann::json SongUrlService::Resolve(
     std::string token,
     const DeviceInfo& device,
     std::string vipToken) const {
+  return Resolve(
+      std::move(hash), std::move(albumId), std::move(albumAudioId),
+      std::move(quality), std::move(ppageId), std::move(userId),
+      std::move(token), device, std::move(vipToken), /*vipType=*/0);
+}
+
+nlohmann::json SongUrlService::Resolve(
+    std::string hash,
+    std::string albumId,
+    std::string albumAudioId,
+    std::string quality,
+    std::string ppageId,
+    std::string userId,
+    std::string token,
+    const DeviceInfo& device,
+    std::string vipToken,
+    int vipType) const {
   hash = NormalizeHash(std::move(hash));
   quality = Trim(std::move(quality));
   ppageId = Trim(std::move(ppageId));
+  nlohmann::json attempts = nlohmann::json::array();
+  auto finish = [&](nlohmann::json output) { return WithAttempts(std::move(output), attempts); };
 
   if (hash.empty()) {
-    return EmptySongUrl(hash, quality, "Missing song hash");
+    return finish(EmptySongUrl(hash, quality, "Missing song hash"));
   }
 
   // ── Try v6/priv_url first (VIP-aware endpoint) ──────────────────────────
+  nlohmann::json v6PreviewFallback;
   if (httpPost_) {
     auto v6 = ResolveV6PrivUrl(hash, albumAudioId, userId, token,
-                                std::move(vipToken), /*vipType=*/0, device);
+                                std::move(vipToken), vipType, device);
+    attempts = v6.value("attempts", nlohmann::json::array());
     if (v6.value("status", 0) == 1) {
-      if (!quality.empty() && v6.contains("data") && v6["data"].is_object()) {
-        auto& data = v6["data"];
-        if (data.contains("available_qualities") && data["available_qualities"].is_array()) {
-          for (const auto& candidate : data["available_qualities"]) {
-            if (!candidate.is_object()) continue;
-            if (candidate.value("quality", "") != quality) continue;
-            const auto preferredUrl = candidate.value("url", "");
-            if (preferredUrl.empty()) continue;
-            v6["url"] = preferredUrl;
-            v6["play_url"] = preferredUrl;
-            v6["playUrl"] = preferredUrl;
-            data["url"] = preferredUrl;
-            data["play_url"] = preferredUrl;
-            data["playUrl"] = preferredUrl;
-            data["quality"] = quality;
-            break;
+      // 2026-09-03 实测：缺 viptoken 时 v6 会"成功"但只回试听包
+      // （is_preview=true、URL 带 /yp/p_ 字节区间、fail_process=12），
+      // 会把整条链路钉死在试听上。只有这种真试听包才降级去 v5；
+      // 合成/完整地址（无 /yp/p_ 标记）照常采用。
+      const std::string v6Url = v6.value("url", std::string{});
+      const bool v6Degraded = v6.value("is_preview", false)
+          && v6Url.find("/yp/p_") != std::string::npos;
+      if (!v6Degraded) {
+        if (!quality.empty() && v6.contains("data") && v6["data"].is_object()) {
+          auto& data = v6["data"];
+          if (data.contains("available_qualities") && data["available_qualities"].is_array()) {
+            for (const auto& candidate : data["available_qualities"]) {
+              if (!candidate.is_object()) continue;
+              if (candidate.value("quality", "") != quality) continue;
+              const auto preferredUrl = candidate.value("url", "");
+              if (preferredUrl.empty()) continue;
+              v6["url"] = preferredUrl;
+              v6["play_url"] = preferredUrl;
+              v6["playUrl"] = preferredUrl;
+              data["url"] = preferredUrl;
+              data["play_url"] = preferredUrl;
+              data["playUrl"] = preferredUrl;
+              data["quality"] = quality;
+              v6["quality"] = quality; // 顶层 quality 由 BuildSongUrlOutput 提供（最高码率候选），切换后同步
+              // Read the entry's classification, including its rights/offset
+              // evidence, so the aggregate cannot diverge on quality changes.
+              const bool switchedIsPreview = candidate.value("is_preview", false);
+              v6["is_preview"] = switchedIsPreview;
+              data["is_preview"] = switchedIsPreview;
+              v6["delivery"] = candidate.value("delivery", "unknown");
+              data["delivery"] = v6["delivery"];
+              // F10 元数据随选中条目重算：码率/扩展名/时长/文件名等描述
+              // 最终播放的条目，而不是最高码率候选。
+              if (candidate.contains("bitRate")) {
+                data["bit_rate"] = candidate["bitRate"];
+                data["bitRate"] = candidate["bitRate"];
+              }
+              if (candidate.contains("extName")) {
+                data["ext_name"] = candidate["extName"];
+                data["extName"] = candidate["extName"];
+              }
+              if (candidate.contains("timeLength")) {
+                data["time_length"] = candidate["timeLength"];
+                data["timeLength"] = candidate["timeLength"];
+              }
+              if (candidate.contains("fileName")) {
+                data["file_name"] = candidate["fileName"];
+                data["fileName"] = candidate["fileName"];
+              }
+              if (candidate.contains("songName")) {
+                data["song_name"] = candidate["songName"];
+                data["songName"] = candidate["songName"];
+              }
+              if (candidate.contains("singerName")) {
+                data["singer_name"] = candidate["singerName"];
+                data["singerName"] = candidate["singerName"];
+              }
+              break;
+            }
           }
         }
+        ECHO_LOG("SongUrlV6", "SUCCESS — using v6 result");
+        if (!attempts.empty()) {
+          attempts.back()["quality"] = v6.value("quality", "");
+          attempts.back()["delivery"] = v6.value("delivery", "unknown");
+          attempts.back()["is_preview"] = v6.value("is_preview", false);
+        }
+        return finish(std::move(v6));
       }
-      ECHO_LOG("SongUrlV6", "SUCCESS — using v6 result");
-      return v6;
+      ECHO_LOG("SongUrlV6", "DEGRADED (preview-only) — falling back to v5");
+      v6PreviewFallback = std::move(v6);
+    } else {
+      ECHO_LOG("SongUrlV6", "FAILED — falling back to v5");
     }
-    ECHO_LOG("SongUrlV6", "FAILED — falling back to v5");
+  }
+
+  // A missing transport verb must fail loudly instead of invoking an empty
+  // std::function (which throws std::bad_function_call and terminates the
+  // process). Symmetric with the POST guard at the top of ResolveV6PrivUrl: a
+  // host that injects only one verb must still receive a JSON answer.
+  if (!httpGet_) {
+    if (!v6PreviewFallback.empty()) return finish(std::move(v6PreviewFallback));
+    return finish(EmptySongUrl(hash, quality, "No HTTP GET handler available"));
   }
 
   // ── v5/url fallback ─────────────────────────────────────────────────────
@@ -625,6 +1008,10 @@ nlohmann::json SongUrlService::Resolve(
   // registration we previously zeroed these out as a workaround, but KuGou
   // then treated us as anonymous and only served 60s previews. The DeviceInfo
   // here carries the *registered* fingerprint when device.registered is true.
+  // 2026-09-03 实测分流：业务接口（歌单/会员查询）认标准族，但歌链
+  // tracker 端点认概念族——18:27 概念族 v5 给了全无损，02:13 标准族 v5 回
+  // pkg/buy 只给 60 秒。故 v5 保持概念族（3116/411/967177915），
+  // clientver 仍按 dataMap 覆盖 11430。
   const auto profile = GetKuGouProfile(KuGouEdition::Concept);
   std::unordered_map<std::string, std::string> params;
   params["album_id"] = albumId.empty() ? "0" : albumId;
@@ -644,16 +1031,8 @@ nlohmann::json SongUrlService::Resolve(
   params["ppage_id"] = ppageId.empty() ? conceptUrls.ppageId : ppageId;
   params["cdnBackup"] = "1";
   params["module"] = "";
-  // Mirror MakcRe/KuGouMusicApi module/song_url.js exactly. The /v5/url
-  // endpoint is concept-edition (lite): appid=3116, clientver=11430 (the
-  // module's dataMap explicitly overrides the lite default 11440).
-  //
-  // CRITICAL: KuGou's Android-family clients send `mid` as a 38-39 digit
-  // DECIMAL string (calculateMid in MakcRe util/util.js: hex md5 → base16
-  // BigInt → base10). The raw 32-char hex mid that m.kugou.com web sets in
-  // cookies is NOT accepted by /v5/url with appid=3116 — KuGou silently
-  // returns priv_status:0 + auth_through:[] (no VIP applied) when the mid
-  // format doesn't match the appid family.
+  // CRITICAL: mid 必须是 38-39 位十进制安卓 mid（ResolveAndroidMid 产出），
+  // 与 appid 族匹配，否则上游静默不给会员音质。
   params["appid"] = profile.appid;
   params["clientver"] = V5UrlClientver;
   params["mid"] = ResolveAndroidMid(device);
@@ -665,7 +1044,7 @@ nlohmann::json SongUrlService::Resolve(
     params["token"] = token;
   }
 
-  auto callUpstream = [&](std::unordered_map<std::string, std::string> p)
+  auto callUpstream = [&](std::unordered_map<std::string, std::string> p, const char* endpoint)
       -> std::pair<HttpResult, nlohmann::json> {
     KuGouAndroidRequest v5req;
     v5req.endpoint = "https://gateway.kugou.com/v5/url";
@@ -725,29 +1104,27 @@ nlohmann::json SongUrlService::Resolve(
           << " body=" << bodyPreview;
       ECHO_LOG("SongUrlV5", log.str());
     }
-    nlohmann::json parsed;
-    if (result.error.empty() && result.statusCode >= 200 && result.statusCode < 300) {
-      try {
-        parsed = nlohmann::json::parse(result.body);
-      } catch (const nlohmann::json::exception&) {
-        parsed = nlohmann::json::object();
-      }
-    }
+    auto parsed = nlohmann::json::parse(result.body, nullptr, false);
+    if (parsed.is_discarded() || !parsed.is_object()) parsed = nlohmann::json::object();
+    const auto urlDelivery = ClassifyDelivery(ReadStringOrFirstArrayElement(parsed, "url"),
+        {V5Source(ResponseLevel::kEnvelope, parsed)}, p["IsFreePart"] == "1");
+    attempts.push_back(MakeAttempt(endpoint, result, parsed,
+        !p.count("userid") || !p.count("token"), p["quality"], urlDelivery));
     return {std::move(result), std::move(parsed)};
   };
 
-  auto [result, upstream] = callUpstream(params);
+  auto [result, upstream] = callUpstream(params, "v5-main");
 
   if (!result.error.empty()) {
-    return EmptySongUrl(hash, quality, result.error);
+    return finish(EmptySongUrl(hash, quality, result.error));
   }
 
   if (result.statusCode < 200 || result.statusCode >= 300) {
-    return EmptySongUrl(hash, quality, "Kugou song URL upstream returned an error");
+    return finish(EmptySongUrl(hash, quality, "Kugou song URL upstream returned an error"));
   }
 
   if (upstream.is_null() || upstream.empty()) {
-    return EmptySongUrl(hash, quality, "Invalid Kugou song URL JSON");
+    return finish(EmptySongUrl(hash, quality, "Invalid Kugou song URL JSON"));
   }
 
   std::string playUrl = ReadStringOrFirstArrayElement(upstream, "url");
@@ -755,11 +1132,9 @@ nlohmann::json SongUrlService::Resolve(
   nlohmann::json backupUrl = NormalizeBackupUrl(upstream.value("backup_url", nlohmann::json::array()));
   bool ok = !playUrl.empty();
   bool isPreview = false;
-  // KuGou's main-path "VIP-locked" signal: fail_process containing "pkg"/"buy"
-  // means the account has no entitlement and KuGou will only serve a 60s clip
-  // (hash_offset.end_ms == 60000). Detect this BEFORE the tryPreview fallback
-  // so we can mark isPreview correctly even when the preview URL fetch later
-  // succeeds.
+  // Preserve the legacy vip_required field from the main response. Delivery
+  // is classified separately on the final URL; this rejection may be followed
+  // by an anonymous full stream and is retained in attempts for diagnosis.
   const bool mainPathVipBlocked = HasFailProcess(upstream, {"pkg", "buy"});
   const bool hasShortOffset = upstream.contains("hash_offset")
       && upstream["hash_offset"].is_object()
@@ -780,7 +1155,7 @@ nlohmann::json SongUrlService::Resolve(
                      [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
       previewParams["hash"] = lowerOffset;
       previewParams["IsFreePart"] = "1";
-      auto [previewResult, previewUpstream] = callUpstream(previewParams);
+      auto [previewResult, previewUpstream] = callUpstream(previewParams, "v5-preview");
       if (previewResult.error.empty() && previewResult.statusCode >= 200 &&
           previewResult.statusCode < 300 && !previewUpstream.is_null()) {
         const auto previewPlayUrl = ReadStringOrFirstArrayElement(previewUpstream, "url");
@@ -810,7 +1185,7 @@ nlohmann::json SongUrlService::Resolve(
   if (!ok) {
     auto anonymousParams = params;
     ClearAuth(anonymousParams);
-    auto [anonymousResult, anonymousUpstream] = callUpstream(anonymousParams);
+    auto [anonymousResult, anonymousUpstream] = callUpstream(anonymousParams, "v5-anon");
     if (anonymousResult.error.empty() && anonymousResult.statusCode >= 200 &&
         anonymousResult.statusCode < 300 && !anonymousUpstream.is_null()) {
 
@@ -821,17 +1196,9 @@ nlohmann::json SongUrlService::Resolve(
         backupUrl = NormalizeBackupUrl(anonymousUpstream.value("backup_url", nlohmann::json::array()));
         upstream = std::move(anonymousUpstream);
         ok = true;
-        // CRITICAL: KuGou's anonymous endpoint can still return /full/ URLs for
-        // songs that don't actually require VIP. Only mark isPreview=true when
-        // the URL path actually shows preview semantics (no "/full/" segment).
-        // Real example: errcode 20028 (device-risk-control) on main path forces
-        // anonymous fallback, but the song is free → /full/ comes back; user
-        // saw "试听" banner incorrectly. URL pattern:
-        //   /v3/<hash>/yp/full/...   (complete track)
-        //   /v3/<hash>/yp/p_0_<n>/...(preview byte range, ~60s)
-        const bool hasFullSegment = playUrl.find("/yp/full/") != std::string::npos
-                                 || playUrl.find("/full/") != std::string::npos;
-        isPreview = !hasFullSegment;
+        // An anonymous response can supply a full free track. Do not carry
+        // the earlier main-path rejection into this URL's classification.
+        isPreview = false; // Classification below uses this response's evidence.
       } else {
         tryPreview(anonymousUpstream, anonymousParams);
       }
@@ -844,16 +1211,30 @@ nlohmann::json SongUrlService::Resolve(
 
   std::string error = upstream.value("error", "");
   std::string errorCode = ok ? "" : "native_song_url_empty";
+  bool vipRequiredOut = vipLocked;
   if (!ok && error.empty()) {
     const bool needsVip = HasFailProcess(upstream, {"pkg", "buy", "vip"});
     const int upstreamStatus = ReadInt(upstream, "status", 0);
     const int errcode = ReadInt(upstream, "errcode", ReadInt(upstream, "error_code", 0));
-    if (needsVip) {
+    // Prefer attempt ledger: anonymous pkg/buy must not erase earlier auth rejects,
+    // and bare 20018 must not be promoted to "missing VIP package".
+    bool attemptsAuthRejected = false;
+    bool attemptsEntitlement = false;
+    for (const auto& attempt : attempts) {
+      if (!attempt.is_object()) continue;
+      const auto cls = attempt.value("reject_class", std::string{});
+      if (cls == "auth_rejected") attemptsAuthRejected = true;
+      if (cls == "entitlement_required") attemptsEntitlement = true;
+    }
+    if (attemptsAuthRejected || (!needsVip && !attemptsEntitlement && errcode == 20018)) {
+      // Auth rejection outranks a later anonymous pkg/buy when no URL was obtained.
+      error = "账号鉴权被上游拒绝，无法获取完整音源（详见 attempts）";
+      errorCode = "native_song_auth_rejected";
+      vipRequiredOut = false;
+    } else if (needsVip || attemptsEntitlement) {
       error = userId.empty() ? "此歌曲需要登录 VIP 账号才能播放" : "此歌曲需要 VIP 会员，请先领取或开通 VIP";
       errorCode = "native_song_vip_required";
-    } else if (errcode == 20018) {
-      error = "此歌曲需要 VIP 音乐包，当前账号无法获取完整音源";
-      errorCode = "native_song_vip_required";
+      vipRequiredOut = true;
     } else if (upstreamStatus == 2) {
       error = "酷狗未返回播放地址（可能受版权或地区限制）";
       errorCode = "native_song_url_blocked";
@@ -863,9 +1244,7 @@ nlohmann::json SongUrlService::Resolve(
     }
   }
 
-  // Final preview flag: any of the explicit VIP-locked main-path signals or
-  // the fallback paths that previously set isPreview.
-  isPreview = isPreview || vipLocked;
+  const auto delivery = ClassifyDelivery(playUrl, {V5Source(ResponseLevel::kEnvelope, upstream)}, isPreview);
 
   // 从 v5 upstream 提取当前音质信息（v5 只返回请求的那一个音质）
   nlohmann::json v5Qualities = nlohmann::json::array();
@@ -886,16 +1265,24 @@ nlohmann::json SongUrlService::Resolve(
         {"url", playUrl},
         {"bitRate", bitRateV5},
         {"extName", extNameV5},
+        {"delivery", delivery},
+        {"is_preview", delivery == "preview"},
     });
   }
 
-  return BuildSongUrlOutput(SongUrlOutput{
+  // v5 全空时回退到 v6 的试听包（有声音总比没有好）。
+  if (playUrl.empty() && !v6PreviewFallback.empty()) {
+    ECHO_LOG("SongUrlV6", "v5 empty — using v6 preview fallback");
+    return finish(std::move(v6PreviewFallback));
+  }
+
+  return finish(BuildSongUrlOutput(SongUrlOutput{
       .hash = upstreamHash.empty() ? hash : upstreamHash,
       .reqHash = std::string(upstream.value("req_hash", hash)),
       .quality = quality,
       .playUrl = playUrl,
-      .isPreview = isPreview,
-      .vipRequired = vipLocked,
+      .delivery = delivery,
+      .vipRequired = ok ? vipLocked : vipRequiredOut,
       .backupUrls = backupUrl,
       .availableQualities = v5Qualities,
       .raw = upstream,
@@ -912,7 +1299,7 @@ nlohmann::json SongUrlService::Resolve(
       .audioId = upstream.value("audio_id", 0),
       .privilege = upstream.value("privilege", 0),
       .payType = upstream.value("pay_type", 0),
-  });
+  }));
 }
 
 nlohmann::json SongUrlService::Resolve(

@@ -1,4 +1,4 @@
-import { addPlaylistTracks, removePlaylistTracks as removePlaylistTracksCall } from './favoriteGateway';
+import { addPlaylistTracks, removePlaylistTracks as removePlaylistTracksCall, type PlaylistTrackInput } from './favoriteGateway';
 import { userStore } from '../account';
 import type { Track } from '../../shared/music/track';
 
@@ -19,22 +19,25 @@ export interface UserPlaylist {
 }
 
 /**
- * Build the `name|hash|album_id|mixsongid` record the native
- * AddPlaylistTracks handler expects (comma-separated list of these records).
- * SongName may contain `|`, so escape it to avoid field misalignment.
+ * Keep names verbatim in the native structured protocol. Delimiter escaping
+ * cannot distinguish literal commas, pipes and percent-encoded-looking names.
+ * IDs remain strings when supplied as strings, preserving 64-bit precision.
  */
-function buildTrackInfo(track: Track): string {
-  const safeName = (track.SongName || '').replace(/\|/g, '%7C');
-  return `${safeName}|${track.FileHash || ''}|${track.AlbumID || 0}|${track.AlbumAudioID || 0}`;
+function buildTrackInfo(track: Track): PlaylistTrackInput {
+  return {
+    name: track.SongName || '',
+    hash: track.FileHash,
+    album_id: track.AlbumID || 0,
+    mixsongid: track.AlbumAudioID || 0,
+  };
 }
 
 /**
  * 收藏歌曲到指定歌单 (POST /playlist/tracks/add).
  *
- * Contract (HandlePlaylistTracksAdd → AddPlaylistTracks): the route reads
- * `listid` and `data` from the query (or JSON body). `data` is a
- * comma-separated list of `name|hash|album_id|mixsongid` records. AddPlaylistTracks
- * extracts the numeric listid from a `collection_…` gid, so either form works.
+ * Contract (HandlePlaylistTracksAdd → AddPlaylistTracksStructured): the JSON
+ * body carries `listid` and a `data` array. The native handler extracts the
+ * numeric listid from a `collection_…` gid, so either form works.
  *
  * Transport failures (network / circuit_open / non-2xx) THROW so callers can
  * route them to the outbox; business failures (status !== 1) return
@@ -45,11 +48,14 @@ export async function addTrackToPlaylist(
   track: Track,
 ): Promise<{ success: boolean; error?: string }> {
   if (!userStore.isLoggedIn) return { success: false, error: '请先登录' };
+  if (typeof track.FileHash !== 'string' || !track.FileHash.trim()) {
+    return { success: false, error: '缺少歌曲标识，无法收藏' };
+  }
 
   const apiId = playlist.listid || playlist.id;
   const res = await addPlaylistTracks({
     listid: apiId,
-    data: buildTrackInfo(track),
+    data: [buildTrackInfo(track)],
   });
 
   if (res?.status === 1) return { success: true };

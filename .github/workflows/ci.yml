@@ -64,6 +64,11 @@ jobs:
         run: |
           $root = (Resolve-Path ../..).Path
           $env:PATH = "$root\native\out\bottlemusic-check;$root\native\vcpkg_installed\x64-windows\bin;$env:PATH"
+          # The R01/stats tests load the real EchoCAPI.dll and require
+          # ECHO_CAPI_DLL; without it they panic on purpose rather than
+          # silently skipping away the concurrency coverage they exist for.
+          # Point it at the DLL this job just built above.
+          $env:ECHO_CAPI_DLL = "$root\native\out\bottlemusic-check\EchoCAPI.dll"
           # --no-default-features: tray-icon / global-shortcut crash the lib test harness
           # --tests (not --lib): also run the integration tests under tests/
           # (playback_ffi_test, cross_layer_contract_test). --lib silently

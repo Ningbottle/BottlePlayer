@@ -5,7 +5,7 @@ import { PhArrowsOutSimple, PhDisc, PhPause, PhPlay } from '@phosphor-icons/vue'
 import { isReducedMotion, startVinylSpin } from '../../shared/motion/motion';
 import type { VinylSpinHandle } from '../../shared/motion/motion';
 import { useLyricFocusStore } from './lyricFocusStore';
-import { playerStore, playTrack, togglePlay as storeTogglePlay } from '../../playback/index';
+import { playerStore, playTrack, playQueueIndex, togglePlay as storeTogglePlay } from '../../playback/index';
 import type { Track } from '../../shared/music/track';
 import type { LyricStageModel } from './useLyricStage';
 import AuroraPlaylistShelf from './AuroraPlaylistShelf.vue';
@@ -53,8 +53,15 @@ function onCoverClick(): void {
   openShelf();
 }
 
-function onSelectTrack(track: Track): void {
-  playTrack(track);
+function onSelectTrack(track: Track, index: number): void {
+  // Play by queue position: the shelf shows the live queue, and the same song
+  // can sit at two positions. Jumping by hash would always land on the first
+  // copy and the queue index would disagree with the card that was clicked.
+  if (Number.isInteger(index) && index >= 0 && index < queueTracks.value.length) {
+    void playQueueIndex(index);
+  } else {
+    void playTrack(track);
+  }
   shelfOpen.value = false;
 }
 
@@ -155,6 +162,13 @@ function queryLineEls(): Element[] {
   return Array.from(rootRef.value.querySelectorAll('.lyric-line'));
 }
 
+let enteringLines: Element[] = [];
+function clearLineEnter(): void {
+  enteringLines.forEach((el) => gsap.killTweensOf(el));
+  if (enteringLines.length) gsap.set(enteringLines, { clearProps: 'opacity,transform' });
+  enteringLines = [];
+}
+
 /**
  * Unified page open: soft veil + content settle as one beat (no extra curtain layer).
  * Fast enough that follow snap (~0.5s) lands while enter still feels intentional.
@@ -174,13 +188,11 @@ function playStageEnter(): void {
   if (root) {
     gsap.fromTo(
       root,
-      { opacity: 0, y: 28, filter: 'blur(8px)' },
+      { opacity: 0.75 },
       {
         opacity: 1,
-        y: 0,
-        filter: 'blur(0px)',
-        duration: 0.58,
-        ease: 'back.out(1.2)',
+        duration: 0.24,
+        ease: 'power2.out',
         onComplete: () => {
           if (rootRef.value) {
             rootRef.value.style.filter = 'none';
@@ -194,14 +206,11 @@ function playStageEnter(): void {
   if (cover) {
     gsap.fromTo(
       cover,
-      { opacity: 0.3, y: 26, scale: 0.92 },
+      { opacity: 0.6 },
       {
         opacity: 1,
-        y: 0,
-        scale: 1,
-        duration: 0.65,
-        ease: 'back.out(1.6)',
-        delay: 0.05,
+        duration: 0.28,
+        ease: 'power2.out',
         onComplete: () => {
           if (coverRef.value) {
             gsap.set(coverRef.value, { clearProps: 'opacity,transform' });
@@ -219,10 +228,13 @@ function playLineEnter(fileHash: string): void {
   if (!fileHash || lineEnterDoneForHash.value === fileHash) return;
   if (props.model.parsedLyrics.length === 0) return;
 
-  const lines = queryLineEls();
+  clearLineEnter();
+  const start = Math.max(0, props.model.activeIndex - 3);
+  const lines = queryLineEls().slice(start, start + 8);
   if (lines.length === 0) return;
 
   lineEnterDoneForHash.value = fileHash;
+  enteringLines = lines;
   lines.forEach((el) => gsap.killTweensOf(el));
 
   if (isReducedMotion()) {
@@ -232,14 +244,13 @@ function playLineEnter(fileHash: string): void {
 
   gsap.fromTo(
     lines,
-    { opacity: 0, y: 10 },
+    { opacity: 0, y: 6 },
     {
       opacity: 1,
       y: 0,
-      duration: 0.42,
-      ease: 'back.out(1.3)',
-      stagger: 0.03,
-      delay: 0.06,
+      duration: 0.24,
+      ease: 'power2.out',
+      stagger: 0.02,
       clearProps: 'opacity,transform',
     },
   );
@@ -250,6 +261,7 @@ function tryPlayLineEnter(): void {
   if (!hash || props.model.parsedLyrics.length === 0) return;
   if (lineEnterDoneForHash.value === hash) return;
   void nextTick(() => {
+    if (hash !== props.model.currentTrack?.FileHash) return;
     playLineEnter(hash);
   });
 }
@@ -270,6 +282,7 @@ watch(() => props.model.isPlaying, () => vinylSpin?.setPlaying());
 watch(
   () => props.model.currentTrack?.FileHash,
   (hash) => {
+    clearLineEnter();
     if (hash !== lineEnterDoneForHash.value) {
       lineEnterDoneForHash.value = null;
     }
@@ -324,6 +337,7 @@ watch(() => props.model.coverUrl, () => {
 }, { flush: 'post' });
 
 onBeforeUnmount(() => {
+  clearLineEnter();
   vinylSpin?.kill();
   vinylSpin = null;
   clearFullscreenTransientStyles();
@@ -393,7 +407,6 @@ onBeforeUnmount(() => {
           />
           <div class="lyric-vinyl-grooves" aria-hidden="true" />
         </div>
-        <div class="lyric-vinyl-spindle" aria-hidden="true" />
       </div>
       <button
         v-if="!model.fullscreen"
@@ -414,7 +427,7 @@ onBeforeUnmount(() => {
       </div>
       <!-- Fullscreen transport: under title/meta text in left column (auto-hide kept) -->
       <div
-        v-if="model.fullscreen && model.duration > 0"
+        v-if="model.fullscreen && model.currentTrack"
         class="aurora-fs-controls"
         :class="{ 'controls-visible': controlsVisible }"
         data-test="aurora-fs-controls"
@@ -428,11 +441,11 @@ onBeforeUnmount(() => {
           type="button"
           class="aurora-fs-play"
           :data-test="model.isPlaying ? 'aurora-fs-pause' : 'aurora-fs-play'"
-          :aria-label="model.isPlaying ? '暂停' : '播放'"
-          :title="model.isPlaying ? '暂停' : '播放'"
+          :aria-label="model.isLoading ? '取消加载' : model.isPlaying ? '暂停' : '播放'"
+          :title="model.isLoading ? '取消加载' : model.isPlaying ? '暂停' : '播放'"
           @click="storeTogglePlay"
         >
-          <PhPause v-if="model.isPlaying" :size="16" weight="fill" aria-hidden="true" />
+          <PhPause v-if="model.isPlaying || model.isLoading" :size="16" weight="fill" aria-hidden="true" />
           <PhPlay v-else :size="16" weight="fill" aria-hidden="true" />
         </button>
         <PlayerProgress
@@ -461,6 +474,7 @@ onBeforeUnmount(() => {
       :open="shelfOpen"
       :tracks="queueTracks"
       :active-hash="model.currentTrack?.FileHash ?? null"
+      :active-index="playerStore.currentIndex"
       @close="closeShelf"
       @select="onSelectTrack"
     />
@@ -471,6 +485,7 @@ onBeforeUnmount(() => {
     >
       <slot v-if="model.loading" name="loading" />
       <slot v-else-if="model.error" name="error" />
+      <p v-else-if="model.parsedLyrics.length === 0" class="lyric-empty-message" role="status">暂无歌词，继续享受音乐</p>
       <div
         v-else
         class="lyric-scroll"
@@ -705,7 +720,7 @@ export default { name: 'AuroraLyricStage' };
   flex: none;
 }
 
-/* Rotating disc: cover art + grooves (spindle stays static above) */
+/* Rotating disc: preserve the entire album image without an opaque center. */
 .lyric-vinyl-disc {
   position: absolute;
   inset: 0;
@@ -737,21 +752,7 @@ export default { name: 'AuroraLyricStage' };
   pointer-events: none;
 }
 
-.lyric-vinyl-spindle {
-  position: absolute;
-  left: 50%;
-  top: 50%;
-  width: 26%;
-  aspect-ratio: 1;
-  transform: translate(-50%, -50%);
-  border-radius: 50%;
-  background: radial-gradient(circle at 50% 50%,
-    var(--app-bg) 0 11%,
-    color-mix(in srgb, var(--accent) 82%, #000 18%) 12% 100%);
-  box-shadow: 0 0 0 1px color-mix(in srgb, #fff 8%, transparent);
-  pointer-events: none;
-  z-index: 1;
-}
+.lyric-empty-message { margin: auto; color: var(--text-secondary); position: relative; z-index: 1; }
 
 .aurora-cover.is-shelf-hot {
   cursor: pointer;
@@ -851,9 +852,16 @@ export default { name: 'AuroraLyricStage' };
 .lyric-line {
   position: relative;
   width: 100%;
-  /* Apple-style hanging indent: wrapped continuation lines indent ~2 chars */
-  padding-left: 1.5em;
-  text-indent: -1.5em;
+  /* Reset button chrome — clickable for seek. `font: inherit` must stay before
+     the font declarations below, otherwise it overrides them (line-height
+     collapses to the page default). */
+  border: 0;
+  background: transparent;
+  margin: 0;
+  cursor: pointer;
+  font: inherit;
+  appearance: none;
+  -webkit-appearance: none;
   max-width: min(44ch, 94%);
   font-size: 20px;
   color: var(--text-muted, var(--ink-mute));
@@ -861,15 +869,13 @@ export default { name: 'AuroraLyricStage' };
   font-family: var(--font-serif, serif);
   line-height: 1.7;
   transition: color 0.35s ease, opacity 0.35s ease, transform 0.35s ease, font-size 0.35s ease;
-  /* Reset button chrome — clickable for seek */
-  border: 0;
-  background: transparent;
   padding: 0;
-  margin: 0;
-  cursor: pointer;
-  font: inherit;
-  appearance: none;
-  -webkit-appearance: none;
+  /* Apple-style hanging indent: wrapped continuation lines indent ~2 chars.
+     Must stay AFTER the `padding: 0` reset above, otherwise the reset kills
+     the left pad while text-indent survives — the karaoke fill layer (which
+     mirrors this padding-left) then renders offset from the base text. */
+  padding-left: 1.5em;
+  text-indent: -1.5em;
 }
 .lyric-line:hover {
   color: color-mix(in srgb, var(--text-primary, #fff) 72%, var(--text-muted, #888) 28%);
@@ -888,7 +894,10 @@ export default { name: 'AuroraLyricStage' };
 .lyric-line-fill {
   position: absolute;
   inset: 0;
-  padding-left: 1.5em;
+  /* Inherit the line's computed padding so left-align (24px) and hanging
+     indent (1.5em) stay on one geometry. A second hardcoded 1.5em here
+     offsets the karaoke highlight when html.lyric-left overrides the line. */
+  padding-left: inherit;
   color: var(--text-primary, #fff);
   pointer-events: none;
   transition: clip-path 0.3s linear;

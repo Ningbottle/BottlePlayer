@@ -6,6 +6,8 @@
 
 [隐私说明](./PRIVACY.md) | [安全政策](./SECURITY.md)
 
+开发维护入口：[文档索引](./docs/README.md) · 当前修复与验收队列（本机留存：./docs/current-work.md）
+
 <!-- logo -->
 
 ![CI](https://img.shields.io/github/actions/workflow/status/Ningbottle/BottlePlayer/ci.yml?label=CI)
@@ -112,10 +114,13 @@ BottleMusic 采用三层架构：Vue 3 前端负责 UI 与播放控制，Rust FF
 git clone --recurse-submodules https://github.com/Ningbottle/BottlePlayer.git
 cd ui
 pnpm install
+pnpm backend:build
 pnpm tauri dev
 ```
 
 完整开发文档请参考 [CONTEXT.md](./CONTEXT.md)。
+
+修改 C++ 后，开发模式先重新运行 `pnpm backend:build`。`pnpm tauri build` 会先构建与 Tauri Debug/Release 配置一致的原生库；原生依赖缺失或复制失败会终止构建。
 
 ## 技术栈
 

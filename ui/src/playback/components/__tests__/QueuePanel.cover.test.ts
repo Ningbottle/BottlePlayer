@@ -3,6 +3,12 @@ import { mount, flushPromises, type VueWrapper } from '@vue/test-utils';
 import { playerStore } from '../../playerStore';
 
 const mockFetchCoverImage = vi.fn();
+const mockPlayQueueIndex = vi.hoisted(() => vi.fn());
+
+vi.mock('../../playerStore', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('../../playerStore')>();
+  return { ...actual, playQueueIndex: mockPlayQueueIndex };
+});
 
 vi.mock('../../data/coverGateway', () => ({
   fetchCoverImage: (...args: unknown[]) => mockFetchCoverImage(...args),
@@ -39,6 +45,8 @@ describe('QueuePanel cover fetch races', () => {
     mockFetchCoverImage.mockReset();
     playerStore.queue = [];
     playerStore.currentTrack = null;
+    playerStore.currentIndex = -1;
+    mockPlayQueueIndex.mockReset();
   });
 
   afterEach(() => {
@@ -156,5 +164,29 @@ describe('QueuePanel cover fetch races', () => {
     second.resolve('https://cdn.example/new.jpg');
     await flushPromises();
     expect(playerStore.queue[0].Image).toBe('https://cdn.example/new.jpg');
+  });
+
+  it('uses the absolute queue index for duplicate hashes when Enter selects the filtered first match', async () => {
+    playerStore.queue = [
+      mkTrack({ FileHash: 'duplicate', SongName: 'First copy', Image: 'first.jpg' }),
+      mkTrack({ FileHash: 'middle', SongName: 'Middle', Image: 'middle.jpg' }),
+      mkTrack({ FileHash: 'duplicate', SongName: 'Second copy', Image: 'second.jpg' }),
+    ];
+    wrapper = mount(QueuePanel, { props: { show: true } });
+
+    const rows = wrapper.findAll('button.item');
+    expect(rows).toHaveLength(3);
+    expect(rows[2].attributes('aria-label')).toBe('播放 Second copy，Artist');
+    await rows[2].trigger('click');
+    expect(mockPlayQueueIndex).toHaveBeenLastCalledWith(2);
+    playerStore.currentIndex = 2;
+
+    const filter = wrapper.get('.queue-filter');
+    await filter.setValue('First copy');
+    const filtered = wrapper.findAll('button.item');
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0].attributes('aria-label')).toBe('播放 First copy，Artist');
+    await filter.trigger('keydown.enter');
+    expect(mockPlayQueueIndex).toHaveBeenLastCalledWith(0);
   });
 });

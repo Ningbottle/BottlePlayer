@@ -35,6 +35,119 @@ describe('appearanceStore', () => {
     vi.restoreAllMocks();
   });
 
+  it.each(['getter', 'getItem'] as const)('boots with defaults when storage %s throws', (failure) => {
+    const throwStorage = () => { throw new DOMException('blocked', 'SecurityError'); };
+    if (failure === 'getter') vi.spyOn(window, 'localStorage', 'get').mockImplementation(throwStorage);
+    else vi.spyOn(Storage.prototype, 'getItem').mockImplementation(throwStorage);
+    const store = useAppearanceStore();
+    expect(() => store.init()).not.toThrow();
+    expect(store.skin.value).toBe('aurora');
+    expect(store.mode.value).toBe('light');
+    expect(root().dataset.skin).toBe(store.skin.value);
+    expect(root().dataset.mode).toBe(store.mode.value);
+  });
+
+  it.each(['getter', 'getItem'] as const)('recovers saved settings after a temporary %s read failure', (failure) => {
+    localStorage.setItem('appearance_skin', 'newsprint');
+    const throwStorage = () => { throw new DOMException('blocked', 'SecurityError'); };
+    const readFailure = failure === 'getter'
+      ? vi.spyOn(window, 'localStorage', 'get').mockImplementation(throwStorage)
+      : vi.spyOn(Storage.prototype, 'getItem').mockImplementation(throwStorage);
+    const store = useAppearanceStore();
+
+    store.init();
+
+    expect(store.skin.value).toBe('aurora');
+    expect(store.storageDegraded.value).toBe(true);
+    readFailure.mockRestore();
+
+    expect(store.retryStoragePersistence()).toBe(true);
+    expect(store.skin.value).toBe('newsprint');
+    expect(root().dataset.skin).toBe('newsprint');
+    expect(store.storageDegraded.value).toBe(false);
+  });
+
+  it('does not replace a user setting while retrying a pending read', () => {
+    localStorage.setItem('appearance_skin', 'newsprint');
+    const reading = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    const store = useAppearanceStore();
+    store.init();
+    reading.mockRestore();
+    const writing = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+
+    store.setSkin('aurora');
+    expect(store.storageDegraded.value).toBe(true);
+    writing.mockRestore();
+
+    expect(store.retryStoragePersistence()).toBe(true);
+    expect(store.skin.value).toBe('aurora');
+    expect(root().dataset.skin).toBe('aurora');
+    expect(localStorage.getItem('appearance_skin')).toBe('aurora');
+    expect(store.storageDegraded.value).toBe(false);
+  });
+
+  it('does not treat missing keys as degraded storage', () => {
+    const store = useAppearanceStore();
+
+    store.init();
+
+    expect(store.skin.value).toBe('aurora');
+    expect(store.storageDegraded.value).toBe(false);
+    expect(store.retryStoragePersistence()).toBe(true);
+  });
+
+  it('keeps every appearance field in sync with the DOM when writes fail, then retries persistence', () => {
+    const store = useAppearanceStore();
+    store.init();
+    const writing = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    expect(() => {
+      store.setSkin('newsprint');
+      store.setMode('dark');
+      store.setAccent('#123456');
+      store.setCompactList(true);
+      store.setLyricAlign('center');
+    }).not.toThrow();
+    expect(root().dataset.skin).toBe(store.skin.value);
+    expect(root().dataset.mode).toBe(store.mode.value);
+    expect(root().style.getPropertyValue('--accent')).toBe(store.accent.value);
+    expect(root().dataset.compactList).toBe(String(store.compactList.value));
+    expect(root().dataset.lyricAlign).toBe(store.lyricAlign.value);
+    expect(root().classList.contains('compact')).toBe(true);
+    expect(root().classList.contains('lyric-left')).toBe(false);
+    expect(store.storageDegraded.value).toBe(true);
+    expect(store.retryStoragePersistence()).toBe(false);
+    writing.mockRestore();
+    expect(store.retryStoragePersistence()).toBe(true);
+    expect(store.storageDegraded.value).toBe(false);
+    expect(localStorage.getItem('appearance_skin')).toBe('newsprint');
+    expect(localStorage.getItem('appearance_mode')).toBe('dark');
+    expect(localStorage.getItem('appearance_accent')).toBe('#123456');
+    expect(localStorage.getItem('appearance_compact_list')).toBe('true');
+    expect(localStorage.getItem('appearance_lyric_align')).toBe('center');
+  });
+
+  it('clears the in-memory accent even when removeItem fails and removes the stale value on retry', () => {
+    const store = useAppearanceStore();
+    store.init();
+    store.setAccent('#123456');
+    const removing = vi.spyOn(Storage.prototype, 'removeItem').mockImplementation(() => {
+      throw new DOMException('blocked', 'SecurityError');
+    });
+    expect(() => store.setAccent('')).not.toThrow();
+    expect(root().style.getPropertyValue('--accent')).toBe('');
+    expect(store.accent.value).toBe('#18875b');
+    expect(store.storageDegraded.value).toBe(true);
+    removing.mockRestore();
+    expect(store.retryStoragePersistence()).toBe(true);
+    expect(localStorage.getItem('appearance_accent')).toBeNull();
+  });
+
   it('falls back to defaults for invalid canonical values', () => {
     localStorage.setItem('appearance_skin', 'dark');
     localStorage.setItem('appearance_mode', 'purple');

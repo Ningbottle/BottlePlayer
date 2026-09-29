@@ -1,4 +1,4 @@
-import { reactive, readonly } from 'vue';
+import { reactive, readonly, ref } from 'vue';
 import { fetchUserPlaylistsRaw, fetchPlaylistTracks } from './playlistGateway';
 import { normalizeTrack, type Track } from '../../shared/music/track';
 import {
@@ -131,7 +131,12 @@ async function fetchUserPlaylists(): Promise<UserPlaylist[]> {
   return normalizePlaylists(res);
 }
 
-/** 获取用户歌单列表（对外：网络异常吞为空数组，供 AddToPlaylistModal 等 UI 使用）。 */
+/** Interactive callers must surface transport failures instead of fake empty lists. */
+export async function getUserPlaylistsOrThrow(): Promise<UserPlaylist[]> {
+  return fetchUserPlaylists();
+}
+
+/** Legacy best-effort list: failures are treated as empty by existing callers. */
 export async function getUserPlaylists(): Promise<UserPlaylist[]> {
   try {
     return await fetchUserPlaylists();
@@ -236,6 +241,15 @@ let boundUserId = '';
  * persisted keys.
  */
 let accountEpoch = 0;
+/**
+ * Reactive mirror of (accountEpoch, boundUserId). Views cannot watch a plain
+ * `let`, so anything that must re-verify on logout / account switch (PlaylistView
+ * liked-markers, AddToPlaylistModal sessions) watches this instead.
+ */
+const accountScope = ref<{ epoch: number; uid: string }>({ epoch: 0, uid: '' });
+function syncAccountScope(): void {
+  accountScope.value = { epoch: accountEpoch, uid: boundUserId };
+}
 let likedPlaylist: LikedPlaylistInfo | null = null;
 /** FileHash -> Track archive for del (fileid lookup) and outbox replay. */
 const trackArchive = new Map<string, Track>();
@@ -612,12 +626,63 @@ function markFavoriteByHash(hash: string, favorite: boolean): void {
   applyFavorite(hash, favorite);
 }
 
-function hydrateLikedPage(tracks: Track[]): void {
+function hydrateLikedPage(tracks: Track[], expected?: Pick<LikedOwnership, 'uid' | 'epoch'>): boolean {
+  // Close the gap between the identity await and this write: if the account
+  // moved in between (logout / switch resolved in another task), the tracks
+  // belong to somebody else and must not touch this account's heart state.
+  if (expected && (expected.epoch !== accountEpoch || expected.uid !== boundUserId)) return false;
   for (const t of tracks) {
     if (t.FileHash) {
       state.hashes.add(t.FileHash);
       trackArchive.set(t.FileHash, t);
     }
+  }
+  return true;
+}
+
+/**
+ * Answer of "is this playlist id the signed-in account's own liked playlist?".
+ * Carries the account it was decided under: hydration callers must discard the
+ * answer once `epoch`/`uid` no longer match the store, so a late response from
+ * the previous account can never light another user's heart.
+ */
+export interface LikedOwnership {
+  playlistId: string;
+  uid: string;
+  epoch: number;
+  owned: boolean;
+  /** Set when the identity could not be verified (network/offline). */
+  unresolved: boolean;
+}
+
+/**
+ * Authoritative liked-playlist identity. Name matching (`isLikedPlaylistName`)
+ * is only an internal hint for the migration lookup — a public playlist can be
+ * titled「我喜欢的音乐」by anyone, so views must never decide hydration from a
+ * name. Anonymous users own nothing, and a failure to resolve fails closed.
+ */
+async function resolveLikedOwnership(playlistId: string): Promise<LikedOwnership> {
+  const epoch = accountEpoch;
+  const uid = boundUserId;
+  const decided = (owned: boolean, unresolved = false): LikedOwnership => ({
+    playlistId,
+    uid: boundUserId,
+    epoch: accountEpoch,
+    // Re-read the epoch above: if the account changed while resolving, the
+    // answer was computed for the previous account and must not be trusted.
+    owned: epoch === accountEpoch && uid === boundUserId ? owned : false,
+    unresolved,
+  });
+  if (!uid || !playlistId) return decided(false);
+  try {
+    const liked = await resolveLikedPlaylist();
+    if (!liked) return decided(false);
+    return decided(liked.gid === playlistId || liked.listid === playlistId);
+  } catch {
+    // Identity could not be verified (offline / backend error). Failing closed
+    // only costs a heart that stays unlit; guessing open would let a public
+    // playlist write this account's favorite state.
+    return decided(false, true);
   }
 }
 
@@ -634,6 +699,7 @@ async function onLogin(userId: string): Promise<void> {
     resetInMemory();
   }
   boundUserId = userId;
+  syncAccountScope();
 
   // Restore the persisted outbox into in-memory intent (heart stays lit for
   // pending favorites) and lift opCounter past every persisted opId so new ops
@@ -681,6 +747,7 @@ function onLogout(): void {
   // in-memory state.
   resetInMemory();
   boundUserId = '';
+  syncAccountScope();
 }
 
 async function onOnline(): Promise<void> {
@@ -707,6 +774,26 @@ export const favoriteStore = {
   getLikedPlaylist(): { gid: string; listid: string } | null {
     return likedPlaylist ? { gid: likedPlaylist.gid, listid: likedPlaylist.listid } : null;
   },
+  /** Current account generation; bumped on every real account switch/logout. */
+  get accountEpoch(): number {
+    return accountEpoch;
+  },
+  /** uid the store is currently bound to ('' when logged out). */
+  get accountId(): string {
+    return boundUserId;
+  },
+  /** Reactive (epoch, uid) pair for view watchers that must re-verify identity. */
+  get accountScope(): { epoch: number; uid: string } {
+    return accountScope.value;
+  },
+  /**
+   * Authoritative check of whether `playlistId` is this account's liked
+   * playlist. Never name-based. The answer carries the uid/epoch it was decided
+   * under — compare with `accountEpoch`/`accountId` before acting on it.
+   */
+  resolveLikedOwnership(playlistId: string): Promise<LikedOwnership> {
+    return resolveLikedOwnership(playlistId);
+  },
   setFavorite(track: Track, favorite: boolean): Promise<SetFavoriteResult> {
     return setFavorite(track, favorite);
   },
@@ -727,8 +814,17 @@ export const favoriteStore = {
     trackArchive.set(track.FileHash, track);
     pendingIntent.set(track.FileHash, true);
   },
-  hydrateLikedPage(tracks: Track[]): void {
-    hydrateLikedPage(tracks);
+  /**
+   * Light the heart for tracks of the account's own liked playlist and archive
+   * them for a later unfavorite. Pass the ownership answer the caller verified
+   * (`{ uid, epoch }`); the write is skipped when the account moved since, and
+   * the return value says whether anything was applied.
+   */
+  hydrateLikedPage(
+    tracks: Track[],
+    expected?: Pick<LikedOwnership, 'uid' | 'epoch'>,
+  ): boolean {
+    return hydrateLikedPage(tracks, expected);
   },
   reconcile(): Promise<void> {
     return reconcile();
@@ -772,6 +868,7 @@ if (typeof window !== 'undefined') {
 export function __resetFavoriteStoreForTests(): void {
   accountEpoch += 1; // invalidate any in-flight async from a prior test
   resetInMemory();
+  syncAccountScope();
 }
 
 /** Reactive readonly view of the favorite state (for compat projections). */

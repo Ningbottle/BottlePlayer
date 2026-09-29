@@ -310,6 +310,18 @@ svg { display:block; }
   width: 24px;
   height: 24px;
 }
+
+/* Inline retry affordance for a failed list page (playlist / search / history) */
+.list-retry {
+  margin-top: 10px;
+  padding: 3px 12px;
+  color: inherit;
+  font: inherit;
+  background: transparent;
+  border: 1px solid currentColor;
+  border-radius: 4px;
+  cursor: pointer;
+}
 @keyframes rotate {
   100% { transform: rotate(360deg); }
 }

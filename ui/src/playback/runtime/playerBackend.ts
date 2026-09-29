@@ -28,5 +28,7 @@ export interface PlayerBackend {
   setRate(r: number): Promise<void>;
   getState(): Promise<PlaybackState>;
   shutdown(): Promise<void>;
+  /** Release backend-owned listeners without changing the audio element state. */
+  dispose?(): void;
   onEvent(cb: (e: PlaybackEvent) => void): () => void;
 }

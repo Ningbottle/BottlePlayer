@@ -26,7 +26,7 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  (e: 'play-track', track: Track): void;
+  (e: 'play-track', track: Track, dailyIndex?: number): void;
   (e: 'play-queue-track', track: Track): void;
   (e: 'refresh'): void;
   (e: 'navigate', view: string, params?: any): void;
@@ -238,10 +238,6 @@ const dailyRailTitle = computed(() =>
   isLiveRecoRail.value ? '正在推荐' : '每日推荐',
 );
 
-const dailyRailIndexOffset = computed(() =>
-  isLiveRecoRail.value ? props.model.queueWindowStart : 0,
-);
-
 function onHeroPlay() {
   const t = props.model.heroTrack;
   if (!t) return;
@@ -251,7 +247,7 @@ function onHeroPlay() {
     return;
   }
   flyFromVinyl();
-  onTrackPlay(t);
+  onTrackPlay(t, 0);
 }
 
 /** GSAP Flip flight from the hero cover into the dock cover slot. */
@@ -298,13 +294,13 @@ function onVinylToggle(): void {
     storeTogglePlay();
   } else {
     flyFromVinyl();
-    onTrackPlay(t);
+    onTrackPlay(t, 0);
   }
 }
 
-function onTrackPlay(track: Track, fromEl?: HTMLElement): void {
+function onTrackPlay(track: Track, dailyIndex?: number, fromEl?: HTMLElement): void {
   if (fromEl && track.Image) flyCoverToDock(fromEl, track.Image);
-  emit('play-track', track);
+  emit('play-track', track, dailyIndex);
 }
 
 function onOpenLyrics(): void {
@@ -475,25 +471,22 @@ function formatDuration(sec: number | undefined | null): string {
             class="aurora-queue-list"
             data-test="daily-rail-list"
           >
-            <li v-for="(track, index) in dailyRailTracks" :key="track.FileHash" class="aurora-queue-row">
+            <li v-for="(track, idx) in dailyRailTracks" :key="`${idx}:${track.FileHash}`" class="aurora-queue-row">
               <button
                 type="button"
                 :data-test="`queue-track-${track.FileHash}`"
                 :class="{ 'is-active': isActiveDailyTrack(track) }"
                 :aria-current="isActiveDailyTrack(track) ? 'true' : undefined"
-                @click="onTrackPlay(track)"
+                @click="onTrackPlay(track, isLiveRecoRail ? undefined : idx)"
               >
                 <span class="aurora-queue-lead">
                   <span class="aurora-queue-play" aria-hidden="true"><PhPlay :size="11" weight="fill" /></span>
-                  <span class="aurora-queue-index">
-                    <span
-                      v-if="isActiveDailyTrack(track)"
-                      class="aurora-eq"
-                      :class="{ 'is-live': model.isPlaying }"
-                      aria-hidden="true"
-                    ><i /><i /><i /></span>
-                    <template v-else>{{ String(dailyRailIndexOffset + index + 1).padStart(2, '0') }}</template>
-                  </span>
+                  <span
+                    v-if="isActiveDailyTrack(track)"
+                    class="aurora-eq"
+                    :class="{ 'is-live': model.isPlaying }"
+                    aria-hidden="true"
+                  ><i /><i /><i /></span>
                 </span>
                 <span class="aurora-queue-copy"><b>{{ track.SongName }}</b><small>{{ track.SingerName }}</small></span>
                 <span class="aurora-queue-duration">{{ formatDuration(track.Duration) }}</span>
@@ -545,13 +538,13 @@ function formatDuration(sec: number | undefined | null): string {
       </div>
       <div class="aurora-recommendation-grid">
         <button
-          v-for="track in model.dailyTracks.slice(0, 18)"
-          :key="track.FileHash"
+          v-for="(track, idx) in model.dailyTracks.slice(0, 18)"
+          :key="`${idx}:${track.FileHash}`"
           :ref="setRecommendationRef"
           type="button"
           class="aurora-track-card"
           :data-test="`daily-track-${track.FileHash}`"
-          @click="onTrackPlay(track, coverElFromEvent($event))"
+          @click="onTrackPlay(track, idx, coverElFromEvent($event))"
         >
           <span class="aurora-track-cover">
             <img v-if="track.Image" :src="track.Image" :alt="`${track.SongName}封面`" />
@@ -1205,7 +1198,6 @@ export default { name: 'AuroraHome' };
   background: color-mix(in srgb, var(--accent) 8%, transparent);
 }
 
-.aurora-queue-index,
 .aurora-queue-duration {
   color: var(--text-muted);
   font-size: 11px;
@@ -1216,7 +1208,7 @@ export default { name: 'AuroraHome' };
   text-align: right;
 }
 
-/* Lead cell: index/eq swap for a play glyph on row hover */
+/* Lead cell: playing-row eq swaps for a play glyph on row hover */
 .aurora-queue-lead {
   position: relative;
   display: grid;
@@ -1239,8 +1231,8 @@ export default { name: 'AuroraHome' };
   opacity: 1;
 }
 
-.aurora-queue-row button:hover .aurora-queue-index,
-.aurora-queue-row button:focus-visible .aurora-queue-index {
+.aurora-queue-row button:hover .aurora-eq,
+.aurora-queue-row button:focus-visible .aurora-eq {
   visibility: hidden;
 }
 

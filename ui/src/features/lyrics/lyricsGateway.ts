@@ -10,6 +10,7 @@ export interface LyricSearchResponse {
   status: number;
   candidates?: LyricCandidate[];
   error?: string;
+  error_code?: string | number;
   [key: string]: unknown;
 }
 
@@ -17,6 +18,7 @@ export interface LyricDetailResponse {
   status: number;
   lyric?: string;
   error?: string;
+  error_code?: string | number;
   [key: string]: unknown;
 }
 

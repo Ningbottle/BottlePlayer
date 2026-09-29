@@ -16,6 +16,8 @@ import { animateBarHeight, animateCountUp, isReducedMotion } from '../../shared/
 import SkinPageHeader from '../../shared/ui/SkinPageHeader.vue';
 import SkinButton from '../../shared/ui/SkinButton.vue';
 import SkinEmptyState from '../../shared/ui/SkinEmptyState.vue';
+import { safeRemoveItem } from '../../platform/storage/safeStorage';
+import { describeBackendError } from '../../platform/tauri/nativeClient';
 
 type Range = StatsRange;
 const range = ref<Range>('30d');
@@ -41,7 +43,9 @@ const maxTimelineCount = ref(1);
 const timelineBarEls = ref<HTMLElement[]>([]);
 let statsRequestId = 0;
 
-localStorage.removeItem('deepseek_api_key');
+// Legacy persisted DeepSeek key (this app keeps the key in memory only now).
+// Must go through safeStorage: a throwing storage getter used to blank the page.
+safeRemoveItem('deepseek_api_key');
 const aiApiKey = ref('');
 const aiResult = ref('');
 const aiLoading = ref(false);
@@ -154,7 +158,7 @@ async function loadStats() {
   } catch (e) {
     if (!isActive()) return;
     console.error('Stats load failed:', e);
-    error.value = '统计数据加载失败';
+    error.value = describeBackendError(e, '统计数据暂不可用，请稍后重试');
   } finally {
     if (isActive()) loading.value = false;
   }
@@ -216,7 +220,7 @@ watch(range, loadStats);
     </div>
 
     <div v-else-if="error" class="spinner" style="color: var(--accent);">
-      {{ error }} · <span class="retry-link" @click="loadStats">重试</span>
+      {{ error }} · <SkinButton variant="ghost" size="sm" data-test="retry-stats" @click="loadStats">重试</SkinButton>
     </div>
 
     <template v-else-if="summary">
@@ -254,11 +258,14 @@ watch(range, loadStats);
       <div class="stats-tops">
         <div class="top-section">
           <h3>Top 歌曲</h3>
-          <div
+          <button
             v-for="(item, i) in topSongs"
             :key="item.song_hash || i"
+            type="button"
             class="top-item"
             :class="{ playable: !!item.song_hash, active: isCurrentHash(item.song_hash) }"
+            :disabled="!item.song_hash"
+            :aria-label="item.song_hash ? `播放 ${item.name}，${item.singer || '未知歌手'}` : `${item.name}，不可播放`"
             @click="playTopSong(item)"
           >
             <span class="vinyl-thumb" aria-hidden="true">
@@ -266,10 +273,10 @@ watch(range, loadStats);
               <span v-else class="top-cover placeholder"></span>
               <span class="vinyl-thumb-spindle"></span>
             </span>
-            <div class="top-info">
+            <span class="top-info">
               <span class="top-name">{{ item.name }}</span>
               <span class="top-sub" v-if="item.singer">{{ item.singer }}</span>
-            </div>
+            </span>
             <span
               v-if="isCurrentHash(item.song_hash)"
               class="aurora-eq"
@@ -277,7 +284,7 @@ watch(range, loadStats);
               aria-hidden="true"
             ><i /><i /><i /></span>
             <span class="top-count">{{ item.play_count }}次</span>
-          </div>
+          </button>
           <div v-if="topSongs.length === 0" class="empty-placeholder"><SkinEmptyState message="暂无数据" /></div>
         </div>
 
@@ -519,15 +526,28 @@ watch(range, loadStats);
   border-bottom: 1px solid var(--border-subtle);
 }
 .top-item {
+  appearance: none;
   display: flex;
   align-items: center;
   gap: 10px;
+  width: 100%;
   padding: 7px 4px;
   border-bottom: 1px solid var(--border-subtle);
   border-radius: 6px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
 }
 .top-item.playable {
   cursor: pointer;
+}
+.top-item:disabled {
+  cursor: default;
+}
+.top-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .top-item.playable:hover,
 .top-item.active {

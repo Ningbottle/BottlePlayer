@@ -6,15 +6,25 @@ export {
   ensureVipDeviceReady,
   checkLoginStatus,
   claimVip,
+  claimVipViaRoute,
+  claimDayVipConceptCandidate,
+  isDayConceptCandidateUiEnabled,
   logoutLocal,
+  refreshLiveVip,
+  startVipClock,
+  stopVipClock,
   type UserState,
   type VipDeviceResult,
+  type VipClaimRoute,
 } from './userStore';
 
 export {
   resolveVip,
   parseVipEndTime,
+  liveVipView,
   type VipResolution,
+  type VipSnapshot,
+  type LiveVipView,
 } from './vipResolver';
 
 export {

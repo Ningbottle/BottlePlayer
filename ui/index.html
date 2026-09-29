@@ -1,22 +1,56 @@
 <!doctype html>
-<html lang="en">
+<html lang="zh-CN">
   <head>
     <meta charset="UTF-8" />
-    <link rel="icon" type="image/svg+xml" href="/vite.svg" />
+    <link rel="icon" type="image/svg+xml" href="/bottlemusic.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>The Player</title>
+    <title>BottleMusic</title>
     <script>
-      // FOUC prevention: apply skin/mode before Vue mounts
-      (function() {
-        var s = localStorage.getItem('tweak_skin') || 'aurora';
-        var m = localStorage.getItem('tweak_mode') || 'light';
-        document.documentElement.dataset.skin = s;
-        document.documentElement.dataset.mode = m;
-        // Clear legacy frosted-glass prefs that fog the whole window
+      // FOUC prevention: apply skin/mode before Vue mounts.
+      //
+      // Every storage touch is guarded. `window.localStorage` is a throwing
+      // getter (SecurityError when site data is blocked, storage disabled, or
+      // under some privacy extensions), and an unguarded read in this inline
+      // script aborts the whole document parse — a blank window, not a
+      // fallback skin. Values are also validated here so a corrupted key
+      // cannot put an unknown skin/mode on <html> before the store normalises
+      // it. Canonical keys first, legacy `tweak_*` as migration fallback.
+      (function () {
+        var skin = 'aurora';
+        var mood = 'light';
+        var store = null;
         try {
-          localStorage.setItem('tweak_blur', '0');
-          localStorage.setItem('tweak_grain', '0');
-        } catch (e) {}
+          store = window.localStorage || null;
+        } catch (e) {
+          store = null;
+        }
+        function read(key) {
+          if (!store) return null;
+          try {
+            return store.getItem(key);
+          } catch (e) {
+            return null;
+          }
+        }
+        if (read('appearance_skin') || read('tweak_skin')) {
+          skin = read('appearance_skin') || read('tweak_skin');
+        }
+        if (read('appearance_mode') || read('tweak_mode')) {
+          mood = read('appearance_mode') || read('tweak_mode');
+        }
+        if (skin !== 'aurora' && skin !== 'newsprint') skin = 'aurora';
+        if (mood !== 'light' && mood !== 'dark') mood = 'light';
+        document.documentElement.dataset.skin = skin;
+        document.documentElement.dataset.mode = mood;
+        // Clear legacy frosted-glass prefs that fog the whole window
+        if (store) {
+          try {
+            store.setItem('tweak_blur', '0');
+            store.setItem('tweak_grain', '0');
+          } catch (e) {
+            /* storage full or unavailable: the prefs simply stay unset */
+          }
+        }
       })();
     </script>
   </head>

@@ -36,6 +36,7 @@ vi.mock('../statsGateway', () => ({
       return Promise.resolve([
         {
           song_hash: 'hash-top-song',
+          album_id: 'album-top-song',
           name: 'Test Song',
           singer: 'Test Artist',
           album: 'Test Album',
@@ -225,10 +226,47 @@ describe('StatsView component rendering', () => {
       [
         expect.objectContaining({
           FileHash: 'hash-top-song',
+          AlbumID: 'album-top-song',
           SongName: 'Test Song',
           SingerName: 'Test Artist',
         }),
       ],
+      0,
+    );
+  });
+
+  it('uses keyboard-native buttons for top songs and disables rows without hashes', async () => {
+    vi.mocked(getStatsTop).mockImplementationOnce(async () => [
+      {
+        song_hash: '',
+        name: 'No playback identity',
+        singer: 'Unknown',
+        play_count: 2,
+        total_listened_seconds: 60,
+      },
+      {
+        song_hash: 'playable-hash',
+        name: 'Playable',
+        singer: 'Artist',
+        play_count: 3,
+        total_listened_seconds: 120,
+      },
+    ]);
+
+    const wrapper = mount(StatsView);
+    await flushPromises();
+
+    const rows = wrapper.findAll('.top-item');
+    expect(rows[0].element.tagName).toBe('BUTTON');
+    expect((rows[0].element as HTMLButtonElement).disabled).toBe(true);
+    expect(rows[1].element.tagName).toBe('BUTTON');
+    expect((rows[1].element as HTMLButtonElement).disabled).toBe(false);
+
+    await rows[0].trigger('click');
+    expect(playAll).not.toHaveBeenCalled();
+    await rows[1].trigger('click');
+    expect(playAll).toHaveBeenCalledWith(
+      [expect.objectContaining({ FileHash: 'playable-hash', SongName: 'Playable' })],
       0,
     );
   });
@@ -238,6 +276,40 @@ describe('StatsView component rendering', () => {
     await flushPromises();
 
     expect(wrapper.find('.recent-item').exists()).toBe(false);
+  });
+
+  it('shows a retryable error instead of an empty dashboard when reading stats fails', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(getStatsSummary).mockRejectedValueOnce(new Error('统计暂不可用，请稍后重试'));
+    const wrapper = mount(StatsView);
+    try {
+      await flushPromises();
+      expect(wrapper.text()).toContain('统计数据暂不可用');
+      expect(wrapper.find('[data-test="stats-hero"]').exists()).toBe(false);
+      const retry = wrapper.get('[data-test="retry-stats"]');
+      expect(retry.element.tagName).toBe('BUTTON');
+      await retry.trigger('click');
+      await flushPromises();
+      expect(wrapper.find('[data-test="stats-hero"]').exists()).toBe(true);
+      expect(getStatsSummary).toHaveBeenCalledTimes(2);
+    } finally {
+      wrapper.unmount();
+      logged.mockRestore();
+    }
+  });
+
+  it('shows a retryable busy message for a native stats admission rejection', async () => {
+    const logged = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.mocked(getStatsSummary).mockRejectedValueOnce(new Error('stats_ffi_overloaded'));
+    const wrapper = mount(StatsView);
+    try {
+      await flushPromises();
+      expect(wrapper.text()).toContain('请求繁忙，请稍后再试');
+      expect(wrapper.find('[data-test="retry-stats"]').exists()).toBe(true);
+    } finally {
+      wrapper.unmount();
+      logged.mockRestore();
+    }
   });
 
   it('keeps the newest range when a slower earlier request resolves last', async () => {

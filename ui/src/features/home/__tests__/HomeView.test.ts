@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { mount, flushPromises } from '@vue/test-utils';
 import HomeView from '../HomeView.vue';
-import { playAll, playPersonalFm, playTrack, playerStore } from '../../../playback/playerStore';
+import { playAll, playPersonalFm, playQueueIndex, playTrack, playerStore } from '../../../playback/playerStore';
 import { __resetHomeFeedForTest } from '../homeFeedStore';
 
 const mockApiGet = vi.fn();
@@ -11,6 +11,7 @@ vi.mock('../../../platform/tauri/nativeClient', () => ({
 
 vi.mock('../../../playback/playerStore', () => ({
   playTrack: vi.fn(),
+  playQueueIndex: vi.fn(),
   playAll: vi.fn(),
   playPersonalFm: vi.fn(),
   playerStore: {
@@ -144,6 +145,42 @@ describe('HomeView sections', () => {
     );
     expect(playAll).not.toHaveBeenCalled();
     expect(playTrack).not.toHaveBeenCalled();
+  });
+
+  it('seeds personal FM at the exact clicked occurrence when hashes repeat', async () => {
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/everyday/recommend') {
+        return Promise.resolve({
+          status: 1,
+          data: {
+            data: {
+              song_list: [
+                { FileHash: 'duplicate', SongName: 'First occurrence', SingerName: 'A', Duration: 180 },
+                { FileHash: 'duplicate', SongName: 'Second occurrence', SingerName: 'B', Duration: 181 },
+              ],
+            },
+          },
+        });
+      }
+      return Promise.resolve({ status: 1, data: { data: { info: [] } } });
+    });
+
+    const wrapper = mount(HomeView);
+    await flushPromises();
+
+    const duplicateRows = wrapper.findAll('[data-test="queue-track-duplicate"]');
+    expect(duplicateRows).toHaveLength(2);
+    await duplicateRows[1]!.trigger('click');
+
+    expect(playPersonalFm).toHaveBeenCalledWith(
+      [
+        expect.objectContaining({ SongName: 'First occurrence', FileHash: 'duplicate' }),
+        expect.objectContaining({ SongName: 'Second occurrence', FileHash: 'duplicate' }),
+      ],
+      1,
+    );
+    expect(playTrack).not.toHaveBeenCalled();
+    expect(playQueueIndex).not.toHaveBeenCalled();
   });
 
   it('while personalFm is active, clicking a daily track selects without restarting the session', async () => {

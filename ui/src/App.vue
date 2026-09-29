@@ -19,13 +19,14 @@ import { ping } from './platform/tauri/nativeClient';
 import { lyricFullscreen, setLyricFullscreen } from './features/lyrics';
 import { transitionEnter, transitionLeave } from './app/navigation/pageTransitions';
 import { isReducedMotion } from './shared/motion/motion';
-import { startPlayerSyncHost } from './playback/index';
 import { registerPageTransition, unregisterPageTransition } from './app/navigation/navigationLifecycle';
 import { routeNames, type AppRouteName } from './app/navigation/routes';
 import { useThemeStore } from './app/appearance/themeStore';
 
 const themeStore = useThemeStore();
 const appRouter = useRouter();
+const canGoBack = computed(() => !!appRouter.currentRoute.value.fullPath && !!appRouter.options.history.state.back);
+const canGoForward = computed(() => !!appRouter.currentRoute.value.fullPath && !!appRouter.options.history.state.forward);
 const keepAliveComponents = computed(() => appRouter.getRoutes()
   .filter((route) => route.meta.keepAlive)
   .flatMap((route) => {
@@ -44,14 +45,9 @@ const pageTransitionMode = computed<'out-in' | undefined>(() =>
 );
 const isAuroraOverlap = computed(() => themeStore.skinId.value === 'aurora');
 
-/** Overlay windows (island / desktop lyric) render the bare view — no shell, no player init. */
-const isOverlayWindow = typeof location !== 'undefined' && location.pathname.startsWith('/overlay/');
-const isOverlayRoute = computed(() => isOverlayWindow || appRouter.currentRoute.value.meta.overlay === true);
-
 const isQueueOpen = ref(false);
 const networkDegraded = ref(false);
 let networkInterval: ReturnType<typeof setInterval> | null = null;
-let syncHostTeardown: (() => void) | null = null;
 
 /** First-paint launch intro: shell unfolds once per app start. */
 let launchPlayed = false;
@@ -61,7 +57,7 @@ function playLaunchIntro(): void {
   const targets = ['.titlebar', '.shell-sidebar', '.shell-content', '.shell-playerbar'];
   if (!targets.every((t) => document.querySelector(t))) return;
   launchPlayed = true;
-  gsap.timeline({ defaults: { ease: 'expo.out' } })
+  gsap.timeline({ defaults: { ease: 'power2.out', clearProps: 'transform,opacity' } })
     .from('.titlebar', { opacity: 0, duration: 0.4 }, 0)
     .from('.shell-sidebar', { x: -18, opacity: 0, duration: 0.5 }, 0.06)
     .from('.shell-content', { y: 18, opacity: 0, duration: 0.55 }, 0.14)
@@ -103,12 +99,6 @@ function handleSearch(query: string) {
   }
 }
 
-function handleSearchQuery(query: string) {
-  if (appRouter.currentRoute.value.name === routeNames.search) {
-    void appRouter.replace({ name: routeNames.search, query: { q: query } });
-  }
-}
-
 function goBack() {
   appRouter.back();
 }
@@ -118,9 +108,6 @@ function goForward() {
 }
 
 onMounted(() => {
-  // Overlay windows run the bare view — never boot a second player instance.
-  if (isOverlayRoute.value) return;
-
   // Don't boot into a broken fullscreen shell with zero chrome rows
   setLyricFullscreen(false);
 
@@ -133,8 +120,6 @@ onMounted(() => {
   if (w.__TAURI_INTERNALS__ || w.__TAURI__) {
     void bindOsMediaBridge();
   }
-  // Broadcast player state to overlay windows + accept their commands
-  syncHostTeardown = startPlayerSyncHost();
   // Fetch initial login status
   checkLoginStatus();
 
@@ -146,15 +131,12 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (networkInterval) clearInterval(networkInterval);
-  syncHostTeardown?.();
   void unbindOsMediaBridge();
 });
 </script>
 
 <template>
-  <RouterView v-if="isOverlayRoute" />
   <component
-    v-else
     :is="currentShell"
     :lyric-fullscreen="lyricFullscreen"
   >
@@ -171,7 +153,8 @@ onUnmounted(() => {
 
     <template #topbar>
       <Topbar
-        @update:search-query="handleSearchQuery"
+        :can-go-back="canGoBack"
+        :can-go-forward="canGoForward"
         @search="handleSearch"
         @navigate="handleNavigate"
         @back="goBack"

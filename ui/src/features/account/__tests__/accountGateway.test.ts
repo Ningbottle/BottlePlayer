@@ -15,6 +15,9 @@ import {
   claimDailyVipSong,
   claimYouthListenSong,
   claimYouthVipAd,
+  claimYouthDayVip,
+  claimYouthDayVipConceptCandidate,
+  claimYouthDayVipUpgrade,
   fetchQrKey,
   checkQrStatus,
   logoutAuth,
@@ -65,6 +68,27 @@ describe("accountGateway contract", () => {
     const res = await claimYouthVipAd();
     expect(mockApiGet).toHaveBeenCalledWith("/youth/vip/ad");
     expect(res.status).toBe(1);
+  });
+
+  it("claimYouthDayVip calls /youth/day/vip via apiGet", async () => {
+    mockApiGet.mockResolvedValueOnce({ status: 1, data: "" });
+    const res = await claimYouthDayVip();
+    expect(mockApiGet).toHaveBeenCalledWith("/youth/day/vip");
+    expect(res.status).toBe(1);
+  });
+
+  it("claimYouthDayVipConceptCandidate calls /youth/day/vip with profile=concept once", async () => {
+    mockApiGet.mockResolvedValueOnce({ status: 0, error: "candidate_profile_unavailable" });
+    await claimYouthDayVipConceptCandidate();
+    expect(mockApiGet).toHaveBeenCalledWith("/youth/day/vip", { profile: "concept" });
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
+  });
+
+  it("claimYouthDayVipUpgrade calls /youth/day/vip/upgrade via apiGet", async () => {
+    mockApiGet.mockResolvedValueOnce({ status: 0, error_code: 131001 });
+    const res = await claimYouthDayVipUpgrade();
+    expect(mockApiGet).toHaveBeenCalledWith("/youth/day/vip/upgrade");
+    expect(res.error_code).toBe(131001);
   });
 
   it("fetchQrKey calls /login/qr/key via apiGet", async () => {

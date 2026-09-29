@@ -32,12 +32,14 @@ vi.mock('../../../shared/motion/motion', () => ({
 }));
 
 const playTrackMock = vi.hoisted(() => vi.fn());
+const playQueueIndexMock = vi.hoisted(() => vi.fn());
 const lyricApiGetMock = vi.hoisted(() => vi.fn());
 const mockPlayerStoreState = vi.hoisted(() => ({
   queue: [
     { FileHash: 'q1', SongName: 'Queue One', SingerName: 'A', Duration: 100, Image: '' },
     { FileHash: 'q2', SongName: 'Queue Two', SingerName: 'B', Duration: 120, Image: '' },
   ],
+  currentIndex: 0,
   currentTrack: null as any,
   currentTime: 0,
   duration: 0,
@@ -51,6 +53,7 @@ vi.mock('../../../playback/playerStore', () => ({
     return mockPlayerStoreHolder.value;
   })(),
   playTrack: playTrackMock,
+  playQueueIndex: playQueueIndexMock,
   seek: vi.fn(),
 }));
 vi.mock('../../../platform/tauri/nativeClient', () => ({
@@ -158,6 +161,19 @@ function deferred<T>() {
 }
 
 describe('Lyric cover fallback contract', () => {
+  it('keeps Aurora album artwork unobstructed in fullscreen', () => {
+    const wrapper = mount(AuroraLyricStage, { props: { model: createModel({ fullscreen: true }) } });
+    expect(wrapper.get('[data-test="lyric-cover"]').find('img').exists()).toBe(true);
+    expect(wrapper.find('.lyric-vinyl-spindle').exists()).toBe(false);
+    wrapper.unmount();
+  });
+
+  it.each([AuroraLyricStage, NewsprintLyricStage])('keeps fullscreen transport available while duration is unknown', (Stage) => {
+    const wrapper = mount(Stage, { props: { model: createModel({ fullscreen: true, duration: 0, isPlaying: false, isLoading: true, parsedLyrics: [] }) } });
+    expect(wrapper.find('button[aria-label="取消加载"]').exists()).toBe(true);
+    expect(wrapper.text()).toContain('暂无歌词');
+    wrapper.unmount();
+  });
   it.each([
     ['Aurora', AuroraLyricStage, 'phosphor'],
     ['Newsprint', NewsprintLyricStage, 'lucide'],
@@ -641,13 +657,15 @@ describe('Lyric stage motion profiles', () => {
     clearGsapMocks();
   });
 
-  it('Aurora uses bouncy back.out rise-in for entrance', () => {
+  it('Aurora settles without elastic overshoot or whole-stage blur', () => {
     const model = createModel();
     mount(AuroraLyricStage, { props: { model } });
 
     const eases = extractEases();
-    expect(eases.some((e: string) => e.includes('back.out'))).toBe(true);
+    expect(eases.some((e: string) => e.includes('power2.out'))).toBe(true);
+    expect(eases.some((e: string) => e.includes('back.out'))).toBe(false);
     expect(eases.some((e: string) => e.includes('elastic'))).toBe(false);
+    expect(stageRootFromToCalls()[0]?.[1]).not.toHaveProperty('filter');
   });
 
   it('Newsprint uses power3.out for entrance', () => {
@@ -670,6 +688,21 @@ describe('Lyric stage motion profiles', () => {
 describe('Aurora lyric enter split (stage vs lines)', () => {
   beforeEach(() => {
     clearGsapMocks();
+  });
+
+  it('bounds long-song entrance work around the active lyrics and cancels it on unmount', async () => {
+    const wrapper = mount(AuroraLyricStage, { props: { model: createModel({
+      parsedLyrics: Array.from({ length: 200 }, (_, i) => ({ time: i * 4, text: `Line ${i}` })),
+      activeIndex: 100,
+    }) } });
+    await nextTick();
+    const calls = lineStaggerFromToCalls();
+    const lines = calls[calls.length - 1]?.[0] as Element[];
+    expect(lines).toHaveLength(8);
+    expect(lines[3].getAttribute('data-test')).toBe('lyric-line-100');
+    gsapKillTweensOfMock.mockClear();
+    wrapper.unmount();
+    lines.forEach(line => expect(gsapKillTweensOfMock).toHaveBeenCalledWith(line));
   });
 
   it('when lyrics go [] → N, only line stagger fires (no second stage root fromTo)', async () => {
@@ -838,7 +871,7 @@ describe('Aurora lyric focus modes', () => {
     wrapper.unmount();
   });
 
-  it('selects a shelf card through playTrack while keeping fullscreen mounted', async () => {
+  it('selects a shelf card through the queue-index command while keeping fullscreen mounted', async () => {
     const wrapper = mount(AuroraLyricStage, {
       props: {
         model: createModel({
@@ -848,18 +881,25 @@ describe('Aurora lyric focus modes', () => {
       },
       attachTo: document.body,
     });
+    playTrackMock.mockClear();
+    playQueueIndexMock.mockClear();
 
-    await wrapper.get('[data-test="lyric-cover"]').trigger('click');
-    await nextTick();
+    try {
+      await wrapper.get('[data-test="lyric-cover"]').trigger('click');
+      await nextTick();
 
-    (document.querySelector('[data-test="shelf-card-1"]') as HTMLButtonElement).click();
-    await nextTick();
+      (document.querySelector('[data-test="shelf-card-1"]') as HTMLButtonElement).click();
+      await nextTick();
 
-    expect(playTrackMock).toHaveBeenCalledWith(queueTracks[1]);
-    expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeNull();
-    expect(wrapper.find('.aurora-lyric-fullscreen').exists()).toBe(true);
-
-    wrapper.unmount();
+      // Selection uses the coordinator’s queue-index command, preserving the
+      // live queue and its mode while retaining the exact clicked position.
+      expect(playQueueIndexMock).toHaveBeenCalledWith(1);
+      expect(playTrackMock).not.toHaveBeenCalled();
+      expect(document.querySelector('[data-test="aurora-playlist-shelf"]')).toBeNull();
+      expect(wrapper.find('.aurora-lyric-fullscreen').exists()).toBe(true);
+    } finally {
+      wrapper.unmount();
+    }
   });
 
   it('Newsprint stage does not expose dual-mode lyric focus toggle', () => {
@@ -1166,7 +1206,8 @@ describe('Aurora playlist shelf selection', () => {
     card.click();
     await nextTick();
 
-    expect(wrapper.emitted('select')).toEqual([[queueTracks[1]]]);
+    // Select carries the exact queue index, not just the track object.
+    expect(wrapper.emitted('select')).toEqual([[queueTracks[1], 1]]);
 
     wrapper.unmount();
   });

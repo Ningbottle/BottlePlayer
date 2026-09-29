@@ -9,6 +9,7 @@
 #include "echo/core/HttpClient.h"
 
 #include "echo/core/Dto.h"
+#include "echo/core/KuGouProfile.h"
 
 namespace echo::core {
 
@@ -38,24 +39,37 @@ class UserService {
 
   // Calls GET https://kugouvip.kugou.com/v1/get_union_vip.
   // Returns VIP status, type and expiry timestamps.
-  nlohmann::json GetUserVip(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
+  //
+  // `edition` swaps the WHOLE signature profile (appid+clientver+salt move
+  // together — never appid alone). Default is Standard (1005/20489/standard
+  // salt), the current production contract; Concept is for the signature-
+  // family A/B probe only. busi_type stays "concept" for both editions
+  // (get_union_vip only understands busi_type; youth_union_vip.js).
+  nlohmann::json GetUserVip(const DeviceInfo& device, const std::string& userId, const std::string& token,
+                            KuGouEdition edition = KuGouEdition::Standard) const;
   nlohmann::json GetUserVip(const std::string& userId, const std::string& token) const;
 
   // Claims 1-day VIP automatically for the user.
   // Calls POST https://gateway.kugou.com/youth/v1/recharge/receive_vip_listen_song.
-  // DEPRECATED: upstream consistently returns 51002 (ad SDK credential required).
-  // Kept as archive point; callers should use ClaimYouthListenSong instead.
-  [[deprecated("kugou_vip_legacy_disabled: use ClaimYouthListenSong")]]
-  nlohmann::json ClaimVip(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
-  [[deprecated("kugou_vip_legacy_disabled: use ClaimYouthListenSong")]]
+  // History: upstream answered 51002 for this account and the route was
+  // disabled with a hardcoded reject. The reference repo (MakcRe/KuGouMusicApi
+  // v1.6.0) was updated on 2026-08-31 to send content-type
+  // application/x-www-form-urlencoded plus the standard Android fingerprint
+  // headers, so the route was re-enabled on 2026-09-02 to retest upstream.
+  //
+  // `edition` swaps the WHOLE signature profile for this day-claim endpoint
+  // only. Production default remains Standard (reference-aligned). Concept is
+  // an explicit candidate for offline contract checks / single-channel user
+  // experiments — never auto-selected. Other claim routes have no edition
+  // parameter and stay Standard.
+  nlohmann::json ClaimVip(const DeviceInfo& device, const std::string& userId, const std::string& token,
+                          KuGouEdition edition = KuGouEdition::Standard) const;
   nlohmann::json ClaimVip(const std::string& userId, const std::string& token) const;
 
   // Upgrade VIP reward — the "watch 5s ad then get listen-song VIP" endpoint.
   // Calls POST /youth/v1/listen_song/upgrade_vip_reward with ad_type=1.
-  // KuGou validates this against an ad-completion token from its official
-  // Android SDK; pure HTTP calls usually return error_code 131001/304xxx.
-  // DEPRECATED: same reason as ClaimVip.
-  [[deprecated("kugou_vip_legacy_disabled: use ClaimYouthListenSong")]]
+  // Re-enabled 2026-09-02 together with ClaimVip; upstream may still validate
+  // this against an ad-completion token from the official Android SDK.
   nlohmann::json UpgradeVipReward(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
 
   // ── 酷狗音乐概念版 VIP 领取（gateway.kugou.com POST + Android signature）──

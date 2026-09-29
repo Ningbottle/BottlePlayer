@@ -1,6 +1,9 @@
 #include "echo/stats/PlayStatsService.h"
+#include "echo/core/C_API.h"
 
+#include <algorithm>
 #include <chrono>
+#include <cmath>
 
 #include <nlohmann/json.hpp>
 
@@ -46,8 +49,32 @@ long long PlayStatsService::RangeToTimestamp(const std::string& range) {
   return 0;  // "all"
 }
 
-bool PlayStatsService::RecordPlay(const PlayRecord& r) {
-  if (r.listenedSeconds <= kMinCountedListenedSeconds) return false;
+RecordStatus PlayStatsService::RecordPlay(const PlayRecord& r) {
+  // B10: identity and numeric bounds are validated here, at the boundary —
+  // the backend cannot assume every caller pre-filters. Display fields
+  // (names, album, cover, quality) may be empty: they degrade, they do not
+  // invalidate the play identity.
+  if (r.songHash.empty()) return RecordStatus::InvalidRecord;
+  if (r.playedAtMs < 0) return RecordStatus::InvalidRecord;
+  if (std::isnan(r.durationSeconds) || std::isinf(r.durationSeconds) ||
+      r.durationSeconds < 0) {
+    return RecordStatus::InvalidRecord;
+  }
+  if (std::isnan(r.listenedSeconds) || std::isinf(r.listenedSeconds) ||
+      r.listenedSeconds < 0) {
+    return RecordStatus::InvalidRecord;
+  }
+  if (r.listenedSeconds <= kMinCountedListenedSeconds) {
+    return RecordStatus::BelowThreshold;
+  }
+  // playedAtMs == 0 means "no timestamp supplied" — the record exists because
+  // the play just happened, so the event time is now. Negative stays invalid.
+  long long playedAt = r.playedAtMs;
+  if (playedAt == 0) {
+    playedAt = std::chrono::duration_cast<std::chrono::milliseconds>(
+                   std::chrono::system_clock::now().time_since_epoch())
+                   .count();
+  }
 
   static const char* kSql =
       "INSERT INTO play_history_v2 "
@@ -66,12 +93,12 @@ bool PlayStatsService::RecordPlay(const PlayRecord& r) {
         static_cast<std::int64_t>(r.completed ? 1 : 0),
         r.listenedSeconds,
         r.quality,
-        static_cast<std::int64_t>(r.playedAtMs),
+        playedAt,
     };
     db_.ExecuteBound(kSql, params);
-    return true;
-  } catch (...) {
-    return false;
+    return RecordStatus::Recorded;
+  } catch (const std::exception&) {
+    return RecordStatus::StorageError;
   }
 }
 
@@ -115,6 +142,17 @@ std::string PlayStatsService::GetSummary(const std::string& range) {
 }
 
 std::string PlayStatsService::GetTop(const std::string& dim, const std::string& range, int limit) {
+  // Boundary: SQLite reads a negative LIMIT as "no limit" (and zero as no
+  // rows). A "top N" query must never turn into a full-table scan because a
+  // caller passed a non-positive N, so resolve it to zero rows explicitly.
+  json early;
+  early["dim"] = dim;
+  early["items"] = json::array();
+  if ((dim != "song" && dim != "artist" && dim != "album") || limit <= 0) {
+    return early.dump();
+  }
+  const int safeLimit = std::min(limit, ECHO_C_API_MAX_STATS_ROWS);
+
   long long since = RangeToTimestamp(range);
   // groupCol/nameCol from whitelist only — identifiers cannot be bound.
   const char* groupCol = DimGroupCol(dim);
@@ -124,7 +162,13 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
   std::vector<BindValue> params;
 
   if (dim == "song") {
-    nameCol = "song_hash, song_name, singer_name, album_name, cover_url";
+    // B09: song results carry the play identity (album_id) so the UI can
+    // resolve the exact album/edition later. MAX() keeps every group's
+    // identity/display columns deterministic; for album_id it also prefers
+    // a non-empty value ('' sorts below any non-empty string).
+    nameCol = "song_hash, MAX(song_name) AS song_name, MAX(singer_name) AS singer_name, "
+              "MAX(album_id) AS album_id, MAX(album_name) AS album_name, "
+              "MAX(cover_url) AS cover_url";
   } else if (dim == "artist") {
     if (since > 0) {
       nameCol =
@@ -141,25 +185,42 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
           "GROUP BY h2.cover_url ORDER BY COUNT(*) DESC, MAX(h2.played_at) DESC LIMIT 1), '')";
     }
   } else {
-    nameCol = "album_id, album_name, singer_name, cover_url";
+    // B09 unknown-album policy: rows WITH an album_id group by their id;
+    // rows WITHOUT one would all collide on album_id='' and arbitrarily
+    // merge distinct albums, so their group key is the album NAME instead
+    // ('byname:' cannot collide with a real upstream album_id). Display
+    // columns use MAX() so a group's name/cover/singer are deterministic,
+    // never "some arbitrary row of the group".
+    nameCol =
+        "CASE WHEN album_id IS NOT NULL AND album_id <> '' THEN album_id "
+        "ELSE 'byname:' || album_name END AS group_key, "
+        "MAX(album_name) AS album_name, MAX(singer_name) AS singer_name, "
+        "MAX(cover_url) AS cover_url, "
+        "MAX(CASE WHEN album_id IS NOT NULL AND album_id <> '' THEN album_id "
+        "ELSE '' END) AS album_id_resolved";
   }
+
+  // The album dim now groups by the computed group_key alias, not by the
+  // raw album_id column.
+  const std::string groupBy =
+      (dim == "album") ? std::string("group_key") : std::string(groupCol);
 
   if (since > 0) {
     sql = "SELECT " + nameCol + ", COUNT(*) as cnt, "
           "COALESCE(SUM(listened_seconds),0) as total_sec "
           "FROM play_history_v2 WHERE listened_seconds > ?1 AND played_at >= ?2 "
           "GROUP BY " +
-          std::string(groupCol) + " ORDER BY cnt DESC LIMIT ?3";
+          groupBy + " ORDER BY cnt DESC LIMIT ?3";
     // Artist subquery also uses ?1/?2 for min listen + since.
     params = {kMinCountedListenedSeconds, static_cast<std::int64_t>(since),
-              static_cast<std::int64_t>(limit)};
+              static_cast<std::int64_t>(safeLimit)};
   } else {
     sql = "SELECT " + nameCol + ", COUNT(*) as cnt, "
           "COALESCE(SUM(listened_seconds),0) as total_sec "
           "FROM play_history_v2 WHERE listened_seconds > ?1 "
           "GROUP BY " +
-          std::string(groupCol) + " ORDER BY cnt DESC LIMIT ?2";
-    params = {kMinCountedListenedSeconds, static_cast<std::int64_t>(limit)};
+          groupBy + " ORDER BY cnt DESC LIMIT ?2";
+    params = {kMinCountedListenedSeconds, static_cast<std::int64_t>(safeLimit)};
   }
 
   auto rows = db_.ExecuteQueryBound(sql, params);
@@ -170,10 +231,11 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
       item["song_hash"] = r[0];
       item["name"] = r[1];
       item["singer"] = r[2];
-      item["album"] = r[3];
-      item["cover_url"] = r[4];
-      item["play_count"] = SafeStoi(r[5]);
-      item["total_listened_seconds"] = SafeStod(r[6]);
+      item["album_id"] = r[3];
+      item["album"] = r[4];
+      item["cover_url"] = r[5];
+      item["play_count"] = SafeStoi(r[6]);
+      item["total_listened_seconds"] = SafeStod(r[7]);
     } else if (dim == "artist") {
       item["name"] = r[0];
       item["cover_url"] = r[1];
@@ -181,11 +243,11 @@ std::string PlayStatsService::GetTop(const std::string& dim, const std::string& 
       item["total_listened_seconds"] = SafeStod(r[3]);
     } else {
       item["name"] = r[1];
-      item["album_id"] = r[0];
+      item["album_id"] = r[4];
       item["singer"] = r[2];
       item["cover_url"] = r[3];
-      item["play_count"] = SafeStoi(r[4]);
-      item["total_listened_seconds"] = SafeStod(r[5]);
+      item["play_count"] = SafeStoi(r[5]);
+      item["total_listened_seconds"] = SafeStod(r[6]);
     }
     items.push_back(item);
   }
@@ -226,13 +288,20 @@ std::string PlayStatsService::GetTimeline(const std::string& range) {
 }
 
 std::string PlayStatsService::GetRecent(int limit, int offset) {
+  json early;
+  early["items"] = json::array();
+  // Non-positive limit must stay bounded (never SQLite's "no limit" case);
+  // a negative OFFSET is an SQL error, so clamp it to zero.
+  if (limit <= 0) return early.dump();
+  const int safeOffset = std::max(offset, 0);
+  const int safeLimit = std::min(limit, ECHO_C_API_MAX_STATS_ROWS);
   auto rows = db_.ExecuteQueryBound(
       "SELECT song_hash, song_name, singer_name, album_name, cover_url, "
       "duration_seconds, listened_seconds, completed, quality, played_at "
       "FROM play_history_v2 WHERE listened_seconds > ?1 "
       "ORDER BY played_at DESC LIMIT ?2 OFFSET ?3",
-      {kMinCountedListenedSeconds, static_cast<std::int64_t>(limit),
-       static_cast<std::int64_t>(offset)});
+      {kMinCountedListenedSeconds, static_cast<std::int64_t>(safeLimit),
+       static_cast<std::int64_t>(safeOffset)});
   json items = json::array();
   for (auto& r : rows) {
     json item;
@@ -254,11 +323,16 @@ std::string PlayStatsService::GetRecent(int limit, int offset) {
 }
 
 std::string PlayStatsService::GetRecommendations(int limit) {
+  json early;
+  early["items"] = json::array();
+  // Non-positive limit must never disable the bound (SQLite LIMIT -1).
+  if (limit <= 0) return early.dump();
+  const int safeLimit = std::min(limit, ECHO_C_API_MAX_STATS_ROWS);
   auto rows = db_.ExecuteQueryBound(
       "SELECT singer_name, COUNT(*) as cnt FROM play_history_v2 "
       "WHERE listened_seconds > ?1 "
       "GROUP BY singer_name ORDER BY cnt DESC LIMIT ?2",
-      {kMinCountedListenedSeconds, static_cast<std::int64_t>(limit)});
+      {kMinCountedListenedSeconds, static_cast<std::int64_t>(safeLimit)});
   json items = json::array();
   for (auto& r : rows) {
     json item;

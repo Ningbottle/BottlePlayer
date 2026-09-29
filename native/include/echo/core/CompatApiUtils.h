@@ -175,7 +175,7 @@ inline std::string DescribeDeviceIdentity(const DeviceInfo& device) {
 
 inline bool IsCredentialKey(const std::string& key) {
   static const std::unordered_set<std::string> kCredentialKeys = {
-      "token", "t1", "access_token", "auth_token", "session_token",
+      "token", "vip_token", "viptoken", "t1", "access_token", "auth_token", "session_token",
       "secret", "cookie", "set-cookie", "signature"};
   std::string lowered;
   lowered.reserve(key.size());

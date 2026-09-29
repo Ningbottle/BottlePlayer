@@ -3,7 +3,7 @@
  *
  * Coalescing (NOT simple FIFO):
  * - next/prev: relative delta merge
- * - selectTrack / seek: latest-wins
+ * - track/index selection / seek: latest-wins
  * - clearQueue: barrier (drops pending nav/select/seek/ended/quality)
  * - removeTrack: strict serial FIFO among removes
  * - ended: once per playback epoch
@@ -17,6 +17,7 @@
 import { normalizeTrack, type Track } from '../../shared/music/track';
 import { flagsFromPhase, type PlaybackPhase } from '../playbackPhase';
 import type { QualityOption } from '../runtime/playbackOrchestrator';
+import type { Delivery } from '../types';
 import type { PersonalFmAppendOptions, PersonalFmAppendSuccess } from '../fm/fmSession';
 
 export type LoopMode = 'list' | 'single' | 'random';
@@ -26,6 +27,7 @@ export type PlaybackCommand =
   | { type: 'next' }
   | { type: 'prev' }
   | { type: 'selectTrack'; track: Track }
+  | { type: 'selectQueueIndex'; index: number }
   | { type: 'seek'; seconds: number }
   | { type: 'togglePlay' }
   | { type: 'switchQuality'; quality: string }
@@ -50,6 +52,7 @@ export type CoordinatorState = {
   duration: number;
   errorMsg: string;
   isPreview: boolean;
+  delivery?: Delivery;
   vipRequired: boolean;
   availableQualities: QualityOption[];
   playbackPhase: PlaybackPhase;
@@ -106,6 +109,7 @@ function clearResiduals(_state: CoordinatorState, patch: CoordinatorDeps['patchS
     currentTime: 0,
     duration: 0,
     isPreview: false,
+    delivery: 'unknown',
     vipRequired: false,
     availableQualities: [],
     playbackPhase: 'idle',
@@ -136,7 +140,10 @@ export class PlaybackCommandCoordinator {
 
   /** Merged next(+1)/prev(-1) displacement. */
   private navDelta = 0;
-  private pendingSelect: Track | null = null;
+  private pendingSelect:
+    | { type: 'track'; track: Track }
+    | { type: 'queueIndex'; index: number }
+    | null = null;
   private pendingSeek: number | null = null;
   private pendingToggle = false;
   private pendingQuality: string | null = null;
@@ -364,6 +371,7 @@ export class PlaybackCommandCoordinator {
         if (!this.pendingClear) this.bumpInterrupt();
         break;
       case 'selectTrack':
+      case 'selectQueueIndex':
         this.pendingFmRecovery = null;
         if (this.navDelta !== 0) {
           this.navDelta = 0;
@@ -379,7 +387,9 @@ export class PlaybackCommandCoordinator {
             message: 'latest_select',
           });
         }
-        this.pendingSelect = normalizeTrack(command.track);
+        this.pendingSelect = command.type === 'selectTrack'
+          ? { type: 'track', track: normalizeTrack(command.track) }
+          : { type: 'queueIndex', index: command.index };
         this.selectWaiters.push(waiter);
         if (!this.pendingClear) this.bumpInterrupt();
         break;
@@ -596,7 +606,7 @@ export class PlaybackCommandCoordinator {
 
     // 5) Select track (latest-wins already applied in mailbox)
     if (this.pendingSelect) {
-      const track = this.pendingSelect;
+      const selection = this.pendingSelect;
       this.pendingSelect = null;
       const waiters = takeWaiters(this.selectWaiters);
       this.navDelta = 0;
@@ -605,8 +615,27 @@ export class PlaybackCommandCoordinator {
         message: 'select',
       });
       try {
+        const state = this.deps.getState();
+        const queueIndex = selection.type === 'queueIndex' ? selection.index : null;
+        const track = selection.type === 'track'
+          ? selection.track
+          : Number.isInteger(selection.index) && selection.index >= 0
+            ? state.queue[selection.index]
+            : undefined;
+        if (!track) {
+          resolveWaiters(waiters, { status: 'noop' });
+          return;
+        }
         const r = await this.playInterruptible(track);
         if (r.status === 'ok') {
+          // switchTrack identifies queue entries by hash and therefore lands
+          // on the first copy when hashes repeat. A queue-index selection has
+          // stronger identity: restore its exact position after playback, as
+          // long as that same entry is still at the requested index.
+          if (queueIndex != null && this.deps.getState().queue[queueIndex] === track) {
+            this.deps.patchState({ currentIndex: queueIndex });
+            this.deps.saveQueue();
+          }
           this.epoch += 1;
           this.endedEpochHandled = -1;
         }
@@ -964,6 +993,7 @@ type PlaybackSnapshot = {
   isLoading: boolean;
   errorMsg: string;
   isPreview: boolean;
+  delivery?: Delivery;
   vipRequired: boolean;
   availableQualities: QualityOption[];
   playbackPhase: PlaybackPhase;
@@ -979,6 +1009,7 @@ function snapshotPlayback(state: CoordinatorState): PlaybackSnapshot {
     isLoading: state.isLoading,
     errorMsg: state.errorMsg,
     isPreview: state.isPreview,
+    delivery: state.delivery,
     vipRequired: state.vipRequired,
     availableQualities: [...state.availableQualities],
     playbackPhase: state.playbackPhase,
@@ -993,6 +1024,7 @@ function restorePlayback(deps: CoordinatorDeps, snap: PlaybackSnapshot): void {
     duration: snap.duration,
     errorMsg: snap.errorMsg,
     isPreview: snap.isPreview,
+    delivery: snap.delivery,
     vipRequired: snap.vipRequired,
     availableQualities: snap.availableQualities,
     playbackPhase: snap.playbackPhase,

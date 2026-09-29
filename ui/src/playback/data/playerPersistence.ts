@@ -104,12 +104,13 @@ export function flushSaveQueue(): boolean {
   if (!getSnapshot) return false;
   try {
     const { queue, currentIndex } = getSnapshot();
-    localStorage.setItem(SNAPSHOT_KEY, JSON.stringify({ queue, currentIndex }));
-    return true;
+    // safeSetItem also absorbs a throwing `localStorage` getter, so teardown
+    // stays non-throwing on hosts where the property itself raises SecurityError.
+    return safeSetItem(SNAPSHOT_KEY, JSON.stringify({ queue, currentIndex }));
   } catch {
-    // localStorage.setItem failed (quota / permission / WebView storage
-    // error). Best-effort: return false, do not throw. Teardown and the
-    // debounce callback must not be broken by persistence failure.
+    // JSON.stringify of a hostile queue object is the only remaining failure
+    // mode. Best-effort: return false, do not throw. Teardown and the debounce
+    // callback must not be broken by persistence failure.
     return false;
   }
 }

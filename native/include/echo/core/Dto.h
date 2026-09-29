@@ -32,6 +32,8 @@ struct SessionInfo {
   // 概念版 VIP 令牌：登录/刷新响应里的 vip_token。
   // tracker v6/priv_url 的 tracker_param.viptoken 需要它来判断 VIP 试听 vs 完整流。
   std::string vipToken;
+  // login_by_token 返回的会员类型，原样传给 v6/priv_url 的 vip 字段。
+  int vipType = 0;
 };
 
 struct AppSettings {

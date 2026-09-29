@@ -28,11 +28,50 @@ Corrections now on this branch:
 
 Known issues:
 
-- `native/core/compat_routes/YouthVipRoutes.cpp` `HandleYouthDayVip()`
-  hardcodes "该端点需要广告 SDK 凭证，纯 HTTP 不可达", but the reference
-  implementation (`server/module/youth_day_vip.js`) is plain axios with
-  form-urlencoded body and cookies — no ad SDK involved. The attribution is
-  wrong and the route deserves a fresh evaluation.
+- ~~`native/core/compat_routes/YouthVipRoutes.cpp` `HandleYouthDayVip()`
+  hardcodes "该端点需要广告 SDK 凭证，纯 HTTP 不可达"…~~ Resolved 2026-09-02,
+  see "VIP claim: re-enable day-VIP routes" below.
+
+### 2026-09-02 — VIP claim: re-enable day-VIP routes against the 2026-08-31 reference contract
+
+- `/youth/day/vip` and `/youth/day/vip/upgrade` now dispatch to
+  `UserService::ClaimVip` / `UpgradeVipReward` behind the normal login gate;
+  the hardcoded `kugou_vip_legacy_disabled` reject and the `[[deprecated]]`
+  markers are removed.
+- Both requests were aligned with reference repo v1.6.0
+  (`module/youth_day_vip.js`, `util/request.js`, `util/config.json`):
+  params stay in the signed URL query with an empty body; the signing
+  identity switched from the Concept/lite profile (appid 3116/clientver
+  11440/lite salt) to the standard Android profile (appid 1005/clientver
+  20489/standard salt); `uuid` pinned to `-`; the unreferenced `plat` param
+  removed; `content-type` set to `application/x-www-form-urlencoded`;
+  dfid/clienttime/mid/kg-* fingerprint headers added. Upstream numeric
+  error codes are passed through to the frontend (old local string codes
+  kept as `local_error`). Redacted request/response diagnostics log under
+  the `VipClaim` tag.
+- Frontend: the account view gains an experimental selector to trigger each
+  claim channel individually; failures show the upstream
+  status/error_code/error_msg verbatim (see cascade update below).
+- Tests: `EchoYouthVipContractTest` pins the new wire contract;
+  `EchoRouteContractTest` guards against reintroducing the hardcoded reject.
+  Both guards were adversarially verified (implementation broken → red →
+  restored → green). Full suite green after forced clean re-links:
+  14/14 ctest, 1354 frontend tests, `cargo test --tests`.
+
+Live test later the same day (same account): the re-enabled direct-claim and
+upgrade routes plus listen_song were all answered 51002 by upstream despite
+the byte-for-byte reference alignment — a business-level wall, not a
+request-format problem. The ad `play_report` channel, however, succeeded and
+actually granted VIP (3h svip from a single report). Consequently the main
+claim button was rebuilt as an ad-first cascade: ad `play_report` loop
+(30-second interval, max 8 rounds, breaks on the first rejection), then the
+remaining three channels once each until one succeeds; any success syncs the
+authoritative VIP detail. Loop bounds are overridable for tests. Frontend
+suite green at 1355 tests after the rebuild.
+
+Build note: MSVC `/INCREMENTAL` linking served stale test binaries mid-change
+(re-linked exe missed changed static-lib members). Test verification was
+redone with forced full re-links; incremental results are not trusted.
 
 ### 2026-02-03T10:00:00
 - Create BottleMusic project structure

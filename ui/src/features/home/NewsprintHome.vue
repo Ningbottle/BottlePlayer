@@ -8,7 +8,7 @@ import { ArrowRight } from '@lucide/vue';
 const props = defineProps<{ model: HomeViewModel }>();
 
 const emit = defineEmits<{
-  (e: 'play-track', track: Track): void;
+  (e: 'play-track', track: Track, dailyIndex?: number): void;
   (e: 'refresh'): void;
   (e: 'navigate', view: string, params?: any): void;
 }>();
@@ -31,11 +31,11 @@ const featureTrack = computed(() => props.model.dailyTracks[0] ?? props.model.he
 
 function onHeroPlay() {
   const t = featureTrack.value;
-  if (t) emit('play-track', t);
+  if (t) emit('play-track', t, 0);
 }
 
-function onRecPlay(track: Track) {
-  emit('play-track', track);
+function onRecPlay(track: Track, dailyIndex: number) {
+  emit('play-track', track, dailyIndex);
 }
 
 function onPlaylistClick(pl: PlaylistInfo) {
@@ -192,31 +192,37 @@ function retrySection(section: HomeSection): void {
               Daily Picks
             </i>
           </h3>
-          <span
+          <button
+            type="button"
             class="more"
-            role="button"
-            tabindex="0"
             data-test="daily-section-status"
             @click="retrySection('daily')"
-            @keydown.enter="retrySection('daily')"
+            :disabled="model.sections.daily.loading || model.sections.daily.refreshing"
           >
             {{ sectionStatus('daily', '刷新推荐 ↻') }}
-          </span>
+          </button>
         </div>
 
         <ol class="np-rec-list">
           <li
             v-for="(song, idx) in recommendations"
-            :key="song.FileHash"
+            :key="`${idx}:${song.FileHash}`"
             class="np-rec-item"
-            @click="onRecPlay(song)"
           >
-            <span class="n np-num">{{ String(idx + 1).padStart(2, '0') }}</span>
-            <span class="t">
-              <b>{{ song.SongName }}</b>
-              <span>{{ song.SingerName }}</span>
-            </span>
-            <span class="dur">{{ formatDuration(song.Duration) }}</span>
+            <button
+              type="button"
+              class="np-rec-action"
+              :data-test="`recommendation-play-${song.FileHash}`"
+              :aria-label="`播放 ${song.SongName}，${song.SingerName}`"
+              @click="onRecPlay(song, idx)"
+            >
+              <span class="n np-num">{{ String(idx + 1).padStart(2, '0') }}</span>
+              <span class="t">
+                <b>{{ song.SongName }}</b>
+                <span>{{ song.SingerName }}</span>
+              </span>
+              <span class="dur">{{ formatDuration(song.Duration) }}</span>
+            </button>
           </li>
           <li v-if="!recommendations.length" style="padding: 10px; font-style: italic; color: var(--ink-mute); cursor: default">
             {{ sectionStatus('daily', '暂时没有推荐歌曲') }}
@@ -242,33 +248,34 @@ function retrySection(section: HomeSection): void {
         :key="pl.specialid"
         class="card"
         :data-test="`playlist-${pl.specialid}`"
-        @click="onPlaylistClick(pl)"
       >
-        <div class="cover">
-          <img v-if="pl.imgurl" :src="pl.imgurl" alt="cover" />
-          <svg v-else viewBox="0 0 200 200">
-            <rect width="200" height="200" fill="#ecdfbe" />
-            <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="24" fill="#221b12">歌单</text>
-          </svg>
-          <div class="corner">精品</div>
-          <button
-            type="button"
-            class="play"
-            :data-test="`playlist-open-${pl.specialid}`"
-            :aria-label="`打开歌单：${pl.specialname}`"
-            :title="`打开歌单：${pl.specialname}`"
-            @click.stop="onPlaylistClick(pl)"
-          >
-            <ArrowRight :size="14" :stroke-width="1.8" aria-hidden="true" />
-          </button>
-        </div>
-        <div class="meta-row">
-          <div>
-            <div class="title">{{ pl.specialname }}</div>
-            <div class="sub">By {{ pl.nickname }}</div>
-          </div>
-          <div class="plays">{{ formatPlays(pl.playcount) }}</div>
-        </div>
+        <button
+          type="button"
+          class="card-open"
+          :data-test="`playlist-open-${pl.specialid}`"
+          :aria-label="`打开歌单：${pl.specialname}`"
+          :title="`打开歌单：${pl.specialname}`"
+          @click="onPlaylistClick(pl)"
+        >
+          <span class="cover">
+            <img v-if="pl.imgurl" :src="pl.imgurl" alt="" />
+            <svg v-else viewBox="0 0 200 200" aria-hidden="true">
+              <rect width="200" height="200" fill="#ecdfbe" />
+              <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="24" fill="#221b12">歌单</text>
+            </svg>
+            <span class="corner" aria-hidden="true">精品</span>
+            <span class="play" aria-hidden="true">
+              <ArrowRight :size="14" :stroke-width="1.8" />
+            </span>
+          </span>
+          <span class="meta-row">
+            <span>
+              <span class="title">{{ pl.specialname }}</span>
+              <span class="sub">By {{ pl.nickname }}</span>
+            </span>
+            <span class="plays">{{ formatPlays(pl.playcount) }}</span>
+          </span>
+        </button>
       </article>
     </div>
 
@@ -289,33 +296,34 @@ function retrySection(section: HomeSection): void {
         :key="`a-${pl.specialid}`"
         class="card"
         :data-test="`playlist-${pl.specialid}`"
-        @click="onPlaylistClick(pl)"
       >
-        <div class="cover">
-          <img v-if="pl.imgurl" :src="pl.imgurl" alt="cover" />
-          <svg v-else viewBox="0 0 200 200">
-            <rect width="200" height="200" fill="#dee6d4" />
-            <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="24" fill="#3b5a3a">新碟</text>
-          </svg>
-          <div class="corner">NEW</div>
-          <button
-            type="button"
-            class="play"
-            :data-test="`album-open-${pl.specialid}`"
-            :aria-label="`打开歌单：${pl.specialname}`"
-            :title="`打开歌单：${pl.specialname}`"
-            @click.stop="onPlaylistClick(pl)"
-          >
-            <ArrowRight :size="14" :stroke-width="1.8" aria-hidden="true" />
-          </button>
-        </div>
-        <div class="meta-row">
-          <div>
-            <div class="title">{{ pl.specialname }}</div>
-            <div class="sub">{{ pl.nickname }}</div>
-          </div>
-          <div class="plays">NEW</div>
-        </div>
+        <button
+          type="button"
+          class="card-open"
+          :data-test="`album-open-${pl.specialid}`"
+          :aria-label="`打开歌单：${pl.specialname}`"
+          :title="`打开歌单：${pl.specialname}`"
+          @click="onPlaylistClick(pl)"
+        >
+          <span class="cover">
+            <img v-if="pl.imgurl" :src="pl.imgurl" alt="" />
+            <svg v-else viewBox="0 0 200 200" aria-hidden="true">
+              <rect width="200" height="200" fill="#dee6d4" />
+              <text x="100" y="110" text-anchor="middle" font-family="Noto Serif SC" font-weight="700" font-size="24" fill="#3b5a3a">新碟</text>
+            </svg>
+            <span class="corner" aria-hidden="true">NEW</span>
+            <span class="play" aria-hidden="true">
+              <ArrowRight :size="14" :stroke-width="1.8" />
+            </span>
+          </span>
+          <span class="meta-row">
+            <span>
+              <span class="title">{{ pl.specialname }}</span>
+              <span class="sub">{{ pl.nickname }}</span>
+            </span>
+            <span class="plays">NEW</span>
+          </span>
+        </button>
       </article>
     </div>
   </div>
@@ -403,17 +411,37 @@ export default { name: 'NewsprintHome' };
 }
 .side-list .sl-head .more {
   font-family:"EB Garamond",serif; font-style:italic; font-size: 11px; color: var(--ink-mute);
+  border: 0; padding: 0; background: transparent; cursor: pointer;
+}
+.side-list .sl-head .more:disabled {
+  cursor: default;
 }
 .side-list ol { list-style:none; margin:0; padding:0; }
 .side-list li {
-  display:grid; grid-template-columns: 22px 1fr auto; gap: 10px; align-items:center;
-  padding: 6px 0;
   border-bottom: 1px dotted var(--rule-soft);
   font-size: 13px;
-  cursor: pointer;
 }
 .side-list li:hover { background: rgba(34,27,18,0.02); }
 .side-list li:last-child { border-bottom: none; }
+.side-list .np-rec-action {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  width: 100%;
+  padding: 6px 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.side-list .np-rec-action:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 .side-list li .n {
   font-family:"EB Garamond",serif; font-style:italic; color: var(--ink-mute); font-size: 14px;
   text-align: right;
@@ -450,7 +478,25 @@ export default { name: 'NewsprintHome' };
 }
 .card {
   display:flex; flex-direction:column; gap:10px;
-  cursor:pointer;
+}
+.card-open {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.card-open:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
 }
 .card .cover {
   position: relative;
@@ -489,7 +535,8 @@ export default { name: 'NewsprintHome' };
   opacity:0; transform: translateY(4px);
   transition: opacity .2s ease, transform .2s ease;
 }
-.card:hover .play { opacity:1; transform:none; }
+.card-open:hover .play,
+.card-open:focus-visible .play { opacity:1; transform:none; }
 .card .meta-row {
   display:flex; align-items:baseline; justify-content:space-between;
   gap: 8px;

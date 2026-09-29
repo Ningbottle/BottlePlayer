@@ -10,6 +10,7 @@ import {
   FLAT_EQ_BANDS,
   normalizeEqBands,
 } from '../eq/equalizerConfig';
+import { safeSetItem } from '../../platform/storage/safeStorage';
 
 const props = withDefaults(defineProps<{
   modelValue?: boolean;
@@ -35,13 +36,13 @@ watch(() => playerStore.eqBands, (v) => { bandGains.value = normalizeEqBands(v);
 function onSliderInput() {
   bandGains.value = normalizeEqBands(bandGains.value);
   playerStore.eqBands = [...bandGains.value];
-  localStorage.setItem('player_eq_bands', JSON.stringify(bandGains.value));
+  safeSetItem('player_eq_bands', JSON.stringify(bandGains.value));
   bandGains.value.forEach((g, i) => setWebAudioEqBand(i, g));
 }
 
 function toggleEnabled() {
   playerStore.eqEnabled = !playerStore.eqEnabled;
-  localStorage.setItem('player_eq_enabled', String(playerStore.eqEnabled));
+  safeSetItem('player_eq_enabled', String(playerStore.eqEnabled));
   setWebAudioEqEnabled(playerStore.eqEnabled);
 }
 
@@ -49,7 +50,7 @@ function applyPreset(name: string) {
   if (EQ_PRESETS[name]) {
     bandGains.value = [...EQ_PRESETS[name]];
     playerStore.activePreset = name;
-    localStorage.setItem('player_eq_preset', name);
+    safeSetItem('player_eq_preset', name);
     onSliderInput();
   }
 }
@@ -57,7 +58,7 @@ function applyPreset(name: string) {
 function resetEq() {
   bandGains.value = [...FLAT_EQ_BANDS];
   playerStore.activePreset = 'Flat';
-  localStorage.setItem('player_eq_preset', 'Flat');
+  safeSetItem('player_eq_preset', 'Flat');
   onSliderInput();
 }
 

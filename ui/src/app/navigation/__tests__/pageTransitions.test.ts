@@ -90,8 +90,8 @@ describe('pageTransitions (navigation adapter)', () => {
 
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
-      { opacity: 0, x: 24 },
-      expect.objectContaining({ opacity: 1, x: 0, ease: 'expo.out', duration: 0.56 }),
+      { opacity: 0, x: 12 },
+      expect.objectContaining({ opacity: 1, x: 0, ease: 'power2.out', duration: 0.28 }),
     );
     expect(done).toHaveBeenCalledTimes(1);
   });
@@ -106,7 +106,7 @@ describe('pageTransitions (navigation adapter)', () => {
 
     expect(gsap.fromTo).toHaveBeenCalledWith(
       el,
-      { opacity: 0, x: -24 },
+      { opacity: 0, x: -12 },
       expect.objectContaining({ opacity: 1, x: 0 }),
     );
     expect(done).toHaveBeenCalledTimes(1);
@@ -185,7 +185,7 @@ describe('pageTransitions (navigation adapter)', () => {
     expect(done).toHaveBeenCalledTimes(1);
   });
 
-  it('transitionLeave stays fast (Aurora pageLeave 0.2) and calls gsap.to', async () => {
+  it('transitionLeave stays fast (Aurora pageLeave 0.16) and calls gsap.to', async () => {
     const { gsap } = await import('gsap');
     const el = document.createElement('div');
     const done = vi.fn();
@@ -194,7 +194,7 @@ describe('pageTransitions (navigation adapter)', () => {
 
     expect(gsap.to).toHaveBeenCalledWith(
       el,
-      expect.objectContaining({ opacity: 0, x: -16, duration: 0.2 }),
+      expect.objectContaining({ opacity: 0, x: -8, duration: 0.16 }),
     );
     expect(done).toHaveBeenCalledTimes(1);
   });

@@ -5,7 +5,6 @@ import { useThemeStore } from '../../app/appearance/themeStore';
 import { usePlayerControls } from './player/usePlayerControls';
 import AuroraPlayerBar from './player/AuroraPlayerBar.vue';
 import NewsprintPlayerBar from './player/NewsprintPlayerBar.vue';
-import { AddToPlaylistModal } from '../../features/library';
 
 const props = defineProps<{
   navigate?: (view: string) => void | boolean | Promise<void | boolean>;
@@ -37,13 +36,5 @@ const playerBarComponent = computed(() =>
     :is="playerBarComponent"
     :controller="controller"
     @toggle-queue="emit('toggle-queue')"
-  />
-
-  <AddToPlaylistModal
-    :show="controller.showAddModal"
-    :track="controller.currentTrack"
-    @close="controller.closeAddModal"
-    @success="controller.handleFavoriteSuccess"
-    @error="controller.handleFavoriteError"
   />
 </template>

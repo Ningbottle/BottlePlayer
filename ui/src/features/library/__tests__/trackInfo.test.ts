@@ -1,73 +1,76 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { Track } from '../../../shared/music/track';
 
-/**
- * 测试收藏歌曲时的参数构造逻辑
- * 这些测试验证 SongName 中特殊字符的转义处理
- */
+const account = vi.hoisted(() => ({ isLoggedIn: true }));
+const apiPost = vi.hoisted(() => vi.fn());
+vi.mock('../../account', () => ({ userStore: account }));
+vi.mock('../../../platform/tauri/nativeClient', () => ({ apiPost }));
 
-function buildTrackInfo(track: { SongName: string; FileHash: string; AlbumID?: string; AlbumAudioID?: string }) {
-  // 与 favorite.ts 中的逻辑保持一致
-  const safeName = track.SongName.replace(/\|/g, '%7C');
-  return `${safeName}|${track.FileHash}|${track.AlbumID || 0}|${track.AlbumAudioID || 0}`;
-}
+import { addTrackToPlaylist } from '../favorite';
 
-describe('buildTrackInfo for playlist add', () => {
-  // 正常情况：SongName 不含特殊字符
-  it('should build track info with normal song name', () => {
-    const track = {
-      SongName: '晴天',
-      FileHash: 'ABC123',
-      AlbumID: '100',
-      AlbumAudioID: '200',
-    };
+const playlist = { id: 'collection_3_42_98765_0', listid: '98765', name: '我的歌单' };
+const track = (values: Partial<Track> = {}): Track => ({
+  FileHash: 'HASH1', SongName: '', SingerName: '', Duration: 0, ...values,
+});
 
-    const result = buildTrackInfo(track);
-    expect(result).toBe('晴天|ABC123|100|200');
+// The structured protocol must carry a name verbatim: commas, a literal pipe, a
+// literal "%7C" and non-ASCII are exactly what the legacy pipe/comma encoding
+// could not express.
+const structuredNames = [
+  { name: 'Song, with comma | pipe %7C and 中文', hash: 'HASH1', album_id: 111, mixsongid: 222 },
+  { name: '', hash: 'HASH2', album_id: 0, mixsongid: 0 },
+  { name: '100% Done', hash: 'HASH3', album_id: 333, mixsongid: 444 },
+];
+
+describe('favorite adapter structured native contract', () => {
+  beforeEach(() => {
+    apiPost.mockReset().mockResolvedValue({ status: 1 });
+    account.isLoggedIn = true;
   });
 
-  // 关键场景：SongName 包含 | 字符
-  it('should escape pipe character in song name', () => {
-    const track = {
-      SongName: '歌曲|副标题',
-      FileHash: 'ABC123',
-      AlbumID: '100',
-      AlbumAudioID: '200',
-    };
+  it.each(structuredNames)('preserves the name verbatim: $name', async (entry) => {
+    await expect(addTrackToPlaylist(playlist, track({
+      FileHash: entry.hash, SongName: entry.name,
+      AlbumID: String(entry.album_id), AlbumAudioID: String(entry.mixsongid),
+    }))).resolves.toEqual({ success: true });
 
-    const result = buildTrackInfo(track);
-    // | 应被转义为 %7C，避免后端解析错位
-    expect(result).toBe('歌曲%7C副标题|ABC123|100|200');
-    
-    // 验证按 | 分割后只有 4 个部分
-    const parts = result.split('|');
-    expect(parts).toHaveLength(4);
+    expect(apiPost).toHaveBeenCalledTimes(1);
+    expect(apiPost.mock.calls[0][0]).toBe('/playlist/tracks/add');
+    const payload = JSON.parse(apiPost.mock.calls[0][1]);
+    expect(payload).toEqual({ listid: '98765', data: [{
+      ...entry, album_id: String(entry.album_id), mixsongid: String(entry.mixsongid),
+    }] });
+    expect(apiPost.mock.calls[0][2]).toBeUndefined();
   });
 
-  // 多个 | 字符
-  it('should escape multiple pipe characters', () => {
-    const track = {
-      SongName: 'A|B|C',
-      FileHash: 'HASH',
-      AlbumID: '1',
-      AlbumAudioID: '2',
-    };
-
-    const result = buildTrackInfo(track);
-    expect(result).toBe('A%7CB%7CC|HASH|1|2');
-    
-    const parts = result.split('|');
-    expect(parts).toHaveLength(4);
-    expect(parts[0]).toBe('A%7CB%7CC');
+  it('defaults optional ids without inventing a song name', async () => {
+    await addTrackToPlaylist(playlist, track());
+    expect(JSON.parse(apiPost.mock.calls[0][1]).data).toEqual([
+      { name: '', hash: 'HASH1', album_id: 0, mixsongid: 0 },
+    ]);
   });
 
-  // 缺少可选字段
-  it('should use default values for missing optional fields', () => {
-    const track = {
-      SongName: '测试歌曲',
-      FileHash: 'HASH123',
-    };
+  it('does not round large numeric string identities', async () => {
+    await addTrackToPlaylist(playlist, track({ AlbumID: '9007199254740993' }));
+    expect(JSON.parse(apiPost.mock.calls[0][1]).data[0].album_id).toBe('9007199254740993');
+  });
 
-    const result = buildTrackInfo(track);
-    expect(result).toBe('测试歌曲|HASH123|0|0');
+  it.each(['', '   '])('rejects an absent hash before IPC: %j', async (FileHash) => {
+    expect(await addTrackToPlaylist(playlist, track({ FileHash }))).toEqual({
+      success: false, error: '缺少歌曲标识，无法收藏',
+    });
+    expect(apiPost).not.toHaveBeenCalled();
+  });
+
+  it('keeps transport failures available to the existing outbox', async () => {
+    apiPost.mockRejectedValueOnce(new Error('request_timeout'));
+    await expect(addTrackToPlaylist(playlist, track())).rejects.toThrow('request_timeout');
+    expect(apiPost).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not send a request when logged out', async () => {
+    account.isLoggedIn = false;
+    expect((await addTrackToPlaylist(playlist, track())).success).toBe(false);
+    expect(apiPost).not.toHaveBeenCalled();
   });
 });

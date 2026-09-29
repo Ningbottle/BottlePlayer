@@ -1,28 +1,36 @@
 use std::path::PathBuf;
 
 fn load_dll() -> PathBuf {
-    // Prefer target/debug first: build.rs colocates sqlite3.dll next to EchoCAPI
-    // for LoadLibrary. ECHO_CAPI_DLL may point at a bare CMake out/ tree without
-    // runtime deps (valid for ABI tests, not for the sidecar layout check).
-    let candidates = [
-        Some(format!(
-            "{}/target/debug/EchoCAPI.dll",
-            env!("CARGO_MANIFEST_DIR")
-        )),
-        Some(format!("{}/libs/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR"))),
-        std::env::var("ECHO_CAPI_DLL").ok(),
-        Some(format!(
-            "{}/../../native/out/bottlemusic-check/EchoCAPI.dll",
-            env!("CARGO_MANIFEST_DIR")
-        )),
-    ];
-    for c in candidates.into_iter().flatten() {
+    // Prefer ECHO_CAPI_DLL when set so tests can pin a known build identity.
+    // Then target/debug (build.rs colocates sqlite3.dll), libs/, then CMake out.
+    let mut candidates: Vec<String> = Vec::new();
+    if let Ok(override_path) = std::env::var("ECHO_CAPI_DLL") {
+        if !override_path.trim().is_empty() {
+            candidates.push(override_path);
+        }
+    }
+    candidates.push(format!(
+        "{}/target/debug/EchoCAPI.dll",
+        env!("CARGO_MANIFEST_DIR")
+    ));
+    candidates.push(format!("{}/libs/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR")));
+    candidates.push(format!(
+        "{}/../../native/out/bottlemusic-check/EchoCAPI.dll",
+        env!("CARGO_MANIFEST_DIR")
+    ));
+    let mut tried = Vec::new();
+    for c in candidates {
         let p = std::path::Path::new(&c);
+        tried.push(p.display().to_string());
         if p.exists() {
+            eprintln!("[load_dll] selected {}", p.display());
             return p.to_path_buf();
         }
     }
-    panic!("Could not find EchoCAPI.dll");
+    panic!(
+        "Could not find EchoCAPI.dll. Tried:\n  {}",
+        tried.join("\n  ")
+    );
 }
 
 #[test]
@@ -32,10 +40,7 @@ fn test_runtime_dependencies_are_next_to_echo_capi() {
         "{}/target/debug/EchoCAPI.dll",
         env!("CARGO_MANIFEST_DIR")
     ));
-    let libs = PathBuf::from(format!(
-        "{}/libs/EchoCAPI.dll",
-        env!("CARGO_MANIFEST_DIR")
-    ));
+    let libs = PathBuf::from(format!("{}/libs/EchoCAPI.dll", env!("CARGO_MANIFEST_DIR")));
     let path = [packaged, libs]
         .into_iter()
         .find(|p| p.exists())

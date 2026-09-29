@@ -13,10 +13,14 @@ describe("favoriteGateway contract", () => {
     vi.clearAllMocks();
   });
 
-  it("addPlaylistTracks calls /playlist/tracks/add with params", async () => {
+  it("addPlaylistTracks sends structured tracks in the JSON body without delimiter escaping", async () => {
     mockApiPost.mockResolvedValueOnce({ status: 1 });
-    const res = await addPlaylistTracks({ listid: "101", data: "test|hash|0|0" });
-    expect(mockApiPost).toHaveBeenCalledWith("/playlist/tracks/add", undefined, { listid: "101", data: "test|hash|0|0" });
+    const params = {
+      listid: "101",
+      data: [{ name: "Song, with comma | pipe %7C and 中文", hash: "HASH1", album_id: "111", mixsongid: "222" }],
+    };
+    const res = await addPlaylistTracks(params);
+    expect(mockApiPost).toHaveBeenCalledWith("/playlist/tracks/add", JSON.stringify(params));
     expect(res.status).toBe(1);
   });
 

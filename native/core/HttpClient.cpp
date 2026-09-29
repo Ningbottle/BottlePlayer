@@ -22,6 +22,10 @@ namespace echo::core {
 // WinHttpCloseHandle'd. Used by resilience tests (P0-A) because
 // GetProcessHandleCount does not reliably observe HINTERNET objects.
 static std::atomic<long> g_liveRequestHandles{0};
+// Test-only fault injection (see HttpClient.h): forces the per-op timeout
+// setup to fail so the timeout_setup_failed path is deterministically
+// reachable. Never set in production.
+static std::atomic<bool> g_faultTimeoutSetup{false};
 
 // Thread-local cancel flag installed by HttpClientCancellationScope so
 // nested service → HttpClient calls observe scheduler deadline cancel.
@@ -53,12 +57,23 @@ bool IsCancelled(const std::atomic_bool* cancelled) {
   return false;
 }
 
-// Thin WinHTTP arm: winhttp close stays in this TU's lambda (core → async).
-void ArmRequestHandleWatchdog(HINTERNET request, long timeoutMs,
-                              std::shared_ptr<std::atomic_bool> claimed) {
-  if (!request || timeoutMs <= 0 || !claimed) return;
-  echo::async::RequestWatchdog::Instance().Arm(
-      timeoutMs, std::move(claimed), [request]() { CloseRequestHandle(request); });
+// Cooperative deadline arm (Stage 3a): the watchdog NEVER closes the
+// request handle — cross-thread closes against synchronous WinHTTP calls
+// violate the WinHTTP concurrency contract (plan R4). It only raises the
+// deadline flag; the owner thread closes the handle itself after its
+// WinHTTP calls return (it is the SOLE closer, so no close CAS is needed).
+// Worst-case exposure after a fired deadline is bounded by the per-op
+// timeout already set on the request.
+// Returns false when the watchdog rejects the registration (backlog cap) —
+// the caller must fail the request instead of running it unwatched.
+bool ArmRequestHandleWatchdog(long timeoutMs,
+                              std::shared_ptr<std::atomic_bool> deadlineFired) {
+  if (timeoutMs <= 0 || !deadlineFired) return false;
+  return echo::async::RequestWatchdog::Instance().Arm(
+      timeoutMs, std::move(deadlineFired),
+      [deadlineFired]() {
+        deadlineFired->store(true, std::memory_order_release);
+      });
 }
 
 std::string Lower(std::string value) {
@@ -259,20 +274,22 @@ HttpResult ExecuteRequest(
   }
   g_liveRequestHandles.fetch_add(1, std::memory_order_relaxed);
 
-  // Watchdog: WinHttpSendRequest/WinHttpReceiveResponse don't always honor
-  // per-op timeouts on older Windows. A process-wide RequestWatchdog owns a
-  // min-heap of (deadline, HINTERNET) and aborts hung calls via close.
-  //
-  // RACE-CRITICAL ordering: the watchdog CAS-sets claimed = true BEFORE
-  // WinHttpCloseHandle, AND the main thread skips its own close when it
-  // loses the CAS. Prevents double-close (can crash winhttp.dll on older OS).
-  //
-  // IMPORTANT: disarm ONLY once, at final cleanup (after body read or on
-  // send/receive failure). Early disarm after ReceiveResponse used to skip
-  // the final close — leaking every successful request handle (P0-A).
-  auto watchdogCancelled = std::make_shared<std::atomic_bool>(false);
-  if (totalTimeoutMs > 0) {
-    ArmRequestHandleWatchdog(request, totalTimeoutMs, watchdogCancelled);
+  // Stage 3a cooperative deadline: the watchdog only raises
+  // deadlineFiredFlag when the total budget expires (per-op timeouts are
+  // what actually unblock a hung call). The handle is closed solely by
+  // this thread, after its WinHTTP calls return.
+  auto deadlineFiredFlag = std::make_shared<std::atomic_bool>(false);
+  if (totalTimeoutMs > 0 &&
+      !ArmRequestHandleWatchdog(totalTimeoutMs, deadlineFiredFlag)) {
+    // Watchdog rejected the registration (pending backlog cap). Running
+    // without deadline enforcement is not an option — a hung send/receive
+    // would hold the handle indefinitely. Fail explicitly and release the
+    // handle we own (nothing was armed, so there is no race; the pooled
+    // connect stays healthy — this is admission control, not a poisoned
+    // connection).
+    result.error = "watchdog_overload";
+    CloseRequestHandle(request);
+    return result;
   }
 
   // CDN 30x 跳转必须显式跟随，否则封面/签名媒体 URL 会静默退化为占位/播放失败。
@@ -280,28 +297,45 @@ HttpResult ExecuteRequest(
   WinHttpSetOption(request, WINHTTP_OPTION_REDIRECT_POLICY, &redirectPolicy, sizeof(redirectPolicy));
 
   // Bound per-op timeouts so a hung server can't block past the total
-  // budget. WinHttpSendRequest / WinHttpReceiveResponse each have their own
-  // timeout option; without these, the default is 30s per op, which can
-  // exceed the 9s (or 500ms) total budget the caller asked for. We split
-  // the total budget roughly in thirds: connect / send / receive.
+  // budget. All of them live on the REQUEST handle: WinHTTP rejects
+  // WINHTTP_OPTION_CONNECT_TIMEOUT on a connect handle with
+  // ERROR_WINHTTP_INCORRECT_HANDLE_TYPE (12018) — the old call failed
+  // silently, leaving connects at the system default. After Stage 3a
+  // removed the watchdog's cross-thread close, these per-op timeouts are
+  // the load-bearing unblock mechanism, so every setup failure is
+  // surfaced: a request whose timeouts cannot be enforced is not run.
   if (totalTimeoutMs > 0) {
-    // Connect timeout applies to the connection, not the request handle.
-    // Reuse the same budget as a conservative cap; the connect itself is
-    // typically fast when reusing a pooled connection.
     DWORD connectTimeout = static_cast<DWORD>(std::min<long>(totalTimeoutMs / 2, 6000));
-    WinHttpSetOption(connect, WINHTTP_OPTION_CONNECT_TIMEOUT,
-                     &connectTimeout, sizeof(connectTimeout));
     DWORD opTimeout = static_cast<DWORD>(std::min<long>(
         std::max<long>(totalTimeoutMs / 3, 100), 10000));
-    WinHttpSetOption(request, WINHTTP_OPTION_SEND_TIMEOUT, &opTimeout, sizeof(opTimeout));
-    WinHttpSetOption(request, WINHTTP_OPTION_RECEIVE_TIMEOUT, &opTimeout, sizeof(opTimeout));
+    DWORD responseTimeout = opTimeout;
     // WINHTTP_OPTION_RESPONSE_TIMEOUT bounds the WinHttpReceiveResponse
     // wait for response headers. Available on Windows 8.1+; defined here
     // as 7 because older Windows SDKs may not export the constant.
-    DWORD responseTimeout = opTimeout;
     constexpr DWORD kResponseTimeoutOption = 7;
-    WinHttpSetOption(request, kResponseTimeoutOption,
-                     &responseTimeout, sizeof(responseTimeout));
+    // g_faultTimeoutSetup: test-only injection that deterministically
+    // produces the timeout_setup_failed path (quota release + GET no-retry
+    // are pinned by behavioral tests).
+    const bool timeoutsOk =
+        !g_faultTimeoutSetup.load(std::memory_order_acquire) &&
+        WinHttpSetOption(request, WINHTTP_OPTION_CONNECT_TIMEOUT,
+                         &connectTimeout, sizeof(connectTimeout)) &&
+        WinHttpSetOption(request, WINHTTP_OPTION_SEND_TIMEOUT,
+                         &opTimeout, sizeof(opTimeout)) &&
+        WinHttpSetOption(request, WINHTTP_OPTION_RECEIVE_TIMEOUT,
+                         &opTimeout, sizeof(opTimeout)) &&
+        WinHttpSetOption(request, kResponseTimeoutOption,
+                         &responseTimeout, sizeof(responseTimeout));
+    if (!timeoutsOk) {
+      // The deadline entry was already armed (Arm precedes this block) —
+      // release its admission budget before returning, exactly like every
+      // other early-exit path. Review P1: the first draft leaked it here,
+      // and GET then retried the error through its backoff schedule.
+      echo::async::RequestWatchdog::Instance().Cancel(deadlineFiredFlag);
+      result.error = "timeout_setup_failed";
+      CloseRequestHandle(request);
+      return result;  // connect stays healthy — admission-style rejection
+    }
   }
 
   // 组装 header 块；POST 在缺省时补 Content-Type: application/json。
@@ -327,19 +361,19 @@ HttpResult ExecuteRequest(
       request, headerPtr, headerLength,
       const_cast<void*>(postBody), postLen, postLen, 0);
   if (!sent || !WinHttpReceiveResponse(request, nullptr)) {
-    // Determine whether the watchdog fired (and therefore already closed
-    // the handle). Use compare_exchange so the main thread only closes
-    // when it successfully claims the close right — preventing a
-    // double-close race with the watchdog.
-    bool expected = false;
-    bool watchdogFired = !watchdogCancelled->compare_exchange_strong(
-        expected, true, std::memory_order_acq_rel);
-    result.timedOut = watchdogFired;
+    // Stage 3a: the handle has no cross-thread closer anymore — this thread
+    // is the SOLE closer. deadlineFiredFlag only records that the total
+    // budget expired (the call itself was unblocked by its per-op timeout).
+    const bool deadlineFired =
+        deadlineFiredFlag->load(std::memory_order_acquire);
+    result.timedOut = deadlineFired;
     result.error = LastErrorText("WinHttpSendRequest/WinHttpReceiveResponse");
-    if (!watchdogFired) {
-      // We own the close.
-      CloseRequestHandle(request);
+    if (!deadlineFired) {
+      // The deadline entry is still armed — release its admission budget
+      // now instead of holding it until the deadline expires.
+      echo::async::RequestWatchdog::Instance().Cancel(deadlineFiredFlag);
     }
+    CloseRequestHandle(request);
     pool.Evict(url.host, url.port);  // 剔除坏 connect，避免永久复用中毒句柄
     return result;
   }
@@ -353,14 +387,38 @@ HttpResult ExecuteRequest(
     result.statusCode = static_cast<long>(statusCode);
   }
 
+  // Response Content-Length, for incomplete-body detection at EOF: a
+  // response that ends with fewer bytes than promised is an error, never a
+  // success (review probe: headers-only 200 with a stalled body).
+  DWORD contentLength = 0;
+  DWORD contentLenSize = sizeof(contentLength);
+  const bool hasContentLength = WinHttpQueryHeaders(
+      request,
+      WINHTTP_QUERY_CONTENT_LENGTH | WINHTTP_QUERY_FLAG_NUMBER,
+      WINHTTP_HEADER_NAME_BY_INDEX, &contentLength, &contentLenSize,
+      WINHTTP_NO_HEADER_INDEX);
+
   DWORD available = 0;
-  while (WinHttpQueryDataAvailable(request, &available) && available > 0) {
-    // Total receive deadline check
-    auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
+  bool receiveComplete = false;
+  while (!receiveComplete) {
+    // Deadline check between blocking calls: a fired deadline (watchdog
+    // flag or elapsed budget) must NEVER surface as a successful response.
+    const auto elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(
         std::chrono::steady_clock::now() - startTime).count();
-    if (elapsed >= totalTimeoutMs) {
+    if (deadlineFiredFlag->load(std::memory_order_acquire) ||
+        elapsed >= totalTimeoutMs) {
       result.timedOut = true;
       result.error = "total_receive_timeout";
+      break;
+    }
+    if (!WinHttpQueryDataAvailable(request, &available)) {
+      // A query failure is an error, NOT a normal end-of-stream — the old
+      // loop silently exited here and reported headers as success.
+      result.error = LastErrorText("WinHttpQueryDataAvailable");
+      break;
+    }
+    if (available == 0) {
+      receiveComplete = true;  // clean end-of-stream
       break;
     }
     // Max body size guard
@@ -374,18 +432,33 @@ HttpResult ExecuteRequest(
       result.error = LastErrorText("WinHttpReadData");
       break;
     }
+    if (read == 0) {
+      // Data was announced but the connection delivered nothing: an early
+      // close, not EOF.
+      result.error = "connection_closed_early";
+      break;
+    }
     result.body.append(buffer.data(), buffer.data() + read);
   }
-
-  // Disarm the watchdog (CAS to avoid overwriting a watchdog-claimed
-  // true) and only close if the watchdog didn't already close.
-  // This is the SOLE success-path close — do not CAS-disarm earlier.
-  bool expectedFinal = false;
-  bool watchdogClaimed = !watchdogCancelled->compare_exchange_strong(
-      expectedFinal, true, std::memory_order_acq_rel);
-  if (!watchdogClaimed) {
-    CloseRequestHandle(request);  // 仅关 request；connect/session 由池管理
+  if (receiveComplete && hasContentLength && result.body.size() < contentLength) {
+    result.error = "incomplete_body";
   }
+
+  // Stage 3a: this thread is the SOLE closer of the request handle. A fired
+  // deadline must be reflected in the result — never a bare success; the
+  // entry was already released by the executor in that case. Otherwise
+  // cancel the still-armed entry to free its admission budget now.
+  const bool deadlineFired =
+      deadlineFiredFlag->load(std::memory_order_acquire);
+  if (deadlineFired) {
+    result.timedOut = true;
+    if (result.error.empty()) {
+      result.error = "total_receive_timeout";
+    }
+  } else {
+    echo::async::RequestWatchdog::Instance().Cancel(deadlineFiredFlag);
+  }
+  CloseRequestHandle(request);  // 仅关 request；connect/session 由池管理
   return result;
 }
 
@@ -397,6 +470,10 @@ void CloseHttpConnectionPool() {
 
 long HttpClientLiveRequestHandleCount() {
   return g_liveRequestHandles.load(std::memory_order_relaxed);
+}
+
+void HttpClientSetTimeoutSetupFaultForTest(bool enabled) {
+  g_faultTimeoutSetup.store(enabled, std::memory_order_release);
 }
 
 HttpResult HttpClient::Get(
@@ -444,8 +521,15 @@ HttpResult HttpClient::Get(
       res.error = "cancelled";
       return res;
     }
-    bool transient = res.timedOut ||
-                     (!res.error.empty() && res.statusCode == 0);
+    // Local admission/setup failures are not network conditions: return
+    // them verbatim and immediately. Classifying them as transient used to
+    // send them through the backoff schedule (review probe: 2527ms for a
+    // 1000ms budget) while hammering an already-saturated watchdog.
+    const bool admissionFailure = res.error == "watchdog_overload" ||
+                                  res.error == "timeout_setup_failed";
+    bool transient = !admissionFailure &&
+                     (res.timedOut ||
+                      (!res.error.empty() && res.statusCode == 0));
     if (!transient || attempt == 2) return res;
     std::this_thread::sleep_for(std::chrono::milliseconds(backoffMs[attempt]));
   }

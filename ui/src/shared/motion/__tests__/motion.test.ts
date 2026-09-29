@@ -32,7 +32,6 @@ import {
   animateCountUp,
   crossfadeTheme,
   isReducedMotion,
-  animateElement,
   animateStagger,
   startVinylSpin,
   pressBounceDown,
@@ -116,38 +115,35 @@ describe('motionPrimitives', () => {
 
   // --- Neutral profile provider (replaces themeStore reads) ---
 
-  it('animateElement resolves controlRelease through the injected provider', async () => {
+  it('pressBounceUp resolves controlRelease through the injected provider', async () => {
     const { gsap } = await import('gsap');
     configureMotionProfileProvider(() => 'aurora');
     const el = document.createElement('div');
 
-    animateElement(el, { opacity: 0 }, { opacity: 1 }, 'controlRelease');
+    pressBounceUp(el);
 
-    expect(gsap.fromTo).toHaveBeenCalledWith(
+    expect(gsap.to).toHaveBeenCalledWith(
       el,
-      { opacity: 0 },
-      expect.objectContaining({ ease: 'elastic.out(1.12, 0.42)' }),
+      expect.objectContaining({ ease: 'power2.out' }),
     );
   });
 
-  it('animateElement switches profiles live when the provider returns newsprint', async () => {
+  it('pressBounceDown switches profiles live when the provider returns newsprint', async () => {
     const { gsap } = await import('gsap');
     let skin: 'aurora' | 'newsprint' = 'aurora';
     configureMotionProfileProvider(() => skin);
     const el = document.createElement('div');
 
-    animateElement(el, { opacity: 0 }, { opacity: 1 }, 'controlPress');
-    expect(gsap.fromTo).toHaveBeenLastCalledWith(
+    pressBounceDown(el);
+    expect(gsap.to).toHaveBeenLastCalledWith(
       el,
-      { opacity: 0 },
       expect.objectContaining({ duration: 0.08 }),
     );
 
     skin = 'newsprint';
-    animateElement(el, { opacity: 0 }, { opacity: 1 }, 'controlPress');
-    expect(gsap.fromTo).toHaveBeenLastCalledWith(
+    pressBounceDown(el);
+    expect(gsap.to).toHaveBeenLastCalledWith(
       el,
-      { opacity: 0 },
       expect.objectContaining({ duration: 0.1 }),
     );
   });
@@ -161,37 +157,20 @@ describe('motionPrimitives', () => {
     // Aurora controlPress duration with no provider configured at all.
     expect(gsap.to).toHaveBeenCalledWith(
       el,
-      expect.objectContaining({ scale: 0.86, duration: 0.08 }),
+      expect.objectContaining({ scale: 0.96, duration: 0.08 }),
     );
   });
 
-  it('animateElement in reduced motion sets final state without gsap.to', async () => {
+  it('pressBounceDown in reduced motion sets final state without a tween', async () => {
     const { gsap } = await import('gsap');
     vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
     const el = document.createElement('div');
 
-    animateElement(el, { opacity: 0 }, { opacity: 1 }, 'controlPress');
+    pressBounceDown(el);
 
-    expect(gsap.set).toHaveBeenCalledWith(el, { opacity: 1 });
+    expect(el.style.transform).toBe('scale(0.94)');
     expect(gsap.to).not.toHaveBeenCalled();
     expect(gsap.fromTo).not.toHaveBeenCalled();
-  });
-
-  // --- animateElement tests (generic) ---
-
-  it('animateElement calls gsap.killTweensOf before starting', async () => {
-    const { gsap } = await import('gsap');
-    const el = document.createElement('div');
-
-    animateElement(el, { opacity: 0 }, { opacity: 1 }, 'controlPress');
-
-    expect(gsap.killTweensOf).toHaveBeenCalledWith(el);
-  });
-
-  it('animateElement returns handle with kill()', () => {
-    const el = document.createElement('div');
-    const handle = animateElement(el, { opacity: 0 }, { opacity: 1 }, 'controlPress');
-    expect(typeof handle.kill).toBe('function');
   });
 
   // --- animateStagger tests ---
@@ -220,7 +199,7 @@ describe('motionPrimitives', () => {
     expect(gsap.fromTo).toHaveBeenCalledWith(
       els,
       { opacity: 0, y: 20 },
-      expect.objectContaining({ stagger: 0.04 }),
+      expect.objectContaining({ stagger: 0.025 }),
     );
   });
 
@@ -235,18 +214,18 @@ describe('motionPrimitives', () => {
     expect(gsap.fromTo).not.toHaveBeenCalled();
   });
 
-  it('pressBounceDown scales down and pressBounceUp springs with elastic', async () => {
+  it('pressBounceDown scales down and pressBounceUp settles without overshoot', async () => {
     const { gsap } = await import('gsap');
     const el = document.createElement('button');
     pressBounceDown(el);
     expect(gsap.to).toHaveBeenCalledWith(
       el,
-      expect.objectContaining({ scale: 0.86, duration: 0.08 }),
+      expect.objectContaining({ scale: 0.96, duration: 0.08 }),
     );
     pressBounceUp(el);
     expect(gsap.to).toHaveBeenCalledWith(
       el,
-      expect.objectContaining({ scale: 1, ease: expect.stringContaining('elastic') }),
+      expect.objectContaining({ scale: 1, ease: 'power2.out' }),
     );
   });
 
@@ -258,7 +237,7 @@ describe('motionPrimitives', () => {
 
     expect(gsap.to).toHaveBeenLastCalledWith(
       el,
-      expect.objectContaining({ duration: 0.58, ease: 'elastic.out(1.12, 0.42)' }),
+      expect.objectContaining({ duration: 0.18, ease: 'power2.out' }),
     );
   });
 
@@ -295,8 +274,8 @@ describe('motionPrimitives', () => {
       els.slice(0, 12),
       { opacity: 0, y: 20 },
       expect.objectContaining({
-        duration: 0.4,
-        stagger: 0.04,
+        duration: 0.28,
+        stagger: 0.025,
       }),
     );
   });

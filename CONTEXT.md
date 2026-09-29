@@ -2,9 +2,11 @@
 
 > **Read this first** when entering the codebase. It gives a mental model of the project, current status, and where things live.
 
+> **2026-09-18 status:** This file retains historical architecture milestones. Active VIP, account-session and other-machine freeze work is **not complete**. Start with the current execution queue（本机留存：docs/current-work.md） and [documentation index](docs/README.md); historical completion labels below are not current incident acceptance.
+
 ## Project Overview
 
-BottleMusic is a Tauri 2.0 + Vue 3 + C++ unofficial KuGou Concept Edition music player for Windows. The v2 effort is structured as 5 sub-projects (S1–S5) on a shared FFI boundary. All five sub-projects are complete.
+BottleMusic is a Tauri 2.0 + Vue 3 + C++ unofficial KuGou Concept Edition music player for Windows. The v2 effort was structured as 5 sub-projects (S1–S5) on a shared FFI boundary. Their historical implementation milestones do not close the current incidents linked above.
 
 ## Architecture (3 layers)
 

@@ -4,6 +4,7 @@ import type { Router } from 'vue-router';
 import { clearLyricFullscreenUnlessOnLyric } from '../../features/lyrics';
 import { settleActiveTransitionSessions } from './transitionSession';
 import { routeNames } from './routes';
+import { recordPlaybackMediaSnapshot, recoverPlaybackAfterNavigation } from '../../playback/playerStore';
 
 const activePageTransitions = new Set<Element>();
 
@@ -39,5 +40,15 @@ export function installNavigationLifecycle(router: Router): void {
   router.beforeEach((to) => {
     clearLyricFullscreenUnlessOnLyric(to.name === routeNames.lyric);
     cancelPageTransition();
+  });
+  // Page-switch silence investigation: snapshot media AFTER each navigation
+  // (home ↔ account ↔ home) so ring-buffer export correlates route with
+  // paused/muted/volume/src without claiming audio was destroyed.
+  router.afterEach((to, from) => {
+    const label = `route:${String(from.name ?? '')}->${String(to.name ?? '')}`;
+    recordPlaybackMediaSnapshot(label);
+    // Live silence after SPA nav: restore EQ context / element volume if
+    // the shared <audio> is still "playing" but inaudible.
+    recoverPlaybackAfterNavigation();
   });
 }

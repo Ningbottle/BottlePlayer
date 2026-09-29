@@ -17,21 +17,3 @@ export {
 export type { CircuitBucket } from './nativeClient';
 
 export { prepareAudioSourceUrl } from './audioProxy';
-
-export {
-  SNAP_MARGIN,
-  isTauriRuntime,
-  snapToEdges,
-  anchorPosition,
-  loadOverlayPos,
-  saveOverlayPos,
-  resolveCreatePos,
-  loadLyricPrefs,
-  saveLyricPrefs,
-  loadLyricSize,
-  saveLyricSize,
-  toggleOverlay,
-  settleCurrentOverlay,
-  moveCurrentOverlayTo,
-} from './windows';
-export type { OverlayKind, OverlayToggleResult, OverlayPos, LyricPrefs } from './windows';

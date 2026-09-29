@@ -17,6 +17,7 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "backend:build": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-backend.ps1",
+    "backend:build:release": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/build-backend.ps1 -Preset bottlemusic-release",
     "backend:sync": "powershell -NoProfile -ExecutionPolicy Bypass -File ./scripts/sync-backend.ps1",
     "test": "vitest run",
     "test:watch": "vitest"

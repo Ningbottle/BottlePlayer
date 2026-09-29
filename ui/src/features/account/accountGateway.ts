@@ -68,6 +68,16 @@ export interface YouthVipAdResponse {
   data?: unknown;
 }
 
+export interface YouthDayVipResponse {
+  status: number;
+  error_code?: number | string;
+  error_msg?: string;
+  error?: string;
+  upstream_called?: boolean;
+  profile_requested?: string;
+  data?: unknown;
+}
+
 export interface LogoutResponse {
   status: number;
   error?: string;
@@ -95,6 +105,20 @@ export async function claimYouthListenSong(): Promise<YouthListenSongResponse> {
 
 export async function claimYouthVipAd(): Promise<YouthVipAdResponse> {
   return apiGet<YouthVipAdResponse>("/youth/vip/ad");
+}
+
+export async function claimYouthDayVip(): Promise<YouthDayVipResponse> {
+  return apiGet<YouthDayVipResponse>("/youth/day/vip");
+}
+
+/** Debug-only day Concept candidate: single explicit call, never auto-selected.
+ *  Release backend must reject profile=concept without an upstream request. */
+export async function claimYouthDayVipConceptCandidate(): Promise<YouthDayVipResponse> {
+  return apiGet<YouthDayVipResponse>("/youth/day/vip", { profile: "concept" });
+}
+
+export async function claimYouthDayVipUpgrade(): Promise<YouthDayVipResponse> {
+  return apiGet<YouthDayVipResponse>("/youth/day/vip/upgrade");
 }
 
 export async function fetchQrKey(): Promise<QrKeyResponse> {

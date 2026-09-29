@@ -11,13 +11,14 @@ vi.mock('../../../playback/playerStore', async () => {
   return { ...actual, playAll: vi.fn() };
 });
 
-const { mockUserStore } = vi.hoisted(() => ({ mockUserStore: { isLoggedIn: true } }));
-vi.mock('../../account', () => ({
-  userStore: mockUserStore,
+vi.mock('../../account', async () => ({
+  userStore: (await import('vue')).reactive({ isLoggedIn: true, userId: 'a', deviceReady: true }),
   checkLoginStatus: vi.fn().mockResolvedValue(undefined),
 }));
 
 import HistoryView from '../HistoryView.vue';
+import { userStore as mockUserStore } from '../../account';
+import { playAll } from '../../../playback/index';
 import { recentPlayedStore } from '../../../playback/data/recentPlayedStore';
 import type { Track } from '../../../shared/music/track';
 
@@ -32,6 +33,8 @@ describe('HistoryView local-first recent-played', () => {
     recentPlayedStore.reset();
     mockApiGet.mockReset();
     mockUserStore.isLoggedIn = true;
+    mockUserStore.userId = 'a';
+    mockUserStore.deviceReady = true;
   });
   afterEach(() => {
     wrapper?.unmount();
@@ -105,5 +108,118 @@ describe('HistoryView local-first recent-played', () => {
 
     expect(w.text()).toContain('Local One');
     expect(mockApiGet).not.toHaveBeenCalled();
+  });
+
+  it('does not let undated remote entries displace actual local listens and accepts numeric string dates', async () => {
+    recentPlayedStore.recordRecentPlayed(mkTrack('shared', 'Latest local'));
+    mockApiGet.mockResolvedValue({ status: 1, data: { info: [
+      null,
+      { info: { hash: 'SHARED', name: 'Undated duplicate', duration: '200' } },
+      { info: { hash: 'old', name: 'Old remote', duration: 'bad' }, time: '1600000000' },
+      { info: { hash: 'unknown', name: 'Undated remote' } },
+    ] } });
+    const w = mountHistory();
+    await flushPromises();
+    const rows = w.findAll('.song-row[role="button"]');
+    expect(rows.map(row => row.find('.title').text())).toEqual(['Latest local', 'Old remote', 'Undated remote']);
+    expect(w.text()).not.toContain('NaN');
+  });
+
+  it('normalizes timestamp from both the shared songs fixture and wrapped song metadata', async () => {
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: {
+        songs: [
+          { info: { hash: 'song-timestamp', name: '歌曲行时间', timestamp: 1700000000000 } },
+          { hash: 'fixture-timestamp', name: '夹具时间', timestamp: 1800000000000 },
+          { hash: 'undated', name: '未知时间' },
+        ],
+        bp: 'synthetic-next-cursor',
+        bp_finished: 'opaque-upstream-string',
+        has_more: 1,
+      },
+    });
+
+    const w = mountHistory();
+    await flushPromises();
+
+    const rows = w.findAll('.song-row[role="button"]');
+    expect(rows.map(row => row.find('.title').text())).toEqual(['夹具时间', '歌曲行时间', '未知时间']);
+  });
+
+  it('falls through invalid time aliases and keeps 1990s epoch milliseconds as milliseconds', async () => {
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: {
+        songs: [
+          { hash: 'undated', name: '未知时间' },
+          { hash: 'legacy-ms', name: '1990年代毫秒', time: 0, addtime: 'invalid', timestamp: 752460000000 },
+          { info: { hash: 'valid-nested', name: '嵌套秒', time: 'invalid', timestamp: '1700000000' } },
+          { hash: 'valid-fallback', name: '外层秒', time: 0, timestamp: '1735689600' },
+        ],
+      },
+    });
+
+    const w = mountHistory();
+    await flushPromises();
+
+    const rows = w.findAll('.song-row[role="button"]');
+    expect(rows.map(row => row.find('.title').text())).toEqual([
+      '外层秒',
+      '嵌套秒',
+      '1990年代毫秒',
+      '未知时间',
+    ]);
+  });
+
+  it('keeps history rows actionable by mouse and keyboard', async () => {
+    mockApiGet.mockResolvedValue({
+      status: 1,
+      data: { info: [
+        { hash: 'first', name: '第一首', time: 1800000000 },
+        { hash: 'second', name: '第二首', time: 1700000000 },
+      ] },
+    });
+    const w = mountHistory();
+    await flushPromises();
+
+    await w.get('[aria-label="播放 第二首"]').trigger('keydown.enter');
+
+    expect(playAll).toHaveBeenCalledWith(
+      [expect.objectContaining({ FileHash: 'first', SongName: '第一首' }), expect.objectContaining({ FileHash: 'second', SongName: '第二首' })],
+      1,
+    );
+  });
+
+  it('discards a stale account response and clears remote history on logout', async () => {
+    let resolveOld!: (value: unknown) => void;
+    mockApiGet.mockImplementationOnce(() => new Promise(resolve => { resolveOld = resolve; }));
+    const w = mountHistory();
+    mockApiGet.mockResolvedValue({ status: 1, data: { info: [{ hash: 'b-song', name: 'Account B' }] } });
+    mockUserStore.userId = 'b';
+    await flushPromises();
+    resolveOld({ status: 1, data: { info: [{ hash: 'a-song', name: 'Account A' }] } });
+    await flushPromises();
+    expect(w.text()).toContain('Account B');
+    expect(w.text()).not.toContain('Account A');
+    mockUserStore.isLoggedIn = false;
+    await flushPromises();
+    expect(w.text()).not.toContain('Account B');
+  });
+
+  it('loads when the device becomes ready and retries a failed sync without hiding local rows', async () => {
+    mockUserStore.deviceReady = false;
+    recentPlayedStore.recordRecentPlayed(mkTrack('local', 'Local'));
+    const w = mountHistory();
+    expect(mockApiGet).not.toHaveBeenCalled();
+    mockApiGet.mockResolvedValueOnce({ status: 0 });
+    mockUserStore.deviceReady = true;
+    await flushPromises();
+    expect(w.text()).toContain('Local');
+    mockApiGet.mockResolvedValueOnce({ status: 1, data: { info: [] } });
+    await w.get('.history-retry').trigger('click');
+    await flushPromises();
+    expect(mockApiGet).toHaveBeenCalledTimes(2);
+    expect(w.find('.history-retry').exists()).toBe(false);
   });
 });

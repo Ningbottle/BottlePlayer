@@ -11,7 +11,6 @@ import {
 import { setLyricFullscreen } from '../../../features/lyrics';
 import {
   isFavoriteMarker,
-  markFavorite,
   reloadFavoriteMarkers,
   favoriteStore,
 } from '../../../features/library';
@@ -29,6 +28,7 @@ export interface PlayerController {
   readonly loopMode: LoopMode;
   readonly errorMsg: string;
   readonly isPreview: boolean;
+  readonly delivery?: 'full' | 'preview' | 'unknown';
   readonly vipRequired: boolean;
   readonly quality: string;
   readonly coverUrl: string;
@@ -38,7 +38,6 @@ export interface PlayerController {
   readonly isFavorite: boolean;
 
   showQualityMenu: boolean;
-  showAddModal: boolean;
   toastMsg: string;
   favoriteMsg: string;
   qualityOptions: string[];
@@ -61,10 +60,6 @@ export interface PlayerController {
   handleFavorite: () => Promise<void>;
   handleSelectQuality: (q: string) => void;
   closeQualityMenu: () => void;
-  closeAddModal: () => void;
-  handleFavoriteSuccess: (playlistName: string) => void;
-  handleFavoriteError: (msg: string) => void;
-
   getQualityLabel: (q: string) => string;
   isCurrentQuality: (q: string) => boolean;
 }
@@ -98,6 +93,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   const loopMode = computed(() => playerStore.loopMode);
   const errorMsg = computed(() => playerStore.errorMsg);
   const isPreview = computed(() => playerStore.isPreview);
+  const delivery = computed(() => playerStore.delivery ?? 'unknown');
   const vipRequired = computed(() => playerStore.vipRequired);
   const quality = computed(() => playerStore.quality);
 
@@ -114,7 +110,6 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
   const isFavorite = computed(() => isFavoriteMarker(currentTrack.value?.FileHash));
 
   const showQualityMenu = ref(false);
-  const showAddModal = ref(false);
   const toastMsg = ref('');
   const favoriteMsg = ref('');
 
@@ -292,24 +287,6 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     showQualityMenu.value = false;
   }
 
-  function closeAddModal() {
-    showAddModal.value = false;
-  }
-
-  function handleFavoriteSuccess(playlistName: string) {
-    const hash = currentTrack.value?.FileHash;
-    if (hash) markFavorite(hash);
-    favoriteMsg.value = `已收藏到「${playlistName}」`;
-    if (favToastTimer) clearTimeout(favToastTimer);
-    favToastTimer = setTimeout(() => { favoriteMsg.value = ''; favToastTimer = null; }, 2000);
-  }
-
-  function handleFavoriteError(msg: string) {
-    favoriteMsg.value = msg;
-    if (favToastTimer) clearTimeout(favToastTimer);
-    favToastTimer = setTimeout(() => { favoriteMsg.value = ''; favToastTimer = null; }, 2000);
-  }
-
   function getQualityLabel(q: string): string {
     return qualityLabels[q] || q;
   }
@@ -329,6 +306,7 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     loopMode,
     errorMsg,
     isPreview,
+    delivery,
     vipRequired,
     quality,
     coverUrl,
@@ -337,7 +315,6 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     isLyricView,
     isFavorite,
     showQualityMenu,
-    showAddModal,
     toastMsg,
     favoriteMsg,
     qualityOptions,
@@ -356,9 +333,6 @@ export function usePlayerControls(options: UsePlayerControlsOptions): PlayerCont
     handleFavorite,
     handleSelectQuality,
     closeQualityMenu,
-    closeAddModal,
-    handleFavoriteSuccess,
-    handleFavoriteError,
     getQualityLabel,
     isCurrentQuality,
   }) as PlayerController;

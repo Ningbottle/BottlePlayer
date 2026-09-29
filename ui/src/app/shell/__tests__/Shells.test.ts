@@ -297,6 +297,8 @@ vi.mock('../../../features/home', async (importOriginal) => {
 vi.mock('../../../playback/playerStore', () => ({
   initPlayer: vi.fn(),
   initPlayerBackend: vi.fn(),
+  recordPlaybackMediaSnapshot: vi.fn(),
+  recoverPlaybackAfterNavigation: vi.fn(),
   playerStore: {
     currentTrack: { name: 'Test Song', singer: 'Test Artist' } as any,
     isPlaying: false,
@@ -337,9 +339,8 @@ vi.mock('../Sidebar.vue', () => ({
 }));
 vi.mock('../Topbar.vue', () => ({
   default: {
-    props: ['searchQuery'],
-    emits: ['update:searchQuery', 'back'],
-    template: '<header><button data-test="edit-search" @click="$emit(\'update:searchQuery\', \'typed\')" /></header>',
+    emits: ['search', 'back'],
+    template: '<header><button data-test="submit-search" @click="$emit(\'search\', \'typed\')" /></header>',
   },
 }));
 vi.mock('../../../playback/components/PlayerBar.vue', () => ({ default: { template: '<footer />' } }));
