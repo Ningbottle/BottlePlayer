@@ -85,6 +85,10 @@ jobs:
         shell: bash
         run: |
           export PATH="$PWD/../../native/vcpkg_installed/x64-windows/bin:$PATH"
+          # Same requirement as ci.yml: the R01/stats tests measure the real
+          # DLL and require ECHO_CAPI_DLL. Here it must point at the Release
+          # build this workflow is about to package, not at a Debug tree.
+          export ECHO_CAPI_DLL="$PWD/../../native/out/bottlemusic-release/EchoCAPI.dll"
           cargo test
           cargo clippy --all-targets -- -D warnings
         working-directory: ui/src-tauri
