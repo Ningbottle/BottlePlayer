@@ -1,5 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import fixture from '../../../../../docs/validation/full-stack-audit-20260927/fixtures/favorite-tracks.json';
 import type { Track } from '../../../shared/music/track';
 
 const account = vi.hoisted(() => ({ isLoggedIn: true }));
@@ -14,13 +13,22 @@ const track = (values: Partial<Track> = {}): Track => ({
   FileHash: 'HASH1', SongName: '', SingerName: '', Duration: 0, ...values,
 });
 
+// The structured protocol must carry a name verbatim: commas, a literal pipe, a
+// literal "%7C" and non-ASCII are exactly what the legacy pipe/comma encoding
+// could not express.
+const structuredNames = [
+  { name: 'Song, with comma | pipe %7C and 中文', hash: 'HASH1', album_id: 111, mixsongid: 222 },
+  { name: '', hash: 'HASH2', album_id: 0, mixsongid: 0 },
+  { name: '100% Done', hash: 'HASH3', album_id: 333, mixsongid: 444 },
+];
+
 describe('favorite adapter structured native contract', () => {
   beforeEach(() => {
     apiPost.mockReset().mockResolvedValue({ status: 1 });
     account.isLoggedIn = true;
   });
 
-  it.each(fixture.structured_request.data)('preserves the shared name fixture: $name', async (entry) => {
+  it.each(structuredNames)('preserves the name verbatim: $name', async (entry) => {
     await expect(addTrackToPlaylist(playlist, track({
       FileHash: entry.hash, SongName: entry.name,
       AlbumID: String(entry.album_id), AlbumAudioID: String(entry.mixsongid),
