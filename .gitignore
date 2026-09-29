@@ -9,6 +9,15 @@ lerna-debug.log*
 
 # Diagnostic reports
 report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
+# Local crash evidence is retained on disk, not added to source commits.
+/ui.DMP
+
+# Local probe runs and redirected command scratch output.
+/output/
+/ui/audit/
+/ui/dist-root-profile/
+/ui/shelf-out.txt
+/ui/tsc-out.txt
 
 # Dependency directories
 node_modules
@@ -130,6 +139,8 @@ INITIALIZATION_SUMMARY.md
 # 本地临时凭据/签名中间产物（禁止提交）
 /.s64
 /.tok
+# Private continuation probes: copied account DB, history and signed URLs.
+/docs/validation/agent-b-continuation-20260928/bp-probe-work-*/
 # AI 工具指针文件（指向本地 AGENTS.md，随之保留本地）
 CLAUDE.md
 .cursorrules

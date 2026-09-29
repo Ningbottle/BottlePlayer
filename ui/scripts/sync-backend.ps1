@@ -29,6 +29,31 @@ Write-Host "[backend:sync] preset=$Preset"
 Write-Host "[backend:sync] source=$src"
 Write-Host "[backend:sync] source SHA256=$srcHash"
 
+# Resolve every required source before changing any staged runtime. A DLL
+# already left in libs is not evidence that this build has its dependency.
+$nativeRootFromDll = Split-Path -Parent (Split-Path -Parent (Split-Path -Parent $src))
+$sqliteCandidates = @(
+    (Join-Path $uiRoot '..\native\vcpkg_installed\x64-windows\bin\sqlite3.dll'),
+    (Join-Path $nativeRootFromDll 'vcpkg_installed\x64-windows\bin\sqlite3.dll')
+)
+$sqliteSrc = $null
+foreach ($candidate in $sqliteCandidates) {
+    if (Test-Path -LiteralPath $candidate -PathType Leaf) {
+        $sqliteSrc = (Resolve-Path -LiteralPath $candidate).Path
+        break
+    }
+}
+if (-not $sqliteSrc) {
+    throw "Required sqlite3.dll not found. Checked: $($sqliteCandidates -join ', ')"
+}
+if ((Get-Item -LiteralPath $sqliteSrc).Length -eq 0) {
+    throw "Empty required SQLite runtime: $sqliteSrc"
+}
+
+# A successful copy alone cannot establish that this DLL contains today's
+# native code. Reject stale fingerprints before changing either destination.
+& (Join-Path $PSScriptRoot 'verify-native-runtime.ps1') -NativeRoot $nativeRootFromDll -Dll $src
+
 $dstDir = Join-Path $uiRoot 'src-tauri\libs'
 New-Item -ItemType Directory -Force -Path $dstDir | Out-Null
 
@@ -44,9 +69,34 @@ function Sync-RuntimeDll {
 
     $destParent = Split-Path -Parent $Destination
     New-Item -ItemType Directory -Force -Path $destParent | Out-Null
-    Copy-Item -LiteralPath $Source -Destination $Destination -Force
-
     $sourceHash = (Get-FileHash -LiteralPath $Source -Algorithm SHA256).Hash
+    if ((Get-Item -LiteralPath $Source).Length -eq 0) {
+        throw "Empty native runtime: $Source"
+    }
+    if (Test-Path -LiteralPath $Destination -PathType Leaf) {
+        if ((Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash -eq $sourceHash) {
+            Write-Host "[backend:sync] unchanged=$Destination SHA256=$sourceHash"
+            return
+        }
+    }
+
+    $staged = Join-Path $destParent ('.runtime-' + [guid]::NewGuid().ToString('N') + '.tmp')
+    try {
+        Copy-Item -LiteralPath $Source -Destination $staged
+        if ((Get-FileHash -LiteralPath $staged -Algorithm SHA256).Hash -ne $sourceHash) {
+            throw "Hash mismatch while staging runtime: $Source"
+        }
+        if (Test-Path -LiteralPath $Destination -PathType Leaf) {
+            [System.IO.File]::Replace($staged, $Destination, [NullString]::Value)
+        } else {
+            [System.IO.File]::Move($staged, $Destination)
+        }
+    } finally {
+        if (Test-Path -LiteralPath $staged) {
+            Remove-Item -LiteralPath $staged -Force
+        }
+    }
+
     $destHash = (Get-FileHash -LiteralPath $Destination -Algorithm SHA256).Hash
     Write-Host "[backend:sync] dest=$Destination"
     Write-Host "[backend:sync] source SHA256=$sourceHash"
@@ -59,23 +109,5 @@ function Sync-RuntimeDll {
 Sync-RuntimeDll -Source $src -Destination (Join-Path $dstDir 'EchoCAPI.dll')
 Sync-RuntimeDll -Source $src -Destination (Join-Path $profileDir 'EchoCAPI.dll')
 
-# Resolve sqlite next to the real EchoCAPI output (handles git worktrees that only
-# junction native/out to the main tree while vcpkg_installed lives on main).
-$nativeRootFromDll = Split-Path -Parent (Split-Path -Parent $src) # .../native
-$sqliteCandidates = @(
-    (Join-Path $uiRoot '..\native\vcpkg_installed\x64-windows\bin\sqlite3.dll'),
-    (Join-Path $nativeRootFromDll 'vcpkg_installed\x64-windows\bin\sqlite3.dll'),
-    (Join-Path $dstDir 'sqlite3.dll')
-)
-$sqliteSrc = $null
-foreach ($c in $sqliteCandidates) {
-    if (Test-Path -LiteralPath $c) { $sqliteSrc = (Resolve-Path -LiteralPath $c).Path; break }
-}
-if ($sqliteSrc) {
-    Sync-RuntimeDll -Source $sqliteSrc -Destination (Join-Path $dstDir 'sqlite3.dll')
-    Sync-RuntimeDll -Source $sqliteSrc -Destination (Join-Path $profileDir 'sqlite3.dll')
-} else {
-    Write-Warning "sqlite3.dll not found; tried:"
-    foreach ($c in $sqliteCandidates) { Write-Warning "  $c" }
-    Write-Warning 'EchoCAPI.dll may fail to load with Windows error 126.'
-}
+Sync-RuntimeDll -Source $sqliteSrc -Destination (Join-Path $dstDir 'sqlite3.dll')
+Sync-RuntimeDll -Source $sqliteSrc -Destination (Join-Path $profileDir 'sqlite3.dll')
