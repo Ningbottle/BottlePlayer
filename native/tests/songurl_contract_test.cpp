@@ -270,6 +270,46 @@ int main() {
     std::cout << "  [ok] V6 quality selection contract" << std::endl;
   }
 
+  // ── 3116 A/B: v6 must sign with the family that minted the session ─────
+  // The credential chain in use today is minted by the Concept refresh
+  // (LoginService signs both refresh paths with kProjectEdition), so the only
+  // appid that can authenticate the token reaching v6/priv_url is the Concept
+  // one. Signing it with Standard's 1005 is what produced the 20018 wall from
+  // 09-15 onward; see docs/signature-family-experiment-2026-09-15.md.
+  std::cout << "[SongUrlContract] Testing v6 signature family follows the session edition..." << std::endl;
+  {
+    std::string capturedUrl;
+    echo::core::SongUrlService svc(
+        [](const std::string&,
+           const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{500, "{}", "unexpected GET in v6 test"};
+        },
+        [&capturedUrl](const std::string& url,
+                       const std::string&,
+                       const std::unordered_map<std::string, std::string>&) {
+          capturedUrl = url;
+          return echo::core::HttpResult{
+              200,
+              R"({"status":1,"data":[{"url":"http://cdn.example/vip-320.mp3","info":{"bitrate":320,"filesize":2000,"extname":"mp3","songName":"歌名","singerName":"歌手","timeLength":269000}}]})",
+              ""};
+        });
+
+    echo::core::DeviceInfo device;
+    device.dfid = "family-dfid";
+    device.guid = "family-guid";
+    const auto result = svc.Resolve(
+        "FAMILYHASH", "", "32100650", "320", "", "42", "tok", device, "vipTok", 3);
+    assert(result["status"] == 1);
+    assert(!capturedUrl.empty());
+    if (capturedUrl.find("appid=1005") != std::string::npos) {
+      std::cerr << "[SongUrlContract] v6 signed with Standard appid 1005 while the "
+                   "session was minted by the Concept family: " << capturedUrl << std::endl;
+    }
+    assert(capturedUrl.find("appid=3116") != std::string::npos);
+
+    std::cout << "  [ok] v6 signs with the session edition family" << std::endl;
+  }
+
   // ── Empty hash must return error ─────────────────────────────────────
   std::cout << "[SongUrlContract] Testing empty hash error..." << std::endl;
   {
