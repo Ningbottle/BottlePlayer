@@ -154,3 +154,19 @@ skills-lock.json
 .qoder/
 .superpowers/
 .tmp_*
+
+# 内部取证与逆向分析记录：含签名族/appid 链路、上游错误码取证、账号日志分析与
+# agent 交接件。本仓库是公开仓库（github.com/Ningbottle/BottlePlayer），这批材料
+# 保留本机、不入库。提交说明中对这些路径的引用指的是本机文件。
+/docs/validation/
+/docs/current-work.md
+/docs/signature-family-experiment-2026-09-15.md
+/docs/signature-family-experiment-2026-09-15-evidence/
+/docs/archive/task1-2026-09-14/
+/docs/task1-*.md
+/docs/agent-*.md
+/docs/bug-report-*.md
+/docs/full-stack-audit-*.md
+/docs/stage6-playback-validation-*.md
+/docs/playback-claim-chain-review-*.md
+/docs/execution-handoff-*.md
