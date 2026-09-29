@@ -43,6 +43,10 @@
 3. 读 [security-and-privacy.md](./security-and-privacy.md) 确认安全约束
 4. 读 [storage-and-data.md](./storage-and-data.md) 确认数据持久化方式
 
+## 当前开发入口
+
+2026-09-18：本 Wiki 主要记录历史架构，当前故障状态和后续操作请以活动队列（本机留存：../current-work.md）为准；完整索引见[文档入口](../README.md)。
+
 ## 文档规范
 
 - **语言**:中文,关键英文符号保留(类名、函数名、路径)
