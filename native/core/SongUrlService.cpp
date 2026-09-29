@@ -541,9 +541,12 @@ nlohmann::json SongUrlService::ResolveV6PrivUrl(
   }
 
   // ── 1. Build signed URL via KAR ──────────────────────────────────────────
-  // v6/priv_url 与参考实现(song_url_new.js)同约：Standard(appid=1005) + Lite key salt
-  // (参考硬编码 185672dd… 即使 appid=1005) + 会话 Cookie。
-  const auto profile = GetKuGouProfile(KuGouEdition::Standard);
+  // 签名族必须与铸造会话的那一族一致。LoginService 的两条刷新路径都用
+  // kProjectEdition(Concept, appid=3116) 铸造，因此这里跟随会话版型；沿用参考
+  // 实现的 Standard(1005) 去签 Concept 会话会被上游判 20018 —— 09-15 起 v6
+  // 全败的成因，双轮反向 A/B 见 docs/signature-family-experiment-2026-09-15.md。
+  // key salt 仍按参考实现硬编码 Lite(185672dd…)，它不随 appid 族变化，见下方 SignKey。
+  const auto profile = GetKuGouProfile(kProjectEdition);
   KuGouAndroidRequest req;
   req.endpoint = "http://tracker.kugou.com/v6/priv_url";
   req.profile = profile;
