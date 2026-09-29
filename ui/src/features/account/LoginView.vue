@@ -2,7 +2,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue';
 import QRCode from 'qrcode';
 import { fetchQrKey, checkQrStatus, logoutAuth } from './accountGateway';
-import { userStore, checkLoginStatus, claimVip, cancelClaim, claimVipViaRoute, logoutLocal, VIP_CLAIM_ROUTES, type VipClaimRoute } from './userStore';
+import { userStore, checkLoginStatus, claimVip, cancelClaim, claimVipViaRoute, claimDayVipConceptCandidate, isDayConceptCandidateUiEnabled, logoutLocal, refreshLiveVip, VIP_CLAIM_ROUTES, type VipClaimRoute } from './userStore';
+import { liveVipView } from './vipResolver';
 import { useThemeStore } from '../../app/appearance/themeStore';
 
 const themeStore = useThemeStore();
@@ -19,6 +20,9 @@ const statusMessage = ref('正在生成登录二维码…');
 let pollTimer: any = null;
 let pollAbort = false;
 let pollFailures = 0;
+let qrGeneration = 0;
+let pollingGeneration = 0;
+let disposed = false;
 /** Login-success delayed navigate; cleared on unmount. */
 let postLoginTimer: ReturnType<typeof setTimeout> | null = null;
 
@@ -26,33 +30,39 @@ const POLL_BASE_MS = 2_000;
 const POLL_MAX_MS = 10_000;
 
 async function generateQrCode() {
+  if (disposed) return;
+  // A refresh and an unmount both invalidate any in-flight key/QR image work.
+  const generation = ++qrGeneration;
+  stopPolling();
+  if (postLoginTimer) {
+    clearTimeout(postLoginTimer);
+    postLoginTimer = null;
+  }
   loginStatus.value = 0;
   statusMessage.value = '正在请求安全通道…';
   qrKey.value = '';
   qrCodeImg.value = '';
 
   try {
-    // 1. Get Key
     const keyRes = await fetchQrKey();
+    if (disposed || generation !== qrGeneration) return;
     if (keyRes.status === 1 && keyRes.data && keyRes.data.qrcode) {
       qrKey.value = keyRes.data.qrcode;
-      // KuGou may return the QR image under different field names.
       const imgData = (keyRes.data.qrcode_img || keyRes.data.imgurl || keyRes.data.img_url || keyRes.data.img) as string | undefined;
       if (imgData) {
         qrCodeImg.value = imgData;
       } else if (typeof keyRes.data.qrcodeurl === 'string') {
-        // Fall back to generating the QR code locally from the scan URL.
         qrCodeImg.value = await QRCode.toDataURL(keyRes.data.qrcodeurl, { width: 200, margin: 1 });
+        if (disposed || generation !== qrGeneration) return;
       }
-
-      // 2. Start Polling
       loginStatus.value = 1;
       statusMessage.value = '请使用酷狗音乐手机 App 扫码登录';
-      startPolling();
+      startPolling(generation);
     } else {
       throw new Error('初始化登录通道失败');
     }
   } catch (err: any) {
+    if (disposed || generation !== qrGeneration) return;
     console.error('Failed to generate login QR', err);
     loginStatus.value = -1;
     statusMessage.value = err.message || '二维码初始化失败，请重试';
@@ -78,23 +88,29 @@ function handleQrResponse(res: any) {
     stopPolling();
 
     if (postLoginTimer) clearTimeout(postLoginTimer);
+    const generation = qrGeneration;
     postLoginTimer = setTimeout(async () => {
       postLoginTimer = null;
+      if (disposed || generation !== qrGeneration) return;
       await checkLoginStatus();
-      if (userStore.isLoggedIn) {
+      if (!disposed && generation === qrGeneration && userStore.isLoggedIn) {
         emit('navigate', 'home');
       }
     }, 1000);
   }
 }
 
-async function pollLoop() {
-  if (!qrKey.value || pollAbort) return;
+async function pollLoop(generation: number, pollGeneration: number, key: string) {
+  const stale = () => disposed || generation !== qrGeneration ||
+    pollGeneration !== pollingGeneration || pollAbort;
+  if (stale()) return;
   try {
-    const res = await checkQrStatus(qrKey.value);
+    const res = await checkQrStatus(key);
+    if (stale()) return;
     pollFailures = 0;
     handleQrResponse(res);
   } catch (e) {
+    if (stale()) return;
     pollFailures += 1;
     console.error('Polling QR status error', e);
     if (pollFailures >= 5) {
@@ -102,19 +118,21 @@ async function pollLoop() {
       return;
     }
   }
-  if (pollAbort) return;
+  if (stale()) return;
   const delay = Math.min(POLL_BASE_MS * (1 + pollFailures), POLL_MAX_MS);
-  pollTimer = setTimeout(pollLoop, delay);
+  pollTimer = setTimeout(() => void pollLoop(generation, pollGeneration, key), delay);
 }
 
-function startPolling() {
+function startPolling(generation: number) {
+  if (disposed || generation !== qrGeneration || !qrKey.value) return;
   stopPolling();
   pollAbort = false;
   pollFailures = 0;
-  pollLoop();
+  void pollLoop(generation, pollingGeneration, qrKey.value);
 }
 
 function stopPolling() {
+  pollingGeneration += 1;
   pollAbort = true;
   if (pollTimer) {
     clearTimeout(pollTimer);
@@ -130,6 +148,10 @@ async function handleClaimVia(route: VipClaimRoute) {
   await claimVipViaRoute(route);
 }
 
+async function handleClaimDayConceptCandidate() {
+  await claimDayVipConceptCandidate();
+}
+
 async function handleLogout() {
   if (confirm('确认退出当前账号吗？')) {
     try {
@@ -139,57 +161,37 @@ async function handleLogout() {
     } catch (e) {
       console.warn('Logout backend call failed (continuing)', e);
     }
+    if (disposed) return;
     logoutLocal();
-    generateQrCode();
+    void generateQrCode();
   }
 }
 
 // ── 会员剩余时间（顶部平铺展示用）──────────────────────────────────────
 // vipEndDate 是上游的 "YYYY-MM-DD HH:MM:SS" 字符串；本地每 30 秒刷新一次
-// 相对剩余时间，不做权威判断（权威状态仍以 /user/vip/detail 为准）。
+// 相对剩余时间。有效/过期由 liveVipView 按当前时钟从缓存证据派生，
+// 不能只信上次网络写入的 isVip。权威复查仍走 /user/vip/detail。
 const now = ref(Date.now());
 let nowTimer: ReturnType<typeof setInterval> | null = null;
 
-const vipEndMs = computed(() => {
-  const raw = userStore.vipEndDate;
-  if (!raw) return null;
-  const ms = Date.parse(raw.replace(' ', 'T'));
-  return Number.isFinite(ms) ? ms : null;
-});
+const liveVip = computed(() => liveVipView(userStore, now.value));
 
-const remainingLabel = computed(() => {
-  if (!userStore.isVip) return '';
-  if (vipEndMs.value == null) return '无期限';
-  const diff = vipEndMs.value - now.value;
-  if (diff <= 0) return '即将到期';
-  const minutes = Math.floor(diff / 60_000);
-  if (minutes < 60) return `剩 ${Math.max(1, minutes)} 分钟`;
-  const hours = Math.floor(minutes / 60);
-  return `剩 ${hours} 小时 ${minutes % 60} 分`;
-});
-
-const vipUrgent = computed(
-  () => userStore.isVip && vipEndMs.value != null && vipEndMs.value - now.value < 3_600_000,
-);
-
-// Stage 5a 三态展示约束：active → 剩余时间；expired → 明确"已过期"；
-// unknown（含权威无权益/证据缺失）→ 中性"权益状态未知"，不得声称过期。
-const vipRemainingText = computed(() => {
-  if (userStore.isVip) return remainingLabel.value;
-  if (userStore.vipStatus === 'expired') return '会员已过期';
-  return '权益状态未知';
-});
+function tickVipClock() {
+  now.value = Date.now();
+  void refreshLiveVip(now.value);
+}
 
 onMounted(() => {
-  nowTimer = setInterval(() => {
-    now.value = Date.now();
-  }, 30_000);
+  tickVipClock();
+  nowTimer = setInterval(tickVipClock, 30_000);
   if (!userStore.isLoggedIn) {
-    generateQrCode();
+    void generateQrCode();
   }
 });
 
 onUnmounted(() => {
+  disposed = true;
+  qrGeneration += 1;
   stopPolling();
   if (nowTimer) {
     clearInterval(nowTimer);
@@ -220,11 +222,11 @@ onUnmounted(() => {
       <div class="flat-row profile-row">
         <div class="profile-side">
           <div class="avatar-wrap">
-            <div class="avatar-large" :class="{ 'is-vip': userStore.isVip }">
+            <div class="avatar-large" :class="{ 'is-vip': liveVip.isVip }">
               <img v-if="userStore.avatar" :src="userStore.avatar" alt="avatar" />
               <div v-else class="avatar-placeholder">听</div>
             </div>
-            <span v-if="userStore.isVip" class="avatar-badge">VIP</span>
+            <span v-if="liveVip.isVip" class="avatar-badge">VIP</span>
           </div>
           <div class="profile-meta">
             <h2 class="profile-name">{{ userStore.username }}</h2>
@@ -233,20 +235,37 @@ onUnmounted(() => {
         </div>
 
         <div class="membership-side">
-          <div class="vip-info" :class="{ 'is-vip': userStore.isVip, 'is-urgent': vipUrgent }">
+          <div class="vip-info" :class="{ 'is-vip': liveVip.isVip, 'is-urgent': liveVip.urgent }">
             <span class="vip-remaining">
-              {{ vipRemainingText }}
+              {{ liveVip.remainingLabel }}
             </span>
             <span
               class="vip-sub"
               :title="userStore.vipEndDate ? `到期时间 ${userStore.vipEndDate}` : undefined"
             >
-              <template v-if="userStore.isVip">
+              <template v-if="liveVip.isVip">
                 VIP · Lv.{{ userStore.vipLevel }}<template v-if="userStore.vipEndDate"> · 至 {{ userStore.vipEndDate.replace(/:\d\d$/, '') }}</template>
+              </template>
+              <template v-else-if="userStore.musicPermission === 'observed_non_music'">
+                已观察到权益 · 音乐适用性待确认
               </template>
               <template v-else>
                 领取后解锁更高音质
               </template>
+            </span>
+            <span
+              v-if="userStore.claimLedger.lastAcceptedAt"
+              class="vip-sub claim-ledger-line"
+              data-test="claim-ledger-accepted"
+            >
+              受理记录：{{ userStore.claimLedger.lastAcceptedAt }}<template v-if="userStore.claimLedger.lastAcceptedRoute"> · {{ userStore.claimLedger.lastAcceptedRoute }}</template>
+            </span>
+            <span
+              v-if="userStore.claimLedger.lastFailureAt && userStore.claimLedger.lastFailureMessage"
+              class="vip-sub claim-ledger-line"
+              data-test="claim-ledger-failure"
+            >
+              最近拒绝：{{ userStore.claimLedger.lastFailureCode ?? '' }}（不抹掉此前受理）
             </span>
           </div>
 
@@ -257,7 +276,7 @@ onUnmounted(() => {
             @click="handleClaimVip"
             :disabled="userStore.loading"
           >
-            {{ userStore.loading ? '领取中…' : (userStore.isVip ? '续领今日 VIP' : '领取每日免费 VIP') }}
+            {{ userStore.loading ? '领取中…' : (liveVip.isVip ? '续领今日 VIP' : '领取每日免费 VIP') }}
           </button>
           <!-- Stage 5c: 领取进行中可取消 —— 在阶段边界生效（下一轮广告前/倒计时中/下一通道前/下一次确认重查前）。 -->
           <button
@@ -290,6 +309,25 @@ onUnmounted(() => {
         </div>
       </div>
 
+      <!-- Debug 专用：day Concept 候选单通道实验。生产 day 仍走 Standard；
+           主领取按钮的自动 fallback 不能代替本入口。 -->
+      <div
+        v-if="isDayConceptCandidateUiEnabled"
+        class="flat-row channels-row"
+        data-test="day-concept-candidate-row"
+      >
+        <span class="flat-caption">Debug 候选实验</span>
+        <div class="channel-links">
+          <button
+            class="channel-link"
+            type="button"
+            data-test="claim-day-concept-candidate"
+            :disabled="userStore.loading"
+            @click="handleClaimDayConceptCandidate"
+          >day Concept 候选（单次）</button>
+        </div>
+      </div>
+
       <!-- 退出 -->
       <div class="flat-row logout-row">
         <button
@@ -311,9 +349,16 @@ onUnmounted(() => {
           </div>
 
           <!-- Overlays for expired or success -->
-          <div v-if="loginStatus === 3" class="qr-overlay" @click="generateQrCode">
+          <button
+            v-if="loginStatus === 3"
+            type="button"
+            class="qr-overlay"
+            aria-label="二维码已过期，刷新二维码"
+            data-test="expired-qr-refresh"
+            @click="generateQrCode"
+          >
             <span>点击刷新</span>
-          </div>
+          </button>
           <div v-if="loginStatus === 4" class="qr-overlay success">
             <span>✓ 成功</span>
           </div>
@@ -642,6 +687,13 @@ onUnmounted(() => {
   font-weight: 700;
   font-size: 16px;
   color: var(--accent);
+  border: 0;
+  font: inherit;
+}
+
+.qr-overlay:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -4px;
 }
 
 .qr-overlay.success {

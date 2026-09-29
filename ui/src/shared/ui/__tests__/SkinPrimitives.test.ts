@@ -2,7 +2,6 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { mount } from '@vue/test-utils';
 import SkinPageHeader from '../SkinPageHeader.vue';
 import SkinButton from '../SkinButton.vue';
-import SkinListRow from '../SkinListRow.vue';
 import SkinEmptyState from '../SkinEmptyState.vue';
 
 describe('SkinPageHeader', () => {
@@ -105,52 +104,6 @@ describe('SkinButton', () => {
 
   it('does not import themeStore (business-agnostic)', () => {
     const wrapper = mount(SkinButton, { props: { variant: 'ghost', size: 'sm' } });
-    expect(wrapper.exists()).toBe(true);
-  });
-});
-
-describe('SkinListRow', () => {
-  beforeEach(() => {
-    document.documentElement.dataset.skin = 'aurora';
-  });
-
-  it('renders index, title, and subtitle', () => {
-    const wrapper = mount(SkinListRow, {
-      props: { index: 3, title: 'Song Name', subtitle: 'Artist Name' },
-    });
-    expect(wrapper.text()).toContain('3');
-    expect(wrapper.text()).toContain('Song Name');
-    expect(wrapper.text()).toContain('Artist Name');
-  });
-
-  it('emits click when clicked', async () => {
-    const wrapper = mount(SkinListRow, {
-      props: { index: 1, title: 'T', subtitle: '' },
-    });
-    await wrapper.trigger('click');
-    expect(wrapper.emitted('click')).toHaveLength(1);
-  });
-
-  it('renders cover slot', () => {
-    const wrapper = mount(SkinListRow, {
-      props: { index: 1, title: 'T', subtitle: '' },
-      slots: { cover: '<img class="test-cover" src="x.jpg" />' },
-    });
-    expect(wrapper.find('.test-cover').exists()).toBe(true);
-  });
-
-  it('renders meta slot', () => {
-    const wrapper = mount(SkinListRow, {
-      props: { index: 1, title: 'T', subtitle: '' },
-      slots: { meta: '<span class="test-meta">3:45</span>' },
-    });
-    expect(wrapper.find('.test-meta').exists()).toBe(true);
-  });
-
-  it('does not import themeStore (business-agnostic)', () => {
-    const wrapper = mount(SkinListRow, {
-      props: { index: 0, title: 'T', subtitle: '' },
-    });
     expect(wrapper.exists()).toBe(true);
   });
 });

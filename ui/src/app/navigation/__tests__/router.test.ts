@@ -244,6 +244,13 @@ function getRoute(name: string) {
   return route!;
 }
 
+async function resolveRouteComponent(name: string) {
+  const component = getRoute(name).component;
+  return typeof component === 'function'
+    ? await (component as () => Promise<unknown>)()
+    : component;
+}
+
 function resolveProps(
   routeName: string,
   location: Pick<RouteLocationNormalizedLoaded, 'params' | 'query'>,
@@ -257,9 +264,9 @@ function resolveProps(
 }
 
 describe('navigation route contract', () => {
-  it('registers page names and maps the core page components', () => {
-    expect(routeRecords.map((record) => record.name)).toEqual(Object.values(routeNames));
-    expect(routeRecords.map((record) => record.path)).toEqual([
+  it('registers page names and resolves core page components lazily where appropriate', async () => {
+    expect(routeRecords.filter((record) => record.name).map((record) => record.name)).toEqual(Object.values(routeNames));
+    expect(routeRecords.slice(0, -1).map((record) => record.path)).toEqual([
       '/',
       '/stats',
       '/history',
@@ -270,15 +277,29 @@ describe('navigation route contract', () => {
       '/lyric',
       '/login',
     ]);
+    expect(routeRecords[routeRecords.length - 1]).toMatchObject({
+      path: '/:pathMatch(.*)*',
+      redirect: { name: routeNames.home },
+    });
     expect(getRoute(routeNames.home).component).toBe(HomeView);
-    expect(getRoute(routeNames.search).component).toBe(SearchView);
-    expect(getRoute(routeNames.playlist).component).toBe(PlaylistView);
-    expect(getRoute(routeNames.lyric).component).toBe(LyricView);
+    await expect(resolveRouteComponent(routeNames.search)).resolves.toBe(SearchView);
+    await expect(resolveRouteComponent(routeNames.playlist)).resolves.toBe(PlaylistView);
+    await expect(resolveRouteComponent(routeNames.lyric)).resolves.toBe(LyricView);
 
     expect(getRoute(routeNames.home).path).toBe('/');
     expect(getRoute(routeNames.search).path).toBe('/search');
     expect(getRoute(routeNames.playlist).path).toBe('/playlist/:id');
     expect(getRoute(routeNames.lyric).path).toBe('/lyric');
+  });
+
+  it('redirects an unknown deep link to the home route instead of rendering an empty RouterView', async () => {
+    const router = createAppRouter();
+
+    await router.push('/broken/deep-link');
+    await router.isReady();
+
+    expect(router.currentRoute.value.name).toBe(routeNames.home);
+    expect(router.currentRoute.value.fullPath).toBe('/');
   });
 
   it('maps search query and playlist params/query to their page props', () => {

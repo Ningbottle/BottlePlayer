@@ -168,6 +168,23 @@ describe('NewsprintHome', () => {
     expect(wrapper.text()).toContain('推荐二');
     expect(wrapper.text()).toContain('推荐三');
     expect(wrapper.find('.np-num').text()).toBeTruthy();
+    expect(wrapper.findAll('.np-rec-action')).toHaveLength(3);
+    expect(wrapper.findAll('.np-rec-action').every((row) => row.element.tagName === 'BUTTON')).toBe(true);
+  });
+
+  it('plays a recommendation through its native keyboard-operable button', async () => {
+    const track = createTrack({ FileHash: 'recommendation-1', SongName: '可键盘播放' });
+    const wrapper = mount(NewsprintHome, {
+      props: { model: createViewModel({ dailyTracks: [track] }) },
+    });
+
+    const playButton = wrapper.get('[data-test="recommendation-play-recommendation-1"]');
+    expect(playButton.element.tagName).toBe('BUTTON');
+    expect(playButton.attributes('type')).toBe('button');
+    expect(playButton.attributes('aria-label')).toBe('播放 可键盘播放，Test Artist');
+    await playButton.trigger('click');
+
+    expect(wrapper.emitted('play-track')).toEqual([[track, 0]]);
   });
 
   it('has different DOM structure from Aurora', () => {
@@ -196,7 +213,7 @@ describe('NewsprintHome', () => {
     await wrapper.get('[data-test="hero-play"]').trigger('click');
 
     expect(wrapper.emitted('play-track')).toBeTruthy();
-    expect(wrapper.emitted('play-track')![0]).toEqual([track]);
+    expect(wrapper.emitted('play-track')![0]).toEqual([track, 0]);
   });
 
   it('keeps the Newsprint daily feature tied to the daily feed instead of the restored player track', async () => {
@@ -221,7 +238,7 @@ describe('NewsprintHome', () => {
     expect(wrapper.get('.hero').text()).not.toContain('上次播放');
 
     await wrapper.get('[data-test="hero-play"]').trigger('click');
-    expect(wrapper.emitted('play-track')).toEqual([[dailyTrack]]);
+    expect(wrapper.emitted('play-track')).toEqual([[dailyTrack, 0]]);
   });
 
   it('retries only the daily section when its refresh control is clicked', async () => {
@@ -245,21 +262,22 @@ describe('NewsprintHome', () => {
       props: { model: vm },
     });
 
-    await wrapper.get('[data-test="playlist-7"]').trigger('click');
+    await wrapper.get('[data-test="playlist-open-7"]').trigger('click');
 
     expect(wrapper.emitted('navigate')).toBeTruthy();
     expect(wrapper.emitted('navigate')![0]).toEqual(['playlist', { id: 7, name: 'Editorial Picks' }]);
   });
 
-  it('labels the playlist corner action as opening the playlist instead of playing it', async () => {
+  it('makes the whole playlist card a single labeled action without nested buttons', async () => {
     const pl = createPlaylist({ specialid: 8, specialname: 'Archive Edition' });
     const wrapper = mount(NewsprintHome, {
       props: { model: createViewModel({ playlists: [pl] }) },
     });
 
     const openButton = wrapper.get('[data-test="playlist-open-8"]');
+    expect(openButton.element.tagName).toBe('BUTTON');
     expect(openButton.attributes('aria-label')).toBe('打开歌单：Archive Edition');
-    expect(openButton.text().trim()).toBe('');
+    expect(wrapper.get('[data-test="playlist-8"]').findAll('button button')).toHaveLength(0);
 
     await openButton.trigger('click');
     expect(wrapper.emitted('navigate')).toEqual([

@@ -4,8 +4,12 @@ import { useRoute } from 'vue-router';
 import { userStore } from '../../features/account';
 import { useThemeStore } from '../appearance/themeStore';
 
+withDefaults(defineProps<{ canGoBack?: boolean; canGoForward?: boolean }>(), {
+  canGoBack: false,
+  canGoForward: false,
+});
+
 const emit = defineEmits<{
-  (e: 'update:searchQuery', val: string): void;
   (e: 'search', query: string): void;
   (e: 'navigate', view: string): void;
   (e: 'back'): void;
@@ -56,12 +60,12 @@ function goForward() {
   >
     <!-- Back/Forward controls -->
     <div class="nav-arrows">
-      <button class="icon-btn" aria-label="后退" @click="goBack">
+      <button class="icon-btn" aria-label="后退" :disabled="!canGoBack" @click="goBack">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="15 18 9 12 15 6"/>
         </svg>
       </button>
-      <button class="icon-btn" aria-label="前进" @click="goForward">
+      <button class="icon-btn" aria-label="前进" :disabled="!canGoForward" @click="goForward">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <polyline points="9 18 15 12 9 6"/>
         </svg>

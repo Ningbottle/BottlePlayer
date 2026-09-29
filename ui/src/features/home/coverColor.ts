@@ -56,7 +56,10 @@ async function sample(url: string): Promise<RGB | null> {
   const canvas = document.createElement('canvas');
   canvas.width = SIZE;
   canvas.height = SIZE;
-  const ctx = canvas.getContext('2d');
+  // This is a tiny, read-once sampling canvas. Ask the browser for a
+  // read-optimized surface so getImageData does not synchronously read back
+  // a GPU-backed canvas on the first cover tint.
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
   if (!ctx) return null;
   ctx.drawImage(img, 0, 0, SIZE, SIZE);
   // getImageData throws on tainted canvas — caught by extractDominantColor

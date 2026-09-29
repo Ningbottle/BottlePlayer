@@ -8,7 +8,11 @@ vi.mock('../../../platform/tauri/updater', () => ({
   openExternalUrl: vi.fn().mockResolvedValue(undefined),
 }));
 const mockApiGet = vi.fn();
-vi.mock('../../../platform/tauri/nativeClient', () => ({ apiGet: (...args: any[]) => mockApiGet(...args) }));
+const mockApiPost = vi.fn();
+vi.mock('../../../platform/tauri/nativeClient', () => ({
+  apiGet: (...args: any[]) => mockApiGet(...args),
+  apiPost: (...args: any[]) => mockApiPost(...args),
+}));
 vi.mock('../../account', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
@@ -26,11 +30,11 @@ import { checkForUpdate, openExternalUrl, type UpdateDownloadEvent } from '../..
 import { playbackDiagnostics } from '../../../playback/playbackDiagnostics';
 import { useAppearanceStore, __resetForTest as resetAppearance } from '../../../app/appearance/appearanceStore';
 import { __resetForTest as resetTheme } from '../../../app/appearance/themeStore';
-import { ensureVipDeviceReady } from '../../account';
+import { logoutLocal, userStore } from '../../account';
 
-// Reduced-motion stub: makes GSAP transition hooks (transitionEnter/Leave)
-// call done() synchronously so <Transition> leave/enter completes within the
-// test tick. Without this, jsdom has no matchMedia and gsap tweens would hang.
+// Reduced-motion stub: enter completes synchronously; leave queues completion
+// in a microtask so Vue's out-in patch can finish first. This keeps transitions
+// deterministic in jsdom, where the non-reduced GSAP tweens would otherwise hang.
 beforeEach(() => {
   vi.stubGlobal('matchMedia', vi.fn(() => ({ matches: true })));
 });
@@ -142,14 +146,28 @@ describe('SettingsView sub-navigation', () => {
   beforeEach(() => {
     localStorage.clear();
     resetTheme();
+    logoutLocal();
+    userStore.isLoggedIn = true;
+    userStore.userId = 'settings-vip-test-user';
+    userStore.deviceReady = false;
+    userStore.isVip = false;
+    userStore.vipStatus = 'unknown';
+    userStore.vipEndDate = '';
+    userStore.observedEntitlements = [];
+    userStore.claimMessage = '';
     mockApiGet.mockReset();
     mockApiGet.mockResolvedValue({ status: 1, data: {} });
-    vi.mocked(ensureVipDeviceReady).mockReset();
-    vi.mocked(ensureVipDeviceReady).mockResolvedValue({ ok: true });
+    mockApiPost.mockReset();
+    mockApiPost.mockResolvedValue({
+      status: 1,
+      data: { registered: true, dfid: 'abcdefghijklmnopqrstuvwx' },
+    });
   });
   afterEach(() => {
     wrapper?.unmount();
     wrapper = undefined;
+    logoutLocal();
+    vi.useRealTimers();
   });
 
   it('renders a sub-nav with 6 items and shows only the active section', async () => {
@@ -216,7 +234,200 @@ describe('SettingsView sub-navigation', () => {
     expect(vipSection.text()).not.toContain('需要酷狗官方 App 内领取');
   });
 
-  it('calls ensureVipDeviceReady before listen and ad VIP requests', async () => {
+  it('does not call a status=1 listen claim successful when authority reports no active VIP', async () => {
+    userStore.isVip = false;
+    userStore.vipStatus = 'unknown';
+    userStore.vipEndDate = '';
+    userStore.observedEntitlements = [];
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/listen/song') return { status: 1 };
+      if (path === '/user/vip/detail') {
+        return { status: 1, authoritative: true, data: { is_vip: 0, vip_type: 0, busi_vip: [] } };
+      }
+      return { status: 1, data: {} };
+    });
+
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    const vipNav = wrapper.findAll('[data-test="settings-nav-item"]').find((node) => node.text() === 'VIP');
+    await vipNav!.trigger('click');
+    await flushPromises();
+    await wrapper.findAll('button').find((button) => button.text().includes('听歌领 VIP'))!.trigger('click');
+    await flushPromises();
+
+    const message = wrapper.get('[data-test="settings-section-vip"]').text();
+    expect(message).toContain('未生效');
+    expect(message).not.toContain('✓ 听歌领 VIP 成功');
+    expect(mockApiGet).toHaveBeenCalledWith('/user/vip/detail');
+  });
+
+  it('reports listen VIP activation only after authoritative VIP confirmation', async () => {
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/listen/song') return { status: 1 };
+      if (path === '/user/vip/detail') {
+        return {
+          status: 1,
+          authoritative: true,
+          data: { is_vip: 1, vip_type: 1, vip_end_time: '2999-01-01 00:00:00' },
+        };
+      }
+      return { status: 1, data: {} };
+    });
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    await wrapper.findAll('[data-test="settings-nav-item"]')
+      .find((node) => node.text() === 'VIP')!.trigger('click');
+    await flushPromises();
+    await wrapper.findAll('button').find((button) => button.text().includes('听歌领 VIP'))!.trigger('click');
+    await flushPromises();
+
+    const message = wrapper.get('[data-test="settings-section-vip"]').text();
+    expect(message).toContain('✓ 本次领取已确认生效');
+    expect(message).toContain('2999-01-01 00:00:00');
+    expect(message).not.toContain('✓ 听歌领 VIP 成功');
+  });
+
+  it('never reports an expired VIP snapshot as a successful ad claim', async () => {
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad') return { status: 1 };
+      if (path === '/user/vip/detail') {
+        return {
+          status: 1,
+          authoritative: true,
+          data: { is_vip: 1, vip_type: 1, vip_end_time: '2020-01-01 00:00:00' },
+        };
+      }
+      return { status: 1, data: {} };
+    });
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    await wrapper.findAll('[data-test="settings-nav-item"]')
+      .find((node) => node.text() === 'VIP')!.trigger('click');
+    await flushPromises();
+    await wrapper.findAll('button').find((button) => button.text().includes('看广告领 VIP'))!.trigger('click');
+    await flushPromises();
+
+    const message = wrapper.get('[data-test="settings-section-vip"]').text();
+    expect(message).toContain('已过期');
+    expect(message).toContain('未生效');
+    expect(message).not.toContain('✓ 本次领取已确认生效');
+  });
+
+  it('keeps a pre-existing active VIP separate from this claim', async () => {
+    userStore.isVip = true;
+    userStore.vipStatus = 'active';
+    userStore.vipEndDate = '2999-01-01 00:00:00';
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad') return { status: 1 };
+      if (path === '/user/vip/detail') {
+        return {
+          status: 1,
+          authoritative: true,
+          data: { is_vip: 1, vip_type: 1, vip_end_time: '2999-01-01 00:00:00' },
+        };
+      }
+      return { status: 1, data: {} };
+    });
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    await wrapper.findAll('[data-test="settings-nav-item"]')
+      .find((node) => node.text() === 'VIP')!.trigger('click');
+    await flushPromises();
+    await wrapper.findAll('button').find((button) => button.text().includes('看广告领 VIP'))!.trigger('click');
+    await flushPromises();
+
+    const message = wrapper.get('[data-test="settings-section-vip"]').text();
+    expect(message).toContain('领取已受理');
+    expect(message).toContain('当前音乐 VIP 仍有效');
+    expect(message).toContain('尚未确认本次领取新增或延期权益');
+    expect(message).not.toContain('✓ 本次领取已确认生效');
+  });
+
+  it('shows accepted-but-unconfirmed after authoritative VIP refresh failures', async () => {
+    vi.useFakeTimers();
+    mockApiGet.mockImplementation(async (path: string) => {
+      if (path === '/youth/vip/ad') return { status: 1 };
+      if (path === '/user/vip/detail') throw new Error('vip detail timeout');
+      return { status: 1, data: {} };
+    });
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    await wrapper.findAll('[data-test="settings-nav-item"]')
+      .find((node) => node.text() === 'VIP')!.trigger('click');
+    await flushPromises();
+    const click = wrapper.findAll('button').find((button) => button.text().includes('看广告领 VIP'))!.trigger('click');
+    await flushPromises();
+    await vi.runAllTimersAsync();
+    await click;
+    await flushPromises();
+
+    const message = wrapper.get('[data-test="settings-section-vip"]').text();
+    expect(message).toContain('权益状态未确认');
+    expect(message).not.toContain('✓ 本次领取已确认生效');
+    expect(mockApiGet.mock.calls.filter(([path]) => path === '/user/vip/detail')).toHaveLength(4);
+  });
+
+  it('drops a late same-account claim message after logout and relogin', async () => {
+    let resolveClaim!: (value: unknown) => void;
+    const pendingClaim = new Promise((resolve) => { resolveClaim = resolve; });
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/youth/listen/song') return pendingClaim;
+      return Promise.resolve({ status: 1, data: {} });
+    });
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    await wrapper.findAll('[data-test="settings-nav-item"]')
+      .find((node) => node.text() === 'VIP')!.trigger('click');
+    await flushPromises();
+    const click = wrapper.findAll('button').find((button) => button.text().includes('听歌领 VIP'))!.trigger('click');
+    await flushPromises();
+    expect(mockApiGet).toHaveBeenCalledWith('/youth/listen/song');
+
+    logoutLocal();
+    userStore.isLoggedIn = true;
+    userStore.userId = 'settings-vip-test-user';
+    await flushPromises();
+    resolveClaim({ status: 1 });
+    await click;
+    await flushPromises();
+
+    expect(wrapper.get('[data-test="settings-section-vip"]').text()).not.toContain('✓');
+    expect(mockApiGet).not.toHaveBeenCalledWith('/user/vip/detail');
+    expect(userStore.claimMessage).toBe('');
+  });
+
+  it('does not write a late confirmation message into an unmounted Settings view', async () => {
+    let resolveVip!: (value: unknown) => void;
+    const pendingVip = new Promise((resolve) => { resolveVip = resolve; });
+    mockApiGet.mockImplementation((path: string) => {
+      if (path === '/youth/listen/song') return Promise.resolve({ status: 1 });
+      if (path === '/user/vip/detail') return pendingVip;
+      return Promise.resolve({ status: 1, data: {} });
+    });
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+    await wrapper.findAll('[data-test="settings-nav-item"]')
+      .find((node) => node.text() === 'VIP')!.trigger('click');
+    await flushPromises();
+    const click = wrapper.findAll('button').find((button) => button.text().includes('听歌领 VIP'))!.trigger('click');
+    await flushPromises();
+    const state = wrapper.vm.$.setupState as { listenVipLoading: boolean; listenVipMsg: string };
+    expect(mockApiGet).toHaveBeenCalledWith('/user/vip/detail');
+    expect(wrapper.get('[data-test="settings-section-vip"]').text()).toContain('领取已受理，正在核验权益');
+    expect(wrapper.get('[data-test="settings-section-vip"]').text()).not.toContain('✓');
+
+    wrapper.unmount();
+    wrapper = undefined;
+    expect(state.listenVipLoading).toBe(false);
+    resolveVip({ status: 1, authoritative: true, data: { is_vip: 0, vip_type: 0, busi_vip: [] } });
+    await click;
+    await flushPromises();
+
+    expect(state.listenVipMsg).toBe('');
+    expect(state.listenVipLoading).toBe(false);
+  });
+
+  it('registers the device before listen and ad VIP requests, then confirms each route', async () => {
     wrapper = mount(SettingsView, { attachTo: document.body });
     await flushPromises();
     const vipNav = wrapper.findAll('[data-test="settings-nav-item"]').find((node) => node.text() === 'VIP');
@@ -226,24 +437,26 @@ describe('SettingsView sub-navigation', () => {
     const listenButton = wrapper.findAll('button').find((button) => button.text().includes('听歌领 VIP'));
     await listenButton!.trigger('click');
     await flushPromises();
-    expect(ensureVipDeviceReady).toHaveBeenCalled();
+    expect(mockApiPost).toHaveBeenCalledWith('/register/dev');
     expect(mockApiGet).toHaveBeenCalledWith('/youth/listen/song');
+    expect(mockApiGet).toHaveBeenCalledWith('/user/vip/detail');
+    expect(mockApiPost.mock.invocationCallOrder[0]).toBeLessThan(
+      mockApiGet.mock.invocationCallOrder.find((_, index) => mockApiGet.mock.calls[index][0] === '/youth/listen/song')!,
+    );
 
-    vi.mocked(ensureVipDeviceReady).mockClear();
     mockApiGet.mockClear();
     mockApiGet.mockResolvedValue({ status: 1, data: {} });
+    mockApiPost.mockClear();
     const adButton = wrapper.findAll('button').find((button) => button.text().includes('看广告领 VIP'));
     await adButton!.trigger('click');
     await flushPromises();
-    expect(ensureVipDeviceReady).toHaveBeenCalled();
+    expect(mockApiPost).toHaveBeenCalledWith('/register/dev');
     expect(mockApiGet).toHaveBeenCalledWith('/youth/vip/ad');
+    expect(mockApiGet).toHaveBeenCalledWith('/user/vip/detail');
   });
 
   it('does not send listen or ad activity requests when device registration fails', async () => {
-    vi.mocked(ensureVipDeviceReady).mockResolvedValue({
-      ok: false,
-      error: 'device_registration_failed',
-    });
+    mockApiPost.mockResolvedValue({ status: 0, error: 'device_registration_failed' });
     wrapper = mount(SettingsView, { attachTo: document.body });
     await flushPromises();
     const vipNav = wrapper.findAll('[data-test="settings-nav-item"]').find((node) => node.text() === 'VIP');
@@ -375,6 +588,31 @@ describe('SettingsView appearance controls', () => {
     expect(localStorage.getItem('appearance_compact_list')).toBe('true');
     expect(localStorage.getItem('appearance_lyric_align')).toBe('center');
     expect(wrapper.get('[data-test="settings-lyric-align-center"]').attributes('aria-pressed')).toBe('true');
+  });
+
+  it('shows a retry action after a failed appearance write and persists through the real store on retry', async () => {
+    const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+      throw new DOMException('full', 'QuotaExceededError');
+    });
+    wrapper = mount(SettingsView, { attachTo: document.body });
+    await flushPromises();
+
+    await wrapper.get('[data-test="select-skin-newsprint"]').trigger('click');
+    await flushPromises();
+
+    const status = wrapper.get('[data-test="appearance-storage-status"]');
+    expect(status.text()).toContain('本地设置暂时无法读取或保存');
+    expect(status.text()).toContain('当前界面可继续使用');
+    expect(useAppearanceStore().skin.value).toBe('newsprint');
+    expect(localStorage.getItem('appearance_skin')).toBeNull();
+
+    setItem.mockRestore();
+    await wrapper.get('[data-test="retry-appearance-storage"]').trigger('click');
+    await flushPromises();
+
+    expect(localStorage.getItem('appearance_skin')).toBe('newsprint');
+    expect(wrapper.find('[data-test="appearance-storage-status"]').exists()).toBe(false);
+    expect(useAppearanceStore().storageDegraded.value).toBe(false);
   });
 
   it('opens the device-help site through the scoped system opener', async () => {

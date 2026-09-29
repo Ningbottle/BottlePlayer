@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, watch, onMounted } from 'vue';
+import { ref, computed, watch, onMounted } from 'vue';
 import { describeBackendError } from '../../platform/tauri/nativeClient';
 import { searchSongs } from './searchGateway';
 import { playAll, playerStore } from '../../playback/index';
@@ -18,22 +18,34 @@ const totalCount = ref(0);
 const page = ref(1);
 const error = ref('');
 
+/** Query whose rows and total are currently on screen; '' once they are stale. */
+const loadedQuery = ref('');
+const listIsCurrent = computed(() => loadedQuery.value !== '' && loadedQuery.value === props.query);
+
 /** Bumps on every load so slower older responses cannot overwrite newer query/page state. */
 let searchGeneration = 0;
 
 async function performSearch() {
   const gen = ++searchGeneration;
-  if (!props.query) {
+  const query = props.query;
+  if (!query) {
     songs.value = [];
     totalCount.value = 0;
+    loadedQuery.value = '';
     loading.value = false;
     return;
+  }
+  if (query !== loadedQuery.value) {
+    // Everything held from another query is neither countable nor playable.
+    songs.value = [];
+    totalCount.value = 0;
+    loadedQuery.value = '';
   }
   loading.value = true;
   error.value = '';
   try {
     const res = await searchSongs<SongInfo>({
-      keywords: props.query,
+      keywords: query,
       page: page.value,
       pagesize: 25
     });
@@ -43,6 +55,7 @@ async function performSearch() {
     if (res.status === 1 && res.data) {
       songs.value = (res.data.lists || []).map(normalizeTrack);
       totalCount.value = res.data.total || 0;
+      loadedQuery.value = query;
     } else {
       error.value = res.error || '检索失败，请稍后重试';
     }
@@ -126,7 +139,7 @@ function handleFavoriteError(msg: string) {
       :subtitle="query || '输入关键词'"
     >
       <template #actions>
-        <span class="search-count">找到大约 <b>{{ totalCount }}</b> 条结果</span>
+        <span v-if="listIsCurrent" class="search-count">找到大约 <b>{{ totalCount }}</b> 条结果</span>
       </template>
     </SkinPageHeader>
 
@@ -142,6 +155,7 @@ function handleFavoriteError(msg: string) {
     <!-- Error message -->
     <div v-else-if="error" class="spinner" style="color: var(--accent);">
       {{ error }}
+      <button type="button" class="list-retry" data-test="search-retry" @click="performSearch">重试</button>
     </div>
 
     <!-- Empty results -->
@@ -162,23 +176,31 @@ function handleFavoriteError(msg: string) {
       <div 
         v-for="(song, idx) in songs" 
         :key="song.FileHash"
-        class="song-row"
+        class="song-row search-song-row"
         :class="{ active: isCurrentTrack(song) }"
-        @click="handlePlay(song)"
       >
+        <button
+          type="button"
+          class="search-row-play-target"
+          data-test="search-play-row"
+          :aria-label="`播放 ${song.SongName}`"
+          @click="handlePlay(song)"
+        ></button>
         <span class="index">{{ (page - 1) * 25 + idx + 1 }}</span>
         <span class="title">
           {{ song.SongName }}
-          <button 
-            class="fav-btn" 
-            title="收藏"
-            @click="handleFavorite($event, song)"
-          >
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
-              <path d="M12 2l2.39 6.96H22l-6 4.62L18.18 21 12 16.77 5.82 21 8 13.58 2 8.96h7.61z"/>
-            </svg>
-          </button>
         </span>
+        <button
+          type="button"
+          class="fav-btn"
+          title="收藏"
+          :aria-label="`收藏 ${song.SongName}`"
+          @click="handleFavorite($event, song)"
+        >
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+            <path d="M12 2l2.39 6.96H22l-6 4.62L18.18 21 12 16.77 5.82 21 8 13.58 2 8.96h7.61z"/>
+          </svg>
+        </button>
         <span class="artist">{{ song.SingerName }}</span>
         <span class="album">{{ song.AlbumName || '—' }}</span>
         <span class="duration">{{ formatDuration(song.Duration) }}</span>
@@ -233,11 +255,59 @@ function handleFavoriteError(msg: string) {
   font-weight: 600;
 }
 
+.search-song-row {
+  position: relative;
+}
+
+/* A real button owns row playback while the favourite control remains its sibling. */
+.search-row-play-target {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  cursor: pointer;
+}
+
+.search-row-play-target:focus-visible {
+  outline: 2px solid var(--accent, #a8311b);
+  outline-offset: -2px;
+}
+
+.search-song-row > .index,
+.search-song-row > .title,
+.search-song-row > .artist,
+.search-song-row > .album,
+.search-song-row > .duration {
+  position: relative;
+  z-index: 2;
+  grid-row: 1;
+  pointer-events: none;
+}
+
+.search-song-row > .index { grid-column: 1; }
+.search-song-row > .title {
+  grid-column: 2;
+  padding-right: 28px;
+}
+.search-song-row > .artist { grid-column: 3; }
+.search-song-row > .album { grid-column: 4; }
+.search-song-row > .duration { grid-column: 5; }
+
 .fav-btn {
+  position: relative;
+  z-index: 3;
+  grid-column: 2;
+  grid-row: 1;
+  justify-self: end;
+  align-self: center;
   background: none;
   border: none;
   padding: 2px 4px;
-  margin-left: 8px;
+  margin: 0;
   cursor: pointer;
   opacity: 0;
   transition: opacity 0.2s, color 0.2s;
@@ -250,7 +320,14 @@ function handleFavoriteError(msg: string) {
   height: 14px;
 }
 
-.song-row:hover .fav-btn {
+.search-song-row:hover .fav-btn {
+  opacity: 1;
+}
+
+/* Keep the control reachable when the list is operated from the keyboard. */
+.fav-btn:focus,
+.fav-btn:focus-visible,
+.search-song-row:focus-within .fav-btn {
   opacity: 1;
 }
 

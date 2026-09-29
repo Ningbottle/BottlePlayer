@@ -72,6 +72,8 @@ vi.mock('../../playback/playerStore', () => ({
   seek: vi.fn(),
   setVolume: vi.fn(),
   playPersonalFm: vi.fn(),
+  recordPlaybackMediaSnapshot: vi.fn(),
+  recoverPlaybackAfterNavigation: vi.fn(),
 }));
 
 vi.mock('../../features/account', () => ({
@@ -92,9 +94,8 @@ vi.mock('../shell/Sidebar.vue', () => ({
 }));
 vi.mock('../shell/Topbar.vue', () => ({
   default: {
-    props: ['searchQuery'],
-    emits: ['update:searchQuery', 'back'],
-    template: '<header><button data-test="edit-search" @click="$emit(\'update:searchQuery\', \'typed\')" /><button data-test="go-back" @click="$emit(\'back\')" /></header>',
+    emits: ['search', 'back'],
+    template: '<header><button data-test="submit-search" @click="$emit(\'search\', \'typed\')" /><button data-test="go-back" @click="$emit(\'back\')" /></header>',
   },
 }));
 vi.mock('../../features/library', async (importOriginal) => {
@@ -288,15 +289,15 @@ describe('App network banner', () => {
     style.remove();
   });
 
-  it('does not remount SearchView while the query input changes', async () => {
+  it('updates the submitted query without remounting SearchView', async () => {
     const { wrapper, router } = await mountApp();
 
     await clickAndWaitForNavigation(router, wrapper, '[data-test="go-search"]');
     const firstSearchElement = wrapper.find('[data-test="search-view"]').element;
 
-    await wrapper.find('[data-test="edit-search"]').trigger('click');
-    await nextTick();
+    await clickAndWaitForNavigation(router, wrapper, '[data-test="submit-search"]');
 
+    expect(router.currentRoute.value.query.q).toBe('typed');
     expect(wrapper.find('[data-test="search-view"]').element).toBe(firstSearchElement);
   });
 

@@ -1,4 +1,5 @@
 import { ref } from 'vue';
+import { safeReadItem, safeRemoveItem, safeSetItem } from '../../platform/storage/safeStorage';
 
 export interface AppearanceSettings {
   skin: 'aurora' | 'newsprint';
@@ -52,6 +53,24 @@ const customAccent = ref<string | null>(null);
 
 let initialized = false;
 
+/**
+ * Writes we could not land in storage (quota exceeded, private mode, storage
+ * disabled). Appearance is *not* lost: the values are live in memory and in the
+ * DOM, this map only records that persistence is behind so a later retry can
+ * catch storage up. `null` value means "this key must be absent".
+ */
+const pendingPersist = new Map<keyof typeof STORAGE_KEYS, string | null>();
+
+/** Fields whose startup read failed and still need a retry. */
+const pendingRead = new Set<keyof typeof STORAGE_KEYS>();
+
+/** True while a storage read or write still needs retrying. */
+const storageDegraded = ref(false);
+
+function syncDegraded(): void {
+  storageDegraded.value = pendingPersist.size > 0 || pendingRead.size > 0;
+}
+
 function isSkin(value: string | null): value is AppearanceSettings['skin'] {
   return value === 'aurora' || value === 'newsprint';
 }
@@ -95,14 +114,88 @@ function applyToDom() {
   }
 }
 
-function readStoredValue(key: keyof typeof STORAGE_KEYS): string | null {
-  const stored = localStorage.getItem(STORAGE_KEYS[key]);
-  if (stored !== null || !(key in LEGACY_KEYS)) return stored;
-  return localStorage.getItem(LEGACY_KEYS[key as keyof typeof LEGACY_KEYS]);
+function readStoredValue(key: keyof typeof STORAGE_KEYS) {
+  const stored = safeReadItem(STORAGE_KEYS[key]);
+  // A failed canonical read is not evidence that the canonical key is absent;
+  // defer the legacy lookup until a retry so canonical precedence stays intact.
+  if (!stored.ok || stored.value !== null || !(key in LEGACY_KEYS)) return stored;
+  return safeReadItem(LEGACY_KEYS[key as keyof typeof LEGACY_KEYS]);
 }
 
-function persist(key: keyof typeof STORAGE_KEYS, value: string) {
-  localStorage.setItem(STORAGE_KEYS[key], value);
+function applyStoredValue(key: keyof typeof STORAGE_KEYS, stored: string | null): void {
+  switch (key) {
+    case 'skin':
+      skin.value = isSkin(stored) ? stored : DEFAULTS.skin;
+      break;
+    case 'mode':
+      mode.value = isMode(stored) ? stored : DEFAULTS.mode;
+      break;
+    case 'accent':
+      customAccent.value = isAccent(stored) ? stored : null;
+      break;
+    case 'compactList':
+      compactList.value = isCompactList(stored)
+        ? stored === 'true'
+        : DEFAULTS.compactList;
+      break;
+    case 'lyricAlign':
+      lyricAlign.value = isLyricAlign(stored) ? stored : DEFAULTS.lyricAlign;
+      break;
+  }
+}
+
+/** Retry startup reads, applying only fields that no setter has claimed. */
+function retryPendingReads(): void {
+  let applied = false;
+  for (const key of [...pendingRead]) {
+    const result = readStoredValue(key);
+    if (!result.ok) continue;
+    pendingRead.delete(key);
+    applyStoredValue(key, result.value);
+    applied = true;
+  }
+  if (applied) {
+    syncAccentRef();
+    applyToDom();
+  }
+  syncDegraded();
+}
+
+function markReadResolvedByUser(key: keyof typeof STORAGE_KEYS): void {
+  pendingRead.delete(key);
+}
+
+/**
+ * Land a value in storage, or remember it as pending. Never throws.
+ *
+ * Callers must apply the value to refs + DOM *before* calling this, so a
+ * storage failure can never leave the rendered skin behind the selected one —
+ * that mismatch used to make Aurora and Newsprint styles mix after a
+ * QuotaExceededError.
+ */
+function persist(key: keyof typeof STORAGE_KEYS, value: string | null): void {
+  const landed = value === null
+    ? safeRemoveItem(STORAGE_KEYS[key])
+    : safeSetItem(STORAGE_KEYS[key], value);
+  if (landed) {
+    pendingPersist.delete(key);
+  } else {
+    pendingPersist.set(key, value);
+  }
+  syncDegraded();
+}
+
+/** Retry every write that failed earlier. Returns true when storage is back in sync. */
+function flushPendingPersist(): boolean {
+  for (const [key, value] of [...pendingPersist.entries()]) {
+    const landed = value === null
+      ? safeRemoveItem(STORAGE_KEYS[key])
+      : safeSetItem(STORAGE_KEYS[key], value);
+    if (!landed) continue;
+    pendingPersist.delete(key);
+  }
+  syncDegraded();
+  return pendingPersist.size === 0;
 }
 
 export function useAppearanceStore() {
@@ -113,59 +206,73 @@ export function useAppearanceStore() {
     compactList,
     lyricAlign,
     setSkin(value: AppearanceSettings['skin']) {
+      markReadResolvedByUser('skin');
       skin.value = isSkin(value) ? value : DEFAULTS.skin;
       syncAccentRef();
-      persist('skin', skin.value);
       applyToDom();
+      persist('skin', skin.value);
     },
     setMode(value: AppearanceSettings['mode']) {
+      markReadResolvedByUser('mode');
       mode.value = isMode(value) ? value : DEFAULTS.mode;
       syncAccentRef();
-      persist('mode', mode.value);
       applyToDom();
+      persist('mode', mode.value);
     },
     setAccent(value: string) {
+      markReadResolvedByUser('accent');
       if (isAccent(value)) {
         customAccent.value = value;
         accent.value = value;
+        applyToDom();
         persist('accent', value);
       } else {
         customAccent.value = null;
         syncAccentRef();
-        localStorage.removeItem(STORAGE_KEYS.accent);
+        applyToDom();
+        persist('accent', null);
       }
-      applyToDom();
     },
     setCompactList(value: boolean) {
+      markReadResolvedByUser('compactList');
       compactList.value = typeof value === 'boolean' ? value : DEFAULTS.compactList;
-      persist('compactList', String(compactList.value));
       applyToDom();
+      persist('compactList', String(compactList.value));
     },
     setLyricAlign(value: AppearanceSettings['lyricAlign']) {
+      markReadResolvedByUser('lyricAlign');
       lyricAlign.value = isLyricAlign(value) ? value : DEFAULTS.lyricAlign;
-      persist('lyricAlign', lyricAlign.value);
       applyToDom();
+      persist('lyricAlign', lyricAlign.value);
+    },
+    /** Reactive flag for UI: a persisted value is unreadable or a write is pending. */
+    storageDegraded,
+    /** Retry failed startup reads and writes; true when appearance is back in sync. */
+    retryStoragePersistence(): boolean {
+      retryPendingReads();
+      flushPendingPersist();
+      return pendingRead.size === 0 && pendingPersist.size === 0;
     },
     init() {
       if (initialized) return;
       initialized = true;
-      const storedSkin = readStoredValue('skin');
-      const storedMode = readStoredValue('mode');
-      const storedAccent = readStoredValue('accent');
-      const storedCompactList = readStoredValue('compactList');
-      const storedLyricAlign = readStoredValue('lyricAlign');
-
-      skin.value = isSkin(storedSkin) ? storedSkin : DEFAULTS.skin;
-      mode.value = isMode(storedMode) ? storedMode : DEFAULTS.mode;
-      customAccent.value = isAccent(storedAccent) ? storedAccent : null;
+      // A hostile host (storage disabled / SecurityError on the getter) must not
+      // take the app down: reads degrade to null and every value below falls
+      // back to its default, then the DOM is synced to exactly that state.
+      for (const key of Object.keys(STORAGE_KEYS) as (keyof typeof STORAGE_KEYS)[]) {
+        const result = readStoredValue(key);
+        if (result.ok) {
+          applyStoredValue(key, result.value);
+        } else {
+          pendingRead.add(key);
+        }
+      }
       syncAccentRef();
-      compactList.value = isCompactList(storedCompactList)
-        ? storedCompactList === 'true'
-        : DEFAULTS.compactList;
-      lyricAlign.value = isLyricAlign(storedLyricAlign)
-        ? storedLyricAlign
-        : DEFAULTS.lyricAlign;
       applyToDom();
+      syncDegraded();
+      // A previous in-session write may have failed for a transient reason; give
+      // it one more chance so storage does not stay silently stale.
+      flushPendingPersist();
     },
   };
 }
@@ -174,6 +281,9 @@ export function useAppearanceStore() {
 export function __resetForTest() {
   initialized = false;
   customAccent.value = null;
+  pendingPersist.clear();
+  pendingRead.clear();
+  storageDegraded.value = false;
   skin.value = DEFAULTS.skin;
   mode.value = DEFAULTS.mode;
   accent.value = DEFAULTS.accent;

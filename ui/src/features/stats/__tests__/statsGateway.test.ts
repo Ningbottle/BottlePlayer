@@ -89,4 +89,25 @@ describe('features/stats/statsGateway', () => {
     invokeMock.mockRejectedValue(new Error('backend down'));
     await expect(getStatsSummary('1d')).rejects.toThrow('backend down');
   });
+
+  it('preserves the stats overload rejection from the actual Tauri gateway', async () => {
+    invokeMock.mockRejectedValue('stats_ffi_overloaded');
+    await expect(getStatsSummary('7d')).rejects.toBe('stats_ffi_overloaded');
+    expect(invokeMock).toHaveBeenCalledWith('stats_get_summary', { range: '7d' });
+  });
+
+  it.each(['stats_read_failed', 'stats_not_initialized'])(
+    'rejects degraded %s payloads instead of returning successful zero statistics', async (error) => {
+      invokeMock.mockResolvedValue(JSON.stringify({ ...JSON.parse(SUMMARY_JSON), degraded: true, error }));
+      await expect(getStatsSummary('30d')).rejects.toThrow('统计暂不可用');
+      invokeMock.mockResolvedValue(JSON.stringify({ items: [], degraded: true, error }));
+      await expect(getStatsTop('song', '30d', 10)).rejects.toThrow('统计暂不可用');
+      await expect(getStatsTimeline('30d')).rejects.toThrow('统计暂不可用');
+    },
+  );
+
+  it('preserves album identity for playback from the song ranking', async () => {
+    invokeMock.mockResolvedValue(JSON.stringify({ items: [{ name: 'Song A', song_hash: 'h1', album_id: 'album-1' }] }));
+    expect((await getStatsTop('song', '30d', 10))[0].album_id).toBe('album-1');
+  });
 });

@@ -436,7 +436,7 @@ describe('AuroraHome', () => {
     await wrapper.get('[data-test="queue-track-rail-play"]').trigger('click');
     await wrapper.get('[data-test="daily-track-daily-play"]').trigger('click');
 
-    expect(wrapper.emitted('play-track')).toEqual([[railOnly], [daily]]);
+    expect(wrapper.emitted('play-track')).toEqual([[railOnly, 0], [daily, 1]]);
   });
 
   it('handles long song name without squeezing play button', () => {
@@ -467,7 +467,7 @@ describe('AuroraHome', () => {
     await wrapper.get('[data-test="hero-play"]').trigger('click');
 
     expect(wrapper.emitted('play-track')).toBeTruthy();
-    expect(wrapper.emitted('play-track')![0]).toEqual([track]);
+    expect(wrapper.emitted('play-track')![0]).toEqual([track, 0]);
   });
 
   it('disables hero CTA while current track is loading and does not emit play-track', async () => {
@@ -813,7 +813,7 @@ describe('AuroraHome', () => {
       expect(toggle.attributes('aria-label')).toBe('播放');
       await toggle.trigger('click');
       expect(togglePlay).not.toHaveBeenCalled();
-      expect(wrapper.emitted('play-track')?.[0]).toEqual([track]);
+      expect(wrapper.emitted('play-track')?.[0]).toEqual([track, 0]);
       expect(flyCoverToDock).toHaveBeenCalledWith(expect.any(HTMLElement), 'http://img.example/hero.jpg');
     });
 

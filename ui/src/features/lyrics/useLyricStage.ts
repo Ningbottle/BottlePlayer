@@ -17,6 +17,7 @@ export interface LyricStageModel {
   autoFollowing: boolean;
   fullscreen: boolean;
   isPlaying: boolean;
+  isLoading?: boolean;
   currentTime: number;
   duration: number;
   error: Error | null;
@@ -94,10 +95,29 @@ export function parseLrc(raw: string): LyricLine[] {
   return result.sort((a, b) => a.time - b.time);
 }
 
+export class LyricLoadError extends Error {
+  readonly phase: 'search' | 'download';
+  readonly code: string;
+
+  constructor(phase: 'search' | 'download', code: string, message: string) {
+    super(message);
+    this.name = 'LyricLoadError';
+    this.phase = phase;
+    this.code = code;
+  }
+}
+
+function lyricErrorCode(response: { error_code?: unknown; error?: unknown }, fallback: string): string {
+  const code = response.error_code ?? response.error;
+  if (code === undefined || code === null || String(code).trim() === '') return fallback;
+  return String(code);
+}
+
 export async function fetchLyrics(track: Track): Promise<LyricLine[]> {
   const searchRes = await searchLyricCandidates(track.FileHash);
   if (searchRes.status !== 1 && searchRes.status !== 200) {
-    throw new Error('Unable to search lyrics');
+    const code = lyricErrorCode(searchRes, 'search_failed');
+    throw new LyricLoadError('search', code, `Unable to search lyrics (${code})`);
   }
 
   const candidate = searchRes.candidates?.[0];
@@ -105,7 +125,8 @@ export async function fetchLyrics(track: Track): Promise<LyricLine[]> {
 
   const detailRes = await fetchLyricDetail(candidate.id, candidate.accesskey);
   if (detailRes.status !== 1 && detailRes.status !== 200) {
-    throw new Error('Unable to load lyrics');
+    const code = lyricErrorCode(detailRes, 'download_failed');
+    throw new LyricLoadError('download', code, `Unable to load lyrics (${code})`);
   }
 
   return detailRes.lyric ? parseLrc(detailRes.lyric) : [];
@@ -252,6 +273,7 @@ export function useLyricStage(): UseLyricStageReturn {
     autoFollowing: autoFollowing.value,
     fullscreen: lyricFullscreen.value,
     isPlaying: playerStore.isPlaying,
+    isLoading: playerStore.isLoading,
     currentTime: currentTime.value,
     duration: playerStore.duration,
     error: lyricsResource.state.error,

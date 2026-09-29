@@ -1,12 +1,16 @@
 import type { Track } from '../../shared/music/track';
+import { getLocalStorage, safeGetItem, safeRemoveItem, safeSetItem } from '../../platform/storage/safeStorage';
 
 /**
  * Persistence layer for the favorite domain. All keys are scoped per-user so
  * favorite state, the resolved「我喜欢的音乐」id, and the pending outbox never
  * leak across accounts.
  *
- * This module is intentionally side-effect free at import time (no localStorage
- * access until a function is called) so it is safe to import in any context.
+ * This module is intentionally side-effect free at import time and every access
+ * goes through safeStorage: the `localStorage` property itself throws
+ * SecurityError on hosts with site data blocked, and an unguarded `getItem`
+ * used to propagate out of `loadLikedPlaylist` / `loadOutbox` and look like a
+ * crash (or, worse, an empty favorite list) instead of a storage miss.
  */
 
 export interface LikedPlaylistInfo {
@@ -42,31 +46,48 @@ function safeParse<T>(raw: string | null, fallback: T): T {
 
 export function loadLikedPlaylist(uid: string): LikedPlaylistInfo | null {
   if (!uid) return null;
-  return safeParse<LikedPlaylistInfo | null>(localStorage.getItem(likedKey(uid)), null);
+  return asLikedPlaylist(safeParse<unknown>(safeGetItem(likedKey(uid)), null));
+}
+
+function asLikedPlaylist(value: unknown): LikedPlaylistInfo | null {
+  if (!value || typeof value !== 'object') return null;
+  const info = value as Partial<LikedPlaylistInfo>;
+  if (typeof info.gid !== 'string' || !info.gid.trim() || typeof info.listid !== 'string' || !info.listid.trim()) {
+    return null;
+  }
+  return { gid: info.gid, listid: info.listid, name: typeof info.name === 'string' ? info.name : '' };
 }
 
 export function saveLikedPlaylist(uid: string, info: LikedPlaylistInfo): void {
   if (!uid) return;
-  try {
-    localStorage.setItem(likedKey(uid), JSON.stringify(info));
-  } catch {
-    /* quota / private mode - keep in-memory only */
-  }
+  safeSetItem(likedKey(uid), JSON.stringify(info));
 }
 
 export function clearLikedPlaylist(uid: string): void {
   if (!uid) return;
-  try {
-    localStorage.removeItem(likedKey(uid));
-  } catch {
-    /* ignore */
-  }
+  safeRemoveItem(likedKey(uid));
 }
 
 export function loadOutbox(uid: string): FavoriteOp[] {
   if (!uid) return [];
-  const parsed = safeParse<unknown>(localStorage.getItem(outboxKey(uid)), []);
-  return Array.isArray(parsed) ? (parsed as FavoriteOp[]) : [];
+  const parsed = safeParse<unknown>(safeGetItem(outboxKey(uid)), []);
+  return Array.isArray(parsed) ? parsed.filter(isFavoriteOp) : [];
+}
+
+/**
+ * An outbox entry is replayed against the remote playlist, so a corrupted or
+ * hand-edited record must not reach the API: only complete ops with a usable
+ * identity (opId, fileHash, track identity, timestamp) survive the load.
+ */
+function isFavoriteOp(value: unknown): value is FavoriteOp {
+  if (!value || typeof value !== 'object') return false;
+  const op = value as Partial<FavoriteOp>;
+  return typeof op.opId === 'number' && Number.isFinite(op.opId)
+    && typeof op.fileHash === 'string' && op.fileHash.trim().length > 0
+    && typeof op.favorite === 'boolean'
+    && !!op.track && typeof op.track === 'object'
+    && typeof (op.track as Track).FileHash === 'string' && !!((op.track as Track).FileHash || '').trim()
+    && typeof op.ts === 'number' && Number.isFinite(op.ts);
 }
 
 /**
@@ -76,21 +97,12 @@ export function loadOutbox(uid: string): FavoriteOp[] {
  */
 export function saveOutbox(uid: string, ops: FavoriteOp[]): boolean {
   if (!uid) return false;
-  try {
-    localStorage.setItem(outboxKey(uid), JSON.stringify(ops));
-    return true;
-  } catch {
-    return false; // quota / private mode - keep in-memory only
-  }
+  return safeSetItem(outboxKey(uid), JSON.stringify(ops));
 }
 
 export function clearOutbox(uid: string): void {
   if (!uid) return;
-  try {
-    localStorage.removeItem(outboxKey(uid));
-  } catch {
-    /* ignore */
-  }
+  safeRemoveItem(outboxKey(uid));
 }
 
 /** Clear all persisted favorite state for a user (liked id + outbox). */
@@ -105,31 +117,23 @@ export function clearUser(uid: string): void {
  * reconcile confirms ground truth, then cleared.
  */
 export function loadLegacyMarkers(): string[] {
-  const parsed = safeParse<unknown>(localStorage.getItem(LEGACY_MARKER_KEY), []);
+  const parsed = safeParse<unknown>(safeGetItem(LEGACY_MARKER_KEY), []);
   if (!Array.isArray(parsed)) return [];
   return parsed.filter((v): v is string => typeof v === 'string' && v.length > 0);
 }
 
 export function clearLegacyMarkers(): void {
-  try {
-    localStorage.removeItem(LEGACY_MARKER_KEY);
-  } catch {
-    /* ignore */
-  }
+  safeRemoveItem(LEGACY_MARKER_KEY);
 }
 
 export function isLegacyMigrated(uid: string): boolean {
   if (!uid) return true;
-  return localStorage.getItem(legacyMigratedKey(uid)) === '1';
+  return safeGetItem(legacyMigratedKey(uid)) === '1';
 }
 
 export function markLegacyMigrated(uid: string): void {
   if (!uid) return;
-  try {
-    localStorage.setItem(legacyMigratedKey(uid), '1');
-  } catch {
-    /* ignore */
-  }
+  safeSetItem(legacyMigratedKey(uid), '1');
 }
 
 /**
@@ -138,7 +142,7 @@ export function markLegacyMigrated(uid: string): void {
  * user) since there is no bound user.
  */
 export function loadAnonymousFavorites(): Track[] {
-  const parsed = safeParse<unknown>(localStorage.getItem(ANON_FAVORITES_KEY), []);
+  const parsed = safeParse<unknown>(safeGetItem(ANON_FAVORITES_KEY), []);
   if (!Array.isArray(parsed)) return [];
   return parsed.filter((v): v is Track => !!v && typeof v === 'object' && !!(v as Track).FileHash);
 }
@@ -147,41 +151,32 @@ export function saveAnonymousFavorite(track: Track): void {
   if (!track?.FileHash) return;
   const list = loadAnonymousFavorites().filter((t) => t.FileHash !== track.FileHash);
   list.push(track);
-  try {
-    localStorage.setItem(ANON_FAVORITES_KEY, JSON.stringify(list));
-  } catch {
-    /* quota / private mode */
-  }
+  safeSetItem(ANON_FAVORITES_KEY, JSON.stringify(list));
 }
 
 export function removeAnonymousFavorite(fileHash: string): void {
   if (!fileHash) return;
   const list = loadAnonymousFavorites().filter((t) => t.FileHash !== fileHash);
-  try {
-    localStorage.setItem(ANON_FAVORITES_KEY, JSON.stringify(list));
-  } catch {
-    /* quota / private mode */
-  }
+  safeSetItem(ANON_FAVORITES_KEY, JSON.stringify(list));
 }
 
 export function clearAnonymousFavorites(): void {
-  try {
-    localStorage.removeItem(ANON_FAVORITES_KEY);
-  } catch {
-    /* ignore */
-  }
+  safeRemoveItem(ANON_FAVORITES_KEY);
 }
 
 /** Test-only: drop every favorite-related key from localStorage. */
 export function __resetFavoriteRepositoryForTests(): void {
+  const store = getLocalStorage();
+  if (!store) return;
+  const keys: string[] = [];
   try {
-    const keys: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
+    for (let i = 0; i < store.length; i++) {
+      const k = store.key(i);
       if (k && (k.startsWith('bm_fav_') || k === LEGACY_MARKER_KEY)) keys.push(k);
     }
-    keys.forEach((k) => localStorage.removeItem(k));
   } catch {
-    /* ignore */
+    /* enumeration unavailable: nothing to reset */
+    return;
   }
+  keys.forEach((k) => safeRemoveItem(k));
 }

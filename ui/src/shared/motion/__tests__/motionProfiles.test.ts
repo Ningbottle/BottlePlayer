@@ -2,20 +2,20 @@ import { describe, it, expect } from 'vitest';
 import { getMotionProfile } from '../motionProfiles';
 
 describe('motionProfiles', () => {
-  it('aurora controlRelease uses elastic.out', () => {
-    expect(getMotionProfile('aurora').controlRelease.ease).toContain('elastic.out');
+  it('aurora controlRelease settles without overshoot', () => {
+    expect(getMotionProfile('aurora').controlRelease.ease).toBe('power2.out');
   });
 
   it('newsprint pageEnter uses power3.out', () => {
     expect(getMotionProfile('newsprint').pageEnter.ease).toBe('power3.out');
   });
 
-  it('uses a longer expo entrance and a bounded jelly card entrance for Aurora', () => {
+  it('keeps Aurora entrances compact with no elastic or back overshoot', () => {
     const profile = getMotionProfile('aurora');
-    expect(profile.pageEnter).toMatchObject({ duration: 0.56, ease: 'expo.out' });
-    expect(profile.pageLeave).toMatchObject({ duration: 0.2, ease: 'power2.in' });
-    expect(profile.cardEnter).toMatchObject({ duration: 0.4, stagger: 0.04, maxItems: 12 });
-    expect(profile.cardEnter.ease).toContain('back.out');
+    expect(profile.pageEnter).toMatchObject({ duration: 0.28, ease: 'power2.out' });
+    expect(profile.pageLeave).toMatchObject({ duration: 0.16, ease: 'power2.in' });
+    expect(profile.cardEnter).toMatchObject({ duration: 0.28, stagger: 0.025, maxItems: 12 });
+    expect(profile.cardEnter.ease).toBe('power2.out');
   });
 
   it('newsprint page timings stay compact and serial-friendly', () => {
@@ -24,10 +24,10 @@ describe('motionProfiles', () => {
     expect(profile.pageLeave).toMatchObject({ duration: 0.16, ease: 'power2.in' });
   });
 
-  it('keeps Aurora control release elastic while Newsprint stays non-elastic', () => {
+  it('keeps both skins control release non-elastic', () => {
     expect(getMotionProfile('aurora').controlRelease).toMatchObject({
-      duration: 0.58,
-      ease: 'elastic.out(1.12, 0.42)',
+      duration: 0.18,
+      ease: 'power2.out',
     });
     expect(getMotionProfile('newsprint').controlRelease.ease).toBe('power2.out');
   });
@@ -46,12 +46,12 @@ describe('motionProfiles', () => {
     }
   });
 
-  it('aurora pageEnter uses expo.out', () => {
-    expect(getMotionProfile('aurora').pageEnter.ease).toBe('expo.out');
+  it('aurora pageEnter uses power2.out', () => {
+    expect(getMotionProfile('aurora').pageEnter.ease).toBe('power2.out');
   });
 
-  it('aurora cardEnter uses back.out', () => {
-    expect(getMotionProfile('aurora').cardEnter.ease).toContain('back.out');
+  it('aurora cardEnter uses power2.out', () => {
+    expect(getMotionProfile('aurora').cardEnter.ease).toBe('power2.out');
   });
 
   it('cardEnter has stagger and maxItems', () => {
@@ -61,7 +61,7 @@ describe('motionProfiles', () => {
   });
 
   it('keeps page-enter travel in the skin profile', () => {
-    expect(getMotionProfile('aurora').pageEnter).toMatchObject({ fromY: 28 });
+    expect(getMotionProfile('aurora').pageEnter).toMatchObject({ fromY: 12 });
     expect(getMotionProfile('newsprint').pageEnter).toMatchObject({ fromY: 8 });
   });
 

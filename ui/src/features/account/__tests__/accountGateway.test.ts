@@ -16,6 +16,7 @@ import {
   claimYouthListenSong,
   claimYouthVipAd,
   claimYouthDayVip,
+  claimYouthDayVipConceptCandidate,
   claimYouthDayVipUpgrade,
   fetchQrKey,
   checkQrStatus,
@@ -74,6 +75,13 @@ describe("accountGateway contract", () => {
     const res = await claimYouthDayVip();
     expect(mockApiGet).toHaveBeenCalledWith("/youth/day/vip");
     expect(res.status).toBe(1);
+  });
+
+  it("claimYouthDayVipConceptCandidate calls /youth/day/vip with profile=concept once", async () => {
+    mockApiGet.mockResolvedValueOnce({ status: 0, error: "candidate_profile_unavailable" });
+    await claimYouthDayVipConceptCandidate();
+    expect(mockApiGet).toHaveBeenCalledWith("/youth/day/vip", { profile: "concept" });
+    expect(mockApiGet).toHaveBeenCalledTimes(1);
   });
 
   it("claimYouthDayVipUpgrade calls /youth/day/vip/upgrade via apiGet", async () => {

@@ -26,7 +26,7 @@ const props = withDefaults(
 );
 
 const emit = defineEmits<{
-  (e: 'play-track', track: Track): void;
+  (e: 'play-track', track: Track, dailyIndex?: number): void;
   (e: 'play-queue-track', track: Track): void;
   (e: 'refresh'): void;
   (e: 'navigate', view: string, params?: any): void;
@@ -247,7 +247,7 @@ function onHeroPlay() {
     return;
   }
   flyFromVinyl();
-  onTrackPlay(t);
+  onTrackPlay(t, 0);
 }
 
 /** GSAP Flip flight from the hero cover into the dock cover slot. */
@@ -294,13 +294,13 @@ function onVinylToggle(): void {
     storeTogglePlay();
   } else {
     flyFromVinyl();
-    onTrackPlay(t);
+    onTrackPlay(t, 0);
   }
 }
 
-function onTrackPlay(track: Track, fromEl?: HTMLElement): void {
+function onTrackPlay(track: Track, dailyIndex?: number, fromEl?: HTMLElement): void {
   if (fromEl && track.Image) flyCoverToDock(fromEl, track.Image);
-  emit('play-track', track);
+  emit('play-track', track, dailyIndex);
 }
 
 function onOpenLyrics(): void {
@@ -471,13 +471,13 @@ function formatDuration(sec: number | undefined | null): string {
             class="aurora-queue-list"
             data-test="daily-rail-list"
           >
-            <li v-for="track in dailyRailTracks" :key="track.FileHash" class="aurora-queue-row">
+            <li v-for="(track, idx) in dailyRailTracks" :key="`${idx}:${track.FileHash}`" class="aurora-queue-row">
               <button
                 type="button"
                 :data-test="`queue-track-${track.FileHash}`"
                 :class="{ 'is-active': isActiveDailyTrack(track) }"
                 :aria-current="isActiveDailyTrack(track) ? 'true' : undefined"
-                @click="onTrackPlay(track)"
+                @click="onTrackPlay(track, isLiveRecoRail ? undefined : idx)"
               >
                 <span class="aurora-queue-lead">
                   <span class="aurora-queue-play" aria-hidden="true"><PhPlay :size="11" weight="fill" /></span>
@@ -538,13 +538,13 @@ function formatDuration(sec: number | undefined | null): string {
       </div>
       <div class="aurora-recommendation-grid">
         <button
-          v-for="track in model.dailyTracks.slice(0, 18)"
-          :key="track.FileHash"
+          v-for="(track, idx) in model.dailyTracks.slice(0, 18)"
+          :key="`${idx}:${track.FileHash}`"
           :ref="setRecommendationRef"
           type="button"
           class="aurora-track-card"
           :data-test="`daily-track-${track.FileHash}`"
-          @click="onTrackPlay(track, coverElFromEvent($event))"
+          @click="onTrackPlay(track, idx, coverElFromEvent($event))"
         >
           <span class="aurora-track-cover">
             <img v-if="track.Image" :src="track.Image" :alt="`${track.SongName}封面`" />

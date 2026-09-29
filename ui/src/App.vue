@@ -25,6 +25,8 @@ import { useThemeStore } from './app/appearance/themeStore';
 
 const themeStore = useThemeStore();
 const appRouter = useRouter();
+const canGoBack = computed(() => !!appRouter.currentRoute.value.fullPath && !!appRouter.options.history.state.back);
+const canGoForward = computed(() => !!appRouter.currentRoute.value.fullPath && !!appRouter.options.history.state.forward);
 const keepAliveComponents = computed(() => appRouter.getRoutes()
   .filter((route) => route.meta.keepAlive)
   .flatMap((route) => {
@@ -55,7 +57,7 @@ function playLaunchIntro(): void {
   const targets = ['.titlebar', '.shell-sidebar', '.shell-content', '.shell-playerbar'];
   if (!targets.every((t) => document.querySelector(t))) return;
   launchPlayed = true;
-  gsap.timeline({ defaults: { ease: 'expo.out' } })
+  gsap.timeline({ defaults: { ease: 'power2.out', clearProps: 'transform,opacity' } })
     .from('.titlebar', { opacity: 0, duration: 0.4 }, 0)
     .from('.shell-sidebar', { x: -18, opacity: 0, duration: 0.5 }, 0.06)
     .from('.shell-content', { y: 18, opacity: 0, duration: 0.55 }, 0.14)
@@ -94,12 +96,6 @@ async function handleNavigate(view: string, params?: { id?: string; name?: strin
 function handleSearch(query: string) {
   if (query.trim()) {
     void appRouter.push({ name: routeNames.search, query: { q: query } });
-  }
-}
-
-function handleSearchQuery(query: string) {
-  if (appRouter.currentRoute.value.name === routeNames.search) {
-    void appRouter.replace({ name: routeNames.search, query: { q: query } });
   }
 }
 
@@ -157,7 +153,8 @@ onUnmounted(() => {
 
     <template #topbar>
       <Topbar
-        @update:search-query="handleSearchQuery"
+        :can-go-back="canGoBack"
+        :can-go-forward="canGoForward"
         @search="handleSearch"
         @navigate="handleNavigate"
         @back="goBack"

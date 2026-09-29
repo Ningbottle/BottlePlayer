@@ -1,4 +1,5 @@
 import { ref, type Ref } from 'vue';
+import { safeGetItem, safeSetItem } from '../../platform/storage/safeStorage';
 
 export type LyricFocusMode = 'readable' | 'stage';
 
@@ -26,19 +27,19 @@ export function useLyricFocusStore(): {
     mode,
     setMode(m) {
       mode.value = m;
-      localStorage.setItem(STORAGE_KEY, m);
       applyToDom();
+      safeSetItem(STORAGE_KEY, m);
     },
     toggle() {
       const next: LyricFocusMode = mode.value === 'readable' ? 'stage' : 'readable';
       mode.value = next;
-      localStorage.setItem(STORAGE_KEY, next);
       applyToDom();
+      safeSetItem(STORAGE_KEY, next);
     },
     init() {
       if (initialized) return;
       initialized = true;
-      const stored = localStorage.getItem(STORAGE_KEY);
+      const stored = safeGetItem(STORAGE_KEY);
       mode.value = isLyricFocusMode(stored) ? stored : DEFAULT_MODE;
       applyToDom();
     },

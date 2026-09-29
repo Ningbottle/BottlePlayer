@@ -120,6 +120,7 @@ onBeforeUnmount(autoHideControls.dispose);
     >
       <slot v-if="model.loading" name="loading" />
       <slot v-else-if="model.error" name="error" />
+      <p v-else-if="model.parsedLyrics.length === 0" class="lyric-empty-message" role="status">暂无歌词，继续享受音乐</p>
       <div
         v-else
         class="lyric-scroll"
@@ -143,7 +144,7 @@ onBeforeUnmount(autoHideControls.dispose);
       </div>
       <slot name="footer" />
       <div
-        v-if="model.fullscreen && model.duration > 0"
+        v-if="model.fullscreen && model.currentTrack"
         class="np-fs-controls"
         :class="{ 'controls-visible': controlsVisible }"
         data-test="newsprint-fs-controls"
@@ -154,11 +155,11 @@ onBeforeUnmount(autoHideControls.dispose);
           type="button"
           class="np-fs-play"
           :data-test="model.isPlaying ? 'newsprint-fs-pause' : 'newsprint-fs-play'"
-          :aria-label="model.isPlaying ? '暂停' : '播放'"
-          :title="model.isPlaying ? '暂停' : '播放'"
+          :aria-label="model.isLoading ? '取消加载' : model.isPlaying ? '暂停' : '播放'"
+          :title="model.isLoading ? '取消加载' : model.isPlaying ? '暂停' : '播放'"
           @click="storeTogglePlay"
         >
-          <Pause v-if="model.isPlaying" :size="15" :stroke-width="1.8" aria-hidden="true" />
+          <Pause v-if="model.isPlaying || model.isLoading" :size="15" :stroke-width="1.8" aria-hidden="true" />
           <Play v-else :size="15" :stroke-width="1.8" aria-hidden="true" />
         </button>
         <PlayerProgress
@@ -176,6 +177,7 @@ export default { name: 'NewsprintLyricStage' };
 </script>
 
 <style scoped>
+.lyric-empty-message { margin: auto; color: var(--text-secondary); }
 .np-lyric-stage {
   display: grid;
   grid-template-rows: minmax(0, 1fr);

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue';
+import { computed, ref, onBeforeUnmount, onMounted, watch } from 'vue';
 import {
   fetchDiagnosticsMemory,
   fetchDeviceSettings,
@@ -9,11 +9,11 @@ import {
   type DeviceInfo,
 } from './settingsGateway';
 import {
-  checkLoginStatus,
-  ensureVipDeviceReady,
-  formatVipClaimFailure,
-  claimYouthListenSong,
-  claimYouthVipAd,
+  claimVipViaRoute,
+  liveVipView,
+  parseVipEndTime,
+  userStore,
+  type VipSnapshot,
 } from '../account';
 import {
   checkForUpdate,
@@ -51,6 +51,9 @@ function selectCompactList(event: Event) {
 function selectLyricAlign(value: AppearanceSettings['lyricAlign']) {
   appearanceStore.setLyricAlign(value);
 }
+function retryAppearanceStoragePersistence() {
+  appearanceStore.retryStoragePersistence();
+}
 
 const loading = ref(false);
 const memoryInfo = ref<MemoryData | null>(null);
@@ -60,6 +63,88 @@ const listenVipLoading = ref(false);
 const listenVipMsg = ref('');
 const adVipLoading = ref(false);
 const adVipMsg = ref('');
+const vipClaimProgress = computed(() => userStore.claimStage === 'confirm'
+  ? '领取已受理，正在核验权益…'
+  : '正在提交领取请求…');
+
+let vipClaimViewGeneration = 0;
+let vipClaimViewMounted = true;
+
+function captureVipSnapshot(): VipSnapshot {
+  return {
+    isVip: userStore.isVip,
+    vipStatus: userStore.vipStatus,
+    vipEndDate: userStore.vipEndDate,
+  };
+}
+
+function vipSnapshotHasNewRights(before: VipSnapshot, after: VipSnapshot): boolean {
+  const now = Date.now();
+  if (!liveVipView(after, now).isVip) return false;
+  if (!liveVipView(before, now).isVip) return true;
+
+  // If a still-valid entitlement existed before the claim, only a later
+  // authoritative deadline is evidence that this claim added or extended it.
+  const beforeEnd = String(before.vipEndDate ?? '').trim();
+  const afterEnd = String(after.vipEndDate ?? '').trim();
+  if (!beforeEnd) return false; // A pre-existing no-deadline entitlement is already unbounded.
+  if (!afterEnd) return true;
+  return parseVipEndTime(afterEnd) > parseVipEndTime(beforeEnd);
+}
+
+function formatSettingsVipClaimResult(before: VipSnapshot, result: string): string {
+  if (result.startsWith('✓ 已激活每日 VIP')) {
+    const after = captureVipSnapshot();
+    if (!liveVipView(after, Date.now()).isVip) {
+      return '领取已受理，但当前音乐 VIP 已过期，未确认本次领取生效。';
+    }
+    if (!vipSnapshotHasNewRights(before, after)) {
+      const expiry = after.vipEndDate ? `，到期：${after.vipEndDate}` : '';
+      return `领取已受理；当前音乐 VIP 仍有效${expiry}，尚未确认本次领取新增或延期权益。`;
+    }
+    return after.vipEndDate
+      ? `✓ 本次领取已确认生效，到期：${after.vipEndDate}`
+      : '✓ 本次领取已确认生效';
+  }
+
+  if (result.startsWith('领取上报成功') && userStore.vipStatus === 'expired') {
+    return '领取已受理，但权威状态显示音乐 VIP 已过期，本次领取未生效。';
+  }
+  return result;
+}
+
+function vipClaimStillOwned(
+  generation: number,
+  owner: { isLoggedIn: boolean; userId: string },
+): boolean {
+  return vipClaimViewMounted
+    && generation === vipClaimViewGeneration
+    && owner.isLoggedIn === userStore.isLoggedIn
+    && owner.userId === userStore.userId;
+}
+
+watch(
+  () => `${userStore.isLoggedIn}:${userStore.userId}`,
+  () => {
+    // Discard view-local progress and messages when the session changes,
+    // including logout followed by a login to the same user ID.
+    vipClaimViewGeneration += 1;
+    listenVipLoading.value = false;
+    listenVipMsg.value = '';
+    adVipLoading.value = false;
+    adVipMsg.value = '';
+  },
+  { flush: 'sync' },
+);
+
+onBeforeUnmount(() => {
+  vipClaimViewMounted = false;
+  vipClaimViewGeneration += 1;
+  listenVipLoading.value = false;
+  listenVipMsg.value = '';
+  adVipLoading.value = false;
+  adVipMsg.value = '';
+});
 
 // Auto-update state
 const updateStatus = ref('');
@@ -258,50 +343,34 @@ async function testDevice() {
   }
 }
 
-async function claimListenVip() {
-  listenVipLoading.value = true;
-  listenVipMsg.value = '';
+async function runYouthVipClaim(
+  route: 'listen' | 'ad',
+  claimLoading: typeof listenVipLoading,
+  claimMessage: typeof listenVipMsg,
+) {
+  const generation = ++vipClaimViewGeneration;
+  const owner = { isLoggedIn: userStore.isLoggedIn, userId: userStore.userId };
+  const before = captureVipSnapshot();
+  claimLoading.value = true;
+  claimMessage.value = '';
   try {
-    const deviceResult = await ensureVipDeviceReady();
-    if (!deviceResult.ok) {
-      listenVipMsg.value = `领取失败：设备注册失败${deviceResult.error ? `（${deviceResult.error}）` : ''}`;
-      return;
-    }
-    const res = await claimYouthListenSong();
-    if (res?.status === 1) {
-      listenVipMsg.value = '✓ 听歌领 VIP 成功';
-      await checkLoginStatus(); // 领取成功后刷新持久 VIP 状态/到期时间（权威来源 get_union_vip）
-    } else {
-      listenVipMsg.value = formatVipClaimFailure(res);
-    }
+    await claimVipViaRoute(route);
+    if (!vipClaimStillOwned(generation, owner)) return;
+    claimMessage.value = formatSettingsVipClaimResult(before, userStore.claimMessage);
   } catch (e: any) {
-    listenVipMsg.value = '出错：' + (e?.message || String(e));
+    if (!vipClaimStillOwned(generation, owner)) return;
+    claimMessage.value = '出错：' + (e?.message || String(e));
   } finally {
-    listenVipLoading.value = false;
+    if (vipClaimStillOwned(generation, owner)) claimLoading.value = false;
   }
 }
 
+async function claimListenVip() {
+  await runYouthVipClaim('listen', listenVipLoading, listenVipMsg);
+}
+
 async function claimAdVip() {
-  adVipLoading.value = true;
-  adVipMsg.value = '';
-  try {
-    const deviceResult = await ensureVipDeviceReady();
-    if (!deviceResult.ok) {
-      adVipMsg.value = `领取失败：设备注册失败${deviceResult.error ? `（${deviceResult.error}）` : ''}`;
-      return;
-    }
-    const res = await claimYouthVipAd();
-    if (res?.status === 1) {
-      adVipMsg.value = '✓ 领取成功';
-      await checkLoginStatus(); // 领取成功后刷新持久 VIP 状态/到期时间
-    } else {
-      adVipMsg.value = formatVipClaimFailure(res);
-    }
-  } catch (e: any) {
-    adVipMsg.value = '出错：' + (e?.message || String(e));
-  } finally {
-    adVipLoading.value = false;
-  }
+  await runYouthVipClaim('ad', adVipLoading, adVipMsg);
 }
 
 onMounted(() => {
@@ -353,6 +422,20 @@ async function copyDiag() {
           <section v-if="activeSection === 'appearance'" key="appearance" data-test="settings-section-appearance">
             <h3 class="settings-section-title">外观设置 <span class="settings-control-secondary">Appearance</span></h3>
             <p class="settings-hint">选择皮肤、光感、强调色、列表密度和歌词对齐方式。</p>
+            <div
+              v-if="appearanceStore.storageDegraded.value"
+              class="settings-row"
+              data-test="appearance-storage-status"
+              role="status"
+            >
+              <span class="settings-status">本地设置暂时无法读取或保存，当前界面可继续使用。</span>
+              <SkinButton
+                data-test="retry-appearance-storage"
+                variant="secondary"
+                size="sm"
+                @click="retryAppearanceStoragePersistence"
+              >重试</SkinButton>
+            </div>
 
             <div class="settings-control-group" role="group" aria-labelledby="settings-skin-label" data-test="settings-skin-group">
               <span id="settings-skin-label" class="settings-field-label">
@@ -511,19 +594,19 @@ async function copyDiag() {
           <section v-else-if="activeSection === 'vip'" key="vip" data-test="settings-section-vip">
             <h3 class="settings-section-title">每日福利 · VIP Rewards</h3>
             <p class="settings-hint">
-              通过酷狗概念版「听歌领 VIP / 看广告领 VIP」端点领取每日免费 VIP。每日限领一次，已领取会返回 130012（正常业务限制，非错误）。领取成功后会员到期时间会从 /user/vip/detail 刷新。
+              通过酷狗概念版「听歌领 VIP / 看广告领 VIP」领取每日免费 VIP。每日限领一次，已领取会返回 130012（正常业务限制，非错误）。领取请求受理后，会重新查询会员状态以确认权益是否生效。
             </p>
             <div class="settings-row">
               <SkinButton variant="primary" size="md" :disabled="listenVipLoading || adVipLoading" @click="claimListenVip">
                 {{ listenVipLoading ? '领取中…' : '听歌领 VIP' }}
               </SkinButton>
-              <span v-if="listenVipMsg" class="settings-status">{{ listenVipMsg }}</span>
+              <span v-if="listenVipLoading || listenVipMsg" class="settings-status" role="status">{{ listenVipLoading ? vipClaimProgress : listenVipMsg }}</span>
             </div>
             <div class="settings-row">
               <SkinButton variant="primary" size="md" :disabled="adVipLoading || listenVipLoading" @click="claimAdVip">
                 {{ adVipLoading ? '领取中…' : '看广告领 VIP' }}
               </SkinButton>
-              <span v-if="adVipMsg" class="settings-status">{{ adVipMsg }}</span>
+              <span v-if="adVipLoading || adVipMsg" class="settings-status" role="status">{{ adVipLoading ? vipClaimProgress : adVipMsg }}</span>
             </div>
           </section>
 

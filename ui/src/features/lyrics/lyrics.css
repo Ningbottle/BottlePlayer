@@ -91,6 +91,9 @@ html.lyric-left .lyric-line {
   width: 100%;
   text-align: left;
   padding-left: 24px;
+  /* The fixed inset replaces Aurora's em-based hanging indent. Keeping the
+     negative indent here clips the first glyphs as the active line grows. */
+  text-indent: 0;
 }
 
 /* Lyric scrollbar dark mode */

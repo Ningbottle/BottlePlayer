@@ -61,11 +61,19 @@ describe('Topbar skin chrome', () => {
 
   it('emits back and forward commands without moving router history directly', async () => {
     const { router, wrapper } = await mountTopbar('test');
+    await wrapper.setProps({ canGoBack: true, canGoForward: true });
     await wrapper.findAll('.nav-arrows button')[0].trigger('click');
     await wrapper.findAll('.nav-arrows button')[1].trigger('click');
     expect(wrapper.emitted('back')?.[0]).toEqual([]);
     expect(wrapper.emitted('forward')?.[0]).toEqual([]);
     expect(router.currentRoute.value.name).toBe(routeNames.search);
+  });
+
+  it('disables unavailable history directions rather than presenting inactive actions', async () => {
+    const { wrapper } = await mountTopbar();
+    expect(wrapper.get('button[aria-label="后退"]').attributes('disabled')).toBeDefined();
+    expect(wrapper.get('button[aria-label="前进"]').attributes('disabled')).toBeDefined();
+    wrapper.unmount();
   });
 
   it('does not have a toggle-tweaks button', async () => {

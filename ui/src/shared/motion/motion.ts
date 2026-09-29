@@ -3,8 +3,6 @@ import type { Ref } from 'vue';
 import {
   getMotionProfile,
   type MotionSkinId,
-  type ProfileKey,
-  type TweenSpec,
 } from './motionProfiles';
 
 export interface CountUpOptions {
@@ -91,30 +89,6 @@ export function crossfadeTheme(applyFn: () => void): Promise<void> {
   });
 }
 
-/** Animate a single element using a profile key. Returns a cancellable handle. */
-export function animateElement(
-  el: Element,
-  from: Record<string, unknown>,
-  to: Record<string, unknown>,
-  profileKey: ProfileKey,
-): MotionHandle {
-  gsap.killTweensOf(el);
-  const spec = currentProfile()[profileKey] as TweenSpec;
-
-  if (isReducedMotion()) {
-    gsap.set(el, to);
-    return { kill: () => {} };
-  }
-
-  const tween = gsap.fromTo(el, from, {
-    ...to,
-    duration: spec.duration,
-    ease: spec.ease,
-    delay: spec.delay ?? 0,
-  });
-  return { kill: () => { tween.kill(); gsap.killTweensOf(el); } };
-}
-
 /** Optional overrides for home cold/return (and other) stagger budgets. */
 export interface StaggerOverrides {
   duration?: number;
@@ -136,7 +110,7 @@ export function pressBounceDown(el: Element): void {
   }
   const spec = currentProfile().controlPress;
   gsap.to(el, {
-    scale: 0.86,
+    scale: 0.96,
     duration: spec.duration,
     ease: spec.ease,
     delay: spec.delay ?? 0,
@@ -212,12 +186,13 @@ export function attachMagnet(el: HTMLElement, strength = 0.18, maxOffset = 3): (
       y: Math.max(-maxOffset, Math.min(maxOffset, dy * strength)),
       duration: 0.25,
       ease: 'power2.out',
+      overwrite: 'auto',
     });
   }
 
   function onLeave(): void {
     const spec = currentProfile().controlRelease;
-    gsap.to(el, { x: 0, y: 0, duration: spec.duration, ease: spec.ease });
+    gsap.to(el, { x: 0, y: 0, duration: spec.duration, ease: spec.ease, overwrite: 'auto' });
   }
 
   el.addEventListener('mousemove', onMove);
