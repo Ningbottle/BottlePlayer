@@ -192,6 +192,36 @@ describe('PlaybackCommandCoordinator', () => {
     expect(playLog.includes('play:c')).toBe(true);
   });
 
+  it('selects the exact queue position for duplicate hashes without replacing a personal FM queue', async () => {
+    const first = mkTrack('same-hash');
+    const middle = mkTrack('middle');
+    const second = { ...mkTrack('same-hash'), SongName: 'second copy' };
+    const queue = [first, middle, second];
+    state.queue = queue;
+    state.currentIndex = 0;
+    state.currentTrack = first;
+    state.queueMode = 'personalFm';
+
+    await coord.dispatch({ type: 'selectQueueIndex', index: 2 });
+
+    expect(state.queue).toBe(queue);
+    expect(state.queueMode).toBe('personalFm');
+    expect(state.currentIndex).toBe(2);
+    expect(state.currentTrack?.SongName).toBe('second copy');
+    expect(deps.playTrack).toHaveBeenCalledWith(second);
+    expect(deps.saveQueue).toHaveBeenCalled();
+  });
+
+  it('treats an out-of-range queue-index selection as a no-op', async () => {
+    state.queue = [mkTrack('only-track')];
+    state.currentIndex = 0;
+
+    const result = await coord.dispatch({ type: 'selectQueueIndex', index: 1 });
+
+    expect(result.status).toBe('noop');
+    expect(deps.playTrack).not.toHaveBeenCalled();
+  });
+
   it('clearQueue vs pending next leaves empty idle queue', async () => {
     state.queue = [mkTrack('a'), mkTrack('b')];
     state.currentIndex = 0;

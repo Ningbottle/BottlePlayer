@@ -90,13 +90,15 @@ export class WebAudioEq {
   private currentAudio: HTMLAudioElement | null = null;
   private fallbackElementVolume = 1;
   private leaseId = 0;
+  /** Invalidates in-flight graph construction when close/re-init changes ownership. */
+  private graphGeneration = 0;
 
   constructor(
     private readonly createCtx: AudioContextFactory,
     private readonly deps: WebAudioEqDeps = {},
   ) {}
 
-  /** Build the long-lived worklet graph once at app startup. */
+  /** Build the long-lived worklet graph on first use and update its live options. */
   init(opts: EqOptions): void {
     this.doInit(opts);
   }
@@ -144,6 +146,10 @@ export class WebAudioEq {
 
   get contextState(): string {
     return this.ctx?.state ?? 'closed';
+  }
+
+  get isGraphReady(): boolean {
+    return !!this.ctx && !!this.workletNode && !!this.gainNode && !this.workletFailed;
   }
 
   releaseLease(leaseId: number): void {
@@ -215,23 +221,21 @@ export class WebAudioEq {
   }
 
   close(): void {
+    this.graphGeneration += 1;
     this.clearDegradationTimer();
     this.disconnectSource();
-    this.workletNode?.disconnect();
-    this.gainNode?.disconnect();
-    if (this.blobUrl) {
-      URL.revokeObjectURL(this.blobUrl);
-      this.blobUrl = null;
-    }
-    if (this.ctx) {
-      this.ctx.close().catch(() => {});
-      this.ctx = null;
-    }
+    const ctx = this.ctx;
+    const workletNode = this.workletNode;
+    const gainNode = this.gainNode;
+    const blobUrl = this.blobUrl;
+    this.ctx = null;
     this.workletNode = null;
     this.gainNode = null;
+    this.blobUrl = null;
     this.initStarted = false;
     this.workletFailed = false;
     this.readyPromise = null;
+    this.releaseGraphResources(ctx, workletNode, gainNode, blobUrl);
   }
 
   /** §3.3 / §4.4: fade gainNode out, then release the volume lease. */
@@ -260,11 +264,11 @@ export class WebAudioEq {
   private doInit(opts: EqOptions): void {
     this.onDegradedCb = this.resolveOnDegraded(opts);
     this.onRecoveredCb = opts.onRecovered;
+    this.enabled = opts.enabled;
+    this.bands = opts.bands.map((g) => (opts.enabled ? clampEqGain(g ?? 0) : 0));
 
     if (this.initStarted) {
       if (this.workletNode && !this.workletFailed) {
-        this.enabled = opts.enabled;
-        this.bands = opts.bands.map((g) => (opts.enabled ? clampEqGain(g ?? 0) : 0));
         this.postBands();
         this.postEnabled(opts.enabled);
       }
@@ -272,37 +276,93 @@ export class WebAudioEq {
     }
 
     this.initStarted = true;
-    this.enabled = opts.enabled;
-    this.bands = opts.bands.map((g) => (opts.enabled ? clampEqGain(g ?? 0) : 0));
-    this.readyPromise = this.buildGraph(opts);
+    this.workletFailed = false;
+    const generation = ++this.graphGeneration;
+    this.readyPromise = this.buildGraph(generation);
   }
 
-  private async buildGraph(_opts: EqOptions): Promise<void> {
-    const ctx = this.createCtx();
-    if (!ctx) {
-      this.workletFailed = true;
-      this.onDegradedCb?.();
-      return;
-    }
-    this.ctx = ctx;
-
-    const loadWorklet = this.deps.loadWorklet ?? loadEqWorklet;
-    const WorkletNodeCtor = this.deps.WorkletNodeCtor
-      ?? (AudioWorkletNode as unknown as new (ctx: unknown, name: string) => AudioWorkletNodeLike);
-
+  private async buildGraph(generation: number): Promise<void> {
+    let ctx: AudioContextLike | null = null;
+    let workletNode: AudioWorkletNodeLike | null = null;
+    let gainNode: GainNodeLike | null = null;
+    let blobUrl: string | null = null;
     try {
-      this.blobUrl = await loadWorklet(ctx);
-      this.workletNode = new WorkletNodeCtor(ctx, 'eq-processor');
-      this.gainNode = ctx.createGain();
-      this.gainNode.gain.value = 1;
-      this.workletNode.connect(this.gainNode);
-      this.gainNode.connect(ctx.destination);
-      this.postBands();
-      this.postEnabled(this.enabled);
+      ctx = this.createCtx();
+      if (!ctx) throw new Error('AudioContext is unavailable');
+
+      const loadWorklet = this.deps.loadWorklet ?? loadEqWorklet;
+      const globalWorkletCtor = (
+        globalThis as typeof globalThis & {
+          AudioWorkletNode?: new (context: unknown, name: string) => AudioWorkletNodeLike;
+        }
+      ).AudioWorkletNode;
+      const WorkletNodeCtor = this.deps.WorkletNodeCtor ?? globalWorkletCtor;
+      if (!WorkletNodeCtor) throw new Error('AudioWorkletNode is unavailable');
+
+      blobUrl = await loadWorklet(ctx);
+      if (generation !== this.graphGeneration) {
+        this.releaseGraphResources(ctx, null, null, blobUrl);
+        return;
+      }
+
+      workletNode = new WorkletNodeCtor(ctx, 'eq-processor');
+      gainNode = ctx.createGain();
+      gainNode.gain.value = 1;
+      workletNode.connect(gainNode);
+      gainNode.connect(ctx.destination);
+      workletNode.port.postMessage({ type: 'setBands', bands: [...this.bands] });
+      workletNode.port.postMessage({ type: 'setEnabled', enabled: this.enabled });
+
+      if (generation !== this.graphGeneration) {
+        this.releaseGraphResources(ctx, workletNode, gainNode, blobUrl);
+        return;
+      }
+
+      this.ctx = ctx;
+      this.workletNode = workletNode;
+      this.gainNode = gainNode;
+      this.blobUrl = blobUrl;
+      this.workletFailed = false;
     } catch (e) {
-      console.warn('Web Audio API EQ worklet init failed:', e);
-      this.workletFailed = true;
-      this.onDegradedCb?.();
+      this.releaseGraphResources(ctx, workletNode, gainNode, blobUrl);
+      if (generation === this.graphGeneration) {
+        console.warn('Web Audio API EQ worklet init failed:', e);
+        this.initStarted = false;
+        this.workletFailed = true;
+        this.onDegradedCb?.();
+      }
+    }
+  }
+
+  private releaseGraphResources(
+    ctx: AudioContextLike | null,
+    workletNode: AudioWorkletNodeLike | null,
+    gainNode: GainNodeLike | null,
+    blobUrl: string | null,
+  ): void {
+    try {
+      workletNode?.disconnect();
+    } catch {
+      /* already disconnected or only partially constructed */
+    }
+    try {
+      gainNode?.disconnect();
+    } catch {
+      /* already disconnected or only partially constructed */
+    }
+    if (blobUrl) {
+      try {
+        URL.revokeObjectURL(blobUrl);
+      } catch {
+        /* URL implementation may already be gone during teardown */
+      }
+    }
+    if (ctx) {
+      try {
+        ctx.close().catch(() => {});
+      } catch {
+        /* a partially constructed context can reject synchronous close */
+      }
     }
   }
 

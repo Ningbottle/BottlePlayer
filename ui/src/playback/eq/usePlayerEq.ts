@@ -58,6 +58,11 @@ export function createPlayerEq(deps: PlayerEqDeps) {
   });
 
   let currentEqSafeSource = '';
+  /** initPlayerBackend configures EQ intent; a graph is built only for a safe enabled source. */
+  let eqGraphRequested = false;
+  let graphLifecycleEpoch = 0;
+  let sourceIntentEpoch = 0;
+  let retryInFlight: Promise<void> | null = null;
 
   const eqState = reactive({
     available: false,
@@ -67,11 +72,73 @@ export function createPlayerEq(deps: PlayerEqDeps) {
   });
 
   function __resetWebAudioEqForTests() {
+    graphLifecycleEpoch += 1;
+    sourceIntentEpoch += 1;
+    currentEqSafeSource = '';
     webAudioEq.close();
+    eqGraphRequested = false;
   }
 
   function closeWebAudioEq() {
+    graphLifecycleEpoch += 1;
+    sourceIntentEpoch += 1;
+    currentEqSafeSource = '';
     webAudioEq.close();
+    eqGraphRequested = false;
+  }
+
+  function currentWebAudioEqOptions() {
+    return {
+      enabled: deps.getEqEnabled(),
+      bands: deps.getEqBands().slice(),
+      onDegraded: () => {
+        eqState.available = false;
+        eqState.reason = EQ_DEGRADED_REASON;
+      },
+      onRecovered: () => {
+        syncEqAvailabilityFromReroute();
+      },
+    };
+  }
+
+  async function ensureWebAudioEqGraph(
+    expectedLifecycleEpoch = graphLifecycleEpoch,
+  ): Promise<boolean> {
+    if (expectedLifecycleEpoch !== graphLifecycleEpoch) return false;
+    eqGraphRequested = true;
+    const requestedOptions = currentWebAudioEqOptions();
+    webAudioEq.init(requestedOptions);
+    try {
+      await webAudioEq.awaitReady();
+    } catch (error) {
+      if (expectedLifecycleEpoch === graphLifecycleEpoch) {
+        eqState.available = false;
+        eqState.reason = EQ_DEGRADED_REASON;
+        recordEqEvent(
+          'fail',
+          `graph_init_reject err=${error instanceof Error ? error.message : String(error)}`,
+        );
+      }
+      return false;
+    }
+    if (expectedLifecycleEpoch !== graphLifecycleEpoch || !eqGraphRequested) return false;
+    if (!webAudioEq.isGraphReady) {
+      eqState.available = false;
+      eqState.reason = EQ_DEGRADED_REASON;
+      return false;
+    }
+
+    // Settings can change while the worklet module is loading. Apply the
+    // latest enabled/band state before the first source is attached.
+    const latestOptions = currentWebAudioEqOptions();
+    if (
+      requestedOptions.enabled !== latestOptions.enabled
+      || requestedOptions.bands.length !== latestOptions.bands.length
+      || requestedOptions.bands.some((gain, index) => gain !== latestOptions.bands[index])
+    ) {
+      webAudioEq.init(latestOptions);
+    }
+    return true;
   }
 
   function syncEqAvailabilityFromReroute() {
@@ -80,29 +147,45 @@ export function createPlayerEq(deps: PlayerEqDeps) {
   }
 
   async function preparePlaybackAudioSourceUrl(url: string) {
+    const lifecycleEpoch = graphLifecycleEpoch;
+    const intentEpoch = sourceIntentEpoch;
     if (!deps.getEqEnabled()) {
       return { url, crossOriginSafe: false };
     }
-    return prepareAudioSourceUrl(url);
+    const prepared = await prepareAudioSourceUrl(url);
+    if (
+      prepared.crossOriginSafe
+      && lifecycleEpoch === graphLifecycleEpoch
+      && intentEpoch === sourceIntentEpoch
+      && deps.getEqEnabled()
+    ) {
+      // Build before audio.play() so the first safe track still starts with
+      // EQ ready; avoid constructing AudioContext/worklet on idle startup.
+      await ensureWebAudioEqGraph(lifecycleEpoch);
+    }
+    return prepared;
   }
 
-  /** Build the long-lived worklet graph once at app startup (spec §5.1). */
+  /** Preserve EQ intent during app startup; defer the graph until playback needs it. */
   function initWebAudioEQ() {
-    webAudioEq.init({
-      enabled: deps.getEqEnabled(),
-      bands: deps.getEqBands(),
-      onDegraded: () => {
-        eqState.available = false;
-        eqState.reason = EQ_DEGRADED_REASON;
-      },
-      onRecovered: () => {
-        syncEqAvailabilityFromReroute();
-      },
-    });
+    if (eqGraphRequested) webAudioEq.init(currentWebAudioEqOptions());
   }
 
   function restoreElementVolume(element: HTMLAudioElement) {
     element.volume = deps.getVolume();
+  }
+
+  function isCurrentAudioIntent(
+    epoch: number,
+    audio: HTMLAudioElement,
+    source: string,
+  ): boolean {
+    return (
+      epoch === sourceIntentEpoch
+      && deps.getEqEnabled()
+      && deps.getAudio() === audio
+      && getAudioSource(audio) === source
+    );
   }
 
   function recordEqEvent(
@@ -123,8 +206,11 @@ export function createPlayerEq(deps: PlayerEqDeps) {
     isCurrent: () => boolean = () => true,
   ) {
     if (!isCurrent()) return;
-    currentEqSafeSource = crossOriginSafe ? getAudioSource(element) : '';
+    const operationEpoch = ++sourceIntentEpoch;
+    const lifecycleEpoch = graphLifecycleEpoch;
+    const source = getAudioSource(element);
     if (!crossOriginSafe) {
+      currentEqSafeSource = '';
       eqState.available = false;
       eqState.reason = EQ_UNAVAILABLE_REASON;
       restoreElementVolume(element);
@@ -132,13 +218,29 @@ export function createPlayerEq(deps: PlayerEqDeps) {
       return;
     }
 
-    await webAudioEq.awaitReady();
-    if (!isCurrent()) return;
+    const graphReady = await ensureWebAudioEqGraph(lifecycleEpoch);
+    const ownsOperation = () => (
+      operationEpoch === sourceIntentEpoch
+      && lifecycleEpoch === graphLifecycleEpoch
+      && deps.getEqEnabled()
+      && getAudioSource(element) === source
+      && isCurrent()
+    );
+    if (!ownsOperation()) return;
+    if (!graphReady) {
+      eqState.available = false;
+      eqState.reason = EQ_DEGRADED_REASON;
+      restoreElementVolume(element);
+      recordEqEvent('fail', `graph_unavailable volume=${element.volume}`);
+      return;
+    }
+    currentEqSafeSource = source;
 
     const volumeBefore = element.volume;
     try {
       await webAudioEq.resume();
     } catch (e) {
+      if (!ownsOperation()) return;
       eqState.available = false;
       eqState.reason = EQ_DEGRADED_REASON;
       restoreElementVolume(element);
@@ -148,7 +250,7 @@ export function createPlayerEq(deps: PlayerEqDeps) {
       );
       return;
     }
-    if (!isCurrent()) return;
+    if (!ownsOperation()) return;
     if (webAudioEq.contextState !== 'running') {
       eqState.available = false;
       eqState.reason = EQ_DEGRADED_REASON;
@@ -166,13 +268,13 @@ export function createPlayerEq(deps: PlayerEqDeps) {
       recordEqEvent('fail', `attach_false lease=${leaseId} volume=${element.volume}`);
       return;
     }
-    if (!isCurrent()) {
+    if (!ownsOperation()) {
       webAudioEq.releaseLease(leaseId);
       recordEqEvent('noop', `stale_after_attach released_lease=${leaseId}`);
       return;
     }
     syncEqAvailabilityFromReroute();
-    if (!isCurrent()) {
+    if (!ownsOperation()) {
       webAudioEq.releaseLease(leaseId);
       recordEqEvent('noop', `stale_after_sync released_lease=${leaseId}`);
       return;
@@ -185,6 +287,7 @@ export function createPlayerEq(deps: PlayerEqDeps) {
   }
 
   function disconnectWebAudioEqSource() {
+    sourceIntentEpoch += 1;
     const leaseId = webAudioEq.currentLeaseId;
     currentEqSafeSource = '';
     webAudioEq.disconnectSource();
@@ -201,8 +304,9 @@ export function createPlayerEq(deps: PlayerEqDeps) {
   }
 
   function setWebAudioEqEnabled(enabled: boolean) {
-    webAudioEq.setEnabled(enabled, deps.getEqBands());
+    if (eqGraphRequested) webAudioEq.setEnabled(enabled, deps.getEqBands());
     if (!enabled) {
+      sourceIntentEpoch += 1;
       webAudioEq.disconnectSource();
       const audio = deps.getAudio();
       if (audio) audio.volume = deps.getVolume();
@@ -223,21 +327,17 @@ export function createPlayerEq(deps: PlayerEqDeps) {
 
   /** Resume the AudioContext after a user gesture (autoplay policy). */
   function resumeAudioContext() {
+    // The HTML5 play event also fires for direct/unsafe sources. There is no
+    // EQ context to resume in that case, and a missing context is not an EQ
+    // degradation.
+    if (!eqGraphRequested || !webAudioEq.isGraphReady) return;
+    const audio = deps.getAudio();
+    if (!audio) return;
+    const operationEpoch = sourceIntentEpoch;
+    const source = getAudioSource(audio);
     void webAudioEq.resume().then(() => {
-      const audio = deps.getAudio();
+      if (!isCurrentAudioIntent(operationEpoch, audio, source)) return;
       if (webAudioEq.contextState !== 'running') {
-        if (audio) {
-          eqState.available = false;
-          eqState.reason = EQ_DEGRADED_REASON;
-          audio.volume = deps.getVolume();
-          if (webAudioEq.isRerouted) {
-            webAudioEq.enterDegradation(audio, deps.getVolume());
-          }
-        }
-      }
-    }).catch(() => {
-      const audio = deps.getAudio();
-      if (audio) {
         eqState.available = false;
         eqState.reason = EQ_DEGRADED_REASON;
         audio.volume = deps.getVolume();
@@ -245,33 +345,65 @@ export function createPlayerEq(deps: PlayerEqDeps) {
           webAudioEq.enterDegradation(audio, deps.getVolume());
         }
       }
+    }).catch(() => {
+      if (!isCurrentAudioIntent(operationEpoch, audio, source)) return;
+      eqState.available = false;
+      eqState.reason = EQ_DEGRADED_REASON;
+      audio.volume = deps.getVolume();
+      if (webAudioEq.isRerouted) {
+        webAudioEq.enterDegradation(audio, deps.getVolume());
+      }
     });
   }
 
   /** Retry EQ after suspend degradation (spec §4.4, §6.3). */
-  async function retryEq() {
-    if (eqState.retryDisabled || !deps.getAudio()) return;
+  async function runRetryEq() {
+    const audio = deps.getAudio();
+    if (eqState.retryDisabled || !audio || !deps.getEqEnabled()) return;
+    const source = getAudioSource(audio);
+    const sourceSafe = !!source && (
+      source === currentEqSafeSource || isLocalAudioProxySource(source)
+    );
+    if (!sourceSafe) return;
+
+    const operationEpoch = ++sourceIntentEpoch;
+    const lifecycleEpoch = graphLifecycleEpoch;
     try {
+      const graphReady = await ensureWebAudioEqGraph(lifecycleEpoch);
+      if (!isCurrentAudioIntent(operationEpoch, audio, source)) return;
+      if (!graphReady) throw new Error('EQ graph unavailable');
       await webAudioEq.resume();
+      if (!isCurrentAudioIntent(operationEpoch, audio, source)) return;
       if (webAudioEq.contextState !== 'running') {
         throw new Error('AudioContext not running');
       }
-      const audio = deps.getAudio();
-      const recovered = audio
-        ? webAudioEq.recoverFromDegradation(audio, deps.getVolume())
-        : false;
+      const recovered = webAudioEq.recoverFromDegradation(audio, deps.getVolume());
       if (!recovered) throw new Error('eq recover failed');
+      if (!isCurrentAudioIntent(operationEpoch, audio, source)) {
+        webAudioEq.releaseLease(webAudioEq.currentLeaseId);
+        return;
+      }
+      currentEqSafeSource = source;
       eqState.available = true;
       eqState.reason = '';
       eqState.retryFailCount = 0;
     } catch {
-      const audio = deps.getAudio();
-      if (audio) audio.volume = deps.getVolume();
+      if (!isCurrentAudioIntent(operationEpoch, audio, source)) return;
+      audio.volume = deps.getVolume();
       eqState.retryFailCount++;
       if (eqState.retryFailCount >= 3) {
         eqState.retryDisabled = true;
       }
     }
+  }
+
+  function retryEq(): Promise<void> {
+    if (retryInFlight) return retryInFlight;
+    const pending = runRetryEq().finally(() => {
+      if (retryInFlight === pending) retryInFlight = null;
+    });
+    retryInFlight = pending;
+    return pending;
   }
 
   /**

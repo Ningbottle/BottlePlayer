@@ -3,7 +3,7 @@
  * Not a 2h/24h soak; reports actual duration for the requested command volume.
  *
  * Run:
- *   pnpm exec vitest run src/api/__tests__/playbackStress.gate.test.ts
+ *   pnpm exec vitest run src/playback/commands/__tests__/playbackStress.gate.test.ts
  *   node scripts/playback-stress.mjs --commands 1000
  */
 import { describe, it, expect } from 'vitest';

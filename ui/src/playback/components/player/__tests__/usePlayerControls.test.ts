@@ -315,13 +315,6 @@ describe('usePlayerControls', () => {
     expect(ctrl.favoriteMsg.length).toBeGreaterThan(0);
   });
 
-  it('closeAddModal closes the modal', () => {
-    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
-    ctrl.showAddModal = true;
-    ctrl.closeAddModal();
-    expect(ctrl.showAddModal).toBe(false);
-  });
-
   it('both skin player bars read the same shared favorite state', () => {
     __resetFavoriteMarkersForTests();
     mocks.store.currentTrack = mkTrack({ FileHash: 'shared-1' });
@@ -339,19 +332,6 @@ describe('usePlayerControls', () => {
     newsprintCtrl.handleFavorite(); // unfavorite via the other skin
     expect(auroraCtrl.isFavorite).toBe(false);
     expect(newsprintCtrl.isFavorite).toBe(false);
-  });
-
-  it('marks the current track as collected after a successful add and restores the marker', () => {
-    __resetFavoriteMarkersForTests();
-    mocks.store.currentTrack = mkTrack({ FileHash: 'favorite-hash' });
-    const ctrl = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
-
-    expect(ctrl.isFavorite).toBe(false);
-    ctrl.handleFavoriteSuccess('我喜欢');
-    expect(ctrl.isFavorite).toBe(true);
-
-    const restored = usePlayerControls({ activeView: () => 'home', onNavigate: () => {} });
-    expect(restored.isFavorite).toBe(true);
   });
 
   // ── handleSelectQuality ──

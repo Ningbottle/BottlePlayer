@@ -32,10 +32,15 @@ export function flyCoverToElement(
   delayMs = 0,
 ): void {
   if (isReducedMotion() || !imgUrl) return;
+  // Capture before navigation can hide/unmount the source dock (fullscreen).
+  const from = fromEl.getBoundingClientRect();
+  if (from.width <= 0 || from.height <= 0) return;
 
   const run = (): void => {
     const target = document.querySelector<HTMLElement>(targetSelector);
     if (!target) return;
+    const targetRect = target.getBoundingClientRect();
+    if (targetRect.width <= 0 || targetRect.height <= 0) return;
 
     const ghost = document.createElement('img');
     ghost.src = imgUrl;
@@ -51,7 +56,6 @@ export function flyCoverToElement(
       objectFit: 'cover',
     } satisfies Partial<CSSStyleDeclaration>);
 
-    const from = fromEl.getBoundingClientRect();
     Object.assign(ghost.style, {
       left: `${from.left}px`,
       top: `${from.top}px`,
@@ -68,6 +72,7 @@ export function flyCoverToElement(
       opacity: 0.9,
       borderRadius: '50%',
       onComplete: () => ghost.remove(),
+      onInterrupt: () => ghost.remove(),
     });
   };
 

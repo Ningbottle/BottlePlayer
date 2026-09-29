@@ -11,7 +11,7 @@ const emit = defineEmits<{
   (e: 'seek', position: number): void;
 }>();
 
-const isEnabled = computed(() => props.duration > 0 && !isNaN(props.duration));
+const isEnabled = computed(() => props.duration > 0 && Number.isFinite(props.duration));
 
 const progressPct = computed(() => {
   if (!isEnabled.value) return 0;
@@ -24,7 +24,7 @@ const bufferedPct = computed(() => {
 });
 
 function formatTime(sec: number) {
-  if (isNaN(sec) || sec === null || sec === undefined) return '00:00';
+  if (!Number.isFinite(sec) || sec < 0) return '00:00';
   const m = Math.floor(sec / 60);
   const s = Math.floor(sec % 60);
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
@@ -34,6 +34,7 @@ function handleClick(e: MouseEvent) {
   if (!isEnabled.value) return;
   const trackEl = e.currentTarget as HTMLElement;
   const rect = trackEl.getBoundingClientRect();
+  if (rect.width <= 0) return;
   const clickX = e.clientX - rect.left;
   const pct = Math.max(0, Math.min(1, clickX / rect.width));
   emit('seek', pct * props.duration);

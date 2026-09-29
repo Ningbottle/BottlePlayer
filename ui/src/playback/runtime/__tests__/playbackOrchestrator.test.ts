@@ -56,6 +56,8 @@ function makeHarness(options: { calls?: string[] } = {}) {
     seek: vi.fn(async (seconds: number) => {
       calls.push(`seek:${seconds}`);
     }),
+    // 首败定位（2026-09-15 审阅）：可选能力，默认无失败。
+    getLastPlayFailureReason: vi.fn((): string | null => null),
   };
   const playSession = {
     skip: vi.fn(() => {
@@ -220,6 +222,31 @@ describe('PlaybackOrchestrator', () => {
     expect(h.state.queue[0]?.Image).toBe('http://img/new.jpg');
   });
 
+  it('keeps a duplicate-hash queue selection and late cover on its exact occurrence', async () => {
+    const h = makeHarness();
+    const pendingCover = deferred<string>();
+    h.fetchCover.mockReturnValue(pendingCover.promise);
+    const first = mkTrack('duplicate-hash', 'First album copy');
+    const second = mkTrack('duplicate-hash', 'Second album copy');
+    delete first.Image;
+    delete second.Image;
+    h.state.queue = [first, second];
+
+    const result = await h.orchestrator.switchTrack(second);
+
+    expect(result).toEqual({ status: 'played' });
+    expect(h.state.currentIndex).toBe(1);
+    expect(h.state.currentTrack?.SongName).toBe('Second album copy');
+
+    pendingCover.resolve('http://img/second-album.jpg');
+    await vi.waitFor(() => {
+      expect(h.state.currentTrack?.Image).toBe('http://img/second-album.jpg');
+    });
+
+    expect(first.Image).toBeUndefined();
+    expect(second.Image).toBe('http://img/second-album.jpg');
+  });
+
   it('rolls back current pointer when Resolve fails without removing queued track', async () => {
     const h = makeHarness();
     const good = mkTrack('good');
@@ -264,9 +291,50 @@ describe('PlaybackOrchestrator', () => {
       'diag:url_resolve:ok',
       'intend:bad',
       'playUrl:http://x/song.mp3',
+      'diag:play_fail:fail',
       'skip',
       'saveQueue',
     ]);
+    // 首败定位：rollback 前先记录 playUrl 的失败归因（默认 mock 无归因）。
+    expect(h.recordDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'play_fail',
+      phase: 'fail',
+      detail: expect.stringContaining('first_fail_reason=unknown'),
+      trackKey: 'bad',
+    }));
+  });
+
+  it('records the backend first-fail reason before rolling back when playUrl returns false', async () => {
+    const h = makeHarness();
+    h.backend.playUrl.mockResolvedValue(false);
+    h.backend.getLastPlayFailureReason.mockReturnValue('eq_init');
+
+    const result = await h.orchestrator.switchTrack(mkTrack('bad'));
+
+    expect(result).toEqual({ status: 'failed', message: '播放失败' });
+    expect(h.state.playbackPhase).toBe('error');
+    expect(h.recordDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'play_fail',
+      phase: 'fail',
+      detail: expect.stringContaining('first_fail_reason=eq_init'),
+      trackKey: 'bad',
+    }));
+  });
+
+  it('records first_fail_reason=play_threw when playUrl rejects', async () => {
+    const h = makeHarness();
+    h.backend.playUrl.mockRejectedValueOnce(new Error('proxy down'));
+
+    const result = await h.orchestrator.switchTrack(mkTrack('a'));
+
+    expect(result).toEqual({ status: 'failed', message: 'proxy down' });
+    expect(h.recordDiagnostic).toHaveBeenCalledWith(expect.objectContaining({
+      kind: 'play_fail',
+      phase: 'fail',
+      detail: expect.stringContaining('first_fail_reason=play_threw'),
+      trackKey: 'a',
+    }));
+    expect(h.state.isLoading).toBe(false);
   });
 
   it('turns a current playUrl rejection into a failed result and clears loading', async () => {
@@ -320,6 +388,30 @@ describe('PlaybackOrchestrator', () => {
   });
 
   // ── Stage 6a (F11): isPreview 与最终 URL 同源 ──────────────────────────
+  it.each(['track', 'cached', 'fresh'] as const)('keeps unknown delivery on %s selection', async (mode) => {
+    const h = makeHarness();
+    const current = mkTrack('a');
+    h.state.currentTrack = current;
+    h.state.queue = [current];
+    h.state.currentIndex = 0;
+    h.state.quality = '128';
+    h.state.delivery = 'full';
+    const entries = [
+      { quality: '320', url: 'https://cdn/full', isPreview: false, delivery: 'full' as const },
+      { quality: '128', url: 'https://cdn/opaque', isPreview: false, delivery: 'unknown' as const },
+    ];
+    if (mode === 'cached') h.state.availableQualities = entries;
+    else h.resolveTrack.mockResolvedValueOnce({ status: 1, url: entries[0]!.url,
+      is_preview: false, delivery: 'full', data: { available_qualities: entries } });
+    h.backend.switchUrl.mockResolvedValueOnce(true);
+    if (mode === 'track') await h.orchestrator.switchTrack(current);
+    else await h.orchestrator.switchQuality('128');
+    expect(h.state.delivery).toBe('unknown');
+    expect(h.state.isPreview).toBe(false);
+    expect(mode === 'track' ? h.backend.playUrl : h.backend.switchUrl)
+      .toHaveBeenCalledWith('https://cdn/opaque', ...(mode === 'track' ? [] : [expect.anything()]));
+  });
+
   it('switchTrack honors the selected entry isPreview over the aggregate flag', async () => {
     // native 顶层 is_preview 描述最高码率候选（full），用户 quality=128
     // 命中条目级 preview —— patchState 的 isPreview 必须取条目标志。

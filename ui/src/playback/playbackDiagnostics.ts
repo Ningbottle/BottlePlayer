@@ -5,7 +5,8 @@ export type DiagKind =
   | 'proxy_prep'
   | 'fm_fetch'
   | 'potential_stall'
-  | 'eq';
+  | 'eq'
+  | 'play_fail';
 
 export type DiagPhase = 'start' | 'ok' | 'fail' | 'noop';
 
@@ -92,6 +93,25 @@ export class PlaybackDiagnostics {
 
   getEvents(): DiagEvent[] {
     return [...this.buffer];
+  }
+
+  /**
+   * Bounded, redacted export for hang/playback investigation.
+   * Does not include tokens, cookies, or full signed URLs.
+   */
+  exportSnapshot(limit = 80): string {
+    const n = Math.max(1, Math.min(limit, this.capacity));
+    const slice = this.buffer.slice(0, n);
+    const lines = [
+      `playback_diag_events=${slice.length}`,
+      `playback_diag_capacity=${this.capacity}`,
+      `playback_diag_exported_at=${this.now()}`,
+      ...slice.map((e) => {
+        const base = `${e.ts} ${e.kind} ${e.phase}: ${e.detail}`;
+        return e.trackKey ? `${base} [${e.trackKey}]` : base;
+      }),
+    ];
+    return lines.join('\n');
   }
 
   copyAsText(): string {

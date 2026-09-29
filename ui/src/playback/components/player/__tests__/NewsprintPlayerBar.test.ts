@@ -41,7 +41,6 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     isLyricView: false,
     isFavorite: false,
     showQualityMenu: false,
-    showAddModal: false,
     toastMsg: '',
     favoriteMsg: '',
     qualityOptions: ['128', '320', 'flac'],
@@ -60,9 +59,6 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
     handleFavorite: vi.fn(),
     handleSelectQuality: vi.fn(),
     closeQualityMenu: vi.fn(),
-    closeAddModal: vi.fn(),
-    handleFavoriteSuccess: vi.fn(),
-    handleFavoriteError: vi.fn(),
     getQualityLabel: (q: string) => {
       const labels: Record<string, string> = { '128': '标准', '320': '高品', 'flac': '无损', 'hires': 'Hi-Res', 'master': '臻品' };
       return labels[q] || q;
@@ -73,6 +69,14 @@ function createStubController(overrides: Record<string, any> = {}): PlayerContro
 }
 
 describe('NewsprintPlayerBar', () => {
+  it('shows neutral unknown delivery even after a VIP rejection', () => {
+    const wrapper = mount(NewsprintPlayerBar, { props: { controller: createStubController({
+      currentTrack: mkTrack(), delivery: 'unknown', isPreview: false, vipRequired: true,
+    }) } });
+    expect(wrapper.text()).toContain('完整性待确认');
+    expect(wrapper.text()).not.toContain('试听');
+    expect(wrapper.text()).not.toContain('完整版');
+  });
   beforeEach(() => {
     vi.clearAllMocks();
   });
@@ -247,6 +251,19 @@ describe('NewsprintPlayerBar', () => {
 
     await wrapper.find('[aria-label="队列"]').trigger('click');
     expect(wrapper.emitted('toggle-queue')).toBeTruthy();
+  });
+
+  it('uses a native range control for pointer and keyboard volume changes', async () => {
+    const ctrl = createStubController({ currentTrack: mkTrack() });
+    const wrapper = mount(NewsprintPlayerBar, { props: { controller: ctrl } });
+    const input = wrapper.get<HTMLInputElement>('[data-test="newsprint-volume"]');
+
+    expect(input.attributes()).toMatchObject({
+      type: 'range', min: '0', max: '100', step: '1', 'aria-label': '音量',
+    });
+    expect(input.element.value).toBe('70');
+    await input.setValue('35');
+    expect(ctrl.setVolume).toHaveBeenLastCalledWith(0.35);
   });
 
   // ── States ──

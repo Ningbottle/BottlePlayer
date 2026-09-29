@@ -59,6 +59,12 @@ export function describeBackendError(error: unknown, fallback: string): string {
   if (message.includes('circuit_open')) {
     return '服务暂时繁忙，请稍后重试';
   }
+  if (
+    message.includes('ffi_overloaded')
+    || message.includes('ffi_live_capacity')
+  ) {
+    return '请求繁忙，请稍后再试';
+  }
   return fallback;
 }
 
@@ -102,7 +108,17 @@ async function ipcRequest(
     queryStr = JSON.stringify(q);
   }
 
-  const headersStr = headers ? JSON.stringify(headers) : undefined;
+  // Cross-layer correlation id (not a credential). Native echoes it in route logs.
+  const requestId = `ui-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+  const mergedHeaders: Record<string, string> = {
+    ...(headers ?? {}),
+    'x-echo-request-id': requestId,
+  };
+  const headersStr = JSON.stringify(mergedHeaders);
+
+  if (typeof console !== 'undefined' && console.debug) {
+    console.debug(`[IPC] start id=${requestId} ${method} ${path}`);
+  }
 
   const rawJson = await withTimeout(
     invokeTauri<string>('native_request', {
@@ -114,6 +130,10 @@ async function ipcRequest(
     }),
     FRONTEND_TIMEOUT_MS
   );
+
+  if (typeof console !== 'undefined' && console.debug) {
+    console.debug(`[IPC] done id=${requestId} ${method} ${path}`);
+  }
 
   return JSON.parse(rawJson) as NativeResponse;
 }

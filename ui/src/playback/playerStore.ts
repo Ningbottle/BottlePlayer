@@ -1,4 +1,5 @@
 import { reactive, watch } from 'vue';
+import type { Delivery } from './types';
 import { Track } from '../shared/music/track';
 import { fetchCoverImage } from '../playback/data/coverGateway';
 import { Html5AudioBackend } from './runtime/html5Backend';
@@ -35,7 +36,6 @@ import {
   loadQueueSnapshot,
 } from './data/playerPersistence';
 import { appendPersonalFmRecommendations as appendFm, disposeFmSession } from './fm/fmSession';
-import { __resetQueueCommandChainForTests } from './playbackQueue';
 import {
   PlaybackCommandCoordinator,
   type PlaybackCommand,
@@ -83,6 +83,7 @@ interface PlayerState {
   isLoading: boolean;
   errorMsg: string;
   isPreview: boolean;
+  delivery?: Delivery;
   vipRequired: boolean;
   /** Explicit playback phase (observability; see playbackPhase.ts). */
   playbackPhase: PlaybackPhase;
@@ -192,6 +193,7 @@ export const playerStore = reactive<PlayerState>({
   isLoading: false,
   errorMsg: '',
   isPreview: false,
+  delivery: 'unknown',
   vipRequired: false,
   playbackPhase: 'idle',
   quality: safeGetItem('player_quality') || '128',
@@ -314,7 +316,15 @@ export function initPlayer() {
     playerStore.isPlaying = false;
     playerStore.isLoading = false;
   }
-  audio.volume = playerStore.volume;
+  // Volume must respect EQ reroute: while rerouted the element is intentionally
+  // muted (gainNode carries loudness). Writing audio.volume here would desync
+  // the graph from Store preference and can leave silence after disconnect.
+  const backendForVolume = moduleRuntime.getBackend();
+  if (backendForVolume) {
+    void backendForVolume.setVolume(playerStore.volume).catch(() => {});
+  } else {
+    audio.volume = playerStore.volume;
+  }
   if (Number.isFinite(audio.currentTime)) {
     playerStore.currentTime = audio.currentTime;
   }
@@ -341,6 +351,64 @@ export function initPlayer() {
   // NOTE: currentTrack restoration was moved ABOVE the phase projection block
   // (near the top of this function) so that phase=paused fires correctly when
   // a paused audio has a persisted queue. See R2 "ORDER MATTERS" comment above.
+}
+
+/** Snapshot shared <audio> into playbackDiagnostics (route/pause investigation). */
+export function recordPlaybackMediaSnapshot(tag: string): void {
+  try {
+    const audio = moduleRuntime?.audio ?? getMediaRuntime()?.audio ?? null;
+    if (!audio) {
+      playbackDiagnostics.recordEvent({
+        kind: 'media_event',
+        phase: 'noop',
+        detail: `${tag} no-audio`,
+        trackKey: playerStore.currentTrack?.FileHash ?? undefined,
+      });
+      return;
+    }
+    const src = audio.currentSrc || audio.getAttribute('src') || audio.src || '';
+    playbackDiagnostics.recordEvent({
+      kind: 'media_event',
+      phase: 'noop',
+      detail: `${tag} paused=${audio.paused} muted=${audio.muted} vol=${audio.volume} `
+        + `rs=${audio.readyState} ns=${audio.networkState} `
+        + `ct=${(Number.isFinite(audio.currentTime) ? audio.currentTime : 0).toFixed(1)} `
+        + `src=${src.slice(0, 48)} phase=${playerStore.playbackPhase} `
+        + `preview=${playerStore.isPreview} vipReq=${playerStore.vipRequired}`,
+      trackKey: playerStore.currentTrack?.FileHash ?? undefined,
+    });
+  } catch {
+    /* diagnostics must never break playback */
+  }
+}
+
+/**
+ * After SPA navigation (e.g. home KeepAlive activate): if the store says
+ * playing but the EQ AudioContext suspended, the element can stay
+ * paused=false with volume=0 (rerouted) — audible silence until the next
+ * track's play() event resumes the context. Resume (or degrade to element
+ * volume) immediately; never auto-switch tracks.
+ */
+export function recoverPlaybackAfterNavigation(): void {
+  try {
+    const audio = moduleRuntime?.audio ?? getMediaRuntime()?.audio ?? null;
+    if (!audio || !playerStore.isPlaying || audio.paused) {
+      recordPlaybackMediaSnapshot('recover:skip');
+      return;
+    }
+    recordPlaybackMediaSnapshot('recover:before');
+    // Resume EQ context; on failure this path restores audio.volume when
+    // the graph was rerouted (enterDegradation inside resumeAudioContext).
+    resumeAudioContext();
+    if (!audio.muted && (!Number.isFinite(audio.volume) || audio.volume === 0)) {
+      if (!eqState.available) {
+        audio.volume = playerStore.volume;
+      }
+    }
+    recordPlaybackMediaSnapshot('recover:after');
+  } catch {
+    /* recovery must never throw into router */
+  }
 }
 
 export async function initPlayerBackend() {
@@ -494,9 +562,11 @@ function ensureCoordinator(): PlaybackCommandCoordinator {
       },
       pause: async () => {
         const backend = moduleRuntime?.getBackend();
+        recordPlaybackMediaSnapshot('cmd:pause');
         if (backend) await backend.pause();
       },
       resumeOrReload: async () => {
+        recordPlaybackMediaSnapshot('cmd:resumeOrReload');
         if (!moduleRuntime?.getBackend()) initPlayerBackend();
         return playbackOrchestrator.resumeOrReloadCurrent();
       },
@@ -527,6 +597,11 @@ function readyForPlayback() {
 
 export async function playTrack(track: Track) {
   return readyForPlayback().dispatch({ type: 'selectTrack', track });
+}
+
+/** Play the current queue item at an exact position, preserving queue mode. */
+export function playQueueIndex(index: number) {
+  return readyForPlayback().dispatch({ type: 'selectQueueIndex', index });
 }
 
 /** 切换音质等级 — commit only on success (coordinator restores snapshot on failure). */
@@ -628,7 +703,6 @@ export async function disposePlayerRuntime(): Promise<void> {
 /** Test-only: reset coordinator between tests. */
 export function __resetPlaybackCoordinatorForTests() {
   playbackCoordinator = null;
-  __resetQueueCommandChainForTests();
 }
 
 export type { PlaybackCommand };

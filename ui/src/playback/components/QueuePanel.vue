@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted } from 'vue';
-import { playerStore, playTrack } from '../playerStore';
+import { playerStore, playQueueIndex } from '../playerStore';
+import { saveQueue } from '../data/playerPersistence';
 import { fetchCoverImage } from '../../playback/data/coverGateway';
 
 defineProps<{
@@ -16,13 +17,17 @@ const queueFilter = ref('');
 
 const filteredQueue = computed(() => {
   const q = queueFilter.value.trim().toLowerCase();
-  if (!q) return playerStore.queue;
-  return playerStore.queue.filter(
-    (item) =>
-      (item.SongName || '').toLowerCase().includes(q)
-      || (item.SingerName || '').toLowerCase().includes(q),
-  );
+  return playerStore.queue
+    .map((item, index) => ({ item, index }))
+    .filter(({ item }) => !q
+      || (item.SongName || '').toLowerCase().includes(q)
+      || (item.SingerName || '').toLowerCase().includes(q));
 });
+
+function playFirstFiltered(): void {
+  const first = filteredQueue.value[0];
+  if (first) void playQueueIndex(first.index);
+}
 
 /**
  * In-flight cover fetches: FileHash → generation that owns the pending slot.
@@ -68,7 +73,10 @@ function fetchMissingCovers() {
         const track = playerStore.queue.find((t) => t.FileHash === hash);
         if (!track || track.Image) return;
         track.Image = img;
-        localStorage.setItem('player_queue', JSON.stringify(playerStore.queue));
+        // Persist through the snapshot owner instead of writing the legacy
+        // `player_queue` key directly: that key is only a migration source now,
+        // and a direct write produced a queue snapshot that load logic ignores.
+        saveQueue();
       })
       .catch(() => {
         clearPendingIfOwner(hash, gen);
@@ -90,7 +98,7 @@ watch(() => playerStore.queue, () => {
     <aside class="queue-panel" v-if="show">
       <div class="panel-head">
         <div class="title">当前播放队列 <span class="en">QUEUE</span></div>
-        <button class="panel-close" aria-label="close" @click="emit('close')">
+        <button type="button" class="panel-close" aria-label="关闭播放队列" @click="emit('close')">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M6 6l12 12M6 18L18 6"/>
           </svg>
@@ -104,32 +112,35 @@ watch(() => playerStore.queue, () => {
           class="queue-filter"
           placeholder="筛选歌曲 / 歌手"
           aria-label="筛选播放队列"
+          @keydown.enter.prevent="playFirstFiltered"
         />
       </div>
 
       <div class="panel-scroll">
         <div class="recent">
-          <div
-            v-for="item in filteredQueue"
-            :key="item.FileHash"
+          <button
+            v-for="entry in filteredQueue"
+            :key="`${entry.index}:${entry.item.FileHash}`"
+            type="button"
             class="item"
-            :class="{ active: playerStore.currentTrack?.FileHash === item.FileHash }"
-            @click="playTrack(item)"
+            :class="{ active: playerStore.currentIndex === entry.index }"
+            :aria-label="`播放 ${entry.item.SongName}，${entry.item.SingerName}`"
+            @click="playQueueIndex(entry.index)"
           >
-            <div class="mini">
-              <img v-if="item.Image" :src="item.Image" alt="cover" style="width:100%;height:100%;object-fit:cover;" />
+            <span class="mini">
+              <img v-if="entry.item.Image" :src="entry.item.Image" alt="" style="width:100%;height:100%;object-fit:cover;" />
               <svg v-else viewBox="0 0 36 36">
                 <rect width="36" height="36" fill="var(--ink-mute)"/>
                 <text x="18" y="22" text-anchor="middle" font-family="var(--font-serif)" font-style="italic" font-size="12" fill="var(--paper)">
-                  {{ item.SongName.slice(0, 2) }}
+                  {{ entry.item.SongName.slice(0, 2) }}
                 </text>
               </svg>
-            </div>
-            <div class="info">
-              <b>{{ item.SongName }}</b>
-              <span>{{ item.SingerName }}</span>
-            </div>
-          </div>
+            </span>
+            <span class="info">
+              <b>{{ entry.item.SongName }}</b>
+              <span>{{ entry.item.SingerName }}</span>
+            </span>
+          </button>
           <div v-if="playerStore.queue.length === 0" class="empty-state">
             队列为空
           </div>
@@ -241,9 +252,20 @@ watch(() => playerStore.queue, () => {
   display: flex;
   align-items: center;
   gap: 12px;
+  width: 100%;
   padding: 8px 16px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
   cursor: pointer;
   transition: background 0.15s;
+}
+.recent .item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 .recent .item:last-child {
   border-bottom: none;

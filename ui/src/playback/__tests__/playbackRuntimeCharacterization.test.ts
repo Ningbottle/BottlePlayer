@@ -151,6 +151,23 @@ describe('audioLevelMonitor: never-close invariant (R3/R5)', () => {
     monitor1.stop();
     monitor2.stop();
   });
+
+  it('does not captureStream / create AudioContext while media is live (page-switch silence guard)', async () => {
+    const mocks = setupAudioLevelMocks();
+    const audio = mocks.capturableAudio;
+    audio.src = 'http://127.0.0.1:17631/audio/live-clip.mp3';
+    Object.defineProperty(audio, 'paused', { value: false, configurable: true });
+    Object.defineProperty(audio, 'ended', { value: false, configurable: true });
+    Object.defineProperty(audio, 'readyState', { value: 4, configurable: true });
+
+    const { createAudioLevelMonitor } = await import('../runtime/audioLevelMonitor');
+    const monitor = createAudioLevelMonitor(audio);
+    monitor.start();
+
+    expect(mocks.capturableAudio.captureStream).not.toHaveBeenCalled();
+    expect(mocks.ctorSpy.mock.calls.length).toBe(0);
+    monitor.stop();
+  });
 });
 
 // ── playerPersistence: beforeunload listener removed (R4) ──

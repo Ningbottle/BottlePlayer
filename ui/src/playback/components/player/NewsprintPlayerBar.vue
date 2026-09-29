@@ -28,12 +28,9 @@ const emit = defineEmits<{
 
 const c = computed(() => props.controller);
 
-function handleVolumeClick(e: MouseEvent) {
-  const barEl = e.currentTarget as HTMLElement;
-  const rect = barEl.getBoundingClientRect();
-  const clickX = e.clientX - rect.left;
-  const pct = Math.max(0, Math.min(1, clickX / rect.width));
-  c.value.setVolume(pct);
+function onVolumeInput(e: Event): void {
+  const value = Number((e.currentTarget as HTMLInputElement).value);
+  if (Number.isFinite(value)) c.value.setVolume(Math.max(0, Math.min(100, value)) / 100);
 }
 
 function onPress(e: MouseEvent) {
@@ -125,12 +122,13 @@ function onRelease(e: MouseEvent) {
       <span v-if="c.errorMsg" class="np-pb-status" style="color: var(--accent);">
         {{ c.errorMsg }}
       </span>
-      <span v-else-if="c.vipRequired" class="np-pb-status" style="color: var(--accent);">
+      <span v-else-if="c.vipRequired && c.isPreview" class="np-pb-status" style="color: var(--accent);">
         ⚠️ VIP · 试听
       </span>
       <span v-else-if="c.isPreview" class="np-pb-status">
         ⚠️ 试听
       </span>
+      <span v-else-if="c.currentTrack && c.delivery === 'unknown'" class="np-pb-status">完整性待确认</span>
 
       <button
         v-if="c.currentTrack"
@@ -290,8 +288,20 @@ function onRelease(e: MouseEvent) {
 
       <div class="np-pb-volume">
         <Volume2 class="np-pb-vol-icon" :size="14" :stroke-width="1.75" aria-hidden="true" />
-        <div class="np-pb-vol-bar" @click="handleVolumeClick">
+        <div class="np-pb-vol-bar">
           <div class="np-pb-vol-fill" :style="{ width: c.volumePercent + '%' }"></div>
+          <input
+            class="np-pb-vol-input"
+            data-test="newsprint-volume"
+            type="range"
+            min="0"
+            max="100"
+            step="1"
+            :value="c.volumePercent"
+            aria-label="音量"
+            title="音量"
+            @input="onVolumeInput"
+          />
         </div>
       </div>
     </div>
@@ -675,6 +685,22 @@ function onRelease(e: MouseEvent) {
   display: flex;
   align-items: center;
   cursor: pointer;
+}
+
+.np-pb-vol-bar:focus-within {
+  outline: 2px solid var(--accent, #a8311b);
+  outline-offset: 2px;
+}
+
+.np-pb-vol-input {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+  opacity: 0;
 }
 
 .np-pb-vol-bar::before {

@@ -1,5 +1,6 @@
 import { ref } from 'vue';
 import type { Track } from '../../shared/music/track';
+import { getLocalStorage } from '../../platform/storage/safeStorage';
 
 export interface RecentPlayedEntry {
   FileHash: string;
@@ -24,12 +25,14 @@ const MAX_RECENT_ENTRIES = 100;
 function isRecentPlayedEntry(value: unknown): value is RecentPlayedEntry {
   if (!value || typeof value !== 'object') return false;
   const entry = value as Partial<RecentPlayedEntry>;
-  return typeof entry.FileHash === 'string'
+  return typeof entry.FileHash === 'string' && entry.FileHash.trim().length > 0
     && typeof entry.SongName === 'string'
     && typeof entry.SingerName === 'string'
-    && typeof entry.Duration === 'number'
-    && typeof entry.playedAt === 'number';
+    && typeof entry.Duration === 'number' && Number.isFinite(entry.Duration) && entry.Duration >= 0
+    && typeof entry.playedAt === 'number' && Number.isFinite(entry.playedAt) && entry.playedAt >= 0;
 }
+
+function hashKey(hash: string): string { return hash.trim().toLowerCase(); }
 
 function loadEntries(storage: Storage, key: string): RecentPlayedEntry[] {
   try {
@@ -58,6 +61,7 @@ export class RecentPlayedStore {
   }
 
   recordRecentPlayed(track: Track): void {
+    if (!track.FileHash?.trim()) return;
     const entry: RecentPlayedEntry = {
       FileHash: track.FileHash,
       SongName: track.SongName,
@@ -68,7 +72,7 @@ export class RecentPlayedStore {
       Duration: track.Duration,
       playedAt: this.now(),
     };
-    const rest = this.entries.value.filter((e) => e.FileHash !== track.FileHash);
+    const rest = this.entries.value.filter((e) => hashKey(e.FileHash) !== hashKey(track.FileHash));
     this.entries.value = [entry, ...rest].slice(0, MAX_RECENT_ENTRIES);
     this.persist();
   }
@@ -82,9 +86,11 @@ export class RecentPlayedStore {
   mergeRemote(remoteEntries: RecentPlayedEntry[]): RecentPlayedEntry[] {
     const byHash = new Map<string, RecentPlayedEntry>();
     for (const entry of [...this.entries.value, ...remoteEntries]) {
-      const existing = byHash.get(entry.FileHash);
+      if (!isRecentPlayedEntry(entry)) continue;
+      const key = hashKey(entry.FileHash);
+      const existing = byHash.get(key);
       if (!existing || entry.playedAt > existing.playedAt) {
-        byHash.set(entry.FileHash, entry);
+        byHash.set(key, entry);
       }
     }
     return Array.from(byHash.values()).sort((a, b) => b.playedAt - a.playedAt);
@@ -106,7 +112,12 @@ export class RecentPlayedStore {
   }
 }
 
-/** Production singleton. Uses the global localStorage when available. */
+/**
+ * Production singleton. Storage is resolved through safeStorage because the
+ * `localStorage` property itself throws SecurityError on hosts with site data
+ * blocked — naming it here used to break module evaluation for the whole
+ * playback layer (and with it the app), not just the recent list.
+ */
 export const recentPlayedStore = new RecentPlayedStore({
-  storage: typeof localStorage !== 'undefined' ? localStorage : undefined,
+  storage: getLocalStorage() ?? undefined,
 });

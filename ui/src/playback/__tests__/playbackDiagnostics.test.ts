@@ -69,6 +69,18 @@ describe('PlaybackDiagnostics', () => {
     expect(lines[1]).toContain('h1'); // trackKey appears
   });
 
+  it('exportSnapshot is bounded and includes metadata headers', () => {
+    let now = 0;
+    const store = mkStore({ now: () => ++now, capacity: 10 });
+    for (let i = 0; i < 5; i++) {
+      store.recordEvent({ kind: 'media_event', phase: 'noop', detail: `e${i}` });
+    }
+    const snap = store.exportSnapshot(2);
+    expect(snap).toContain('playback_diag_events=2');
+    expect(snap).toContain('playback_diag_capacity=10');
+    expect(snap.split('\n').filter((l) => l.includes('media_event'))).toHaveLength(2);
+  });
+
   it('reset clears the buffer', () => {
     const store = mkStore({ now: () => 1000 });
     store.recordEvent({ kind: 'media_event', phase: 'noop', detail: 'x' });

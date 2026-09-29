@@ -20,6 +20,25 @@ describe('Html5AudioBackend', () => {
     expect(audio.src).toBe('https://example.com/song.mp3');
   });
 
+  it('removes its temporary media probes on dispose and avoids duplicate listeners after rebind', () => {
+    localStorage.removeItem('dbg_pause');
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    const first = new Html5AudioBackend(audio);
+
+    audio.dispatchEvent(new Event('pause'));
+    expect(JSON.parse(localStorage.getItem('dbg_pause') || '[]')).toHaveLength(1);
+    first.dispose();
+    expect((audio as any).__pauseSilenceDbg).toBeUndefined();
+
+    const second = new Html5AudioBackend(audio);
+    audio.dispatchEvent(new Event('pause'));
+    expect(JSON.parse(localStorage.getItem('dbg_pause') || '[]')).toHaveLength(2);
+
+    second.dispose();
+    audio.dispatchEvent(new Event('pause'));
+    expect(JSON.parse(localStorage.getItem('dbg_pause') || '[]')).toHaveLength(2);
+  });
+
   it('keeps the newest audio source when an older preparation resolves late', async () => {
     const audio = document.createElement('audio') as HTMLAudioElement;
     audio.play = vi.fn().mockResolvedValue(undefined);
@@ -142,6 +161,26 @@ describe('Html5AudioBackend', () => {
     expect(recorded[1]).toEqual(
       expect.objectContaining({ phase: 'fail', detail: expect.stringContaining('error') }),
     );
+  });
+
+  it('keeps routine suspend and abort events in diagnostics without console warnings', () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const recorded: Array<{ kind: string; phase: string; detail: string }> = [];
+    const backend = new Html5AudioBackend(audio, {
+      recordDiagnostic: (e) => recorded.push(e as any),
+    });
+    const unsub = backend.onEvent(() => {});
+
+    audio.dispatchEvent(new Event('suspend'));
+    audio.dispatchEvent(new Event('abort'));
+    unsub();
+
+    expect(warnSpy).not.toHaveBeenCalled();
+    expect(recorded).toEqual([
+      expect.objectContaining({ kind: 'media_event', phase: 'noop', detail: expect.stringContaining('suspend') }),
+      expect.objectContaining({ kind: 'media_event', phase: 'noop', detail: expect.stringContaining('abort') }),
+    ]);
   });
 
   it('records proxy_prep diagnostics around prepareSourceUrl (ok and fail)', async () => {
@@ -517,5 +556,135 @@ describe('Html5AudioBackend', () => {
     expect(audio.src).toBe('');
     expect(audio.load).toHaveBeenCalled();
     expect(backend.hasSource()).toBe(false);
+  });
+
+  // ── 首败定位（2026-09-15 审阅）：playUrl 每个 false 出口都要给出可断言的
+  // play_fail 诊断（reason 分类），detail 不携带 URL。────────────────────
+
+  it('classifies a play() rejection with a MediaError as media_error', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockRejectedValue(new Error('play failed'));
+    Object.defineProperty(audio, 'error', {
+      value: { code: 3, message: 'decode failed' },
+      configurable: true,
+    });
+    const recorded: Array<{ kind: string; phase: string; detail: string }> = [];
+    const backend = new Html5AudioBackend(audio, {
+      recordDiagnostic: (e) => recorded.push(e as any),
+    });
+
+    const ok = await backend.playUrl('https://example.com/secret-track.mp3');
+
+    expect(ok).toBe(false);
+    const fail = recorded.find((e) => e.kind === 'play_fail');
+    expect(fail).toBeTruthy();
+    expect(fail!.phase).toBe('fail');
+    expect(fail!.detail).toContain('reason=media_error');
+    expect(fail!.detail).toContain('mediaError=3: decode failed');
+    expect(fail!.detail).not.toContain('example.com');
+    expect(backend.getLastPlayFailureReason()).toBe('media_error');
+  });
+
+  it('classifies a play() rejection without a MediaError as play_reject', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockRejectedValue(new Error('NotAllowedError'));
+    const recorded: Array<{ kind: string; phase: string; detail: string }> = [];
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const backend = new Html5AudioBackend(audio, {
+      recordDiagnostic: (e) => recorded.push(e as any),
+    });
+
+    const ok = await backend.playUrl('https://example.com/secret-track.mp3');
+
+    expect(ok).toBe(false);
+    const fail = recorded.find((e) => e.kind === 'play_fail');
+    expect(fail!.detail).toContain('reason=play_reject');
+    expect(fail!.detail).toContain('NotAllowedError');
+    expect(fail!.detail).not.toContain('example.com');
+    expect(backend.getLastPlayFailureReason()).toBe('play_reject');
+  });
+
+  it('classifies an initEq throw as eq_init (play() itself succeeded)', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    const recorded: Array<{ kind: string; phase: string; detail: string }> = [];
+    const backend = new Html5AudioBackend(audio, {
+      initEq: () => {
+        throw new Error('AudioContext unavailable');
+      },
+      recordDiagnostic: (e) => recorded.push(e as any),
+    });
+
+    const ok = await backend.playUrl('https://example.com/secret-track.mp3');
+
+    expect(ok).toBe(false);
+    const fail = recorded.find((e) => e.kind === 'play_fail');
+    expect(fail!.detail).toContain('reason=eq_init');
+    expect(fail!.detail).toContain('AudioContext unavailable');
+    expect(backend.getLastPlayFailureReason()).toBe('eq_init');
+  });
+
+  it('classifies superseded preparation as lease_stale', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    audio.pause = vi.fn();
+    audio.load = vi.fn();
+    let resolveA!: (source: { url: string; crossOriginSafe: boolean }) => void;
+    const prepareA = new Promise<{ url: string; crossOriginSafe: boolean }>((resolve) => {
+      resolveA = resolve;
+    });
+    const recorded: Array<{ kind: string; phase: string; detail: string }> = [];
+    const backend = new Html5AudioBackend(audio, {
+      prepareSourceUrl: (url) => (url.endsWith('/a') ? prepareA : Promise.resolve({ url, crossOriginSafe: false })),
+      recordDiagnostic: (e) => recorded.push(e as any),
+    });
+
+    const playA = backend.playUrl('https://example.com/a.mp3');
+    await backend.stop(); // bump the source lease: A's preparation is now stale
+    await backend.playUrl('https://example.com/b.mp3');
+    resolveA({ url: 'http://127.0.0.1/a', crossOriginSafe: false });
+    await expect(playA).resolves.toBe(false);
+
+    const fail = recorded.filter((e) => e.kind === 'play_fail');
+    expect(fail.length).toBeGreaterThanOrEqual(1);
+    expect(fail[0].detail).toContain('reason=lease_stale');
+  });
+
+  it('classifies an invalidated attach transition as attach_stale', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn().mockResolvedValue(undefined);
+    const recorded: Array<{ kind: string; phase: string; detail: string }> = [];
+    const backend = new Html5AudioBackend(audio, {
+      getAttachTransitionSeq: () => 1,
+      isAttachTransitionCurrent: () => false,
+      recordDiagnostic: (e) => recorded.push(e as any),
+    });
+
+    const ok = await backend.playUrl('https://example.com/secret-track.mp3');
+
+    expect(ok).toBe(false);
+    const fail = recorded.find((e) => e.kind === 'play_fail');
+    expect(fail!.detail).toContain('reason=attach_stale');
+    expect(audio.play).not.toHaveBeenCalled();
+    expect(backend.getLastPlayFailureReason()).toBe('attach_stale');
+  });
+
+  it('clears the last failure reason when playUrl succeeds', async () => {
+    const audio = document.createElement('audio') as HTMLAudioElement;
+    audio.play = vi.fn()
+      .mockRejectedValueOnce(new Error('NotAllowedError'))
+      .mockResolvedValueOnce(undefined);
+    const recorded: Array<{ kind: string; phase: string; detail: string }> = [];
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const backend = new Html5AudioBackend(audio, {
+      recordDiagnostic: (e) => recorded.push(e as any),
+    });
+
+    await backend.playUrl('https://example.com/song.mp3');
+    expect(backend.getLastPlayFailureReason()).toBe('play_reject');
+
+    const ok = await backend.playUrl('https://example.com/song.mp3');
+    expect(ok).toBe(true);
+    expect(backend.getLastPlayFailureReason()).toBe(null);
   });
 });

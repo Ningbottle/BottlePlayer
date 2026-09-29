@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { nextTick } from 'vue';
+import { mount } from '@vue/test-utils';
 
 // Mock Tauri invoke (used by stats recording + native_request).
 const mockInvoke = vi.fn();
@@ -43,6 +44,7 @@ import { PlaybackCommandCoordinator } from '../commands/playbackCommandCoordinat
 import type { Track } from '../../shared/music/track';
 import { playbackDiagnostics } from '../playbackDiagnostics';
 import { __resetFmSessionForTests } from '../fm/fmSession';
+import QueuePanel from '../components/QueuePanel.vue';
 
 function mkTrack(hash: string, name = hash): Track {
   return { FileHash: hash, SongName: name, SingerName: 'A', Duration: 100 } as Track;
@@ -264,6 +266,56 @@ describe('playerStore integration', () => {
     await playTrack(mkTrack('bad'));
     expect(playerStore.errorMsg).toBeTruthy();
     expect(playerStore.currentIndex).toBe(before);
+  });
+
+  it('plays the filtered duplicate-hash occurrence through QueuePanel and the full command chain', async () => {
+    const first = mkTrack('same-hash', 'First copy');
+    const second = mkTrack('same-hash', 'Second copy');
+    first.Image = 'http://img/first.jpg';
+    second.Image = 'http://img/second.jpg';
+    playerStore.queue = [first, second];
+    playerStore.currentIndex = 0;
+    playerStore.currentTrack = first;
+    playerStore.queueMode = 'personalFm';
+    initPlayer();
+    initPlayerBackend();
+
+    const { Html5AudioBackend } = await import('../runtime/html5Backend');
+    const realPlayUrl = Html5AudioBackend.prototype.playUrl;
+    Html5AudioBackend.prototype.playUrl = async function () { return true; };
+    mockInvoke.mockImplementation(async (cmd: string) => {
+      if (cmd === 'stats_record_play') return '';
+      return JSON.stringify({
+        status: 200,
+        headers: {},
+        body: { status: 1, url: 'http://x/same-hash.mp3' },
+      });
+    });
+
+    const wrapper = mount(QueuePanel, { props: { show: true } });
+    try {
+      const initialRows = wrapper.findAll('button.item');
+      await initialRows[1]!.trigger('click');
+      await vi.waitFor(() => {
+        expect(playerStore.currentIndex).toBe(1);
+        expect(playerStore.currentTrack?.SongName).toBe('Second copy');
+      });
+
+      const filter = wrapper.get('.queue-filter');
+      await filter.setValue('First copy');
+      expect(wrapper.findAll('button.item')).toHaveLength(1);
+      await filter.trigger('keydown.enter');
+
+      await vi.waitFor(() => {
+        expect(playerStore.currentIndex).toBe(0);
+        expect(playerStore.currentTrack?.SongName).toBe('First copy');
+        expect(playerStore.queue.map((track) => track.SongName)).toEqual(['First copy', 'Second copy']);
+        expect(playerStore.queueMode).toBe('personalFm');
+      });
+    } finally {
+      wrapper.unmount();
+      Html5AudioBackend.prototype.playUrl = realPlayUrl;
+    }
   });
 
   it('does not commit a requested quality when resolving that quality fails', async () => {
@@ -961,7 +1013,6 @@ describe('playerStore integration', () => {
 
     initPlayer();
     initWebAudioEQ();
-    await vi.waitFor(() => expect(mockCtx.audioWorklet.addModule).toHaveBeenCalled());
 
     const audio = liveAudio();
     playerStore.volume = 0.55;
@@ -981,20 +1032,21 @@ describe('playerStore integration', () => {
     expect(eqState.reason).toContain('重试');
   });
 
-  // ── Phase 3: EQ lifecycle (init at startup, attach post-play) ──
-  it('initWebAudioEQ builds graph without audio; attachWebAudioEqSource attaches post-play', async () => {
+  // ── Phase 3: EQ lifecycle (configure at startup, build for safe playback) ──
+  it('initWebAudioEQ defers graph construction until a safe source needs EQ', async () => {
     const { mockCtx, captureStream } = setupWorkletEqMocks();
     __resetWebAudioEqForTests();
 
     initPlayer();
     initWebAudioEQ();
 
-    await vi.waitFor(() => expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1));
+    expect(mockCtx.audioWorklet.addModule).not.toHaveBeenCalled();
 
     const audio = liveAudio();
     HTMLAudioElement.prototype.play = vi.fn().mockResolvedValue(undefined);
     await attachWebAudioEqSource(audio, true);
 
+    expect(mockCtx.audioWorklet.addModule).toHaveBeenCalledTimes(1);
     expect(captureStream).toHaveBeenCalled();
     expect(mockCtx.createMediaStreamSource).toHaveBeenCalled();
     expect(eqState.available).toBe(true);
@@ -1494,6 +1546,7 @@ describe('playerStore integration', () => {
 
     it('success: resume resolves → recoverFromDegradation → eqState.available=true, retryFailCount=0', async () => {
       const audio = liveAudio();
+      audio.src = 'http://127.0.0.1:17631/audio/retry-success';
       await attachWebAudioEqSource(audio, true);
 
       eqMocks.mockCtx.state = 'suspended';
@@ -1509,6 +1562,9 @@ describe('playerStore integration', () => {
     });
 
     it('failure once: retryFailCount=1, button still enabled', async () => {
+      const audio = liveAudio();
+      audio.src = 'http://127.0.0.1:17631/audio/retry-failure-once';
+      await attachWebAudioEqSource(audio, true);
       eqMocks.mockCtx.state = 'suspended';
       eqMocks.mockCtx.resume = vi.fn(async () => {
         throw new Error('NotAllowedError');
@@ -1521,6 +1577,9 @@ describe('playerStore integration', () => {
     });
 
     it('failure 3 times: retryFailCount=3, retryDisabled=true', async () => {
+      const audio = liveAudio();
+      audio.src = 'http://127.0.0.1:17631/audio/retry-failure-three';
+      await attachWebAudioEqSource(audio, true);
       eqMocks.mockCtx.state = 'suspended';
       eqMocks.mockCtx.resume = vi.fn(async () => {
         throw new Error('NotAllowedError');

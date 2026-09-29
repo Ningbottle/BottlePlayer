@@ -60,6 +60,23 @@ function ensureGraph(audio: CapturableAudio): boolean {
     return false;
   }
 
+  // Page-switch silence (2026-09-19): Home KeepAlive activate called
+  // bootLevelMonitor → ensureGraph while a track was audible. A *fresh*
+  // captureStream / new AudioContext on the shared <audio> can disrupt the
+  // EQ capture path and leave the current track silent until the next
+  // switchTrack re-attaches media. Never take a new capture mid-playback;
+  // build the tap only when media is idle, then reuse it forever.
+  const src = audio.currentSrc || audio.getAttribute('src') || audio.src || '';
+  const mediaLive =
+    !audio.paused
+    && !audio.ended
+    && Boolean(src)
+    && audio.readyState > 0;
+  const needsFreshCapture = !sharedAnalyser || sharedAudio !== audio;
+  if (mediaLive && needsFreshCapture) {
+    return false;
+  }
+
   try {
     if (!sharedCtx) {
       sharedCtx = new AudioContext();
@@ -95,7 +112,23 @@ export function createAudioLevelMonitor(audio: CapturableAudio): AudioLevelMonit
 
   function tick(): void {
     frameId = null;
-    if (!sharedAnalyser || !sharedSamples) return;
+    if (!started) return;
+    if (!sharedAnalyser || sharedAudio !== audio) {
+      // Graph not ready (e.g. deferred during live playback). Retry when
+      // media goes idle; keep rAF light — no capture while playing.
+      if (ensureGraph(audio)) {
+        if (sharedCtx && sharedCtx.state === 'suspended') {
+          void sharedCtx.resume().catch(() => {});
+        }
+      } else {
+        frameId = requestAnimationFrame(tick);
+        return;
+      }
+    }
+    if (!sharedAnalyser || !sharedSamples) {
+      frameId = requestAnimationFrame(tick);
+      return;
+    }
 
     if (isReducedMotion() || audio.paused || document.hidden) {
       smoothed = 0;
@@ -113,7 +146,13 @@ export function createAudioLevelMonitor(audio: CapturableAudio): AudioLevelMonit
   function start(): void {
     if (started) return;
     started = true;
-    if (!ensureGraph(audio)) return;
+    if (!ensureGraph(audio)) {
+      // Defer: poll until media is idle so we do not capture mid-play.
+      if (frameId === null) {
+        frameId = requestAnimationFrame(tick);
+      }
+      return;
+    }
     if (sharedCtx && sharedCtx.state === 'suspended') {
       void sharedCtx.resume().catch(() => {});
     }

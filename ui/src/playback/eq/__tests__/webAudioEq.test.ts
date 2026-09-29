@@ -363,9 +363,65 @@ await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0] })
       const eq = new WebAudioEq(mockCtxFactory(ctx));
   await initAndReady(eq, { enabled: true, bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0], onDegraded });
       expect(onDegraded).toHaveBeenCalledTimes(1);
+      expect(eq.isGraphReady).toBe(false);
+      expect(ctx.close).toHaveBeenCalledTimes(1);
     } finally {
       mocks2.teardown();
     }
+  });
+
+  it('contains a worklet-node constructor failure and releases partial graph resources', async () => {
+    const ctx = mocks.makeMockCtx();
+    const onDegraded = vi.fn();
+    class ThrowingWorkletNode {
+      constructor() {
+        throw new Error('worklet node construction failed');
+      }
+    }
+    const eq = new WebAudioEq(mockCtxFactory(ctx), {
+      WorkletNodeCtor: ThrowingWorkletNode as unknown as new (
+        context: unknown,
+        name: string,
+      ) => import('../webAudioEq').AudioWorkletNodeLike,
+    });
+
+    eq.init({
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      onDegraded,
+    });
+    await expect(eq.awaitReady()).resolves.toBeUndefined();
+
+    expect(eq.isGraphReady).toBe(false);
+    expect(onDegraded).toHaveBeenCalledTimes(1);
+    expect(ctx.close).toHaveBeenCalledTimes(1);
+    expect(mocks.revokeObjectURLSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it('contains a throwing AudioContext factory and can retry on the next init', async () => {
+    const ctx = mocks.makeMockCtx();
+    const factory = vi.fn()
+      .mockImplementationOnce(() => {
+        throw new Error('AudioContext constructor failed');
+      })
+      .mockImplementationOnce(mockCtxFactory(ctx));
+    const onDegraded = vi.fn();
+    const eq = new WebAudioEq(factory);
+    const options = {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      onDegraded,
+    };
+
+    eq.init(options);
+    await expect(eq.awaitReady()).resolves.toBeUndefined();
+    expect(eq.isGraphReady).toBe(false);
+    expect(onDegraded).toHaveBeenCalledTimes(1);
+
+    eq.init(options);
+    await eq.awaitReady();
+    expect(factory).toHaveBeenCalledTimes(2);
+    expect(eq.isGraphReady).toBe(true);
   });
 });
 
@@ -629,6 +685,47 @@ await initAndReady(eq, {
     expect(ctx._workletNode.disconnect).toHaveBeenCalled();
     expect(ctx._gainNode.disconnect).toHaveBeenCalled();
     expect(ctx.close).toHaveBeenCalled();
+  });
+
+  it('does not resurrect a stale graph when close and re-init happen during worklet load', async () => {
+    let resolveFirstLoad!: (url: string) => void;
+    const firstLoad = new Promise<string>((resolve) => {
+      resolveFirstLoad = resolve;
+    });
+    const loadWorklet = vi.fn()
+      .mockImplementationOnce(() => firstLoad)
+      .mockResolvedValueOnce('blob:second-graph');
+    const firstCtx = mocks.makeMockCtx();
+    const factory = vi.fn().mockReturnValueOnce(firstCtx);
+    const onDegraded = vi.fn();
+    const eq = new WebAudioEq(factory, { loadWorklet });
+    const options = {
+      enabled: true,
+      bands: [0, 0, 0, 0, 0, 0, 0, 0, 0, 0],
+      onDegraded,
+    };
+
+    eq.init(options);
+    const staleReady = eq.awaitReady();
+    expect(loadWorklet).toHaveBeenCalledTimes(1);
+
+    eq.close();
+    const secondCtx = mocks.makeMockCtx();
+    factory.mockReturnValueOnce(secondCtx);
+    eq.init(options);
+    await eq.awaitReady();
+    expect(eq.isGraphReady).toBe(true);
+    expect(eq.contextState).toBe('running');
+
+    resolveFirstLoad('blob:first-stale-graph');
+    await staleReady;
+
+    expect(firstCtx.close).toHaveBeenCalledTimes(1);
+    expect(secondCtx.close).not.toHaveBeenCalled();
+    expect(mocks.revokeObjectURLSpy).toHaveBeenCalledWith('blob:first-stale-graph');
+    expect(eq.isGraphReady).toBe(true);
+    expect(eq.contextState).toBe('running');
+    expect(onDegraded).not.toHaveBeenCalled();
   });
 });
 

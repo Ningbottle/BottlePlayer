@@ -49,4 +49,35 @@ describe('playback/data/songUrlGateway contract', () => {
     });
     expect(res.url).toBe('http://test/full/audio');
   });
+
+  it('adapts native per-quality snake_case flags and preserves delivery', async () => {
+    mockApiGet.mockResolvedValueOnce({ status: 1, delivery: 'full', data: {
+      available_qualities: [
+        { quality: '320', url: 'https://cdn/full', is_preview: false, delivery: 'full' },
+        { quality: '128', url: 'https://cdn/clip', is_preview: true, delivery: 'preview' },
+        { quality: 'flac', url: 'https://cdn/opaque', is_preview: false, delivery: 'unknown' },
+      ],
+    } });
+    const result = await resolveTrack({ FileHash: 'hash' } as Track, '128');
+    expect(result.data?.available_qualities).toEqual([
+      expect.objectContaining({ quality: '320', isPreview: false, delivery: 'full' }),
+      expect.objectContaining({ quality: '128', isPreview: true, delivery: 'preview' }),
+      expect.objectContaining({ quality: 'flac', isPreview: false, delivery: 'unknown' }),
+    ]);
+  });
+
+  it('preserves the rejection chain while adapting the selected playback result', async () => {
+    const attempts = [
+      { endpoint: 'v5-main', http_status: 200, errcode: 20018, fail_process: ['pkg', 'buy'],
+        anonymous: false, quality: '128', delivery: 'unknown', is_preview: false, error: '' },
+      { endpoint: 'v5-preview', http_status: 200, errcode: 0, fail_process: null,
+        anonymous: true, quality: '128', delivery: 'preview', is_preview: true, error: '' },
+    ];
+    mockApiGet.mockResolvedValueOnce({ status: 1, url: 'https://cdn/clip', delivery: 'preview',
+      is_preview: true, attempts, data: { attempts } });
+    const result = await resolveTrack({ FileHash: 'hash' } as Track, '128');
+    expect(result.attempts).toEqual(attempts);
+    expect(result.data?.attempts).toEqual(attempts);
+    expect(result.is_preview).toBe(true);
+  });
 });
