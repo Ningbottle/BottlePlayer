@@ -6,11 +6,13 @@
 #include "echo/core/SafeStoll.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 
+#include <algorithm>
 #include <chrono>
 #include <ctime>
 #include <iomanip>
 #include <sstream>
 #include <utility>
+#include <vector>
 
 namespace echo::core {
 namespace {
@@ -32,6 +34,185 @@ std::string UpstreamErrorMessage(const nlohmann::json& json) {
     }
   }
   return {};
+}
+
+constexpr const char* kUnspecifiedUpstreamRejection = "上游拒绝，原因未明确";
+
+// Data key NAMES, sorted, comma joined. Values never reach this function's
+// output — a successful claim's data can carry credentials.
+std::string DataKeyNames(const nlohmann::json& json) {
+  if (!json.contains("data") || !json["data"].is_object()) return {};
+  std::vector<std::string> keys;
+  for (const auto& item : json["data"].items()) keys.push_back(item.key());
+  std::sort(keys.begin(), keys.end());
+  std::ostringstream joined;
+  for (size_t i = 0; i < keys.size(); ++i) {
+    if (i) joined << ',';
+    joined << keys[i];
+  }
+  return joined.str();
+}
+
+// One line per claim attempt, on the success path as well as the failure path.
+// The success branch used to be silent, which is the direct reason a claim that
+// genuinely succeeded on 09-18 was invisible in a log file full of failures and
+// the signature-family mismatch survived two months.
+void LogClaimOutcome(const char* endpointTag,
+                     const nlohmann::json& json,
+                     const KuGouProfileParams& profile) {
+  std::ostringstream line;
+  line << "<<< " << endpointTag
+       << " status=" << json.value("status", 0)
+       << " error_code="
+       << (json.contains("error_code") ? json["error_code"].dump()
+                                       : std::string("missing"))
+       << " data_keys=[" << DataKeyNames(json) << "]"
+       << " profile=" << KuGouProfileName(profile);
+  const auto message = UpstreamErrorMessage(json);
+  if (!message.empty()) line << " upstream_message=" << message;
+  ECHO_LOG("VipClaim", line.str());
+}
+
+struct ClaimReason {
+  long code;
+  const char* reason;
+  const char* confidence;
+};
+
+// `observed` means this account's own log shows that code alongside that
+// outcome. `inferred` means the meaning comes from the upstream message text or
+// the reference implementation and was never confirmed against a live response.
+// `none` means the code is not in the table at all.
+//
+// The distinction is load-bearing rather than decorative: the 09-03 conclusion
+// that "the Concept family is rejected too" was an inference recorded as though
+// it had been observed, and on the strength of that every youth endpoint was
+// moved onto the wrong signature family.
+constexpr ClaimReason kClaimReasons[] = {
+    {131001, "already_claimed_today", "observed"},
+    {297002, "upgrade_already_claimed", "observed"},
+    {51002, "rejected_identity_or_risk", "observed"},
+    {130012, "listen_song_not_eligible", "inferred"},
+    {304001, "bad_receive_day", "observed"},
+    {20017, "session_family_mismatch", "observed"},
+    {20018, "session_family_mismatch", "observed"},
+};
+
+ClaimReason ClassifyClaimCode(const nlohmann::json& json) {
+  if (!json.contains("error_code") || !json["error_code"].is_number()) {
+    return {0, "unknown", "none"};
+  }
+  const auto code = json["error_code"].get<long>();
+  for (const auto& entry : kClaimReasons) {
+    if (entry.code == code) return entry;
+  }
+  // An unlisted code stays unlisted. Folding it into the nearest known bucket
+  // would hand the UI a confident sentence about something never observed.
+  return {code, "unknown", "none"};
+}
+
+nlohmann::json NormalizeClaimFailure(
+    const nlohmann::json& json,
+    const char* localError,
+    const char* endpointTag,
+    const KuGouProfileParams& profile) {
+  const auto upstreamCode =
+      json.contains("error_code") ? json["error_code"] : nlohmann::json(0);
+  const auto upstreamMsg = UpstreamErrorMessage(json);
+  const std::string localFallback =
+      upstreamMsg.empty() ? kUnspecifiedUpstreamRejection : "";
+  LogClaimOutcome(endpointTag, json, profile);
+  const auto classified = ClassifyClaimCode(json);
+  return {
+      {"status", 0},
+      {"error_code", upstreamCode},
+      {"error_msg", upstreamMsg},
+      {"error", upstreamMsg.empty() ? localFallback : upstreamMsg},
+      {"upstream_message", upstreamMsg},
+      {"local_fallback_message", localFallback},
+      {"local_error", localError},
+      {"reason", classified.reason},
+      {"reason_confidence", classified.confidence},
+      {"data", json.contains("data") ? json["data"] : nlohmann::json(nullptr)},
+      {"raw", json},
+  };
+}
+
+// Product families recognised by the entitlement model. Anything outside these
+// grants nothing: an unknown product_type must not reach "premium" just because
+// it happens not to be tvip.
+constexpr const char* kPremiumProductTypes[] = {"svip", "music", "musicpack"};
+constexpr const char* kListenProductTypes[] = {"tvip"};
+
+bool IsListedProduct(const std::string& product, const char* const* list, size_t count) {
+  for (size_t i = 0; i < count; ++i) {
+    if (product == list[i]) return true;
+  }
+  return false;
+}
+
+// Interprets a busi_vip vip_end_time. An entry flagged is_vip=1 with no end
+// time is treated as active, which is what the pre-existing is_vip correction
+// already assumed; an unparseable end time grants nothing.
+bool VipEntryActive(const std::string& endTime, std::time_t now) {
+  if (endTime.empty()) return true;
+  std::tm tm{};
+  std::istringstream ss(endTime);
+  ss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
+  if (ss.fail()) return false;
+  const auto parsed = std::mktime(&tm);
+  return parsed != -1 && parsed > now;
+}
+
+struct EntitlementBucket {
+  bool active = false;
+  std::string end;
+  std::string source;
+};
+
+// Reduces the busi_vip list to one representative entry per bucket. Prefers an
+// active entry with the furthest end time; with none active, keeps the latest
+// expiry, because the VIP card has to be able to say "已于 X 到期" rather than
+// showing a bare "无".
+EntitlementBucket PickEntitlementBucket(
+    const nlohmann::json& busiVip,
+    const char* const* list,
+    size_t listCount,
+    std::time_t now) {
+  bool haveActive = false;
+  EntitlementBucket active;
+  EntitlementBucket expired;
+  for (const auto& item : busiVip) {
+    if (!item.is_object()) continue;
+    const std::string product = item.value("product_type", "");
+    if (!IsListedProduct(product, list, listCount)) continue;
+    const std::string end = item.value("vip_end_time", "");
+    const bool isActive =
+        item.value("is_vip", 0) == 1 && VipEntryActive(end, now);
+    // Upstream's "YYYY-MM-DD HH:MM:SS" sorts correctly as plain text, so the
+    // later expiry is the greater string. An active entry with no end time is
+    // unbounded and outranks every dated one.
+    if (isActive) {
+      const bool better = !haveActive ||
+                          (end.empty() && !active.end.empty()) ||
+                          (!active.end.empty() && end > active.end);
+      if (better) {
+        active = {true, end, product};
+        haveActive = true;
+      }
+    } else if (end > expired.end) {
+      expired = {false, end, product};
+    }
+  }
+  return haveActive ? active : expired;
+}
+
+nlohmann::json BucketToJson(const EntitlementBucket& bucket) {
+  return {
+      {"active", bucket.active},
+      {"end", bucket.end},
+      {"source", bucket.source},
+  };
 }
 
 }  // namespace
@@ -68,6 +249,13 @@ nlohmann::json UserService::GetUserDetail(
     const std::string& token) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
+  }
+
+  // get_my_info is POST-only. An absent POST verb is an explicit configuration
+  // failure (partial transport injection), never a reason to reach the default
+  // network, and calling an empty std::function would abort the process.
+  if (!httpPost_) {
+    return MakeError("No HTTP POST handler available");
   }
 
   const auto clienttime = std::to_string(std::time(nullptr));
@@ -138,8 +326,10 @@ nlohmann::json UserService::GetUserDetail(
 nlohmann::json UserService::GetUserVip(
     const DeviceInfo& device,
     const std::string& userId,
-    const std::string& token) const {
+    const std::string& token,
+    KuGouEdition edition) const {
   const auto clienttime = std::to_string(std::time(nullptr));
+  const auto profile = GetKuGouProfile(edition);
 
   // Use the device fingerprint already normalized by DeviceService.
   // Do NOT re-derive from dfid here — that breaks the guid bloodline
@@ -148,10 +338,34 @@ nlohmann::json UserService::GetUserVip(
   const std::string mid = ResolveAndroidMid(device);
   const std::string uuid = "-";
 
-  auto DoGetVip = [&](const KuGouProfileParams& profile) -> nlohmann::json {
+  // Diagnostic (20017 investigation): request-side identity summary before
+  // signing. uuid_param is the value that actually enters the signature;
+  // uuid_default_source shows what BuildSignedUrl would have used otherwise.
+  // profile/appid/clientver/salt are derived from the actual profile object —
+  // never hand-written labels.
+  {
+    std::ostringstream diag;
+    diag << "request profile=" << KuGouProfileName(profile)
+         << " appid=" << profile.appid
+         << " clientver=" << profile.clientver
+         << " salt=" << KuGouSaltKindName(profile.saltKind)
+         << " dfid_fp="
+         << (dfid == "-" ? std::string("-") : CalculateMd5(dfid).substr(0, 8))
+         << " dfid_len=" << (dfid == "-" ? 0 : dfid.size())
+         << " uuid_param=" << uuid
+         << " uuid_default_source=" << (device.guid.empty() ? "none" : "guid")
+         << " guid_len=" << device.guid.size()
+         << " uuid_len=" << device.uuid.size()
+         << " token_len=" << token.size()
+         << " userid_present=" << (userId.empty() ? "N" : "Y")
+         << " cookie=Y";
+    ECHO_LOG("UserVip", diag.str());
+  }
+
+  auto DoGetVip = [&](const KuGouProfileParams& signingProfile) -> nlohmann::json {
     KuGouAndroidRequest req;
     req.endpoint = "https://kugouvip.kugou.com/v1/get_union_vip";
-    req.profile = profile;
+    req.profile = signingProfile;
     req.params = {
         {"busi_type", "concept"},
         {"userid", userId.empty() ? "0" : userId},
@@ -176,8 +390,7 @@ nlohmann::json UserService::GetUserVip(
 
     try {
       auto json = nlohmann::json::parse(result.body);
-      if (json.value("status", 0) == 1 && json.contains("data") && json["data"].is_object()) {
-        const auto& data = json["data"];
+      if (json.value("status", 0) == 1 && json.contains("data") && json["data"].is_object()) {        const auto& data = json["data"];
         const auto field = [&](const char* key) {
           return data.contains(key) ? data[key].dump() : std::string("missing");
         };
@@ -219,6 +432,7 @@ nlohmann::json UserService::GetUserVip(
       }
       #ifdef _DEBUG
       json["_debug_profile_appid"] = profile.appid;
+      json["_debug_http_status"] = result.statusCode;
       #endif
       return json;
     } catch (const nlohmann::json::exception& e) {
@@ -226,59 +440,67 @@ nlohmann::json UserService::GetUserVip(
     }
   };
 
-  // 实测（2026-08-04，本账户）：Standard profile 被上游 20017(params invalid) 拒绝，
-  // Concept 正常返回；参考实现的默认 Standard 配置实测同样被拒。
-  // busi_type=concept 与 Concept clientver 配套，按实测证据保留 Concept。
-  auto conceptResult = DoGetVip(GetKuGouProfile(KuGouEdition::Concept));
-  if (conceptResult.value("status", 0) == 1) {
+  // 生产契约（默认）：整套 Standard profile（1005/20489/标准盐）。2026-09-03
+  // 配对实测：令牌与真指纹配对后概念族仍被 20017 全拒，官方 App 正常。
+  // edition 参数（默认 kProjectEdition）供签名族 A/B 对照；appid/clientver/盐必须
+  // 整套一起换，busi_type=concept 对两族都保留（参考仓 youth_union_vip.js 同约）。
+  auto vipResult = DoGetVip(profile);
+  if (vipResult.value("status", 0) == 1) {
     bool hasVipFields = false;
-    if (conceptResult.contains("data") && conceptResult["data"].is_object()) {
-      auto& d = conceptResult["data"];
+    if (vipResult.contains("data") && vipResult["data"].is_object()) {
+      auto& d = vipResult["data"];
       hasVipFields = d.contains("is_vip") || d.contains("busi_vip") || d.contains("vip_type");
 
-      // 修正顶层 is_vip：busi_vip list 里有 is_vip=1 且未过期的记录时，data.is_vip 应为 1。
-      // 只认解锁歌曲的产品（svip/music/musicpack）；tvip 是听书权益，对音乐 App 不算 VIP。
-      if (hasVipFields && d.contains("busi_vip") && d["busi_vip"].is_array()) {
+      // 权益层级：把 busi_vip 归约成「畅听」与「豪华」两个桶，再给出 tier。
+      //
+      // 顶层 is_vip 的修正保持只认 premium，tvip 不抬升它 —— 这是刻意的。
+      // 「有某种会员」和「能完整播放音乐」是两个判断，混成一个就会让领取在界面上
+      // 显示成功、实际仍停在 60 秒试听。二者的桥梁由消费方通过 tier 显式表达，
+      // 而不是靠 is_vip 顺带暗示。
+      //
+      // 白名单沿用原修正逻辑（svip/music/musicpack）；此处只是把那段手写循环收进
+      // PickEntitlementBucket，让 is_vip 与 tier 不可能各自漂移。
+      {
+        static const nlohmann::json kNoBusiVip = nlohmann::json::array();
+        const auto& busiList =
+            (d.contains("busi_vip") && d["busi_vip"].is_array()) ? d["busi_vip"]
+                                                                 : kNoBusiVip;
         const auto now = std::time(nullptr);
-        bool realVip = false;
-        for (const auto& item : d["busi_vip"]) {
-          if (item.value("is_vip", 0) != 1) continue;
-          const std::string product = item.value("product_type", "");
-          if (product != "svip" && product != "music" && product != "musicpack") continue;
-          const std::string endTime = item.value("vip_end_time", "");
-          if (endTime.empty()) {
-            realVip = true;
-            break;
-          }
-          std::tm tm{};
-          std::istringstream ss(endTime);
-          ss >> std::get_time(&tm, "%Y-%m-%d %H:%M:%S");
-          if (!ss.fail()) {
-            auto itemTime = std::mktime(&tm);
-            if (itemTime != -1 && itemTime > now) {
-              realVip = true;
-              break;
-            }
-          }
-        }
-        if (realVip) {
+        const auto premium = PickEntitlementBucket(
+            busiList, kPremiumProductTypes,
+            sizeof(kPremiumProductTypes) / sizeof(kPremiumProductTypes[0]), now);
+        const auto listen = PickEntitlementBucket(
+            busiList, kListenProductTypes,
+            sizeof(kListenProductTypes) / sizeof(kListenProductTypes[0]), now);
+        const char* tier =
+            premium.active ? "premium" : (listen.active ? "listen" : "none");
+        d["entitlement_summary"] = {
+            {"listen", BucketToJson(listen)},
+            {"premium", BucketToJson(premium)},
+            {"tier", tier},
+            // Shipped with the summary because the UI's "部分歌曲需豪华 VIP 才能
+            // 完整播放" copy hangs on it; a constant duplicated in ui/ goes stale.
+            {"listen_unlocks_playback", kTvipUnlocksPlayback},
+        };
+        if (premium.active && hasVipFields) {
           d["is_vip"] = 1;
-          ECHO_LOG("UserVip", "corrected is_vip to 1 (active busi_vip found)");
+          ECHO_LOG("UserVip", "corrected is_vip to 1 (active premium busi_vip found)");
         }
       }
     }
     if (hasVipFields) {
-      return conceptResult;
+      return vipResult;
     }
   }
 
-  return conceptResult;
+  return vipResult;
 }
 
 nlohmann::json UserService::ClaimVip(
     const DeviceInfo& device,
     const std::string& userId,
-    const std::string& token) const {
+    const std::string& token,
+    KuGouEdition edition) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
@@ -306,31 +528,45 @@ nlohmann::json UserService::ClaimVip(
   // KuGouMusicApi reference (module/youth_day_vip.js + util/request.js):
   //   POST /youth/v1/recharge/receive_vip_listen_song
   //   鈥?encryptType=android => params live in URL query string, NOT body
-  //   鈥?android defaults inject dfid, mid, uuid, appid, clientver, clienttime
+  //   鈥?android defaults inject dfid, mid, uuid="-", appid, clientver, clienttime
   //   鈥?signature = md5(salt + sorted(k=v) + body + salt) where body="" here
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  //   鈥?2026-08-31 upstream update: content-type must be
+  //     application/x-www-form-urlencoded and every request carries the
+  //     dfid/clienttime/mid/kg-* fingerprint headers (util/request.js).
+  //   The signature profile is not a per-endpoint choice: it follows the
+  //   family that minted this session (kProjectEdition), see ADR-0005 追记.
+  //   uuid/headers/device are not part of that profile switch.
+  const auto profile = GetKuGouProfile(edition);
   KuGouAndroidRequest req;
   req.endpoint = "https://gateway.kugou.com/youth/v1/recharge/receive_vip_listen_song";
   req.profile = profile;
   req.params = {
-      {"plat", "1"},
       {"userid", userId},
       {"token", token},
       {"source_id", "90139"},
       {"receive_day", receiveDay},
+      {"uuid", "-"},
   };
   req.device = device;
 
   const std::string url = BuildSignedUrl(req);
 
+  auto headers = BuildAndroidHeaders(req);
+  headers["Content-Type"] = "application/x-www-form-urlencoded";
+  headers["User-Agent"] = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
+
+  // Redacted request log: token never leaves in diagnostics.
+  ECHO_LOG("VipClaim", std::string(">>> receive_vip_listen_song userid=") + userId
+      + " receive_day=" + receiveDay
+      + " profile=" + KuGouProfileName(profile)
+      + " appid=" + profile.appid
+      + " clientver=" + profile.clientver
+      + " salt=" + KuGouSaltKindName(profile.saltKind));
+
   const auto result = httpPost_(
       url,
       /*body=*/"",
-      {
-          {"Accept", "application/json"},
-          {"Content-Type", "application/json"},
-          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
-      });
+      std::move(headers));
 
   if (!result.error.empty()) return MakeError(result.error, result.statusCode);
 
@@ -340,16 +576,10 @@ nlohmann::json UserService::ClaimVip(
     // KuGou's success response is `{status:1, data:{...}, error_msg:""}`.
     // On failure it returns `{status:0, error_msg:"浠婃棩宸查鍙? / "骞垮憡鏈鐪? / ...}`.
     if (json.value("status", 0) != 1) {
-      std::string msg = json.value("error_msg", json.value("error", std::string{}));
-      if (msg.empty()) msg = "广告 VIP 升级失败（需要酷狗官方 App 内的广告 SDK 凭证）";
-      return {
-          {"status", 0},
-          {"error", msg},
-          {"error_code", "kugou_vip_claim_failed"},
-          {"data", json.contains("data") ? json["data"] : nlohmann::json(nullptr)},
-          {"raw", json},
-      };
+      return NormalizeClaimFailure(json, "kugou_vip_claim_failed",
+                                   "receive_vip_listen_song", profile);
     }
+    LogClaimOutcome("receive_vip_listen_song", json, profile);
     return json;
   } catch (const nlohmann::json::exception& e) {
     return MakeError(std::string("JSON parse error: ") + e.what());
@@ -374,7 +604,8 @@ nlohmann::json UserService::ClaimVip(
 nlohmann::json UserService::UpgradeVipReward(
     const DeviceInfo& device,
     const std::string& userId,
-    const std::string& token) const {
+    const std::string& token,
+    KuGouEdition edition) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
@@ -383,46 +614,46 @@ nlohmann::json UserService::UpgradeVipReward(
 
   // Reference (MakcRe/KuGouMusicApi module/youth_day_vip_upgrade.js):
   //   POST /youth/v1/listen_song/upgrade_vip_reward
-  //   params: kugouid=<userid>, ad_type=1
-  // android encryptType => params live in URL query, no body.
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  //   params: kugouid=<userid>, ad_type=1 (+ default token/userid/uuid="-")
+  // android encryptType => params live in URL query, no body. The signature
+  // family follows the session; see ADR-0005.
+  const auto profile = GetKuGouProfile(edition);
   KuGouAndroidRequest req;
   req.endpoint = "https://gateway.kugou.com/youth/v1/listen_song/upgrade_vip_reward";
   req.profile = profile;
   req.params = {
-      {"plat", "1"},
       {"userid", userId},
       {"token", token},
       {"kugouid", userId},
       {"ad_type", "1"},
+      {"uuid", "-"},
   };
   req.device = device;
 
   const std::string url = BuildSignedUrl(req);
 
+  // Same 2026-08-31 reference alignment as ClaimVip: fingerprint headers +
+  // form-urlencoded content type, params stay in the signed query string.
+  auto headers = BuildAndroidHeaders(req);
+  headers["Content-Type"] = "application/x-www-form-urlencoded";
+  headers["User-Agent"] = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
+
+  ECHO_LOG("VipClaim", std::string(">>> upgrade_vip_reward userid=") + userId);
+
   const auto result = httpPost_(
       url,
       /*body=*/"",
-      {
-          {"Accept", "application/json"},
-          {"Content-Type", "application/json"},
-          {"User-Agent", "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi"},
-      });
+      std::move(headers));
 
   if (!result.error.empty()) return MakeError(result.error, result.statusCode);
 
   try {
     auto json = nlohmann::json::parse(result.body);
     if (json.value("status", 0) != 1) {
-      std::string msg = json.value("error_msg", json.value("error", std::string{}));
-      if (msg.empty()) msg = "广告 VIP 升级失败（需要酷狗官方 App 内的广告 SDK 凭证）";
-      return {
-          {"status", 0},
-          {"error", msg},
-          {"error_code", "kugou_vip_upgrade_failed"},
-          {"raw", json},
-      };
+      return NormalizeClaimFailure(json, "kugou_vip_upgrade_failed",
+                                   "upgrade_vip_reward", profile);
     }
+    LogClaimOutcome("upgrade_vip_reward", json, profile);
     return json;
   } catch (const nlohmann::json::exception& e) {
     return MakeError(std::string("JSON parse error: ") + e.what());
@@ -435,17 +666,19 @@ nlohmann::json UserService::ClaimYouthListenSong(
 }
 
 nlohmann::json UserService::ClaimYouthListenSong(
-    const DeviceInfo& device, const std::string& userId, const std::string& token) const {
+    const DeviceInfo& device, const std::string& userId, const std::string& token,
+    KuGouEdition edition) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
 
   const std::string body = R"({"mixsongid":666075191})";
 
-  // listen_song report uses a distinct clientver from the global concept profile.
-  // The youth reward endpoint uses the standard Android signing identity and
-  // only overrides clientver for its report protocol.
-  auto profile = GetKuGouProfile(KuGouEdition::Standard);
+  // This endpoint overrides clientver to 10566 for its report protocol and
+  // nothing else. server/module/youth_listen_song.js does exactly this: it
+  // takes the lite/concept appid and salt and swaps only clientver, so the
+  // appid and the salt keep following the session family. See ADR-0005.
+  auto profile = GetKuGouProfile(edition);
   profile.clientver = "10566";
 
   KuGouAndroidRequest req;
@@ -482,27 +715,29 @@ nlohmann::json UserService::ClaimYouthListenSong(
   try {
     auto json = nlohmann::json::parse(result.body);
     const auto upstreamError = UpstreamErrorMessage(json);
-    if (json.value("status", 0) != 1) {
-      std::ostringstream diagnostic;
-      diagnostic << "upstream status=" << json.value("status", 0)
-                 << " error_code="
-                 << (json.contains("error_code") ? json["error_code"].dump() : "missing")
-                 << " message=" << (upstreamError.empty() ? "<empty>" : upstreamError)
-                 << " data_type="
-                 << (json.contains("data") ? json["data"].type_name() : "missing");
-      ECHO_LOG("YouthListen", diagnostic.str());
-    }
+    const bool rejected = json.value("status", 0) != 1;
+    const std::string localFallback =
+        rejected && upstreamError.empty() ? kUnspecifiedUpstreamRejection : "";
+    // Same single outcome line as the other claim routes, on success too. The
+    // bespoke diagnostic here used to be the only record this route ever made,
+    // and only for failures.
+    LogClaimOutcome("report/listen_song", json, profile);
     nlohmann::json out = {
         {"status", json.value("status", 0)},
         {"error_code", json.contains("error_code") ? json["error_code"] : nlohmann::json(0)},
         {"error_msg", upstreamError},
-        {"error", upstreamError},
+        {"error", upstreamError.empty() ? localFallback : upstreamError},
+        {"upstream_message", upstreamError},
+        {"local_fallback_message", localFallback},
         {"data", json.contains("data") && json["data"].is_object() ? json["data"] : nlohmann::json::object()},
     };
-
-    // 放宽拦截：为 130012 业务限制注入明确的提示，让前端不再只显示“网络异常”
-    if (out["status"] == 0 && out["error_code"] == 130012 && out["error_msg"] == "") {
-      out["error_msg"] = "今日已通过广告领过，或需要去酷狗官方 App 内先听完整歌曲 (Err: 130012)";
+    // reason belongs to the failure contract only; a successful report has
+    // nothing to classify and the UI must not have to ignore a field that is
+    // always "unknown" on its happy path.
+    if (rejected) {
+      const auto classified = ClassifyClaimCode(json);
+      out["reason"] = classified.reason;
+      out["reason_confidence"] = classified.confidence;
     }
 
     if (json.contains("data") && json["data"].is_object()) {
@@ -523,7 +758,8 @@ nlohmann::json UserService::ClaimYouthAdVip(
 }
 
 nlohmann::json UserService::ClaimYouthAdVip(
-    const DeviceInfo& device, const std::string& userId, const std::string& token) const {
+    const DeviceInfo& device, const std::string& userId, const std::string& token,
+    KuGouEdition edition) const {
   if (userId.empty() || userId == "0" || token.empty()) {
     return MakeError("not logged in");
   }
@@ -538,7 +774,11 @@ nlohmann::json UserService::ClaimYouthAdVip(
   };
   const std::string body = bodyJson.dump();
 
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
+  // 签名族跟随铸造会话的那一族，见 ADR-0005 追记。此处曾有一句注释记录
+  // "2026-09-03 配对实测：概念族被拒后统一切标准族"，该结论已被 09-29 的
+  // 同会话 A/B 推翻（标准族 20017 业务拒绝，概念族成功），且当时那次实验
+  // 混入了设备注册顺序与 product_type 两个无关变量，不足以支撑这个决定。
+  const auto profile = GetKuGouProfile(edition);
   KuGouAndroidRequest req;
   req.endpoint = "https://gateway.kugou.com/youth/v1/ad/play_report";
   req.profile = profile;
@@ -567,22 +807,25 @@ nlohmann::json UserService::ClaimYouthAdVip(
 
   try {
     auto json = nlohmann::json::parse(result.body);
+    const auto upstreamError = UpstreamErrorMessage(json);
+    const bool rejected = json.value("status", 0) != 1;
+    const std::string localFallback =
+        rejected && upstreamError.empty() ? kUnspecifiedUpstreamRejection : "";
+    LogClaimOutcome("ad/play_report", json, profile);
     nlohmann::json out = {
         {"status", json.value("status", 0)},
-        {"error_code", json.value("error_code", 0)},
-        {"error_msg", json.value("error_msg", "")},
+        {"error_code", json.contains("error_code") ? json["error_code"] : nlohmann::json(0)},
+        {"error_msg", upstreamError},
+        {"error", upstreamError.empty() ? localFallback : upstreamError},
+        {"upstream_message", upstreamError},
+        {"local_fallback_message", localFallback},
         {"data", json.contains("data") && json["data"].is_object() ? json["data"] : nlohmann::json::object()},
     };
-    
-    // 放宽拦截
-    if (out["status"] == 0 && out["error_msg"] == "") {
-        if (out["error_code"] == 130012) {
-             out["error_msg"] = "今日领取可能已达上限，或存在互斥冲突 (Err: 130012)";
-        } else {
-             out["error_msg"] = "广告 SDK 凭证校验失败或网络问题 (Err: " + std::to_string(out.value("error_code", 0)) + ")";
-        }
+    if (rejected) {
+      const auto classified = ClassifyClaimCode(json);
+      out["reason"] = classified.reason;
+      out["reason_confidence"] = classified.confidence;
     }
-    
     return out;
   } catch (const nlohmann::json::exception& e) {
     return MakeError(std::string("JSON parse error: ") + e.what());

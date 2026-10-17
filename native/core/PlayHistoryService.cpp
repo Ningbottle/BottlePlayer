@@ -84,7 +84,8 @@ nlohmann::json PlayHistoryService::UploadSong(
 nlohmann::json PlayHistoryService::GetUserHistory(
     const std::string& userId,
     const std::string& token,
-    const std::string& bp) const {
+    const std::string& bp,
+    int pagesize) const {
   nlohmann::json dataMap = {
       {"token", token},
       {"userid", SafeStoll(userId)},
@@ -93,6 +94,12 @@ nlohmann::json PlayHistoryService::GetUserHistory(
   };
   if (!bp.empty()) {
     dataMap["bp"] = bp;
+  }
+  // B07: forward the requested page size so the upstream honors it. The
+  // route bounds the value; a non-positive size falls back to the upstream
+  // default rather than being sent.
+  if (pagesize > 0) {
+    dataMap["pagesize"] = pagesize;
   }
   const std::string body = dataMap.dump();
 

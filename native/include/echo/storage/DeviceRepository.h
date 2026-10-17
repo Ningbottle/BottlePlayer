@@ -2,7 +2,8 @@
 
 #include <optional>
 
-#include "echo/core/Dto.h"
+#include "echo/model/Identity.h"
+#include "echo/execution/OperationContext.h"
 #include "echo/storage/Database.h"
 
 namespace echo::storage {
@@ -11,8 +12,9 @@ class DeviceRepository {
  public:
   explicit DeviceRepository(Database& database);
 
-  std::optional<echo::core::DeviceInfo> Load();
-  void Save(const echo::core::DeviceInfo& device);
+  std::optional<model::DeviceInfo> Load();
+  model::DeviceInfo Ensure(const std::function<model::DeviceInfo(std::optional<model::DeviceInfo>)>& normalize);
+  void Save(const model::DeviceInfo& device);
   void Clear();
 
  private:

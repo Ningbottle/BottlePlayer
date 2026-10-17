@@ -1,6 +1,7 @@
 #include "echo/core/CatalogService.h"
 
 #include "echo/core/StringUtils.h"
+#include "echo/core/MobileCatalogResponse.h"
 
 #include <algorithm>
 #include <cctype>
@@ -29,13 +30,6 @@ std::string Trim(std::string value) {
 }
 
 
-std::string ExtractJsonBody(std::string body) {
-  const auto first = body.find('{');
-  const auto last = body.rfind('}');
-  if (first == std::string::npos || last == std::string::npos || first > last) return body;
-  return body.substr(first, last - first + 1);
-}
-
 std::string ReadString(const nlohmann::json& value, std::string_view key) {
   if (!value.contains(key)) return "";
   const auto& item = value.at(key);
@@ -47,18 +41,7 @@ std::string ReadString(const nlohmann::json& value, std::string_view key) {
 }
 
 int ReadInt(const nlohmann::json& value, std::string_view key, int fallback = 0) {
-  if (!value.contains(key)) return fallback;
-  const auto& item = value.at(key);
-  if (item.is_number_integer()) return item.get<int>();
-  if (item.is_number_unsigned()) return static_cast<int>(item.get<unsigned int>());
-  if (item.is_string()) {
-    try {
-      return std::stoi(item.get<std::string>());
-    } catch (...) {
-      return fallback;
-    }
-  }
-  return fallback;
+  return mobile_catalog::ReadInt(value, key, fallback);
 }
 
 nlohmann::json EmptyPage(std::string id, int page, int pageSize) {
@@ -98,9 +81,16 @@ nlohmann::json ParseJsonResult(const HttpResult& result, const std::string& erro
   }
 
   try {
-    return nlohmann::json::parse(ExtractJsonBody(result.body));
-  } catch (const nlohmann::json::exception& error) {
-    return ErrorPayload(errorCode, std::string("Invalid Kugou catalog JSON: ") + error.what());
+    auto response = mobile_catalog::ParseBody(result.body);
+    if (!mobile_catalog::Success(response)) {
+      return ErrorPayload(errorCode, "Kugou catalog upstream rejected the request", result.statusCode);
+    }
+    if (!mobile_catalog::Data(response)) {
+      return ErrorPayload(errorCode, "Invalid Kugou catalog data", result.statusCode);
+    }
+    return response;
+  } catch (const nlohmann::json::exception&) {
+    return ErrorPayload(errorCode, "Invalid Kugou catalog JSON", result.statusCode);
   }
 }
 
@@ -108,7 +98,8 @@ nlohmann::json NormalizeSong(const nlohmann::json& raw) {
   nlohmann::json item = raw;
   const auto filename = ReadString(raw, "filename");
   const auto separator = filename.find(" - ");
-  const auto transParam = raw.value("trans_param", nlohmann::json::object());
+  const auto transParam = raw.contains("trans_param") && raw["trans_param"].is_object()
+      ? raw["trans_param"] : nlohmann::json::object();
 
   item["hash"] = ReadString(raw, "hash");
   item["songname"] = ReadString(raw, "songname");
@@ -123,12 +114,13 @@ nlohmann::json NormalizeSong(const nlohmann::json& raw) {
   item["album_name"] = ReadString(raw, "album_name");
   item["album_id"] = ReadString(raw, "album_id");
   item["duration"] = ReadInt(raw, "duration");
-  item["timelen"] = ReadInt(raw, "duration") * 1000;
+  item["timelen"] = static_cast<long long>(ReadInt(raw, "duration")) * 1000;
   item["audio_id"] = ReadInt(raw, "audio_id");
   item["album_audio_id"] = ReadInt(raw, "album_audio_id");
   item["mixsongid"] = ReadInt(raw, "album_audio_id");
   item["mvhash"] = ReadString(raw, "mvhash");
-  item["cover"] = transParam.value("union_cover", ReadString(raw, "album_sizable_cover"));
+  const auto cover = ReadString(transParam, "union_cover");
+  item["cover"] = cover.empty() ? ReadString(raw, "album_sizable_cover") : cover;
   item["HQ"] = {{"Hash", ReadString(raw, "320hash")}};
   item["SQ"] = {{"Hash", ReadString(raw, "sqhash")}};
   item["Res"] = {{"Hash", ReadString(raw, "reshash")}};
@@ -206,7 +198,7 @@ nlohmann::json CatalogService::GetAlbumDetail(std::string id) const {
       "http://mobilecdn.kugou.com/api/v3/album/info?version=9108&plat=0&albumid=" + UrlEncode(id),
       {{"Accept", "application/json"}, {"User-Agent", "EchoMusicNative/0.1"}});
   auto upstream = ParseJsonResult(result, "native_album_detail_failed");
-  if (upstream.value("status", 1) == 0 && upstream.contains("error_code")) return upstream;
+  if (ReadInt(upstream, "status", 0) != 1) return upstream;
 
   const auto data = upstream.value("data", nlohmann::json::object());
   const auto album = data.is_object() ? NormalizeAlbum(data) : nlohmann::json::object();
@@ -224,17 +216,21 @@ nlohmann::json CatalogService::GetAlbumSongs(std::string id, int page, int pageS
   auto upstream = ParseJsonResult(
       httpGet_(url, {{"Accept", "application/json"}, {"User-Agent", "EchoMusicNative/0.1"}}),
       "native_album_songs_failed");
-  if (upstream.value("status", 1) == 0 && upstream.contains("error_code")) return upstream;
+  if (ReadInt(upstream, "status", 0) != 1) return upstream;
 
   const auto data = upstream.value("data", nlohmann::json::object());
-  const auto info = data.value("info", nlohmann::json::array());
+  const auto* rows = mobile_catalog::Info(data);
+  if (!rows || !mobile_catalog::HasObjectRows(*rows)) {
+    return ErrorPayload("native_catalog_schema_failed", "Invalid Kugou catalog list");
+  }
+  const auto& info = *rows;
   nlohmann::json songs = nlohmann::json::array();
   if (info.is_array()) {
     for (const auto& raw : info) {
       if (raw.is_object()) songs.push_back(NormalizeSong(raw));
     }
   }
-  return {{"status", 1}, {"data", {{"info", songs}, {"list", songs}, {"songs", songs}, {"total", data.value("total", static_cast<int>(songs.size()))}, {"page", page}, {"pagesize", pageSize}}}, {"raw", upstream}};
+  return {{"status", 1}, {"data", {{"info", songs}, {"list", songs}, {"songs", songs}, {"total", ReadInt(data, "total", static_cast<int>(songs.size()))}, {"page", page}, {"pagesize", pageSize}}}, {"raw", upstream}};
 }
 
 nlohmann::json CatalogService::GetArtistDetail(std::string id) const {
@@ -245,7 +241,7 @@ nlohmann::json CatalogService::GetArtistDetail(std::string id) const {
   auto upstream = ParseJsonResult(
       httpGet_(url, {{"Accept", "application/json"}, {"User-Agent", "EchoMusicNative/0.1"}}),
       "native_artist_detail_failed");
-  if (upstream.value("status", 1) == 0 && upstream.contains("error_code")) return upstream;
+  if (ReadInt(upstream, "status", 0) != 1) return upstream;
 
   const auto data = upstream.value("data", nlohmann::json::object());
   const auto artist = data.is_object() ? NormalizeArtist(data) : nlohmann::json::object();
@@ -265,17 +261,21 @@ nlohmann::json CatalogService::GetArtistSongs(std::string id, int page, int page
   auto upstream = ParseJsonResult(
       httpGet_(url, {{"Accept", "application/json"}, {"User-Agent", "EchoMusicNative/0.1"}}),
       "native_artist_songs_failed");
-  if (upstream.value("status", 1) == 0 && upstream.contains("error_code")) return upstream;
+  if (ReadInt(upstream, "status", 0) != 1) return upstream;
 
   const auto data = upstream.value("data", nlohmann::json::object());
-  const auto info = data.value("info", nlohmann::json::array());
+  const auto* rows = mobile_catalog::Info(data);
+  if (!rows || !mobile_catalog::HasObjectRows(*rows)) {
+    return ErrorPayload("native_catalog_schema_failed", "Invalid Kugou catalog list");
+  }
+  const auto& info = *rows;
   nlohmann::json songs = nlohmann::json::array();
   if (info.is_array()) {
     for (const auto& raw : info) {
       if (raw.is_object()) songs.push_back(NormalizeSong(raw));
     }
   }
-  return {{"status", 1}, {"data", {{"info", songs}, {"list", songs}, {"songs", songs}, {"total", data.value("total", static_cast<int>(songs.size()))}, {"page", page}, {"pagesize", pageSize}}}, {"raw", upstream}};
+  return {{"status", 1}, {"data", {{"info", songs}, {"list", songs}, {"songs", songs}, {"total", ReadInt(data, "total", static_cast<int>(songs.size()))}, {"page", page}, {"pagesize", pageSize}}}, {"raw", upstream}};
 }
 
 nlohmann::json CatalogService::GetArtistAlbums(std::string id, int page, int pageSize, std::string sort) const {
@@ -291,17 +291,21 @@ nlohmann::json CatalogService::GetArtistAlbums(std::string id, int page, int pag
   auto upstream = ParseJsonResult(
       httpGet_(url, {{"Accept", "application/json"}, {"User-Agent", "EchoMusicNative/0.1"}}),
       "native_artist_albums_failed");
-  if (upstream.value("status", 1) == 0 && upstream.contains("error_code")) return upstream;
+  if (ReadInt(upstream, "status", 0) != 1) return upstream;
 
   const auto data = upstream.value("data", nlohmann::json::object());
-  const auto info = data.value("info", nlohmann::json::array());
+  const auto* rows = mobile_catalog::Info(data);
+  if (!rows || !mobile_catalog::HasObjectRows(*rows)) {
+    return ErrorPayload("native_catalog_schema_failed", "Invalid Kugou catalog list");
+  }
+  const auto& info = *rows;
   nlohmann::json albums = nlohmann::json::array();
   if (info.is_array()) {
     for (const auto& raw : info) {
       if (raw.is_object()) albums.push_back(NormalizeAlbum(raw));
     }
   }
-  return {{"status", 1}, {"data", {{"info", albums}, {"list", albums}, {"total", data.value("total", static_cast<int>(albums.size()))}, {"page", page}, {"pagesize", pageSize}}}, {"raw", upstream}};
+  return {{"status", 1}, {"data", {{"info", albums}, {"list", albums}, {"total", ReadInt(data, "total", static_cast<int>(albums.size()))}, {"page", page}, {"pagesize", pageSize}}}, {"raw", upstream}};
 }
 
 }  // namespace echo::core

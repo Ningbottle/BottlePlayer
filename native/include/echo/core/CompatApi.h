@@ -9,9 +9,11 @@
 #include <nlohmann/json.hpp>
 
 #include "echo/core/Authorization.h"
+#include "echo/execution/OperationContext.h"
 #include "echo/storage/Database.h"
 
 #include "echo/core/Dto.h"
+#include "echo/core/LoginService.h"
 
 namespace echo::core {
 
@@ -41,6 +43,10 @@ struct CompatApiHandlers {
   std::function<nlohmann::json(std::string userId, std::string token)> userDetail;
   std::function<nlohmann::json(std::string userId, std::string token)> userVip;
   std::function<nlohmann::json(std::string userId, std::string token)> everydayRecommend;
+  // Transport injection for credential-chain contract tests. Unlike the
+  // result handlers above, these retain route parsing, persistence and signing.
+  LoginHttpGet sessionHttpGet;
+  LoginHttpPost sessionHttpPost;
 };
 
 class CompatApi {
@@ -53,7 +59,8 @@ class CompatApi {
       const std::string& path,
       const QueryMap& query,
       const HeaderMap& headers,
-      const std::string& body);
+      const std::string& body,
+    const execution::OperationContext& operation = execution::CurrentOperation());
 
  private:
   storage::Database& database_;
@@ -64,7 +71,8 @@ class CompatApi {
       const std::string& path,
       const QueryMap& query,
       const HeaderMap& headers,
-      const std::string& body);
+      const std::string& body,
+    const execution::OperationContext& operation);
 };
 
 bool IsKnownCompatRoute(const std::string& path);

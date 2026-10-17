@@ -1,0 +1,57 @@
+QueMusic
+Copyright (c) 2025-2026 QueMusic Contributors
+
+This product is licensed under the Apache License, Version 2.0.
+See the LICENSE file for the full license text.
+
+--------------------------------------------------------------------
+Third-party components ( 第三方组件使用 )
+--------------------------------------------------------------------
+
+This software includes third-party components under their own licenses:
+
+1. Qt 6 (https://www.qt.io/)
+   Used under the GNU Lesser General Public License v3.0 (LGPL-3.0).
+   - Qt Core, Qt Gui, Qt Qml, Qt Quick, Qt Network, Qt Multimedia,
+     Qt Concurrent, Qt Sql, Qt ShaderTools
+   Copyright (C) The Qt Company Ltd.
+
+2. QWindowKit (https://github.com/stdware/qwindowkit)
+   Licensed under the Apache License, Version 2.0.
+   Copyright (C) Stdware Collections (https://www.github.com/stdware)
+   Copyright (C) 2021-2023 wangwenx190 (Yuhang Zhao)
+
+3. Qt6_QWindowKit_QML_demo (https://github.com/qiuliw/Qt6_QWindowKit_QML_demo)
+   Used as the framework basis for this project.
+   No license was specified by the original author.
+
+4. Poppins font (https://github.com/itfoundry/Poppins)
+   Licensed under the SIL Open Font License 1.1.
+
+5. Feather Icons (https://feathericons.com/)
+   Licensed under the MIT License.
+   Copyright (c) 2013-2017 Cole Bemis
+
+6. TagLib (https://taglib.org/)
+   Licensed under the GNU Lesser General Public License v2.1 (LGPL-2.1)
+   and the Mozilla Public License v1.1 (MPL-1.1), dual-licensed.
+   Copyright (C) Scott Wheeler, Lukas Lalinsky and TagLib contributors.
+   - 本项目以静态方式链接 TagLib（见 cmake/external/taglib.cmake）。
+   - LGPL-2.1 对静态链接的要求：使用者应能以修改后的 TagLib 重新链接本程序；
+     TagLib 源码随仓库分发于 ThirdParty/taglib/。如需重新链接所需的目标文件，
+     请通过 issue 与我们联系提供。
+   - 本项目未修改 TagLib 源码；如后续有修改，将在此说明改动内容。
+
+7. Crypto++ (https://www.cryptopp.com/)
+   Licensed under the Boost Software License 1.0 (BSL-1.0).
+   Copyright (C) Wei Dai, Leonard J. Niemeyer and Crypto++ contributors.
+   - 随 QCloudMusicApi 的 3rdparty 目录一并分发。
+
+8. FFmpeg (https://ffmpeg.org/)
+    Licensed under the GNU Lesser General Public License v2.1 or later (LGPL-2.1+),
+    built without GPL-only components.
+    Copyright (C) FFmpeg developers.
+    - 解码层动态链接 libavcodec / libavformat / libavutil / libswresample，
+      运行库随发行包提供；想换自己的 FFmpeg 构建，覆盖同名动态库即可。
+
+For the full license texts, please refer to the respective projects.

@@ -1,4 +1,5 @@
 #include "echo/core/RankService.h"
+#include "echo/core/MobileCatalogResponse.h"
 
 #include <algorithm>
 #include <string>
@@ -21,18 +22,7 @@ std::string ReadString(const nlohmann::json& value, const char* key) {
 }
 
 int ReadInt(const nlohmann::json& value, const char* key, int fallback = 0) {
-  if (!value.contains(key)) return fallback;
-  const auto& item = value.at(key);
-  if (item.is_number_integer()) return item.get<int>();
-  if (item.is_number_unsigned()) return static_cast<int>(item.get<unsigned int>());
-  if (item.is_string()) {
-    try {
-      return std::stoi(item.get<std::string>());
-    } catch (...) {
-      return fallback;
-    }
-  }
-  return fallback;
+  return mobile_catalog::ReadInt(value, key, fallback);
 }
 
 nlohmann::json EmptyList() {
@@ -82,8 +72,8 @@ nlohmann::json NormalizeRankSong(const nlohmann::json& raw) {
   item["audio_info"] = {
       {"hash", hash},
       {"hash_128", hash},
-      {"duration", duration * 1000},
-      {"duration_128", duration * 1000},
+      {"duration", static_cast<long long>(duration) * 1000},
+      {"duration_128", static_cast<long long>(duration) * 1000},
   };
   item["album_info"] = {
       {"album_id", ReadString(raw, "album_id")},
@@ -108,9 +98,18 @@ nlohmann::json ParseJsonOrError(const HttpResult& result, const char* code) {
     return {{"error_code", code}, {"error", "Kugou rank upstream returned an error"}};
   }
   try {
-    return nlohmann::json::parse(result.body);
-  } catch (const nlohmann::json::exception& error) {
-    return {{"error_code", code}, {"error", std::string("Invalid Kugou rank JSON: ") + error.what()}};
+    auto response = nlohmann::json::parse(result.body);
+    if (!mobile_catalog::Success(response)) {
+      return {{"error_code", code}, {"error", "Kugou rank upstream rejected the request"}};
+    }
+    const auto* data = mobile_catalog::Data(response);
+    const auto* rows = data ? mobile_catalog::Info(*data) : nullptr;
+    if (!rows || !mobile_catalog::HasObjectRows(*rows)) {
+      return {{"error_code", code}, {"error", "Invalid Kugou rank data"}};
+    }
+    return response;
+  } catch (const nlohmann::json::exception&) {
+    return {{"error_code", code}, {"error", "Invalid Kugou rank JSON"}};
   }
 }
 
@@ -132,14 +131,15 @@ nlohmann::json RankService::List() const {
       {{"Accept", "application/json"}, {"User-Agent", "EchoMusicNative/0.1"}});
 
   const auto upstream = ParseJsonOrError(result, "native_rank_list_failed");
-  if (upstream.contains("error_code")) return ErrorList(upstream.value("error", ""), result.statusCode);
+  if (ReadInt(upstream, "status", 0) != 1) return ErrorList(upstream.value("error", ""), result.statusCode);
 
   const auto data = upstream.value("data", nlohmann::json::object());
-  const auto info = data.value("info", nlohmann::json::array());
-  const auto total = data.value("total", info.is_array() ? static_cast<int>(info.size()) : 0);
+  nlohmann::json info = nlohmann::json::array();
+  for (const auto& row : data["info"]) if (row.is_object()) info.push_back(row);
+  const auto total = ReadInt(data, "total", static_cast<int>(info.size()));
   return {
       {"status", 1},
-      {"error", upstream.value("error", "")},
+      {"error", ""},
       {"data", {{"info", info}, {"list", info}, {"total", total}}},
       {"raw", upstream},
   };
@@ -157,7 +157,7 @@ nlohmann::json RankService::GetSongs(int rankId, int page, int pageSize) const {
       {{"Accept", "application/json"}, {"User-Agent", "EchoMusicNative/0.1"}});
 
   const auto upstream = ParseJsonOrError(result, "native_rank_audio_failed");
-  if (upstream.contains("error_code")) {
+  if (ReadInt(upstream, "status", 0) != 1) {
     return ErrorSongs(rankId, page, pageSize, upstream.value("error", ""), result.statusCode);
   }
 
@@ -170,10 +170,10 @@ nlohmann::json RankService::GetSongs(int rankId, int page, int pageSize) const {
     }
   }
 
-  const auto total = data.value("total", static_cast<int>(songs.size()));
+  const auto total = ReadInt(data, "total", static_cast<int>(songs.size()));
   return {
       {"status", 1},
-      {"error", upstream.value("error", "")},
+      {"error", ""},
       {"data",
        {
            {"info", songs},

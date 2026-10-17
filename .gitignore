@@ -1,145 +1,77 @@
-# Logs
-logs
-*.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
-lerna-debug.log*
-
-# Diagnostic reports
-report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
-
-# Dependency directories
-node_modules
-/client/node_modules
-/.pnpm-store/
-
-# Build outputs
-dist
-dist-electron
-build
-Build
-build-*/
-out
-release
-ui/src-tauri/libs/
-*.d
-*.slo
-*.lo
-*.o
+# Build products, dependencies and local evidence
+/output/
+/outputs/
+/build/
+/build-*/
+/out/
+**/out/
+**/build/
+**/vcpkg_installed/
+**/CMakeFiles/
+**/CMakeCache.txt
+**/cmake_install.cmake
+**/install_manifest.txt
+**/compile_commands.json
+**/Testing/
 *.obj
-*.gch
-*.pch
-*.ilk
-*.pdb
-*.so
-*.dylib
-*.dll
-*.so.*
-*.mod
-*.smod
-*.lai
-*.la
+*.o
 *.a
 *.lib
-*.dmg
+*.dll
 *.exe
-*.deb
-*.rpm
-*.AppImage
-*.out
-*.app
-
-# CMake generated files
-CMakeFiles/
-CMakeCache.txt
-cmake_install.cmake
-Makefile
-install_manifest.txt
-compile_commands.json
-Testing/
-
-# vcpkg
-vcpkg_installed/
-
-# IDEs and editors
-.vscode/*
-!.vscode/extensions.json
-.idea
-*.suo
-*.ntvs*
-*.njsproj
-*.sln
-*.sw?
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Temporary files
+*.pdb
+*.ilk
+*.exp
+*.dmp
+*.DMP
+*.log
+*.jsonl
 *.tmp
 *.bak
-*.dll.old
-temp_full_doc.txt
-.cache/
-.ace-tool/
+__pycache__/
+*.pyc
+
+# User data, credentials and diagnostic exports
+**/profile/
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite3
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
-
-# IDE/Editor specific files
-.zcode_*
-
-# Vite
-*.local
-
-# TypeScript
-*.tsbuildinfo
-
-# Temporary files
-*.tmp
-*.bak
-.cache/
-.ace-tool/
-.worktrees/
-.superpowers/
-
-# Project docs and agent configs (keep local only)
-# 长期文档(docs/wiki/, docs/adr/)可追踪;临时 plans/reports/captures 保持忽略
-docs/superpowers/
-docs/captures/
-docs/tmp/
-AGENTS.md
-.windsurf/skills/
-# 内部评估/计划文档（含逆向细节，保留本地、勿入公开仓库）
-PROJECT_EVALUATION.md
-IMPROVEMENT_PLAN.md
-INITIALIZATION_SUMMARY.md
-/0829-bug-fix-plan.md
-/0830-plan-corrections.md
-/0830-post-fix-audit.md
-/adr-006r-global-style-governance.md
-/adr-007-style-governance.md
-/report_next_0830.md
-/ara/
-/outputs/
-
-# 本地临时凭据/签名中间产物（禁止提交）
+.env.*
+*.pem
+*.key
+*.pfx
 /.s64
 /.tok
-# AI 工具指针文件（指向本地 AGENTS.md，随之保留本地）
-CLAUDE.md
-.cursorrules
-.windsurfrules
+/docs/validation/
+/docs/captures/
+/docs/tmp/
+/docs/quality/
+/docs/superpowers/
+/ara/
 
-# AI 工具本地目录/文件（本地工具配置，勿入仓库）
-.claude/
-.agents/
-mcps/
-skills-lock.json
-.qoder/
-.superpowers/
+# Local editor / model configuration; AGENTS.md is shared source
+/.agents/
+/.claude/
+/.codex/
+/.qoder/
+/.windsurf/
+/.superpowers/
+/.worktrees/
+/.vscode/
+/.idea/
+/mcps/
+/skills-lock.json
+/CLAUDE.md
+/.cursorrules
+/.windsurfrules
+.DS_Store
+Thumbs.db
+*.suo
+*.user
+*.sw?
+.cache/
+.ace-tool/
 .tmp_*

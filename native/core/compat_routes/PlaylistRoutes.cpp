@@ -72,6 +72,23 @@ CompatResponse HandlePlaylistTracksAdd(storage::Database& database, const QueryM
   const std::string data = dataFromQuery.empty() ? ReadString(jsonBody, "data") : dataFromQuery;
 
   PlaylistService playlist;
+  // B08: `data` may be a structured JSON array of track objects
+  // [{name, hash, album_id, mixsongid}, ...] — names then carry commas,
+  // pipes, and percent signs verbatim. Legacy callers send the
+  // comma-separated `name|hash|album_id|mixsongid` string, still accepted
+  // (with %7C restored inside names). The structured form is preferred:
+  // the legacy string cannot express a name containing a comma.
+  if (!jsonBody.is_null() && jsonBody.contains("data") && jsonBody["data"].is_array()) {
+    return JsonResponse(
+        playlist.AddPlaylistTracksStructured(device, userId, token, listId, jsonBody["data"]));
+  }
+  {
+    nlohmann::json parsedData = nlohmann::json::parse(data, nullptr, false);
+    if (!parsedData.is_discarded() && parsedData.is_array()) {
+      return JsonResponse(
+          playlist.AddPlaylistTracksStructured(device, userId, token, listId, parsedData));
+    }
+  }
   return JsonResponse(playlist.AddPlaylistTracks(device, userId, token, listId, data));
 }
 

@@ -188,16 +188,14 @@ std::string DeviceRegisterService::Register(
     }
     try {
       decoded = nlohmann::json::parse(plaintext);
-    } catch (const nlohmann::json::exception& e) {
-      return setError(std::string("Bad JSON after AES decrypt: ") + e.what());
+    } catch (const nlohmann::json::exception&) {
+      return setError("registration_invalid_json");
     }
   }
 
   if (decoded.value("status", 0) != 1) {
-    const auto msg = decoded.value("error_msg",
-                     decoded.value("error", std::string("status != 1")));
     const auto errcode = decoded.value("error_code", 0);
-    return setError(msg + " (error_code=" + std::to_string(errcode) + ")");
+    return setError("registration_business_rejected (error_code=" + std::to_string(errcode) + ")");
   }
 
   if (!decoded.contains("data") || !decoded["data"].is_object()) {

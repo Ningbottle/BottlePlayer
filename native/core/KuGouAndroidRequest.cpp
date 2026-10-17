@@ -48,7 +48,10 @@ std::string BuildSignedUrl(const KuGouAndroidRequest& req) {
     }
   }
 
-  params["signature"] = SignatureAndroidParams(params, req.body, req.profile.saltKind);
+  // reference notSign:true（如 song_url.js）：不附加 signature，但 key 仍保留。
+  if (!req.notSign) {
+    params["signature"] = SignatureAndroidParams(params, req.body, req.profile.saltKind);
+  }
 
   std::ostringstream urlStream;
   urlStream << req.endpoint << "?";

@@ -1,27 +1,42 @@
 #include "echo/core/C_API.h"
 #include "echo/core/CompatApi.h"
 #include "echo/core/HttpClient.h"
+#include "echo/core/RequestErrorMapping.h"
+#include "echo/core/RequestControlRegistry.h"
 #include "echo/core/RequestDeadlines.h"
+#include "echo/execution/OperationPolicy.h"
 #include "echo/async/RequestScheduler.h"
 #include "echo/storage/Database.h"
 #include "echo/storage/AppPaths.h"
+#include "echo/storage/ProfileWriterLease.h"
+#include "echo/storage/SessionRepository.h"
+#include "echo/diagnostics/CrashCapture.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 #include "echo/stats/PlayStatsService.h"
 #include <nlohmann/json.hpp>
 #include <exception>
 #include <typeinfo>
+#include <type_traits>
 #include <cstdlib>
-#if defined(_MSC_VER) && defined(_DEBUG)
+#include <cctype>
+#if defined(_MSC_VER)
 #include <crtdbg.h>
 #endif
 #include <atomic>
 #include <chrono>
+#include <limits>
+#include <new>
 #include <memory>
 #include <cstring>
 #include <filesystem>
 #include <mutex>
 #include <shared_mutex>
 #include <sstream>
+#include <string_view>
+#include <unordered_map>
+
+static_assert(echo::stats::kMaxStatsRows == ECHO_C_API_MAX_STATS_ROWS,
+              "C ABI stats limit must match the service limit");
 
 // Process-local state cluster. FFI signatures stay Echo*(...) without an
 // EchoContext* handle; internals use Ctx() so globals are not scattered.
@@ -29,6 +44,7 @@
 // / multi-backend need). api is shared_ptr so workers hold a strong ref across
 // EchoShutdown.
 struct EchoContext {
+  std::unique_ptr<echo::storage::ProfileWriterLease> writerLease;
   std::unique_ptr<echo::storage::Database> db;
   std::shared_ptr<echo::core::CompatApi> api;
   echo::async::RequestScheduler scheduler{4};
@@ -44,34 +60,118 @@ static EchoContext& Ctx() {
   return ctx;
 }
 
-static const char* _dup_str(const char* s) {
-    char* out = new char[std::strlen(s) + 1];
-    std::strcpy(out, s);
+static bool CStringWithinLimit(const char* value, std::size_t maxBytes) noexcept;
+
+namespace {
+echo::core::RequestControlRegistry requestControls;
+bool ValidRequestId(const std::string& id) {
+    return !id.empty() && id.size() <= 64 && std::all_of(id.begin(), id.end(), [](unsigned char c) {
+        return std::isalnum(c) || c == '-' || c == '_';
+    });
+}
+struct RequestRegistration {
+        std::string id;
+    std::shared_ptr<std::atomic_bool> flag = std::make_shared<std::atomic_bool>(false);
+    explicit RequestRegistration(const echo::core::HeaderMap& headers) {
+        const auto found = headers.find("x-echo-request-id");
+        if (found == headers.end() || !ValidRequestId(found->second)) return;
+        id = found->second;
+        flag = requestControls.Register(id);
+    }
+    ~RequestRegistration() {
+        if (id.empty()) return;
+        requestControls.Finish(id);
+    }
+};
+}
+
+int EchoCancelRequest(const char* request_id) {
+    try {
+        if (!request_id || !CStringWithinLimit(request_id, 64)) return -1;
+        const std::string id(request_id);
+        if (!ValidRequestId(id)) return -1;
+        return requestControls.Cancel(id);
+    } catch (...) { return -2; }
+}
+
+static const char* _dup_str(const char* s) noexcept {
+    if (!s) return nullptr;
+    const auto size = std::strlen(s);
+    if (size == std::numeric_limits<std::size_t>::max()) return nullptr;
+    char* out = new (std::nothrow) char[size + 1];
+    if (!out) return nullptr;
+    std::memcpy(out, s, size + 1);
     return out;
+}
+
+enum class AppDataDirState { Valid, Blank, TooLong };
+
+static AppDataDirState ValidateAppDataDir(const char* path) {
+    if (!path) return AppDataDirState::Valid;  // null explicitly selects the default path
+    bool hasNonWhitespace = false;
+    for (std::size_t i = 0; i <= ECHO_C_API_MAX_APP_DATA_DIR_BYTES; ++i) {
+        const auto byte = static_cast<unsigned char>(path[i]);
+        if (byte == '\0') {
+            return hasNonWhitespace ? AppDataDirState::Valid : AppDataDirState::Blank;
+        }
+        if (i == ECHO_C_API_MAX_APP_DATA_DIR_BYTES) return AppDataDirState::TooLong;
+        if (!std::isspace(byte)) hasNonWhitespace = true;
+    }
+    return AppDataDirState::TooLong;
+}
+
+static bool CStringWithinLimit(const char* value, std::size_t maxBytes) noexcept {
+    if (!value) return true;
+    for (std::size_t i = 0; i <= maxBytes; ++i) {
+        if (value[i] == '\0') return true;
+    }
+    return false;
+}
+
+static char* CopyCStringNoThrow(std::string_view value) noexcept {
+    if (value.size() == std::numeric_limits<std::size_t>::max()) return nullptr;
+    char* out = new (std::nothrow) char[value.size() + 1];
+    if (!out) return nullptr;
+    std::memcpy(out, value.data(), value.size());
+    out[value.size()] = '\0';
+    return out;
+}
+
+static void WriteFixedResponse(char** outResponse, std::string_view response) noexcept {
+    if (outResponse) *outResponse = CopyCStringNoThrow(response);
+}
+
+static void WriteInputTooLargeResponse(const char* field, char** outResponse) noexcept {
+    if (std::strcmp(field, "method") == 0) {
+        WriteFixedResponse(outResponse,
+            R"({"status":413,"headers":{"Content-Type":"application/json; charset=utf-8"},"body":{"error":"request_too_large","field":"method"}})");
+    } else if (std::strcmp(field, "path") == 0) {
+        WriteFixedResponse(outResponse,
+            R"({"status":413,"headers":{"Content-Type":"application/json; charset=utf-8"},"body":{"error":"request_too_large","field":"path"}})");
+    } else if (std::strcmp(field, "query_json") == 0) {
+        WriteFixedResponse(outResponse,
+            R"({"status":413,"headers":{"Content-Type":"application/json; charset=utf-8"},"body":{"error":"request_too_large","field":"query_json"}})");
+    } else if (std::strcmp(field, "headers_json") == 0) {
+        WriteFixedResponse(outResponse,
+            R"({"status":413,"headers":{"Content-Type":"application/json; charset=utf-8"},"body":{"error":"request_too_large","field":"headers_json"}})");
+    } else {
+        WriteFixedResponse(outResponse,
+            R"({"status":413,"headers":{"Content-Type":"application/json; charset=utf-8"},"body":{"error":"request_too_large","field":"body"}})");
+    }
 }
 
 // Map a request path to a RequestKind for per-kind deadlines.
 static echo::async::RequestKind KindForPath(const std::string& path) {
-    if (path.rfind("/song/url", 0) == 0) return echo::async::RequestKind::SongUrl;
-    if (path.rfind("/search", 0) == 0) return echo::async::RequestKind::Search;
-    if (path.rfind("/images/", 0) == 0) return echo::async::RequestKind::Image;
-    if (path.rfind("/login/qr/", 0) == 0) return echo::async::RequestKind::LoginPoll;
-    if (path.rfind("/playlist", 0) == 0 || path.rfind("/rank", 0) == 0 ||
-        path.rfind("/top/", 0) == 0 || path.rfind("/album", 0) == 0 ||
-        path.rfind("/artist", 0) == 0) return echo::async::RequestKind::Playlist;
-    return echo::async::RequestKind::Generic;
-}
-
-static long DeadlineMsForKind(echo::async::RequestKind kind) {
-    switch (kind) {
-        case echo::async::RequestKind::SongUrl:   return echo::core::kDeadlineSongUrlMs;
-        case echo::async::RequestKind::Image:     return echo::core::kDeadlineImageMs;
-        case echo::async::RequestKind::LoginPoll: return echo::core::kDeadlineLoginPollMs;
-        case echo::async::RequestKind::Search:    return echo::core::kDeadlineSearchMs;
-        case echo::async::RequestKind::Playlist:  return echo::core::kDeadlinePlaylistMs;
-        case echo::async::RequestKind::Generic:   return echo::core::kDeadlineGenericMs;
+    using echo::execution::ExecutionClass;
+    switch (echo::execution::PolicyForPath(path).executionClass) {
+      case ExecutionClass::SongUrl: return echo::async::RequestKind::SongUrl;
+      case ExecutionClass::Search: return echo::async::RequestKind::Search;
+      case ExecutionClass::Playlist: return echo::async::RequestKind::Playlist;
+      case ExecutionClass::LoginPoll: return echo::async::RequestKind::LoginPoll;
+      case ExecutionClass::Image: return echo::async::RequestKind::Image;
+      case ExecutionClass::LoginKey: return echo::async::RequestKind::LoginKey;
+      default: return echo::async::RequestKind::Generic;
     }
-    return echo::core::kDeadlineGenericMs;
 }
 
 // Initialize Ctx().db/Ctx().api if needed. PRECONDITION: caller holds Ctx().api_rwlock
@@ -84,7 +184,6 @@ static void EnsureInitializedLocked(const char* app_data_dir) {
         throw std::runtime_error("request scheduler restart failed");
     }
     if(!Ctx().db) {
-        Ctx().db = std::make_unique<echo::storage::Database>();
 #ifdef _WIN32
         std::filesystem::path dbPath = app_data_dir
             ? std::filesystem::path(reinterpret_cast<const char8_t*>(app_data_dir)) / "bottlemusic.db"
@@ -94,39 +193,77 @@ static void EnsureInitializedLocked(const char* app_data_dir) {
             ? std::filesystem::path(app_data_dir) / "bottlemusic.db"
             : echo::storage::GetDefaultDatabasePath();
 #endif
+        Ctx().writerLease = std::make_unique<echo::storage::ProfileWriterLease>(dbPath);
+        Ctx().db = std::make_unique<echo::storage::Database>();
         Ctx().db->Open(dbPath);
         Ctx().db->Initialize();
+        echo::storage::SessionRepository(*Ctx().db).BeginRuntimeEpoch();
         Ctx().api = std::make_shared<echo::core::CompatApi>(*Ctx().db);
         Ctx().stats = std::make_unique<echo::stats::PlayStatsService>(*Ctx().db);
     }
 }
 
 int EchoInitializeWithPathsV2(const char* app_data_dir) {
-    std::unique_lock<std::shared_mutex> lock(Ctx().api_rwlock);
-    Ctx().shutdown.store(false, std::memory_order_release);  // allow re-init after shutdown
-    Ctx().last_error.clear();
     try {
-        EnsureInitializedLocked(app_data_dir);
-        if (!Ctx().api || !Ctx().db || !Ctx().stats) {
-            throw std::runtime_error("backend context is incomplete");
+        std::unique_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+        Ctx().shutdown.store(false, std::memory_order_release);  // allow re-init after shutdown
+        Ctx().last_error.clear();
+        try {
+            switch (ValidateAppDataDir(app_data_dir)) {
+                case AppDataDirState::Blank:
+                    throw std::invalid_argument("app_data_dir must not be empty or whitespace");
+                case AppDataDirState::TooLong:
+                    throw std::length_error("app_data_dir exceeds the platform path limit");
+                case AppDataDirState::Valid:
+                    break;
+            }
+            // Stage 0: crash forensics. Must never block/fail initialization; dumps
+            // land under <app_data>/crash (or temp fallback) so Release faults carry
+            // a minidump + build hash + stack (audit G3). Keep path conversion inside
+            // the C ABI exception boundary: Windows rejects malformed UTF-8 here.
+            {
+                echo::diagnostics::CrashCaptureConfig crash_config;
+                if (app_data_dir) {
+                    crash_config.dump_directory =
+                        std::filesystem::path(reinterpret_cast<const char8_t*>(app_data_dir)) /
+                        "crash";
+                }
+                echo::diagnostics::InstallCrashCapture(crash_config);
+            }
+            EnsureInitializedLocked(app_data_dir);
+            if (!Ctx().api || !Ctx().db || !Ctx().stats) {
+                throw std::runtime_error("backend context is incomplete");
+            }
+            return 0;
+        } catch (const std::exception& e) {
+            // Never let C++ exceptions cross the extern "C" FFI boundary.
+            Ctx().last_error = std::string("initialize failed: ") + e.what();
+            Ctx().api.reset();
+            Ctx().stats.reset();
+            Ctx().db.reset();
+            Ctx().writerLease.reset();
+            Ctx().shutdown.store(true, std::memory_order_release);
+            Ctx().scheduler.Shutdown(std::chrono::milliseconds(3000));
+            return 1;
+        } catch (...) {
+            Ctx().last_error = "initialize failed: unknown error";
+            Ctx().api.reset();
+            Ctx().stats.reset();
+            Ctx().db.reset();
+            Ctx().writerLease.reset();
+            Ctx().shutdown.store(true, std::memory_order_release);
+            Ctx().scheduler.Shutdown(std::chrono::milliseconds(3000));
+            return 1;
         }
-        return 0;
-    } catch (const std::exception& e) {
-        // Never let C++ exceptions cross the extern "C" FFI boundary.
-        Ctx().last_error = std::string("initialize failed: ") + e.what();
-        Ctx().api.reset();
-        Ctx().stats.reset();
-        Ctx().db.reset();
-        Ctx().shutdown.store(true, std::memory_order_release);
-        Ctx().scheduler.Shutdown(std::chrono::milliseconds(3000));
-        return 1;
     } catch (...) {
-        Ctx().last_error = "initialize failed: unknown error";
-        Ctx().api.reset();
-        Ctx().stats.reset();
-        Ctx().db.reset();
-        Ctx().shutdown.store(true, std::memory_order_release);
-        Ctx().scheduler.Shutdown(std::chrono::milliseconds(3000));
+        // Even failures while acquiring the context lock must not unwind
+        // through extern "C". The state may be unavailable after a static
+        // initialization failure, so this fallback deliberately does not
+        // allocate or attempt further teardown.
+        try {
+            Ctx().shutdown.store(true, std::memory_order_release);
+        } catch (...) {
+        }
         return 1;
     }
 }
@@ -144,14 +281,23 @@ void EchoInitialize() {
 }
 
 char* EchoGetLastError() {
-    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
-    return const_cast<char*>(_dup_str(Ctx().last_error.c_str()));
+    try {
+        std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+        return const_cast<char*>(_dup_str(Ctx().last_error.c_str()));
+    } catch (...) {
+        return nullptr;
+    }
+}
+
+const char* EchoNativeBuildFingerprint() {
+    static const auto fingerprint = echo::diagnostics::CrashCaptureBuildHash();
+    return fingerprint.c_str();
 }
 
 // Returns zero only when the DLL is safe to unload. Non-zero means detached
 // workers or lock holders may still execute inside it.
 // See P0-B: drop(_lib) after abandoned workers → use-after-unload.
-int EchoShutdown() {
+static int EchoShutdownImpl() {
     // Phase 1: stop accepting new jobs and drain the scheduler with a hard
     // 3s deadline. This MUST happen before acquiring the exclusive lock,
     // because workers executing in-flight jobs try to acquire the shared
@@ -171,7 +317,7 @@ int EchoShutdown() {
     // under the live worker — a use-after-free. The process is exiting anyway,
     // so the safe choice is to leak: skip the teardown and the HTTP pool close
     // entirely and let the OS reclaim everything.
-    // Also tell the Rust loader not to FreeLibrary the DLL (P0-B).
+    // Also tell the desktop loader not to FreeLibrary the DLL (P0-B).
     if (abandoned > 0) {
         return static_cast<int>(abandoned);
     }
@@ -195,15 +341,32 @@ int EchoShutdown() {
         Ctx().api.reset();
         Ctx().stats.reset();
         Ctx().db.reset();
+        Ctx().writerLease.reset();
     }
     echo::core::CloseHttpConnectionPool();
     return 0;
 }
 
+int EchoShutdown() {
+    try {
+        return EchoShutdownImpl();
+    } catch (...) {
+        // The caller must retain the DLL when teardown cannot prove that all
+        // native work has stopped. Never unwind a C++ exception through C ABI.
+        try {
+            Ctx().shutdown.store(true, std::memory_order_release);
+        } catch (...) {
+        }
+        return 1;
+    }
+}
+
 // Serialize a CompatResponse to a heap-allocated JSON string. Used by
 // EchoHandleRequest's multiple early-exit paths. Out-of-line so the
 // caller doesn't have to wrap each path in its own try/catch.
-static void SerializeResponse(const echo::core::CompatResponse& r, char** out_response) {
+static void SerializeResponse(const echo::core::CompatResponse& r, char** out_response) noexcept {
+    if (!out_response) return;
+    *out_response = nullptr;
     try {
         nlohmann::json out = {
             {"status", r.httpStatus},
@@ -211,108 +374,168 @@ static void SerializeResponse(const echo::core::CompatResponse& r, char** out_re
             {"body", r.body}
         };
         auto outStr = out.dump();
-        *out_response = new char[outStr.size() + 1];
-        std::strcpy(*out_response, outStr.c_str());
-    } catch(std::exception&) {
-        *out_response = new char[64];
-        std::strcpy(*out_response, R"({"status":500,"error":"serialization failed"})");
-    } catch(...) {
-        *out_response = new char[64];
-        std::strcpy(*out_response, R"({"status":500,"error":"unknown"})");
+        if (outStr.size() > ECHO_C_API_MAX_RESPONSE_BYTES) {
+            WriteFixedResponse(out_response,
+                R"({"status":502,"headers":{"Content-Type":"application/json; charset=utf-8"},"body":{"error":"response_too_large"}})");
+            return;
+        }
+        *out_response = CopyCStringNoThrow(outStr);
+    } catch (...) {
+        WriteFixedResponse(out_response,
+            R"({"status":500,"headers":{"Content-Type":"application/json; charset=utf-8"},"body":{"error":"serialization_failed"}})");
     }
 }
 
 void EchoHandleRequest(const char* method, const char* path, const char* query_json, const char* headers_json, const char* body, char** out_response) {
     if(!out_response) return;
-
-    echo::core::QueryMap q;
-    echo::core::HeaderMap h;
-
-    if(query_json) {
-        try {
-            auto j = nlohmann::json::parse(query_json);
-            if(j.is_object()) {
-                for(auto& el : j.items()) {
-                    q[el.key()] = el.value().is_string() ? el.value().get<std::string>() : el.value().dump();
-                }
-            }
-        } catch(...) {}
-    }
-
-    if(headers_json) {
-        try {
-            auto j = nlohmann::json::parse(headers_json);
-            if(j.is_object()) {
-                for(auto& el : j.items()) {
-                    h[el.key()] = el.value().is_string() ? el.value().get<std::string>() : el.value().dump();
-                }
-            }
-        } catch(...) {}
-    }
-
-    echo::core::CompatResponse r;
-    std::string methodStr = method ? method : "GET";
-    std::string pathStr = path ? path : "/";
-    std::string bodyStr = body ? body : "";
-
-    auto kind = KindForPath(pathStr);
-    long deadlineMs = DeadlineMsForKind(kind);
-
-    // Acquire a strong reference to Ctx().api under the rwlock so the object
-    // stays alive for the entire scheduled call — even if EchoShutdown
-    // runs concurrently and resets the global Ctx().api pointer. The
-    // rwlock gates the pointer swap; the object's lifetime is now
-    // ref-counted via shared_ptr.
-    std::shared_ptr<echo::core::CompatApi> apiShared;
-    {
-        std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock, std::defer_lock);
-        auto lockDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-        while (std::chrono::steady_clock::now() < lockDeadline) {
-            if (lock.try_lock()) break;
-            std::this_thread::sleep_for(std::chrono::milliseconds(10));
-        }
-        if (!lock.owns_lock()) {
-            r.httpStatus = 503;
-            r.body = {{"error", "shutdown_in_progress"}};
-            SerializeResponse(r, out_response);
-            return;
-        }
-        if (!Ctx().api || Ctx().shutdown.load(std::memory_order_acquire)) {
-            r.httpStatus = 500;
-            r.body = {{"error", "C API is not initialized or was shut down"}};
-            SerializeResponse(r, out_response);
-            return;
-        }
-        apiShared = Ctx().api;
-    }  // release shared_lock
+    *out_response = nullptr;
 
     try {
-        // Route through the RequestScheduler with a per-kind deadline.
-        // The scheduler provides bounded concurrency (4 workers + queue cap)
-        // and the deadline ensures a hung WinHTTP call frees the future even
-        // if it can't be interrupted cooperatively. The captured apiShared
-        // keeps Ctx().api alive even if EchoShutdown runs while we wait.
-        auto fut = Ctx().scheduler.SubmitWithDeadline(
-            kind,
-            [apiShared, methodStr, pathStr, q, h, bodyStr](echo::async::CancellationToken token) -> echo::core::CompatResponse {
-                // P1-C: expose scheduler cancel to nested HttpClient calls.
-                echo::core::HttpClientCancellationScope cancelScope(token.Flag());
-                return apiShared->Handle(methodStr, pathStr, q, h, bodyStr);
-            },
-            deadlineMs);
-        r = fut.get();
-    } catch(const std::runtime_error& e) {
-        // Deadline or queue-full
-        r.httpStatus = 504;
-        r.body = {{"error", e.what()}};
-    } catch(std::exception& e) {
-        r.httpStatus = 500;
-        r.body = {{"error", e.what()}};
-    } catch(...) {
-        r.httpStatus = 500;
-        r.body = {{"error", "Unknown"}};
+        const char* oversizedField = nullptr;
+        if (!CStringWithinLimit(method, ECHO_C_API_MAX_METHOD_BYTES)) oversizedField = "method";
+        else if (!CStringWithinLimit(path, ECHO_C_API_MAX_PATH_BYTES)) oversizedField = "path";
+        else if (!CStringWithinLimit(query_json, ECHO_C_API_MAX_QUERY_JSON_BYTES)) oversizedField = "query_json";
+        else if (!CStringWithinLimit(headers_json, ECHO_C_API_MAX_HEADERS_JSON_BYTES)) oversizedField = "headers_json";
+        else if (!CStringWithinLimit(body, ECHO_C_API_MAX_BODY_BYTES)) oversizedField = "body";
+        if (oversizedField) {
+            WriteInputTooLargeResponse(oversizedField, out_response);
+            return;
+        }
+
+        echo::core::QueryMap q;
+        echo::core::HeaderMap h;
+
+        if(query_json) {
+            try {
+                auto j = nlohmann::json::parse(query_json);
+                if(j.is_object()) {
+                    for(auto& el : j.items()) {
+                        q[el.key()] = el.value().is_string() ? el.value().get<std::string>() : el.value().dump();
+                    }
+                }
+            } catch(...) {}
+        }
+
+        if(headers_json) {
+            try {
+                auto j = nlohmann::json::parse(headers_json);
+                if(j.is_object()) {
+                    for(auto& el : j.items()) {
+                        h[el.key()] = el.value().is_string() ? el.value().get<std::string>() : el.value().dump();
+                    }
+                }
+            } catch(...) {}
+        }
+
+        echo::core::CompatResponse r;
+        std::string methodStr = method ? method : "GET";
+        std::string pathStr = path ? path : "/";
+        std::string bodyStr = body ? body : "";
+
+        auto kind = KindForPath(pathStr);
+        long deadlineMs = echo::execution::PolicyForPath(pathStr).deadlineMs;
+        if (const auto budget = h.find("x-echo-budget-ms"); budget != h.end()) {
+            try {
+                std::size_t consumed = 0;
+                const long requested = std::stol(budget->second, &consumed);
+                if (consumed == budget->second.size() && requested > 0) {
+                    deadlineMs = std::min(deadlineMs, requested);
+                }
+            } catch (...) {} // malformed input cannot extend the native budget
+        }
+        const auto routeDeadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(deadlineMs);
+
+        // Acquire a strong reference to Ctx().api under the rwlock so the object
+        // stays alive for the entire scheduled call — even if EchoShutdown
+        // runs concurrently and resets the global Ctx().api pointer. The
+        // rwlock gates the pointer swap; the object's lifetime is now
+        // ref-counted via shared_ptr.
+        std::shared_ptr<echo::core::CompatApi> apiShared;
+        {
+            std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock, std::defer_lock);
+            auto lockDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+            while (std::chrono::steady_clock::now() < lockDeadline) {
+                if (lock.try_lock()) break;
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+            }
+            if (!lock.owns_lock()) {
+                r.httpStatus = 503;
+                r.body = {{"error", "shutdown_in_progress"}};
+                SerializeResponse(r, out_response);
+                return;
+            }
+            if (!Ctx().api || Ctx().shutdown.load(std::memory_order_acquire)) {
+                r.httpStatus = 500;
+                r.body = {{"error", "C API is not initialized or was shut down"}};
+                SerializeResponse(r, out_response);
+                return;
+            }
+            apiShared = Ctx().api;
+        }  // release shared_lock
+
+        try {
+            // Registration owns the cancel entry for the whole scheduled call, so
+            // it lives inside this try: an overload or duplicate id has to reach
+            // the caller as its own reason instead of the outer catch-all.
+            RequestRegistration registration(h);
+            echo::execution::OperationContext operation;
+            operation.deadline = routeDeadline;
+            operation.policyId = pathStr;
+            operation.executionClass = echo::execution::PolicyForPath(pathStr).executionClass;
+            operation.commitPolicy = echo::execution::PolicyForPath(pathStr).commitPolicy;
+            operation.callerCancelled = registration.flag;
+            if (!registration.id.empty()) requestControls.BindStop(registration.id, operation.stop);
+            // Route through the RequestScheduler with a per-kind deadline.
+            // The scheduler provides bounded concurrency (4 workers + queue cap)
+            // and the deadline ensures a hung WinHTTP call frees the future even
+            // if it can't be interrupted cooperatively. The captured apiShared
+            // keeps Ctx().api alive even if EchoShutdown runs while we wait.
+            // Pin the production response's move properties in production builds,
+            // including MSVC's move-assignment delivery path. The scheduler also
+            // preserves delivery exceptions for generic throwing return types.
+            static_assert(std::is_nothrow_move_constructible_v<echo::core::CompatResponse>,
+                          "SubmitWithDeadline production return type must be nothrow-move");
+            static_assert(std::is_nothrow_move_assignable_v<echo::core::CompatResponse>,
+                          "SubmitWithDeadline production return type must be nothrow-move-assignable");
+            deadlineMs = std::max(1L, static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                routeDeadline - std::chrono::steady_clock::now()).count()));
+            auto fut = Ctx().scheduler.SubmitWithDeadline(
+                kind,
+                [apiShared, methodStr, pathStr, q, h, bodyStr, routeDeadline, operation, callerFlag = registration.flag](echo::async::CancellationToken token) mutable -> echo::core::CompatResponse {
+                    operation.workerCancelled = token.SharedFlag();
+                    echo::execution::OperationScope operationScope(operation);
+                    // P1-C: expose scheduler cancel to nested HttpClient calls.
+                    const auto remaining = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+                        routeDeadline - std::chrono::steady_clock::now()).count());
+                    echo::core::HttpClientCancellationScope cancelScope(token.Flag(), std::max(1L, remaining), callerFlag.get());
+                    if (!echo::core::HttpRequestCanContinue()) {
+                        // Distinguish a spent route budget from a cancelled call:
+                        // the frontend retries the first and stays silent on the second.
+                        throw std::runtime_error(echo::core::HttpRouteDeadlineExpired()
+                            ? "total_budget_exhausted" : "cancelled");
+                    }
+                    return apiShared->Handle(methodStr, pathStr, q, h, bodyStr, operation);
+                },
+                deadlineMs);
+            r = fut.get();
+        } catch(const std::runtime_error& e) {
+            const auto reason = echo::core::NormalizeCApiRequestError(e.what());
+            const auto mapped = echo::core::MapCApiRequestError(reason);
+            r.httpStatus = mapped.httpStatus;
+            r.body = {{"error", reason}};
+            if (!mapped.errorCode.empty()) r.body["error_code"] = mapped.errorCode;
+        } catch(std::exception& e) {
+            r.httpStatus = 500;
+            r.body = {{"error", e.what()}};
+        } catch(...) {
+            r.httpStatus = 500;
+            r.body = {{"error", "Unknown"}};
+        }
+        SerializeResponse(r, out_response);
+    } catch (...) {
+        WriteFixedResponse(out_response,
+            R"({"status":500,"headers":{"Content-Type":"application/json; charset=utf-8"},"body":{"error":"native_request_failed"}})");
     }
-    SerializeResponse(r, out_response);
 }
 
 void EchoFreeString(char* str) {
@@ -320,6 +543,7 @@ void EchoFreeString(char* str) {
 }
 
 void EchoSetLogCallback(EchoLogCallback cb, void* user_data) {
+  try {
     // EchoLogCallback and echo::diagnostics::LogCallback are the same signature,
     // so assign directly. If either ever drifts this stops compiling (intended)
     // instead of silently becoming UB behind a reinterpret_cast.
@@ -344,90 +568,171 @@ void EchoSetLogCallback(EchoLogCallback cb, void* user_data) {
         std::abort();
     });
 
-#if defined(_MSC_VER) && defined(_DEBUG)
+#if defined(_MSC_VER)
     // CRT 错误报告（含 RTC 栈损坏 Run-Time Check Failure）默认弹模态对话框，
-    // 无人值守时表现为静默 exit(3)。挂钩后改落日志：消息含源文件与行号。
+    // 无人值守时表现为静默 exit(3)。挂钩后改落日志。Release 也必须挂钩：
+    // RTC#2（F20）不走 SEH/UnhandledExceptionFilter，CRT 报告是唯一观测点，
+    // 并在此生成取证报告（minidump 不适用于 fast-fail，写文本报告 + 栈）。
     _CrtSetReportHook2(_CRT_RPTHOOK_INSTALL,
         [](int reportType, char* message, int* returnValue) -> int {
             if (reportType == _CRT_ERROR || reportType == _CRT_ASSERT) {
-                ECHO_LOG("CRASH", std::string("crt report: ") + (message ? message : "<empty>"));
+                const std::string msg = message ? message : "<empty>";
+                ECHO_LOG("CRASH", std::string("crt report: ") + msg);
+                // RTC 栈损坏类故障不会进入 SEH 过滤器（__fastfail 直接终止），
+                // 这里是唯一能留下取证记录的时机。
+                echo::diagnostics::WriteCrashReportForTest(
+                    "crt-report: " + msg);
             }
             *returnValue = 0; // 继续默认流程（仍可能弹窗/终止）
             return 0;
         });
 #endif
+  } catch (...) {
+    // Logging is diagnostic-only. A callback/setup failure must not unwind
+    // across the C ABI boundary.
+  }
 }
 
 // ─── Stats C API ─────────────────────────────────────────────────────────────
 
-ECHO_C_API void EchoStatsRecordPlay(const char* json_record) {
-    if (!json_record) return;
-    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
-    if (!Ctx().stats) return;
+namespace {
+// B06: failure reads must not be indistinguishable from an empty database.
+// The degraded marker is additive — existing consumers keep parsing the same
+// fields, and diagnostics get a truthful signal.
+const char* DegradedStatsPayload(const char* shape) noexcept {
     try {
-        auto j = nlohmann::json::parse(json_record);
+        ECHO_LOG("Stats", std::string("stats read degraded: ") + shape);
+    } catch (...) {
+    }
+    return _dup_str(shape);
+}
+}  // namespace
+
+ECHO_C_API int EchoStatsRecordPlay(const char* json_record) {
+    using echo::stats::RecordStatus;
+    try {
+        if (!json_record) return kEchoStatsInvalidRecord;
+        if (!CStringWithinLimit(json_record, ECHO_C_API_MAX_STATS_JSON_BYTES)) {
+            return kEchoStatsBadJson;
+        }
+        std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+        if (!Ctx().stats) return kEchoStatsNotInitialized;
+        nlohmann::json j;
+        try {
+            j = nlohmann::json::parse(json_record);
+        } catch (...) {
+            return kEchoStatsBadJson;
+        }
         echo::stats::PlayRecord r;
-        r.songHash = j.value("song_hash", "");
-        r.songName = j.value("song_name", "");
-        r.singerName = j.value("singer_name", "");
-        r.albumId = j.value("album_id", "");
-        r.albumName = j.value("album_name", "");
-        r.coverUrl = j.value("cover_url", "");
-        r.durationSeconds = j.value("duration_seconds", 0.0);
-        r.completed = j.value("completed", false);
-        r.listenedSeconds = j.value("listened_seconds", 0.0);
-        r.quality = j.value("quality", "");
-        r.playedAtMs = j.value("played_at", 0LL);
-        Ctx().stats->RecordPlay(r);
-    } catch (...) {}
+        try {
+            // Malformed field types (a null from a non-finite float, a string
+            // where a number belongs) are a malformed payload, not a storage
+            // failure: surface them as kEchoStatsBadJson.
+            const auto getNumber = [&](const char* key) -> std::optional<double> {
+                if (!j.contains(key)) return 0.0;
+                const auto& v = j[key];
+                if (!v.is_number()) return std::nullopt;
+                return v.get<double>();
+            };
+            const auto duration = getNumber("duration_seconds");
+            const auto listened = getNumber("listened_seconds");
+            if (!duration || !listened) return kEchoStatsBadJson;
+            r.songHash = j.value("song_hash", "");
+            r.sessionId = j.value("session_id", "");
+            r.songName = j.value("song_name", "");
+            r.singerName = j.value("singer_name", "");
+            r.albumId = j.value("album_id", "");
+            r.albumName = j.value("album_name", "");
+            r.coverUrl = j.value("cover_url", "");
+            r.durationSeconds = *duration;
+            r.completed = j.value("completed", false);
+            r.listenedSeconds = *listened;
+            r.quality = j.value("quality", "");
+            r.playedAtMs = j.value("played_at", 0LL);
+        } catch (...) {
+            return kEchoStatsBadJson;
+        }
+        const auto status = Ctx().stats->RecordPlay(r);
+        switch (status) {
+            case RecordStatus::Recorded: return kEchoStatsRecorded;
+            case RecordStatus::BelowThreshold: return kEchoStatsRecordBelowThreshold;
+            case RecordStatus::Duplicate: return kEchoStatsDuplicate;
+            case RecordStatus::InvalidRecord:
+                ECHO_LOG("Stats", "record play rejected: invalid record fields");
+                return kEchoStatsInvalidRecord;
+            case RecordStatus::StorageError:
+                ECHO_LOG("Stats", "record play failed: storage error");
+                return kEchoStatsStorageError;
+        }
+        return kEchoStatsStorageError;
+    } catch (...) {
+        return kEchoStatsStorageError;
+    }
 }
 
 ECHO_C_API const char* EchoStatsGetSummary(const char* range) {
-    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     try {
-        if (!Ctx().stats) return _dup_str(R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all"})");
+        if (!CStringWithinLimit(range, ECHO_C_API_MAX_PATH_BYTES)) {
+            return DegradedStatsPayload(
+                R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all","degraded":true,"error":"stats_input_too_large"})");
+        }
+        std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+        if (!Ctx().stats) return DegradedStatsPayload(
+            R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all","degraded":true,"error":"stats_not_initialized"})");
         return _dup_str(Ctx().stats->GetSummary(range ? range : "all").c_str());
     } catch (...) {
-        return _dup_str(R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all"})");
+        return DegradedStatsPayload(
+            R"({"total_plays":0,"total_listened_seconds":0,"unique_songs":0,"unique_artists":0,"completion_rate":0,"range":"all","degraded":true,"error":"stats_read_failed"})");
     }
 }
 
 ECHO_C_API const char* EchoStatsGetTop(const char* dim, const char* range, int limit) {
-    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     try {
-        if (!Ctx().stats || !dim || !range) return _dup_str(R"({"items":[]})");
+        if (!CStringWithinLimit(dim, ECHO_C_API_MAX_METHOD_BYTES) ||
+            !CStringWithinLimit(range, ECHO_C_API_MAX_PATH_BYTES)) {
+            return DegradedStatsPayload(R"({"items":[],"degraded":true,"error":"stats_input_too_large"})");
+        }
+        std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+        if (!Ctx().stats || !dim || !range)
+            return DegradedStatsPayload(R"({"items":[],"degraded":true,"error":"stats_not_initialized"})");
         return _dup_str(Ctx().stats->GetTop(dim, range, limit).c_str());
     } catch (...) {
-        return _dup_str(R"({"items":[]})");
+        return DegradedStatsPayload(R"({"items":[],"degraded":true,"error":"stats_read_failed"})");
     }
 }
 
 ECHO_C_API const char* EchoStatsGetTimeline(const char* range) {
-    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     try {
-        if (!Ctx().stats || !range) return _dup_str(R"({"items":[]})");
+        if (!CStringWithinLimit(range, ECHO_C_API_MAX_PATH_BYTES)) {
+            return DegradedStatsPayload(R"({"items":[],"degraded":true,"error":"stats_input_too_large"})");
+        }
+        std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+        if (!Ctx().stats || !range)
+            return DegradedStatsPayload(R"({"items":[],"degraded":true,"error":"stats_not_initialized"})");
         return _dup_str(Ctx().stats->GetTimeline(range).c_str());
     } catch (...) {
-        return _dup_str(R"({"items":[]})");
+        return DegradedStatsPayload(R"({"items":[],"degraded":true,"error":"stats_read_failed"})");
     }
 }
 
 ECHO_C_API const char* EchoStatsGetRecent(int limit, int offset) {
-    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     try {
-        if (!Ctx().stats) return _dup_str(R"({"items":[]})");
+        std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+        if (!Ctx().stats)
+            return DegradedStatsPayload(R"({"items":[],"degraded":true,"error":"stats_not_initialized"})");
         return _dup_str(Ctx().stats->GetRecent(limit, offset).c_str());
     } catch (...) {
-        return _dup_str(R"({"items":[]})");
+        return DegradedStatsPayload(R"({"items":[],"degraded":true,"error":"stats_read_failed"})");
     }
 }
 
 ECHO_C_API const char* EchoStatsGetRecommendations(int limit) {
-    std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
     try {
-        if (!Ctx().stats) return _dup_str(R"({"items":[]})");
+        std::shared_lock<std::shared_mutex> lock(Ctx().api_rwlock);
+        if (!Ctx().stats)
+            return DegradedStatsPayload(R"({"items":[],"degraded":true,"error":"stats_not_initialized"})");
         return _dup_str(Ctx().stats->GetRecommendations(limit).c_str());
     } catch (...) {
-        return _dup_str(R"({"items":[]})");
+        return DegradedStatsPayload(R"({"items":[],"degraded":true,"error":"stats_read_failed"})");
     }
 }

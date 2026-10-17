@@ -1,5 +1,6 @@
 #include "echo/core/CompatApiUtils.h"
 #include "echo/core/CompatRequestContext.h"
+#include "echo/core/LoginService.h"
 #include "echo/core/PlayHistoryService.h"
 #include "echo/core/SafeStoll.h"
 #include "echo/storage/SessionRepository.h"
@@ -13,20 +14,109 @@
 
 namespace echo::core {
 
+namespace {
+
+class LazyVipRefreshFinishGuard {
+ public:
+  LazyVipRefreshFinishGuard(
+      storage::SessionRepository& repository,
+      const storage::LazyVipRefreshTicket& ticket) noexcept
+      : repository_(repository), ticket_(ticket) {}
+
+  ~LazyVipRefreshFinishGuard() noexcept {
+    (void)repository_.FinishLazyVipRefresh(
+        ticket_, storage::SessionRepository::CurrentUnixTimeMs());
+  }
+
+  LazyVipRefreshFinishGuard(const LazyVipRefreshFinishGuard&) = delete;
+  LazyVipRefreshFinishGuard& operator=(const LazyVipRefreshFinishGuard&) = delete;
+
+ private:
+  storage::SessionRepository& repository_;
+  const storage::LazyVipRefreshTicket& ticket_;
+};
+
+}  // namespace
+
 CompatResponse HandleUserDetail(
     storage::Database& database,
-    const std::function<nlohmann::json(std::string, std::string)>& handler) {
+    const std::function<nlohmann::json(std::string, std::string)>& handler,
+    const LoginHttpGet& sessionHttpGet,
+    const LoginHttpPost& sessionHttpPost,
+    const execution::OperationContext& operation) {
+  execution::OperationScope operationScope(operation);
   if (handler) {
     auto detail = handler("", "");
     return JsonResponse(std::move(detail));
   }
-  CompatRequestContext ctx(database);
+  CompatRequestContext ctx(database, operation);
   const auto& session = ctx.Session();
-  const std::string userId = ctx.UserIdOr("");
-  const std::string token = ctx.TokenOrEmpty();
+  std::string userId = ctx.UserIdOr("");
+  std::string token = ctx.TokenOrEmpty();
   if (session && !userId.empty()) {
     const auto& device = ctx.Device();
-    UserService userSvc;
+    // Either transport seam being injected means a host/test owns the network:
+    // a verb it did not supply must fail explicitly, never fall back to the
+    // default real transport.
+    const bool sessionInjected =
+        static_cast<bool>(sessionHttpGet) || static_cast<bool>(sessionHttpPost);
+    // 会话恢复（非扫码）路径：vip_token 不在库里时按 login_token.js 懒刷新，
+    // 让 v6/priv_url 拿得到会员音质。
+    if (session->vipToken.empty()) {
+      storage::SessionRepository sessionRepository(database);
+      const auto ticket = sessionRepository.TryClaimLazyVipRefresh(
+          ctx.SessionGeneration(),
+          storage::SessionRepository::CurrentUnixTimeMs(),
+          storage::SessionRepository::CurrentProcessEpoch());
+      if (ticket) {
+        // The claim is based on the current encrypted row, not this context's
+        // potentially older same-generation token snapshot. Use those current
+        // credentials both for RefreshSession and this request's detail call.
+        LazyVipRefreshFinishGuard finish(sessionRepository, *ticket);
+        userId = ticket->session.userId;
+        token = ticket->session.token;
+
+        LoginService loginSvc = sessionInjected
+            ? LoginService(sessionHttpGet, sessionHttpPost)
+            : LoginService();
+        const auto refreshed = loginSvc.RefreshSession(
+            device, ticket->session.userId, ticket->session.token,
+            ticket->session.t1);
+        if (refreshed) {
+          // B02: credential refresh is a late write after a network wait. It
+          // must commit only while the account generation this request loaded
+          // is still current — otherwise a logout / login B / re-login during
+          // the network wait would be overwritten with this request's stale
+          // credentials. This request may still use its own refreshed result.
+          const std::string refreshedToken = refreshed->token;
+          const std::string refreshedVipToken = refreshed->vipToken;
+          const int refreshedVipType = refreshed->vipType;
+          const std::string refreshedT1 = refreshed->t1;
+          ctx.ReplaceCredentials({refreshedToken, refreshedVipToken, refreshedT1.empty() ? ticket->session.t1 : refreshedT1, refreshedVipType});
+          token = refreshedToken;
+          if (!refreshedVipToken.empty()) {
+            ECHO_LOG("VipToken", "lazy-refreshed vip_token on /user/detail (len=" +
+                std::to_string(refreshedVipToken.size()) + ")");
+          }
+        }
+      }
+    }
+    // The lazy refresh above only runs with a POST verb (LoginService guards
+    // its own empty callback). /user/detail itself is POST-only as well, so
+    // when a seam is injected without a POST this route refuses explicitly
+    // instead of constructing the default real-network UserService(). The
+    // error_code is a marker only this branch can emit, so a test can prove no
+    // transport was built, let alone called. Production injects neither
+    // callback, so this is unreachable there and the default transport stands.
+    if (sessionInjected && !sessionHttpPost) {
+      return JsonResponse({{"status", 0},
+                           {"error", "No HTTP POST handler available"},
+                           {"error_code", "native_detail_no_post_transport"},
+                           {"data", nullptr}});
+    }
+    UserService userSvc = sessionInjected
+        ? UserService(sessionHttpGet, sessionHttpPost)
+        : UserService();
     nlohmann::json detail = userSvc.GetUserDetail(device, userId, token);
     if (detail.value("status", 0) == 1 && detail.contains("data") && detail["data"].is_object()) {
       auto data = detail["data"];
@@ -37,10 +127,11 @@ CompatResponse HandleUserDetail(
       }
       if ((!nickname.empty() && nickname != session->nickname) ||
           (!pic.empty() && pic != session->pic)) {
-        SessionInfo updatedSession = *session;
-        if (!nickname.empty()) updatedSession.nickname = nickname;
-        if (!pic.empty()) updatedSession.pic = pic;
-        ctx.SaveSession(updatedSession);
+        // B02: profile patch — only the profile fields, and only while the
+        // account generation is unchanged. A late response must never
+        // restore a snapshot that could resurrect old credentials or a
+        // different account.
+        ctx.PatchProfile({nickname, pic});
       }
       if (detail["data"].value("pic", "").empty() && !pic.empty()) {
         detail["data"]["pic"] = pic;
@@ -64,8 +155,12 @@ CompatResponse HandleUserDetail(
 
 CompatResponse HandleUserVipDetail(
     storage::Database& database,
-    const std::function<nlohmann::json(std::string, std::string)>& handler) {
-  CompatRequestContext ctx(database);
+    const std::function<nlohmann::json(std::string, std::string)>& handler,
+    const LoginHttpGet& sessionHttpGet,
+    const LoginHttpPost& sessionHttpPost,
+    const execution::OperationContext& operation) {
+  execution::OperationScope operationScope(operation);
+  CompatRequestContext ctx(database, operation);
   const auto& session = ctx.Session();
   const std::string userId = ctx.UserIdOr("");
   const std::string token = ctx.TokenOrEmpty();
@@ -83,7 +178,25 @@ CompatResponse HandleUserVipDetail(
   if (handler) {
     vip = handler(userId, token);
   } else {
-    UserService userSvc;
+    // Either transport seam being injected means a host/test owns the network:
+    // a verb it did not supply must fail explicitly, never fall back to the
+    // default real transport. GetUserVip is GET-only, so a GET-less injection
+    // is a configuration error and must not reach the real network.
+    const bool sessionInjected =
+        static_cast<bool>(sessionHttpGet) || static_cast<bool>(sessionHttpPost);
+    if (sessionInjected && !sessionHttpGet) {
+      return JsonResponse({{"status", 0},
+                           {"error", "No HTTP GET handler available"},
+                           {"error_code", "native_vip_no_get_transport"},
+                           {"data", nullptr}});
+    }
+    UserService userSvc = sessionInjected ? UserService(sessionHttpGet, sessionHttpPost)
+                                          : UserService();
+    // The entitlement query takes the service default, which is kProjectEdition
+    // — the family that minted this session. It used to spell Concept out
+    // because UserService's own default was Standard and this call site knew
+    // better than the API; that divergence is what made the day claim return
+    // 51002 while the query next to it succeeded. See ADR-0005 追记.
     vip = userSvc.GetUserVip(ctx.Device(), userId, token);
   }
 
@@ -103,10 +216,8 @@ CompatResponse HandleUserVipDetail(
     const auto pic = extractStr({"pic", "headphoto", "avatar", "headerurl", "userpic"});
     if ((!nickname.empty() && nickname != session->nickname) ||
         (!pic.empty() && pic != session->pic)) {
-      SessionInfo updated = *session;
-      if (!nickname.empty()) updated.nickname = nickname;
-      if (!pic.empty()) updated.pic = pic;
-      ctx.SaveSession(updated);
+      // B02: profile patch, conditional on the captured account generation.
+      ctx.PatchProfile({nickname, pic});
     }
   }
   return JsonResponse(std::move(normalized));
@@ -130,8 +241,12 @@ CompatResponse HandleUserPlaylist(
     const QueryMap& query,
     const std::function<nlohmann::json(
         const DeviceInfo&, std::string, std::string, int, int)>& handler,
-    const std::function<std::string(const DeviceInfo&, std::string, std::string, std::string*)>& registerHandler) {
-  CompatRequestContext ctx(database);
+    const std::function<std::string(const DeviceInfo&, std::string, std::string, std::string*)>& registerHandler,
+    const LoginHttpGet& sessionHttpGet,
+    const LoginHttpPost& sessionHttpPost,
+    const execution::OperationContext& operation) {
+  execution::OperationScope operationScope(operation);
+  CompatRequestContext ctx(database, operation);
   const auto& session = ctx.Session();
   const std::string userId = ctx.UserIdOr("");
   const std::string token = ctx.TokenOrEmpty();
@@ -141,31 +256,43 @@ CompatResponse HandleUserPlaylist(
 
   const auto fetchPlaylists = [&](const DeviceInfo& currentDevice) {
     if (handler) return handler(currentDevice, userId, token, page, pageSize);
-    PlaylistService playlist;
-    return playlist.GetUserPlaylists(currentDevice, userId, token, page, pageSize);
+    // Either transport seam being injected means a host/test owns the network:
+    // a verb it did not supply must fail explicitly, never fall back to the
+    // default real transport. GetUserPlaylists is POST-only, so a POST-less
+    // injection is a configuration error and must not reach the real network.
+    const bool sessionInjected =
+        static_cast<bool>(sessionHttpGet) || static_cast<bool>(sessionHttpPost);
+    if (sessionInjected && !sessionHttpPost) {
+      return nlohmann::json{{"status", 0},
+                            {"error", "No HTTP POST handler available"},
+                            {"error_code", "native_playlist_no_post_transport"},
+                            {"data", nullptr}};
+    }
+    PlaylistService playlist = sessionInjected ? PlaylistService(sessionHttpGet, sessionHttpPost)
+                                               : PlaylistService();
+    // 2026-09-15 签名族对照实验证实：当前会话下用户歌单查询应使用 Concept 配置
+    // （appid=3116 / clientver=11440 / Lite 盐）。Standard 配置导致可重复的 20017。
+    // 详见 docs/signature-family-experiment-2026-09-15.md
+    return playlist.GetUserPlaylists(currentDevice, userId, token, page, pageSize, KuGouEdition::Concept);
   };
   const auto registerDevice = [&](const DeviceInfo& currentDevice, std::string* error) {
     if (registerHandler) return registerHandler(currentDevice, userId, token, error);
     DeviceRegisterService registerSvc;
     return registerSvc.Register(currentDevice, userId, token, error);
   };
-  const auto persistDevice = [&](DeviceInfo& currentDevice, const std::string& newDfid) {
-    if (newDfid.empty()) return false;
-    currentDevice.dfid = newDfid;
-    currentDevice.registered = true;
-    ctx.SaveDevice(currentDevice);
-    return true;
-  };
-
   if (!device.registered && session && !userId.empty() && !token.empty()) {
     ECHO_LOG("UserPlaylist", std::string("registration_attempt=initial playlist_attempt=0 ") +
                                  DescribeDeviceIdentity(device));
     std::string regError;
-    const auto newDfid = registerDevice(device, &regError);
-    const bool dfidChanged = !newDfid.empty() && newDfid != device.dfid;
-    if (!persistDevice(device, newDfid)) {
+    const auto previousDfid = device.dfid;
+    const auto committed = ctx.RegisterDevice([&] { return registerDevice(device, &regError); });
+    if (committed == model::CommitResult::UpstreamFailure) {
       ECHO_LOG("UserPlaylist", std::string("initial registration failed: ") + regError);
+    } else if (committed != model::CommitResult::Applied) {
+      return JsonResponse({{"status", 0}, {"error", "stale_identity"}}, 409);
     } else {
+      device = ctx.Device();
+      const bool dfidChanged = previousDfid != device.dfid;
       ECHO_LOG("UserPlaylist", std::string("registration_result=success dfid_changed=") +
                                    (dfidChanged ? "Y " : "N ") + DescribeDeviceIdentity(device));
     }
@@ -173,30 +300,15 @@ CompatResponse HandleUserPlaylist(
 
   ECHO_LOG("UserPlaylist", std::string("playlist_attempt=1 ") + DescribeDeviceIdentity(device));
   auto result = fetchPlaylists(device);
-  if (IsKuGouErrorCode(result, 20017) && session && !userId.empty() && !token.empty()) {
-    ECHO_LOG("UserPlaylist", std::string("registration_attempt=refresh playlist_attempt=1 ") +
+  if (IsKuGouErrorCode(result, 20017)) {
+    // Incident 2026-09-02: this refresh-retry used to re-register and persist
+    // a synthetic dfid, destroying the user's trusted (web-captured) device
+    // identity within seconds of the first upstream rejection. A registered
+    // device is trusted: never auto-rotate it. Surface the upstream error;
+    // the user refreshes dfid/mid/uuid from Settings when the fingerprint
+    // expires upstream.
+    ECHO_LOG("UserPlaylist", std::string("upstream 20017 with registered device; no auto-rotation ") +
                                  DescribeDeviceIdentity(device));
-    std::string regError;
-    DeviceInfo retryDevice = device;
-    retryDevice.registered = false;
-    const auto newDfid = registerDevice(retryDevice, &regError);
-    const bool dfidChanged = !newDfid.empty() && newDfid != retryDevice.dfid;
-    if (!persistDevice(retryDevice, newDfid)) {
-      ECHO_LOG("UserPlaylist", std::string("refresh registration failed: ") + regError);
-      return JsonResponse({
-          {"status", 0},
-          {"error_code", "device_registration_failed"},
-          {"upstream_error_code", 20017},
-          {"error", regError.empty() ? "device registration failed" : regError},
-          {"error_msg", regError.empty() ? "device registration failed" : regError},
-          {"data", EmptyUserPlaylistData()},
-      });
-    }
-    device = retryDevice;
-    ECHO_LOG("UserPlaylist", std::string("registration_result=success dfid_changed=") +
-                                 (dfidChanged ? "Y " : "N ") + DescribeDeviceIdentity(device));
-    ECHO_LOG("UserPlaylist", std::string("playlist_attempt=2 ") + DescribeDeviceIdentity(device));
-    result = fetchPlaylists(device);
   }
 
   if (session && result.value("status", 0) == 1 && result.contains("data") &&
@@ -213,10 +325,9 @@ CompatResponse HandleUserPlaylist(
     }
     if ((!nick.empty() && nick != session->nickname) ||
         (!pic.empty() && pic != session->pic)) {
-      SessionInfo updated = *session;
-      if (!nick.empty()) updated.nickname = nick;
-      if (!pic.empty()) updated.pic = pic;
-      ctx.SaveSession(updated);
+      // B02: profile patch from the playlist payload, conditional on the
+      // captured account generation (same late-response race).
+      ctx.PatchProfile({nick, pic});
     }
   }
   return JsonResponse(result);
@@ -230,8 +341,14 @@ CompatResponse HandleUserHistory(
   const std::string userId = session ? session->userId : "";
   const std::string token = session ? session->token : "";
   const std::string bp = QueryValue(query, "bp");
+  // B07: the frontend's pagesize is now actually forwarded upstream (the
+  // route used to read only bp, so the upstream chose its own page size and
+  // pagesize=100 was silently ignored). Bound it defensively: 1..100.
+  int pagesize = QueryInt(query, "pagesize", 100);
+  if (pagesize < 1) pagesize = 100;
+  if (pagesize > 100) pagesize = 100;
   PlayHistoryService playSvc;
-  return JsonResponse(playSvc.GetUserHistory(userId, token, bp));
+  return JsonResponse(playSvc.GetUserHistory(userId, token, bp, pagesize));
 }
 
 CompatResponse HandleUserCloud(
@@ -265,6 +382,14 @@ CompatResponse HandlePlayHistoryUpload(
     return JsonResponse({{"status", 0}, {"error", "invalid mxid"}}, 400);
   }
   long long timeVal = SafeStoll(timeStr);  // 0 = use current time (safe default)
+  // B10: business-range validation at the boundary — the upstream must not
+  // receive corrupt timestamps or play counts from any caller.
+  if (timeVal < 0) {
+    return JsonResponse({{"status", 0}, {"error", "invalid time"}}, 400);
+  }
+  if (pc < 1 || pc > 1000) {
+    return JsonResponse({{"status", 0}, {"error", "invalid pc"}}, 400);
+  }
   return JsonResponse(playSvc.UploadSong(userId, token, mxidVal, timeVal, pc));
 }
 

@@ -39,20 +39,8 @@ class HomeService {
   // Returns a list of daily recommended songs.
   nlohmann::json GetEverydayRecommend(const std::string& userId = "",
                                       const std::string& token = "") const;
-
-  // Calls POST https://gateway.kugou.com/v2/personal_recommend
-  // (x-router: persnfm.service.kugou.com).
-  // Returns the continuous private-FM / "guess you like" feed.
-  nlohmann::json GetPersonalFm(const std::string& userId = "",
-                               const std::string& token = "",
-                               const std::string& hash = "",
-                               const std::string& songId = "",
-                               int playtime = 0,
-                               int remainSongCount = 0,
-                               bool isOverplay = false,
-                               const DeviceInfo& device = {},
-                               const std::string& action = "play",
-                               int songPoolId = 0) const;
+  nlohmann::json GetRecommendedAlbums(int page, int pageSize,
+                                      const DeviceInfo& device, const std::string& token = "") const;
 
   // Calls GET https://expendablekmr.kugou.com/v2/author_image/audio
   nlohmann::json GetImagesAudio(const std::string& hash,

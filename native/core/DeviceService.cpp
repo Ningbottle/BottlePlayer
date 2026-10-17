@@ -1,6 +1,7 @@
 #include "echo/core/DeviceService.h"
 #include "echo/core/Crypto.h"
 #include "echo/core/KuGouProfile.h"
+#include "echo/diagnostics/EchoDiagnostics.h"
 
 #include <algorithm>
 #include <array>
@@ -39,6 +40,8 @@ void NormalizeDeviceInfo(DeviceInfo& device) {
 
   if (device.appid != profile.appid) {
     device.registered = false;
+    ECHO_LOG("DeviceSvc", "normalize appid_mismatch stored=" + device.appid +
+        " expected=" + profile.appid + " -> registered=N");
   }
   device.appid = profile.appid;
   device.clientver = profile.clientver;
@@ -48,13 +51,7 @@ void NormalizeDeviceInfo(DeviceInfo& device) {
     return;
   }
 
-  if (device.mid.empty()) {
-    const std::string md5Dfid = CalculateMd5(device.dfid);
-    device.mid = md5Dfid + md5Dfid.substr(0, 7);
-  }
-  if (device.uuid.empty()) {
-    device.uuid = CalculateMd5(device.dfid + device.mid);
-  }
+  device = BackfillInMemoryIdentity(std::move(device));
 }
 
 DeviceInfo CreateDeviceInfo() {
@@ -77,34 +74,35 @@ DeviceInfo CreateDeviceInfo() {
 
 }  // namespace
 
+DeviceInfo BackfillInMemoryIdentity(DeviceInfo device) {
+  const bool placeholderDfid = device.dfid.empty() || device.dfid == "-";
+  if (placeholderDfid) return device;
+  if (device.mid.empty()) {
+    const std::string md5Dfid = CalculateMd5(device.dfid);
+    device.mid = md5Dfid + md5Dfid.substr(0, 7);
+  }
+  if (device.uuid.empty()) {
+    device.uuid = CalculateMd5(device.dfid + device.mid);
+  }
+  return device;
+}
+
 DeviceService::DeviceService(storage::DeviceRepository& devices) : devices_(devices) {}
 
 DeviceInfo DeviceService::EnsureDeviceReady() {
-  DeviceInfo device;
-  if (auto existing = devices_.Load(); existing) {
-    device = *existing;
-  } else {
-    device = CreateDeviceInfo();
-    devices_.Save(device);
-  }
+  return devices_.Ensure(PrepareDevice);
+}
 
-  // Normalize in-memory before returning to business code.
-  // Old records with random mid/uuid are overwritten here.
-  NormalizeDeviceInfo(device);
-
-  // Records created before guid persistence used uuid as the encrypted
-  // registration fingerprint, while ResolveAndroidMid fell back to an
-  // unrelated legacy mid. Backfill the same stable uuid as guid so both the
-  // fingerprint and Android mid share one identity bloodline. Persist the
-  // migration and require a fresh KuGou registration before protected APIs
-  // trust the old dfid again.
-  if (device.guid.empty() && !device.uuid.empty()) {
-    device.guid = device.uuid;
-    device.registered = false;
-    devices_.Save(device);
-  }
-
-  return device;
+DeviceInfo PrepareDevice(std::optional<DeviceInfo> existing) {
+    const bool usable = existing && (!existing->guid.empty() || !existing->uuid.empty() ||
+        (!existing->dfid.empty() && existing->dfid != "-"));
+    auto device = usable ? *existing : CreateDeviceInfo();
+    NormalizeDeviceInfo(device);
+    if (device.guid.empty() && !device.uuid.empty()) {
+      device.guid = device.uuid;
+      device.registered = false;
+    }
+    return device;
 }
 
 std::string ResolveAndroidMid(const DeviceInfo& device) {

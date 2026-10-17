@@ -135,9 +135,9 @@ std::string RedactSensitive(std::string_view text) {
   mask_url_queries(out);
   // token=...
   mask_param(out, "token", 0, 0);
-  // "token": "..."
-  {
-    const std::string key = "\"token\"";
+  // JSON string credentials such as "token": "..." and "vip_token": "...".
+  auto mask_json_string_value = [&](const std::string& field) {
+    const std::string key = "\"" + field + "\"";
     std::size_t pos = ci_find(out, key);
     while (pos != std::string::npos) {
       auto q1 = out.find('"', pos + key.size());
@@ -149,7 +149,10 @@ std::string RedactSensitive(std::string_view text) {
       pos = ci_find(out.substr(q1 + 3), key);
       if (pos != std::string::npos) pos += q1 + 3;
     }
-  }
+  };
+  mask_json_string_value("token");
+  mask_json_string_value("vip_token");
+  mask_json_string_value("viptoken");
   // Cookie=... and Cookie: ... / Authorization: Bearer ...
   mask_param(out, "Cookie", 0, 0);
   mask_header_line(out, "Cookie");
