@@ -1,6 +1,7 @@
 #include "echo/core/CompatApiUtils.h"
 #include "echo/core/CatalogService.h"
 #include "echo/core/HomeService.h"
+#include "echo/core/RadioService.h"
 #include "echo/core/LyricService.h"
 #include "echo/core/PrivilegeService.h"
 #include "echo/core/RankService.h"
@@ -12,6 +13,15 @@
 #include "echo/core/DeviceService.h"
 
 namespace echo::core {
+
+namespace {
+LyricService& SharedLyricService() {
+  // Public lyric identity only (no session/token), one bounded cache shared
+  // by search and download so a rejected accesskey can invalidate candidates.
+  static LyricService service;
+  return service;
+}
+}  // namespace
 
 // Search & Discovery
 
@@ -47,6 +57,11 @@ CompatResponse HandleSearch(
 
 CompatResponse HandleTopAlbumPlaylistRecommendRankTopTopIp(const std::string& path) {
   return JsonResponse({{"status", 1}, {"data", nlohmann::json::array()}});
+}
+CompatResponse HandleTopAlbum(storage::Database& database, const QueryMap& query) {
+  CompatRequestContext context(database);
+  return JsonResponse(HomeService().GetRecommendedAlbums(QueryInt(query, "page", 1),
+      QueryInt(query, "pagesize", 24), context.Device(), context.TokenOrEmpty()));
 }
 
 CompatResponse HandleRankList() {
@@ -90,18 +105,16 @@ CompatResponse HandleEverydayRecommend(
 
 CompatResponse HandlePersonalFm(storage::Database& database, const QueryMap& query) {
   CompatRequestContext ctx(database);
-  HomeService homeSvc;
-  return JsonResponse(homeSvc.GetPersonalFm(
-      ctx.UserIdOr(""),
-      ctx.TokenOrEmpty(),
-      QueryValue(query, "hash"),
-      QueryValue(query, "songid", QueryValue(query, "song_id", QueryValue(query, "album_audio_id"))),
-      QueryInt(query, "playtime", 0),
-      QueryInt(query, "remain_songcnt", QueryInt(query, "remainSongCount", 0)),
-      QueryInt(query, "is_overplay", 0) != 0,
-      ctx.Device(),
-      QueryValue(query, "action", "play"),
-      QueryInt(query, "song_pool_id", 0)));
+  const RadioContext context{
+      .userId = ctx.UserIdOr(""), .token = ctx.TokenOrEmpty(),
+      .hash = QueryValue(query, "hash"),
+      .songId = QueryValue(query, "songid", QueryValue(query, "song_id", QueryValue(query, "album_audio_id"))),
+      .playedSeconds = QueryInt(query, "playtime", 0),
+      .remainingSongs = QueryInt(query, "remain_songcnt", QueryInt(query, "remainSongCount", 0)),
+      .overplay = QueryInt(query, "is_overplay", 0) != 0, .device = ctx.Device(),
+      .action = QueryValue(query, "action", "play"), .songPoolId = QueryInt(query, "song_pool_id", 0),
+  };
+  return JsonResponse(RadioService().Recommend(context));
 }
 
 // Song & Lyric
@@ -120,8 +133,7 @@ CompatResponse HandleSearchLyric(
   if (handler) {
     return JsonResponse(handler(hash));
   }
-  LyricService lyric;
-  return JsonResponse(lyric.Search(hash));
+  return JsonResponse(SharedLyricService().Search(hash));
 }
 
 CompatResponse HandleLyric(
@@ -135,8 +147,7 @@ CompatResponse HandleLyric(
   if (handler) {
     return JsonResponse(handler(id, accessKey));
   }
-  LyricService lyric;
-  return JsonResponse(lyric.GetDetail(id, accessKey));
+  return JsonResponse(SharedLyricService().GetDetail(id, accessKey));
 }
 
 CompatResponse HandleSongClimax(const QueryMap& query) {

@@ -1,85 +1,54 @@
-name: CI
+name: Qt CI
 on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      package:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
 
 jobs:
-  test:
+  windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
-          submodules: recursive
-
-      - uses: pnpm/action-setup@v4
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
-          version: 11
-
-      - uses: actions/setup-node@v4
+          python-version: '3.12'
+      - name: Check repository boundaries and documentation
+        run: python tools/check-repository.py
+      - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4
         with:
-          node-version: 22
-          cache: pnpm
-          cache-dependency-path: ui/pnpm-lock.yaml
-
-      - uses: dtolnay/rust-toolchain@stable
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: ui/src-tauri
-
-      - uses: ilammy/msvc-dev-cmd@v1
-
-      - name: Setup vcpkg
-        uses: lukka/run-vcpkg@v11
+          version: '6.8.3'
+          arch: win64_msvc2022_64
+          modules: qtmultimedia qtshadertools qtsvg
+          cache: true
+      - uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
         with:
           vcpkgGitCommitId: a0400024711b283056538ac19ced80b91a83c24c
-
-      - name: Install vcpkg deps
-        run: |
-          & $env:VCPKG_ROOT/vcpkg.exe install --triplet=x64-windows --x-manifest-root=native --x-install-root=native/vcpkg_installed
-
-      - name: Build C++
-        run: |
-          cmake -S native --preset bottlemusic-check
-          cmake --build native/out/bottlemusic-check --config Debug
-
-      - name: Run CTest
-        run: ctest --preset bottlemusic-check
-        working-directory: native
-
-      - name: Install frontend deps
-        run: pnpm install --frozen-lockfile
-        working-directory: ui
-
-      - name: Run Vitest
-        run: pnpm test
-        working-directory: ui
-
-      - name: Typecheck
-        run: npx vue-tsc --noEmit
-        working-directory: ui
-
-      - name: Cargo test
-        run: |
-          $root = (Resolve-Path ../..).Path
-          $env:PATH = "$root\native\out\bottlemusic-check;$root\native\vcpkg_installed\x64-windows\bin;$env:PATH"
-          # --no-default-features: tray-icon / global-shortcut crash the lib test harness
-          # --tests (not --lib): also run the integration tests under tests/
-          # (playback_ffi_test, cross_layer_contract_test). --lib silently
-          # skipped them, which is how a broken tree stayed green.
-          cargo test --tests --no-default-features -- --test-threads=1
-        working-directory: ui/src-tauri
-
-      - name: Cargo check (default desktop features)
-        run: |
-          $root = (Resolve-Path ../..).Path
-          $env:PATH = "$root\native\out\bottlemusic-check;$root\native\vcpkg_installed\x64-windows\bin;$env:PATH"
-          # Ensure default features (tray-icon/global-shortcut) still compile in PR,
-          # even though they crash the lib test harness above. Release tests default features.
-          cargo check --lib
-        working-directory: ui/src-tauri
-
-      - name: Cargo clippy
-        run: cargo clippy --no-default-features -- -D warnings
-        working-directory: ui/src-tauri
+      - name: Install C++ dependencies
+        run: '& "$env:VCPKG_ROOT/vcpkg.exe" install --triplet=x64-windows --x-manifest-root=native --x-install-root=native/vcpkg_installed'
+      - name: Build native backend and Qt application
+        run: ./tools/build.ps1 -QtRoot $env:QT_ROOT_DIR
+      - name: Run native and Qt contracts (hardware audio verified separately)
+        run: ./tools/test.ps1 -QtRoot $env:QT_ROOT_DIR
+      - name: Package portable application
+        if: inputs.package == true
+        run: ./tools/package.ps1 -QtRoot $env:QT_ROOT_DIR
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: inputs.package == true
+        with:
+          name: BottleMusicQt-windows-x64
+          path: |
+            output/packages/*.zip
+            output/packages/*.sha256
+          if-no-files-found: error

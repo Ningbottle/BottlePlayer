@@ -36,6 +36,14 @@ struct ConceptUrlParams {
 // 这些字面量是项目中唯一允许出现 3116 / 1005 / 11440 / 20489 的地方。
 KuGouProfileParams GetKuGouProfile(KuGouEdition edition);
 
+// 日志/诊断用的人类可读 profile 名：按 appid/clientver/saltKind 反查预置表，
+// 返回 "standard" / "concept"；都匹配不上时返回 "custom"。
+// 禁止在日志里手写 profile 名——必须经此函数或 GetKuGouProfile 派生。
+std::string KuGouProfileName(const KuGouProfileParams& profile);
+
+// 日志/诊断用盐名："lite" / "standard"。
+const char* KuGouSaltKindName(KuGouSaltKind kind);
+
 // 返回概念版 URL 硬编码常量（后续可替换为 MakcRe dataMap 动态化）
 ConceptUrlParams GetConceptUrlParams();
 
@@ -47,5 +55,15 @@ inline constexpr const char* V5UrlClientver = "11430";
 
 // 项目全局基线。
 constexpr KuGouEdition kProjectEdition = KuGouEdition::Concept;
+
+// tvip（每日领取发放的那一档）能否解锁一首付费歌的完整播放。
+//
+// 默认 false，即"不确定时按不能播处理"。09-29 那次 tvip 有效时 /v5/url 返回
+// priv_status=0、fail_process=["pkg","buy"]，只能回退 60 秒试听；唯一的 v6 探测
+// 又在 7.3 秒时超时，因此"tvip 可完整播放"至今没有被一手证据证实。
+//
+// 这个常量只影响文案，不参与取链：一首歌到底播多长，永远只看该首歌自己的
+// delivery。改为 true 需要 A0 重测给出 v6 明文完整链接的实测记录。
+inline constexpr bool kTvipUnlocksPlayback = false;
 
 }  // namespace echo::core

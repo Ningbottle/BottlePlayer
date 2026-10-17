@@ -1,0 +1,33 @@
+# Stable source bytes on Windows, Linux and CI; deliberately changes native
+# source fingerprints for existing CRLF working copies. Rebuild before staging.
+* text=auto eol=lf
+
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.webp binary
+*.ico binary
+*.icns binary
+*.woff binary
+*.woff2 binary
+*.ttf binary
+*.otf binary
+*.mp3 binary
+*.flac binary
+*.ogg binary
+*.wav binary
+*.mp4 binary
+*.pdf binary
+*.zip binary
+*.7z binary
+*.dll binary
+*.exe binary
+*.pdb binary
+*.lib binary
+*.sqlite binary
+*.db binary
+
+# Preserve upstream formatting in vendored code and license texts.
+desktop/qt/third_party/** -whitespace
+desktop/qt/licenses/** -whitespace

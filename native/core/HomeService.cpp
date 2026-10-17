@@ -5,6 +5,7 @@
 #include "echo/core/KuGouProfile.h"
 #include "echo/core/SafeStoll.h"
 #include "echo/core/StringUtils.h"
+#include "echo/diagnostics/EchoDiagnostics.h"
 
 #include <ctime>
 #include <sstream>
@@ -50,6 +51,24 @@ HomeService::HomeService(HomeHttpPost httpPost)
 
 HomeService::HomeService(HomeHttpPost httpPost, HomeHttpGet httpGet)
     : httpPost_(std::move(httpPost)), httpGet_(std::move(httpGet)) {}
+
+nlohmann::json HomeService::GetRecommendedAlbums(int page, int pageSize,
+                                               const DeviceInfo& device, const std::string& token) const {
+  // Same endpoint and JSON body as server/module/top_album.js.
+  KuGouAndroidRequest req;
+  req.endpoint = "https://gateway.kugou.com/musicadservice/v1/mobile_newalbum_sp";
+  req.profile = GetKuGouProfile(KuGouEdition::Standard);
+  req.device = device;
+  req.body = nlohmann::json{{"apiver", 20}, {"token", token}, {"page", std::clamp(page, 1, 1000)},
+                          {"pagesize", std::clamp(pageSize, 1, 100)}, {"withpriv", 1}}.dump();
+  auto headers = BuildAndroidHeaders(req);
+  headers["Accept"] = "application/json"; headers["Content-Type"] = "application/json";
+  const auto response = httpPost_(BuildSignedUrl(req), req.body, headers);
+  if (!response.error.empty() || response.statusCode < 200 || response.statusCode >= 300)
+    return MakeError("Album recommendations unavailable", response.statusCode);
+  try { return nlohmann::json::parse(response.body); }
+  catch (const nlohmann::json::exception&) { return MakeError("Invalid album recommendation response", response.statusCode); }
+}
 
 nlohmann::json HomeService::GetBanners(
     const std::string& userId,
@@ -134,78 +153,53 @@ nlohmann::json HomeService::GetEverydayRecommend(
   if (!result.error.empty()) return MakeError(result.error, result.statusCode);
 
   try {
-    return nlohmann::json::parse(result.body);
-  } catch (const nlohmann::json::exception& e) {
-    return MakeError(std::string("JSON parse error: ") + e.what());
-  }
-}
-
-nlohmann::json HomeService::GetPersonalFm(
-    const std::string& userId,
-    const std::string& token,
-    const std::string& hash,
-    const std::string& songId,
-    int playtime,
-    int remainSongCount,
-    bool isOverplay,
-    const DeviceInfo& device,
-    const std::string& action,
-    int songPoolId) const {
-  const auto profile = GetKuGouProfile(KuGouEdition::Concept);
-  const auto nowMs = std::chrono::duration_cast<std::chrono::milliseconds>(
-      std::chrono::system_clock::now().time_since_epoch()).count();
-  const std::string clientTime = std::to_string(nowMs);
-  const std::string mid = ResolveAndroidMid(device);
-
-  nlohmann::json dataPayload = {
-      {"appid", profile.appid},
-      {"clienttime", nowMs},
-      {"mid", mid},
-      {"action", action.empty() ? "play" : action},
-      {"recommend_source_locked", 0},
-      {"song_pool_id", songPoolId},
-      {"callerid", 0},
-      {"m_type", 1},
-      {"platform", "ios"},
-      {"area_code", 1},
-      {"remain_songcnt", std::max(0, remainSongCount)},
-      {"clientver", profile.clientver},
-      {"is_overplay", isOverplay ? 1 : 0},
-      {"mode", "normal"},
-      {"fakem", "ca981cfc583a4c37f28d2d49000013c16a0a"},
-      {"key", SignParamsKey(clientTime, profile.appid, profile.clientver, profile.saltKind)},
-  };
-
-  if (!userId.empty() && userId != "0") {
-    dataPayload["userid"] = userId;
-    dataPayload["kguid"] = userId;
-  }
-  if (!token.empty()) dataPayload["token"] = token;
-  if (!hash.empty()) dataPayload["hash"] = hash;
-  if (!songId.empty()) dataPayload["songid"] = songId;
-  if (playtime > 0) dataPayload["playtime"] = playtime;
-
-  const std::string body = dataPayload.dump();
-
-  KuGouAndroidRequest req;
-  req.endpoint = "https://gateway.kugou.com/v2/personal_recommend";
-  req.profile = profile;
-  req.device = device;
-  req.body = body;
-  req.params["clienttime"] = clientTime;
-
-  const std::string url = BuildSignedUrl(req);
-  auto headers = BuildAndroidHeaders(req);
-  headers["Content-Type"] = "application/json";
-  headers["User-Agent"] = "Android15-1070-11083-46-0-DiscoveryDRADProtocol-wifi";
-  headers["x-router"] = "persnfm.service.kugou.com";
-
-  const auto result = httpPost_(url, body, headers);
-
-  if (!result.error.empty()) return MakeError(result.error, result.statusCode);
-
-  try {
-    return nlohmann::json::parse(result.body);
+    auto json = nlohmann::json::parse(result.body);
+    // Cover diagnostics (sanitized): count image-bearing items across the list
+    // shapes the UI consumes. Counts only — never logs URLs. Separates
+    // "upstream returned empty cover fields" from "WebView/CDN load failure".
+    std::size_t total = 0;
+    std::size_t withImage = 0;
+    const auto hasNonEmptyStr = [](const nlohmann::json& obj, const char* key) {
+      return obj.contains(key) && obj[key].is_string() &&
+             !obj[key].get<std::string>().empty();
+    };
+    const auto countArray = [&](const nlohmann::json& array) {
+      for (const auto& item : array) {
+        if (!item.is_object()) continue;
+        ++total;
+        bool has = hasNonEmptyStr(item, "imgurl") || hasNonEmptyStr(item, "img") ||
+                   hasNonEmptyStr(item, "cover") || hasNonEmptyStr(item, "pic") ||
+                   hasNonEmptyStr(item, "pic_url") ||
+                   hasNonEmptyStr(item, "sizable_cover") ||
+                   hasNonEmptyStr(item, "album_sizable_cover") ||
+                   hasNonEmptyStr(item, "album_cover");
+        if (!has && item.contains("trans_param") && item["trans_param"].is_object()) {
+          has = hasNonEmptyStr(item["trans_param"], "union_cover");
+        }
+        if (!has && item.contains("albuminfo") && item["albuminfo"].is_object()) {
+          has = hasNonEmptyStr(item["albuminfo"], "sizable_cover") ||
+                hasNonEmptyStr(item["albuminfo"], "imgurl");
+        }
+        if (has) ++withImage;
+      }
+    };
+    const auto countKey = [&](nlohmann::json& container, const char* key) {
+      if (container.is_object() && container.contains(key) && container[key].is_array()) {
+        countArray(container[key]);
+      }
+    };
+    if (json.is_object() && json.contains("data")) {
+      auto& data = json["data"];
+      for (const char* key : {"song_list", "info", "list"}) {
+        countKey(data, key);
+        if (data.is_object() && data.contains("data")) {
+          countKey(data["data"], key);
+        }
+      }
+    }
+    ECHO_LOG("HomeCover", "everyday_recommend image_fields present=" +
+        std::to_string(withImage) + "/" + std::to_string(total));
+    return json;
   } catch (const nlohmann::json::exception& e) {
     return MakeError(std::string("JSON parse error: ") + e.what());
   }

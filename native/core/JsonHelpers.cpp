@@ -1,5 +1,7 @@
 #include "echo/core/JsonHelpers.h"
 
+#include <cstdint>
+#include <limits>
 #include <unordered_set>
 
 namespace echo::core {
@@ -105,6 +107,43 @@ bool MatchContractJson(
   return true;
 }
 
+// Stored records are read with these instead of json::value(): value() throws
+// on a non-object or a wrong-typed field, which turned one damaged KV record
+// into a 500 on every route that loads it (including the clear/logout paths
+// that would repair it). Wrong types read as the field default.
+std::string StringField(const nlohmann::json& value, const char* key) {
+  if (!value.is_object()) return {};
+  const auto field = value.find(key);
+  if (field == value.end() || !field->is_string()) return {};
+  return field->get<std::string>();
+}
+
+bool BoolField(const nlohmann::json& value, const char* key) {
+  if (!value.is_object()) return false;
+  const auto field = value.find(key);
+  return field != value.end() && field->is_boolean() && field->get<bool>();
+}
+
+int IntField(const nlohmann::json& value, const char* key) {
+  if (!value.is_object()) return 0;
+  const auto field = value.find(key);
+  if (field == value.end()) return 0;
+  if (field->is_number_unsigned()) {
+    const auto number = field->get<std::uint64_t>();
+    return number <= static_cast<std::uint64_t>(std::numeric_limits<int>::max())
+               ? static_cast<int>(number)
+               : 0;
+  }
+  if (field->is_number_integer()) {
+    const auto number = field->get<std::int64_t>();
+    return number >= std::numeric_limits<int>::min() &&
+                   number <= std::numeric_limits<int>::max()
+               ? static_cast<int>(number)
+               : 0;
+  }
+  return 0;
+}
+
 }  // namespace
 
 nlohmann::json ToJson(const DeviceInfo& device) {
@@ -132,31 +171,33 @@ nlohmann::json ToJson(const SessionInfo& session) {
       {"nickname", session.nickname},
       {"pic", session.pic},
       {"vip_token", session.vipToken},
+      {"vip_type", session.vipType},
   };
 }
 
 DeviceInfo DeviceInfoFromJson(const nlohmann::json& value) {
   DeviceInfo device;
-  device.dfid = value.value("dfid", "");
-  device.mid = value.value("mid", "");
-  device.uuid = value.value("uuid", "");
-  device.guid = value.value("guid", "");
-  device.serverDev = value.value("serverDev", "");
-  device.mac = value.value("mac", "");
-  device.appid = value.value("appid", "");
-  device.clientver = value.value("clientver", "");
-  device.registered = value.value("registered", false);
+  device.dfid = StringField(value, "dfid");
+  device.mid = StringField(value, "mid");
+  device.uuid = StringField(value, "uuid");
+  device.guid = StringField(value, "guid");
+  device.serverDev = StringField(value, "serverDev");
+  device.mac = StringField(value, "mac");
+  device.appid = StringField(value, "appid");
+  device.clientver = StringField(value, "clientver");
+  device.registered = BoolField(value, "registered");
   return device;
 }
 
 SessionInfo SessionInfoFromJson(const nlohmann::json& value) {
   SessionInfo session;
-  session.token = value.value("token", "");
-  session.userId = value.value("userid", "");
-  session.t1 = value.value("t1", "");
-  session.nickname = value.value("nickname", "");
-  session.pic = value.value("pic", "");
-  session.vipToken = value.value("vip_token", "");
+  session.token = StringField(value, "token");
+  session.userId = StringField(value, "userid");
+  session.t1 = StringField(value, "t1");
+  session.nickname = StringField(value, "nickname");
+  session.pic = StringField(value, "pic");
+  session.vipToken = StringField(value, "vip_token");
+  session.vipType = IntField(value, "vip_type");
   return session;
 }
 

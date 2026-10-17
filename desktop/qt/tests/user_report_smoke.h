@@ -1,0 +1,51 @@
+// Real QML controls, isolated Native fixture; called from smoke.cpp.
+QLibrary userFixture(args[1]); userFixture.setLoadHints(QLibrary::PreventUnloadHint);
+if (!userFixture.load()) return 2;
+auto userConfigure = reinterpret_cast<void(*)(const char*)>(userFixture.resolve("EchoTestConfigure"));
+if (!userConfigure) return 2;
+userConfigure("{\"feed_count\":30}");
+music.setVolume(0); music.setReducedMotion(true); music.initialize();
+check("core_ready", waitFor([&]{return music.ready() && music.feed().size()==30 && !home.loading();},10000));
+QTest::qWait(500);
+auto* resize = qobject_cast<QQuickItem*>(find("sidebarResizeHandle"));
+check("sidebar_resize_control", resize && resize->isVisible());
+if (resize) {
+    const int before=appearance.sidebarWidth();
+    const QPoint start=resize->mapToScene(QPointF(resize->width()/2,80)).toPoint();
+    QTest::mousePress(window,Qt::LeftButton,Qt::NoModifier,start);
+    QTest::mouseMove(window,start+QPoint(48,0),100); QTest::mouseRelease(window,Qt::LeftButton,Qt::NoModifier,start+QPoint(48,0));
+    QTest::qWait(100); check("sidebar_drag_changes_width", appearance.sidebarWidth()>=before+40);
+    resize->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Home);check("sidebar_keyboard_min",appearance.sidebarWidth()==200);
+    QTest::keyClick(window,Qt::Key_End);check("sidebar_keyboard_max",appearance.sidebarWidth()==360);
+    AppearanceController saved(profile);check("sidebar_width_persisted",saved.sidebarWidth()==360);
+    appearance.setSidebarWidth(232);QTest::qWait(200);
+}
+check("independent_radio_entry_removed", !find("radioEntry"));
+auto* repeater=find("dailyRepeater");auto* scroller=find("homeScroller");auto* grid=find("dailyGrid");
+const int collapsedCount=repeater?repeater->property("count").toInt():0;
+const double collapsedHeight=grid?grid->property("height").toDouble():0;
+const auto reveal=[&](QObject* object){
+    auto* item=qobject_cast<QQuickItem*>(object);auto* view=qobject_cast<QQuickItem*>(scroller);
+    if(!item||!view)return;
+    const double y=item->mapToItem(view,QPointF(0,0)).y()+view->property("contentY").toDouble();
+    view->setProperty("contentY",std::max(0.0,y-100));QTest::qWait(200);
+};
+reveal(find("dailyExpand"));click(window,find("dailyExpand"));
+check("daily_expands_to_thirty",waitFor([&]{return repeater&&repeater->property("count").toInt()==30;},2000));
+reveal(find("dailyExpand"));click(window,find("dailyExpand"));
+check("daily_collapses_count",waitFor([&]{return repeater&&repeater->property("count").toInt()==collapsedCount&&collapsedCount<30;},2000));
+check("daily_collapses_height",grid&&std::abs(grid->property("height").toDouble()-collapsedHeight)<2);
+check("albums_are_independent",home.recommendedAlbums().size()==1&&home.recommendedAlbums()[0].toMap().value("name").toString()==QStringLiteral("独立专辑推荐"));
+auto* albumCard=findItem(window->contentItem(),QStringLiteral("homeCollection_推荐专辑_0"));
+check("album_card_exists",albumCard!=nullptr);reveal(albumCard);click(window,albumCard);
+check("album_click_opens_album_tracks",waitFor([&]{return library.album()&&library.complete()&&library.tracks().size()==2;},3000));
+check("album_does_not_replace_playback_with_daily",music.queue().isEmpty());
+const QRect original(window->position(),window->size());const auto originalVisibility=window->visibility();
+QMetaObject::invokeMethod(window,"enterImmersive",Q_ARG(QVariant,true));QTest::qWait(250);
+check("page_fullscreen_keeps_window_geometry",window->property("immersive").toBool()&&window->visibility()==originalVisibility&&QRect(window->position(),window->size())==original);
+window->requestActivate();QTest::qWait(150);QTest::keyClick(window,Qt::Key_Escape);QTest::qWait(150);
+check("page_fullscreen_exit_keeps_window_geometry",!window->property("immersive").toBool()&&QRect(window->position(),window->size())==original);
+check("qml_warnings_absent",warnings.isEmpty());
+report.insert("checks",checks);report.insert("warnings",QJsonArray::fromStringList(warnings));
+bool ok=true;for(const auto& row:checks)ok=ok&&row.toObject().value("ok").toBool();report.insert("ok",ok);
+screenshot("user-fixes");writeReport();music.finishSession();return ok?0:1;

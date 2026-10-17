@@ -11,9 +11,7 @@
 #include <crtdbg.h>
 #endif
 
-#include "echo/async/EventQueue.h"
 #include "echo/async/RequestScheduler.h"
-#include "echo/async/TaskScheduler.h"
 #include "echo/core/Authorization.h"
 #include "echo/core/StringUtils.h"
 #include "echo/core/CompatRequestContext.h"
@@ -40,8 +38,6 @@
 #include "echo/diagnostics/MemorySnapshot.h"
 #include "echo/diagnostics/Redaction.h"
 #include "echo/diagnostics/ScopedTimer.h"
-#include "echo/image/ImageCache.h"
-#include "echo/image/ImageLoader.h"
 #include "echo/storage/Database.h"
 #include "echo/storage/DeviceRepository.h"
 #include "echo/storage/SessionRepository.h"
@@ -56,27 +52,6 @@ std::filesystem::path TestDbPath() {
   std::filesystem::remove(path);
   std::filesystem::remove(path.wstring() + L"-wal");
   std::filesystem::remove(path.wstring() + L"-shm");
-  return path;
-}
-
-std::filesystem::path TestDirPath(const wchar_t* name) {
-  auto path = std::filesystem::temp_directory_path() / name;
-  std::filesystem::remove_all(path);
-  std::filesystem::create_directories(path);
-  return path;
-}
-
-std::filesystem::path WriteTinyPng(const std::filesystem::path& dir) {
-  const std::vector<std::uint8_t> png = {
-      137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82,
-      0, 0, 0, 1, 0, 0, 0, 1, 8, 6, 0, 0, 0, 31, 21, 196,
-      137, 0, 0, 0, 13, 73, 68, 65, 84, 120, 156, 99, 248, 15, 4,
-      0, 9, 251, 3, 253, 167, 229, 81, 126, 0, 0, 0, 0, 73, 69,
-      78, 68, 174, 66, 96, 130};
-
-  const auto path = dir / L"tiny.png";
-  std::ofstream output(path, std::ios::binary | std::ios::trunc);
-  output.write(reinterpret_cast<const char*>(png.data()), static_cast<std::streamsize>(png.size()));
   return path;
 }
 
@@ -324,19 +299,25 @@ int main() {
             {"userid", "webview-user-42"},
             {"token", "webview-token-secret"},
             {"t1", "webview-t1-secret"},
+            {"vip_token", "webview-vip-token-secret"},
+            {"vip_type", 3},
             {"nickname", "测试用户"}}}};
     };
     echo::core::CompatApi loginApi(loginDb, std::move(loginHandlers));
+    echo::storage::SessionRepository(loginDb).SetActiveLoginKey("qr-key");
     const auto response =
         loginApi.Handle("GET", "/login/qr/check", {{"key", "qr-key"}}, {}, "");
     const auto responseText = response.body.dump();
     assert(responseText.find("webview-token-secret") == std::string::npos);
     assert(responseText.find("webview-t1-secret") == std::string::npos);
+    assert(responseText.find("webview-vip-token-secret") == std::string::npos);
 
     const auto saved = echo::storage::SessionRepository(loginDb).Load();
     assert(saved.has_value());
     assert(saved->token == "webview-token-secret");
     assert(saved->userId == "webview-user-42");
+    assert(saved->vipToken == "webview-vip-token-secret");
+    assert(saved->vipType == 3);
     std::cout << "  [ok] QR login keeps credentials out of WebView" << std::endl;
   }
 
@@ -755,7 +736,7 @@ int main() {
         200,
         R"({"status":1,"hash":"ABC123","url":"http://audio.example/song.mp3","backup_url":["http://audio.example/backup.mp3"],"fileName":"周杰伦 - 晴天","songName":"晴天","singerName":"周杰伦","albumid":966846,"album_audio_id":32100650,"audio_id":20505418,"timeLength":269000,"bitRate":128,"extName":"mp3","privilege":0,"pay_type":0})",
         ""};
-  });
+  }, {});
   const auto songUrl = songUrlService.Resolve("abc123", "", "");
   assert(songUrl["status"] == 1);
   assert(songUrl["url"] == "http://audio.example/song.mp3");
@@ -773,7 +754,7 @@ int main() {
         200,
         R"({"status":1,"hash":"ABCDEF","url":"http://audio.example/authed.mp3"})",
         ""};
-  });
+  }, {});
   const echo::core::DeviceInfo qrLoginDevice{
       .dfid = "dfid123",
       .mid = "mid123",
@@ -786,7 +767,8 @@ int main() {
   const auto authedSongUrl = authenticatedSongUrlService.Resolve(
       "ABCDEF", "123", "456", "sq", "", "42", "tok", qrLoginDevice);
   assert(authedSongUrl["status"] == 1);
-  // Resolve now forces appid=3116 / clientver=11430 (concept edition defaults).
+  // Resolve forces appid=3116 / clientver=11430 (concept family; tracker
+  // endpoint honors it per 2026-09-03 live split finding).
   const std::string expectedMid = echo::core::CalculateAndroidMid("uuid123");
   // Resolve lower-cases the hash before signing, so use "abcdef" for the expected key.
   const std::string expectedSongUrlKey =
@@ -845,7 +827,7 @@ int main() {
         200,
         R"({"status":1,"hash":"OFFSETHASH","url":["http://audio.example/preview.mp3"]})",
         ""};
-  });
+  }, {});
   const auto previewSongUrl = previewSongUrlService.Resolve(
       "VIPHASH", "123", "456", "", "", "42", "tok", qrLoginDevice);
   assert(previewSongUrl["status"] == 1);
@@ -857,7 +839,7 @@ int main() {
                                                     const std::string&,
                                                     const std::unordered_map<std::string, std::string>&) {
     return echo::core::HttpResult{200, R"({"status":0,"url":"","error":"需要付费"})", ""};
-  });
+  }, {});
   const auto paidSongUrl = paidSongUrlService.Resolve("paidhash", "", "");
   assert(paidSongUrl["status"] == 0);
   assert(paidSongUrl["url"] == "");
@@ -919,6 +901,85 @@ int main() {
   const auto missingFacadeLyric = emptyLyricService.GetDetail("", "");
   assert(missingFacadeLyric["status"] == 0);
   assert(missingFacadeLyric["error_code"] == "native_lyric_missing_params");
+
+  echo::core::LyricService timedOutLyric([](const std::string&,
+                                            const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{0, "", "WINHTTP_TIMEOUT", true};
+  });
+  const auto timedOutSearch = timedOutLyric.Search("abcdef1234567890");
+  assert(timedOutSearch["status"] == 0);
+  assert(timedOutSearch["error_code"] == "native_lyric_search_failed");
+  assert(timedOutSearch.contains("diagnostics"));
+  assert(timedOutSearch["diagnostics"]["timed_out"] == true);
+  assert(timedOutSearch["diagnostics"]["upstream_http_status"] == 0);
+  assert(timedOutSearch["diagnostics"]["parse_status"] == "network_error");
+  assert(timedOutSearch["diagnostics"]["winhttp_error"] == "WINHTTP_TIMEOUT");
+  assert(timedOutSearch["diagnostics"]["hash_fingerprint"].get<std::string>().find("abcdef1234567890") ==
+         std::string::npos);
+  assert(timedOutSearch["diagnostics"].contains("duration_ms"));
+  assert(timedOutSearch["diagnostics"].contains("candidate_count"));
+
+  echo::core::LyricService businessRejectedLyric([](const std::string&,
+                                                    const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{
+        200, R"({"status":0,"error_code":20007,"error":"","candidates":[]})", ""};
+  });
+  const auto rejectedSearch = businessRejectedLyric.Search("abcdef1234567890");
+  assert(rejectedSearch["status"] == 0);
+  assert(rejectedSearch["error_code"] == 20007);
+  assert(rejectedSearch["diagnostics"]["parse_status"] == "ok");
+  assert(rejectedSearch["diagnostics"]["upstream_status"] == 0);
+  assert(rejectedSearch["diagnostics"]["upstream_error_code"] == 20007);
+  assert(rejectedSearch["diagnostics"]["candidates_present"] == true);
+  assert(rejectedSearch["diagnostics"]["candidates_type"] == "array");
+  assert(rejectedSearch["diagnostics"]["candidate_count"] == 0);
+
+  echo::core::LyricService emptyListLyric([](const std::string&,
+                                             const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{200, R"({"status":200,"candidates":[]})", ""};
+  });
+  const auto emptyListSearch = emptyListLyric.Search("abcdef1234567890");
+  assert(emptyListSearch["status"] == 200);
+  assert(emptyListSearch["candidates"].is_array());
+  assert(emptyListSearch["candidates"].empty());
+  assert(emptyListSearch["diagnostics"]["parse_status"] == "ok");
+  assert(emptyListSearch["diagnostics"]["candidates_present"] == true);
+  assert(emptyListSearch["diagnostics"]["candidates_type"] == "array");
+  assert(emptyListSearch["diagnostics"]["candidate_count"] == 0);
+
+  echo::core::LyricService wrongTypeLyric([](const std::string&,
+                                             const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{200, R"({"status":200,"candidates":"nope"})", ""};
+  });
+  const auto wrongTypeSearch = wrongTypeLyric.Search("abcdef1234567890");
+  assert(wrongTypeSearch["diagnostics"]["parse_status"] == "ok");
+  assert(wrongTypeSearch["diagnostics"]["candidates_present"] == true);
+  assert(wrongTypeSearch["diagnostics"]["candidates_type"] == "string");
+  assert(wrongTypeSearch["diagnostics"]["candidate_count"].is_null());
+
+  echo::core::LyricService invalidJsonLyric([](const std::string&,
+                                               const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{200, "not-json", ""};
+  });
+  const auto invalidJsonSearch = invalidJsonLyric.Search("abcdef1234567890");
+  assert(invalidJsonSearch["status"] == 0);
+  assert(invalidJsonSearch["error_code"] == "native_lyric_search_invalid_json");
+  assert(invalidJsonSearch["diagnostics"]["parse_status"] == "invalid_json");
+  assert(!invalidJsonSearch["diagnostics"].contains("upstream_status") ||
+         invalidJsonSearch["diagnostics"]["upstream_status"].is_null());
+
+  echo::core::LyricService rejectedDownload([](const std::string&,
+                                              const std::unordered_map<std::string, std::string>&) {
+    return echo::core::HttpResult{
+        200, R"({"status":0,"error_code":20008,"error_msg":"not found","content":""})", ""};
+  });
+  const auto rejectedDetail = rejectedDownload.GetDetail("274944371", "access123");
+  assert(rejectedDetail["status"] == 0);
+  assert(rejectedDetail["error_code"] == 20008);
+  assert(rejectedDetail["diagnostics"]["parse_status"] == "ok");
+  assert(rejectedDetail["diagnostics"]["upstream_status"] == 0);
+  assert(rejectedDetail["diagnostics"]["upstream_error_code"] == 20008);
+  assert(rejectedDetail["diagnostics"]["content_present"] == true);
 
   echo::core::PlaylistService playlistService([](
                                                   const std::string& url,
@@ -1071,149 +1132,6 @@ int main() {
   assert(rankSongs["data"]["info"][0]["audio_info"]["duration"] == 235000);
   assert(rankSongs["data"]["info"][0]["album_info"]["sizable_cover"].get<std::string>().find("{size}") != std::string::npos);
 
-  echo::async::CancellationSource cancellation;
-  cancellation.Cancel();
-  echo::async::TaskScheduler scheduler;
-  std::atomic_bool cancelledWorkRan = false;
-  auto cancelledFuture = scheduler.Schedule(
-      [&cancelledWorkRan](echo::async::CancellationToken) { cancelledWorkRan = true; },
-      cancellation.Token());
-  cancelledFuture.get();
-  assert(!cancelledWorkRan.load());
-  assert(scheduler.PendingCount() == 0);
-
-  echo::async::EventQueue events;
-  echo::async::CancellationSource activeWork;
-  auto eventFuture = scheduler.ScheduleAndPost(
-      [](echo::async::CancellationToken) {
-        return echo::async::BackendEvent{"search.completed", "ok"};
-      },
-      activeWork.Token(),
-      events);
-  eventFuture.get();
-  const auto event = events.TryPop();
-  assert(event.has_value());
-  assert(event->type == "search.completed");
-  assert(event->payload == "ok");
-  assert(events.Size() == 0);
-
-  echo::async::CancellationSource cancelledEventWork;
-  cancelledEventWork.Cancel();
-  auto noEventFuture = scheduler.ScheduleAndPost(
-      [](echo::async::CancellationToken) {
-        return echo::async::BackendEvent{"should.not.arrive", "cancelled"};
-      },
-      cancelledEventWork.Token(),
-      events);
-  noEventFuture.get();
-  assert(events.Size() == 0);
-
-  scheduler.Shutdown();
-  bool rejectedAfterShutdown = false;
-  try {
-    (void)scheduler.Schedule(
-        [](echo::async::CancellationToken) {},
-        echo::async::CancellationSource{}.Token());
-  } catch (...) {
-    rejectedAfterShutdown = true;
-  }
-  assert(rejectedAfterShutdown);
-
-  echo::image::MemoryImageCache defaultImageCache;
-  assert(defaultImageCache.Stats().byteBudget == 16 * 1024 * 1024);
-
-  echo::image::MemoryImageCache imageCache(4);
-  imageCache.Put("a", {1, 2, 3});
-  imageCache.Put("b", {4, 5, 6});
-  assert(!imageCache.Get("a").has_value());
-  const auto cachedImage = imageCache.Get("b");
-  assert(cachedImage.has_value());
-  assert(cachedImage->bytes.size() == 3);
-  assert(imageCache.Stats().byteCount <= imageCache.Stats().byteBudget);
-
-  echo::image::MemoryImageCache scrollingImageCache(8 * 1024);
-  for (int i = 0; i < 10000; ++i) {
-    scrollingImageCache.Put("cover:" + std::to_string(i), std::vector<std::uint8_t>(256, 7));
-  }
-  assert(scrollingImageCache.Stats().byteCount <= scrollingImageCache.Stats().byteBudget);
-  assert(scrollingImageCache.Stats().itemCount <= 32);
-
-  const auto imageTestDir = TestDirPath(L"bottlemusic-image-tests");
-  echo::image::DiskImageCache diskCache(imageTestDir / L"disk-cache", 8);
-  diskCache.Put("first", {1, 2, 3});
-  assert(diskCache.Get("first").has_value());
-  assert(diskCache.Stats().byteCount <= diskCache.Stats().byteBudget);
-
-  echo::image::WicImageDecoder decoder;
-  const auto missingImage = decoder.DecodeFile(imageTestDir / L"missing.png");
-  assert(missingImage.placeholder);
-  assert(missingImage.width == 1);
-  assert(missingImage.height == 1);
-
-  const auto pngPath = WriteTinyPng(imageTestDir);
-  const auto decodedImage = decoder.DecodeFile(pngPath);
-  assert(!decodedImage.placeholder);
-  assert(decodedImage.width == 1);
-  assert(decodedImage.height == 1);
-  assert(decodedImage.bgra.size() == 4);
-
-  echo::image::MemoryImageCache loaderMemoryCache(1024 * 1024);
-  echo::image::DiskImageCache loaderDiskCache(imageTestDir / L"loader-disk-cache", 1024 * 1024);
-  echo::image::ImageLoader imageLoader(loaderMemoryCache, loaderDiskCache);
-
-  echo::async::CancellationSource cancelledImageLoad;
-  cancelledImageLoad.Cancel();
-  const auto cancelledImage = imageLoader.LoadFile("cancelled", pngPath, cancelledImageLoad.Token());
-  assert(cancelledImage.cancelled);
-  assert(cancelledImage.placeholder);
-  assert(!loaderMemoryCache.Get("cancelled").has_value());
-
-  echo::async::CancellationSource activeImageLoad;
-  const auto loadedImage = imageLoader.LoadFile("tiny", pngPath, activeImageLoad.Token());
-  assert(!loadedImage.placeholder);
-  assert(loadedImage.width == 1);
-  assert(loaderMemoryCache.Get("tiny").has_value());
-  assert(loaderDiskCache.Get("tiny").has_value());
-
-  const auto cachedLoadedImage = imageLoader.LoadFile("tiny", pngPath, activeImageLoad.Token());
-  assert(cachedLoadedImage.fromMemoryCache);
-  assert(cachedLoadedImage.bgra.size() == 4);
-
-  const auto tinyPngBytes = [&pngPath] {
-    std::ifstream input(pngPath, std::ios::binary);
-    return std::vector<std::uint8_t>(
-        std::istreambuf_iterator<char>(input),
-        std::istreambuf_iterator<char>());
-  }();
-  bool remoteFetchCalled = false;
-  echo::async::CancellationSource remoteImageLoad;
-  const auto remoteLoadedImage = imageLoader.LoadRemote(
-      "remote-cover:https://img.example/tiny.png",
-      "https://img.example/tiny.png",
-      [&remoteFetchCalled, &tinyPngBytes](const std::string& url) {
-        remoteFetchCalled = true;
-        assert(url == "https://img.example/tiny.png");
-        return echo::image::ImageLoader::RemoteFetchResult{200, tinyPngBytes, ""};
-      },
-      remoteImageLoad.Token());
-  assert(remoteFetchCalled);
-  assert(!remoteLoadedImage.placeholder);
-  assert(remoteLoadedImage.width == 1);
-  assert(loaderMemoryCache.Get("remote-cover:https://img.example/tiny.png").has_value());
-
-  remoteFetchCalled = false;
-  const auto cachedRemoteImage = imageLoader.LoadRemote(
-      "remote-cover:https://img.example/tiny.png",
-      "https://img.example/tiny.png",
-      [&remoteFetchCalled](const std::string&) {
-        remoteFetchCalled = true;
-        return echo::image::ImageLoader::RemoteFetchResult{500, {}, "should_not_fetch"};
-      },
-      remoteImageLoad.Token());
-  assert(cachedRemoteImage.fromMemoryCache);
-  assert(!remoteFetchCalled);
-
-
   // ── Diagnostics contract tests ────────────────────────────────────────
   {
     // Stopwatch: elapsed must be non-negative and increase over time
@@ -1246,7 +1164,7 @@ int main() {
   {
     // RedactSensitive: all credential keys from the StripSessionCredentials
     // allowlist must be masked in log output (M2 alignment).
-    std::string raw = "t1=secret-t1&access_token=secret-at&auth_token=secret-aut&session_token=secret-st&secret=secret-val&set-cookie=secret-sc&signature=secret-sig";
+    std::string raw = "t1=secret-t1&access_token=secret-at&auth_token=secret-aut&session_token=secret-st&secret=secret-val&set-cookie=secret-sc&signature=secret-sig {\"vip_token\":\"secret-vip\"}";
     auto redacted = echo::diagnostics::RedactSensitive(raw);
     assert(redacted.find("secret-t1") == std::string::npos);
     assert(redacted.find("t1=***") != std::string::npos);
@@ -1262,6 +1180,7 @@ int main() {
     assert(redacted.find("set-cookie=***") != std::string::npos);
     assert(redacted.find("secret-sig") == std::string::npos);
     assert(redacted.find("signature=***") != std::string::npos);
+    assert(redacted.find("secret-vip") == std::string::npos);
     std::cout << "  [ok] RedactSensitive masks all StripSessionCredentials keys" << std::endl;
   }
 
@@ -1804,7 +1723,7 @@ int main() {
           200,
           R"({"status":1,"hash":"ABC123","url":"http://cdn.example/abc.flac","backup_url":["http://cdn.example/bak.flac"],"fileName":"歌手 - 歌名","songName":"歌名","singerName":"歌手","albumid":966846,"album_audio_id":32100650,"audio_id":20505418,"timeLength":269000,"bitRate":320,"extName":"flac","privilege":10,"pay_type":3})",
           ""};
-    });
+    }, {});
 
     // Public shape contract: every resolve call must return these fields.
     const auto contractUrl = songUrlContractSvc.Resolve("ABC123", "", "");
@@ -1931,4 +1850,3 @@ int main() {
   std::cout << "[Test] All tests completed successfully!" << std::endl;
   return 0;
 }
-

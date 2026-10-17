@@ -8,6 +8,7 @@
 #include <unordered_map>
 
 #include "echo/core/HomeService.h"
+#include "echo/core/RadioService.h"
 #include "echo/core/HttpClient.h"
 
 #if defined(_MSC_VER)
@@ -22,6 +23,20 @@ int main() {
 #endif
 
   // ── GetBanners request params snapshot ───────────────────────────────
+  {
+    echo::core::HomeService service([](const std::string& url, const std::string& body,
+        const std::unordered_map<std::string, std::string>& headers) -> echo::core::HttpResult {
+      assert(url.find("/musicadservice/v1/mobile_newalbum_sp") != std::string::npos);
+      assert(url.find("signature=") != std::string::npos);
+      const auto json = nlohmann::json::parse(body);
+      assert(json.at("apiver") == 20 && json.at("page") == 1 && json.at("pagesize") == 100);
+      assert(json.at("withpriv") == 1 && json.at("token") == "fixture-token");
+      assert(headers.at("Content-Type") == "application/json");
+      return {200, R"({"status":1,"data":{"albums":[{"album_id":17,"album_name":"Independent album"}]}})", ""};
+    });
+    const auto result = service.GetRecommendedAlbums(0, 999, {}, "fixture-token");
+    assert(result.at("data").at("albums").size() == 1);
+  }
   // CRITICAL: pins the CURRENT behavior where BaseParams hardcodes
   // appid=1014/clientver=20000.  P2-3d must consult this test before changing.
   std::cout << "[HomeContract] Testing GetBanners request params..." << std::endl;
@@ -134,7 +149,7 @@ int main() {
     std::string capturedUrl;
     std::string capturedBody;
     std::unordered_map<std::string, std::string> capturedHeaders;
-    echo::core::HomeService svc(
+    echo::core::RadioService svc(
         [&capturedUrl, &capturedBody, &capturedHeaders](
             const std::string& url,
             const std::string& body,
@@ -145,7 +160,7 @@ int main() {
           return {200, R"({"status":1,"data":{"song_list":[]}})" , ""};
         });
 
-    svc.GetPersonalFm("42", "tok", "HASH1", "12345", 61, 2, true);
+    svc.Recommend({.userId = "42", .token = "tok", .hash = "HASH1", .songId = "12345", .playedSeconds = 61, .remainingSongs = 2, .overplay = true});
     assert(!capturedUrl.empty());
     assert(capturedUrl.find("/v2/personal_recommend") != std::string::npos);
     assert(capturedUrl.find("appid=3116") != std::string::npos);
@@ -166,6 +181,26 @@ int main() {
     assert(capturedBody.find("\"key\"") != std::string::npos);
 
     std::cout << "  [ok] GetPersonalFm: /v2/personal_recommend, context body, x-router pinned" << std::endl;
+  }
+
+  // Radio validates the observed action and bounded play context before transport.
+  {
+    int calls = 0;
+    nlohmann::json body;
+    echo::core::RadioService radio([&](const auto&, const auto& data, const auto&) -> echo::core::HttpResult {
+      ++calls; body = nlohmann::json::parse(data);
+      return {200, R"({"status":1,"data":{"song_list":[]}})", ""};
+    });
+    radio.Recommend({.playedSeconds = 99, .remainingSongs = -5, .songPoolId = -1});
+    assert(calls == 1);
+    assert(!body.contains("userid") && !body.contains("token") && !body.contains("playtime"));
+    assert(body.at("remain_songcnt") == 0 && body.at("song_pool_id") == 0);
+    radio.Recommend({.hash = "HASH", .playedSeconds = 1000000, .remainingSongs = 999});
+    assert(body.at("playtime") == 86400 && body.at("remain_songcnt") == 100);
+    const auto invalid = radio.Recommend({.action = "invented-like-action"});
+    assert(invalid.at("status") == 0 && calls == 2);
+    echo::core::RadioService malformed([](const auto&, const auto&, const auto&) -> echo::core::HttpResult { return {200, "not json", ""}; });
+    assert(malformed.Recommend({}).at("error") == "invalid_radio_response");
   }
 
   std::cout << "[HomeContract] All tests passed!" << std::endl;

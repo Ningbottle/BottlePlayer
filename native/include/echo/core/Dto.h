@@ -5,34 +5,12 @@
 #include <string>
 #include <vector>
 
+#include "echo/model/Identity.h"
+
 namespace echo::core {
 
-struct DeviceInfo {
-  std::string dfid;
-  std::string mid;
-  std::string uuid;
-  std::string guid;
-  std::string serverDev;
-  std::string mac;
-  std::string appid;
-  std::string clientver;
-  // True once /risk/v2/r_register_dev returned a real, KuGou-issued dfid.
-  // Random local dfids get rejected by /v5/url with errcode 20018/20028,
-  // /user/playlist with 20017, and /user/vip/detail upstream fails. Once
-  // a registered dfid is set here, those endpoints accept the device.
-  bool registered = false;
-};
-
-struct SessionInfo {
-  std::string token;
-  std::string userId;
-  std::string t1;
-  std::string nickname;
-  std::string pic;
-  // 概念版 VIP 令牌：登录/刷新响应里的 vip_token。
-  // tracker v6/priv_url 的 tracker_param.viptoken 需要它来判断 VIP 试听 vs 完整流。
-  std::string vipToken;
-};
+using DeviceInfo = echo::model::DeviceInfo;
+using SessionInfo = echo::model::SessionInfo;
 
 struct AppSettings {
   double volume = 0.48;

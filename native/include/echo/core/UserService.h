@@ -9,6 +9,7 @@
 #include "echo/core/HttpClient.h"
 
 #include "echo/core/Dto.h"
+#include "echo/core/KuGouProfile.h"
 
 namespace echo::core {
 
@@ -38,36 +39,55 @@ class UserService {
 
   // Calls GET https://kugouvip.kugou.com/v1/get_union_vip.
   // Returns VIP status, type and expiry timestamps.
-  nlohmann::json GetUserVip(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
+  //
+  // `edition` swaps the WHOLE signature profile (appid+clientver+salt move
+  // together — never appid alone). The default is kProjectEdition so the query
+  // signs with the same family that minted the session; only the diagnostic
+  // A/B probe passes anything else. busi_type stays "concept" for both
+  // editions (get_union_vip only understands busi_type; youth_union_vip.js).
+  //
+  // The default used to be Standard while the route layer already injected
+  // Concept — that combination was a trap, because every caller that took the
+  // default silently signed with a family the session could not authenticate.
+  // See ADR-0005 追记「2026-09-29 签名族统一」.
+  nlohmann::json GetUserVip(const DeviceInfo& device, const std::string& userId, const std::string& token,
+                            KuGouEdition edition = kProjectEdition) const;
   nlohmann::json GetUserVip(const std::string& userId, const std::string& token) const;
 
   // Claims 1-day VIP automatically for the user.
   // Calls POST https://gateway.kugou.com/youth/v1/recharge/receive_vip_listen_song.
-  // DEPRECATED: upstream consistently returns 51002 (ad SDK credential required).
-  // Kept as archive point; callers should use ClaimYouthListenSong instead.
-  [[deprecated("kugou_vip_legacy_disabled: use ClaimYouthListenSong")]]
-  nlohmann::json ClaimVip(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
-  [[deprecated("kugou_vip_legacy_disabled: use ClaimYouthListenSong")]]
+  // History: upstream answered 51002 for this account on every attempt made
+  // with the Standard family. The family is not a candidate choice here — it
+  // follows the session (kProjectEdition), see ADR-0005 追记.
+  //
+  // `edition` exists for the diagnostic probe and the contract tests only. It
+  // swaps the whole signature profile; uuid/headers/device are not part of it.
+  nlohmann::json ClaimVip(const DeviceInfo& device, const std::string& userId, const std::string& token,
+                          KuGouEdition edition = kProjectEdition) const;
   nlohmann::json ClaimVip(const std::string& userId, const std::string& token) const;
 
   // Upgrade VIP reward — the "watch 5s ad then get listen-song VIP" endpoint.
   // Calls POST /youth/v1/listen_song/upgrade_vip_reward with ad_type=1.
-  // KuGou validates this against an ad-completion token from its official
-  // Android SDK; pure HTTP calls usually return error_code 131001/304xxx.
-  // DEPRECATED: same reason as ClaimVip.
-  [[deprecated("kugou_vip_legacy_disabled: use ClaimYouthListenSong")]]
-  nlohmann::json UpgradeVipReward(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
+  // Re-enabled 2026-09-02 together with ClaimVip; upstream may still validate
+  // this against an ad-completion token from the official Android SDK.
+  // `edition` follows the session; diagnostic and test use only.
+  nlohmann::json UpgradeVipReward(const DeviceInfo& device, const std::string& userId, const std::string& token,
+                                  KuGouEdition edition = kProjectEdition) const;
 
-  // ── 酷狗音乐概念版 VIP 领取（gateway.kugou.com POST + Android signature）──
+  // ── 概念版 VIP 领取（gateway.kugou.com POST + Android signature）──
 
   // POST https://gateway.kugou.com/youth/v2/report/listen_song
-  // 听歌领 VIP（每日一次）。需传入设备指纹生成 Android 签名，clientver 强指定为 10566。
-  nlohmann::json ClaimYouthListenSong(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
+  // 听歌领 VIP（每日一次）。需传入设备指纹生成 Android 签名。签名族跟随会话，
+  // 但 clientver 按该端点的上报协议单独覆写为 10566（对齐参考实现
+  // server/module/youth_listen_song.js：只改 clientver，appid 与盐不变）。
+  nlohmann::json ClaimYouthListenSong(const DeviceInfo& device, const std::string& userId, const std::string& token,
+                                      KuGouEdition edition = kProjectEdition) const;
   nlohmann::json ClaimYouthListenSong(const std::string& userId, const std::string& token) const;
 
   // POST https://gateway.kugou.com/youth/v1/ad/play_report
-  // 看广告领 VIP（需循环调用，每次间隔 30s，最多 8 次）。需传入设备指纹生成 Android 签名。
-  nlohmann::json ClaimYouthAdVip(const DeviceInfo& device, const std::string& userId, const std::string& token) const;
+  // 广告播放上报。签名族跟随会话；调用次数由用户点击驱动，不做自动循环。
+  nlohmann::json ClaimYouthAdVip(const DeviceInfo& device, const std::string& userId, const std::string& token,
+                                 KuGouEdition edition = kProjectEdition) const;
   nlohmann::json ClaimYouthAdVip(const std::string& userId, const std::string& token) const;
 
  private:
