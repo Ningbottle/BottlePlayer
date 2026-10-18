@@ -23,11 +23,10 @@ Row {
         tint: Theme.playFg; hoverTint: Theme.playFg
         media: music.playing ? "pause" : "play"
         enabled: !music.loading && (music.queueIndex >= 0 || music.feed.length > 0)
-        scale: hovered && enabled ? 1.06 : 1
-        Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+        scale: pressed ? Theme.pressScale : hovered && enabled ? 1.06 : 1
+        Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce } }
         Accessible.name: music.playing ? "暂停" : "播放"; onClicked: music.toggle()
-        layer.enabled: enabled && Theme.hasShadow(4)
-        layer.effect: ShadowEffect { level: 4 }
+        shadowLevel: 4
     }
     IconButton {
         objectName: "nextButton"; media: "next"; mediaBox: 34; mediaGlyph: 18; anchors.verticalCenter: parent.verticalCenter; tint: Theme.text

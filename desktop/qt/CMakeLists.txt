@@ -9,6 +9,7 @@ target_include_directories(bottle_qrcode PUBLIC third_party/qrcodegen)
 add_library(bottle_qt_core STATIC
     src/core/NativeGateway.cpp src/core/NativeGateway.h
     src/core/Diagnostics.cpp src/core/Diagnostics.h
+    src/core/DiagnosticWriter.cpp src/core/DiagnosticWriter.h
     src/music/Track.cpp src/music/Track.h
     src/music/MusicController.cpp src/music/MusicController.h
     src/account/AccountController.cpp src/account/AccountController.h src/account/QrImage.cpp src/account/QrImage.h
@@ -69,6 +70,7 @@ qt_add_qml_module(bottle_qt_ui URI BottleMusic VERSION 1.0
     qml/components/PlayerArtwork.qml qml/components/PlayerLayoutEditor.qml qml/components/PlayerCoverShelf.qml
     qml/components/AccountPanel.qml qml/components/ConfirmDialog.qml
     qml/components/TrackRows.qml
+    qml/components/ScrollFade.qml
     qml/components/QualityMenu.qml
     qml/components/AddToPlaylistDialog.qml
     qml/components/DeviceSettings.qml
@@ -111,6 +113,8 @@ add_custom_command(TARGET BottleMusicQt POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/LibreCaslonDisplay-LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/NotoSerifSC-LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/LXGWWenKaiLite-LICENSE"
+        "${CMAKE_CURRENT_SOURCE_DIR}/licenses/MiSans-LICENSE"
+        "${CMAKE_CURRENT_SOURCE_DIR}/licenses/MiSans-License-Agreement.pdf"
         "$<TARGET_FILE_DIR:BottleMusicQt>/licenses")
 set(ECHO_NATIVE_DIR "" CACHE PATH "Existing x64 EchoCAPI.dll and sqlite3.dll directory")
 if(ECHO_NATIVE_DIR)
@@ -163,7 +167,7 @@ if(BUILD_TESTING)
     set_tests_properties(qt_library_migration PROPERTIES ENVIRONMENT "BOTTLE_ACCOUNT_TEST_DLL=$<TARGET_FILE:bottle_native_fixture>")
     qt_add_executable(bottle_settings_migration_tests tests/tst_settings_migration.cpp)
     target_link_libraries(bottle_settings_migration_tests PRIVATE bottle_qt_core Qt6::Test)
-    add_test(NAME qt_settings_migration COMMAND bottle_settings_migration_tests)
+    add_test(NAME qt_settings_migration COMMAND bottle_settings_migration_tests -o "${CMAKE_CURRENT_BINARY_DIR}/Testing/qt_settings_migration.txt,txt")
     qt_add_executable(bottle_qt_tests tests/tst_contracts.cpp)
     target_link_libraries(bottle_qt_tests PRIVATE bottle_qt_core Qt6::Test)
     add_test(NAME qt_contracts COMMAND bottle_qt_tests)
@@ -183,6 +187,19 @@ if(BUILD_TESTING)
         target_compile_options(bottle_lyric_binding_tests PRIVATE /utf-8 /W4)
     endif()
     add_test(NAME qt_lyric_bindings COMMAND bottle_lyric_binding_tests -o "${CMAKE_CURRENT_BINARY_DIR}/Testing/qt_lyric_bindings.txt,txt")
+    qt_add_executable(bottle_render_binding_tests tests/tst_render_bindings.cpp)
+    target_link_libraries(bottle_render_binding_tests PRIVATE bottle_qt_uiplugin Qt6::QuickControls2 Qt6::Test)
+    if(MSVC)
+        target_compile_options(bottle_render_binding_tests PRIVATE /utf-8 /W4)
+    endif()
+    add_test(NAME qt_render_bindings COMMAND bottle_render_binding_tests -o "${CMAKE_CURRENT_BINARY_DIR}/Testing/qt_render_bindings.txt,txt")
+    qt_add_executable(bottle_diagnostics_tests tests/tst_diagnostics.cpp src/core/DiagnosticWriter.cpp)
+    target_include_directories(bottle_diagnostics_tests PRIVATE src)
+    target_link_libraries(bottle_diagnostics_tests PRIVATE Qt6::Core Qt6::Test)
+    if(MSVC)
+        target_compile_options(bottle_diagnostics_tests PRIVATE /utf-8 /W4)
+    endif()
+    add_test(NAME qt_diagnostics COMMAND bottle_diagnostics_tests -o "${CMAKE_CURRENT_BINARY_DIR}/Testing/qt_diagnostics.txt,txt")
     qt_add_executable(bottle_qt_smoke tests/smoke.cpp)
     target_link_libraries(bottle_qt_smoke PRIVATE bottle_qt_core bottle_qt_uiplugin Qt6::QuickControls2 Qt6::Test)
     qt_add_executable(bottle_resize_probe tests/resize_probe.cpp)

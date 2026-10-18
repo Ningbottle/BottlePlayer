@@ -17,10 +17,12 @@ if (resize) {
     QTest::qWait(100); check("sidebar_drag_changes_width", appearance.sidebarWidth()>=before+40);
     resize->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Home);check("sidebar_keyboard_min",appearance.sidebarWidth()==200);
     QTest::keyClick(window,Qt::Key_End);check("sidebar_keyboard_max",appearance.sidebarWidth()==360);
-    AppearanceController saved(profile);check("sidebar_width_persisted",saved.sidebarWidth()==360);
+    appearance.flushStorage(); AppearanceController saved(profile);check("sidebar_width_persisted",saved.sidebarWidth()==360);
     appearance.setSidebarWidth(232);QTest::qWait(200);
 }
 check("independent_radio_entry_removed", !find("radioEntry"));
+check("sidebar_player_entry_removed", !find("playerEntry"));
+check("sidebar_playlists_not_duplicated", !find("sidebarPlaylists") && find("libraryEntry"));
 auto* repeater=find("dailyRepeater");auto* scroller=find("homeScroller");auto* grid=find("dailyGrid");
 const int collapsedCount=repeater?repeater->property("count").toInt():0;
 const double collapsedHeight=grid?grid->property("height").toDouble():0;

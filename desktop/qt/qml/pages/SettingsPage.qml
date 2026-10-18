@@ -299,6 +299,7 @@ Flickable {
         id: aboutSection
         Column {
             SettingItem { label: "BottleMusic"; hint: "酷狗概念版非官方桌面播放器 · Qt Quick 预览版" }
+            SettingItem { label: "界面字体"; hint: "使用 MiSans 字体。版权归 Xiaomi Inc. 所有；完整协议随应用保存在 licenses 目录。" }
             SettingItem {
                 label: "Qt 更新"; stacked: true; hint: "仅使用本项目的 Qt x64 更新包，下载后检查 SHA-256。"
                 Row { spacing: 8; ActionButton { objectName: "checkUpdates"; text: updateState.busy ? "处理中…" : "检查更新"; enabled: !updateState.busy; onClicked: updateState.check() } ActionButton { visible: updateState.version.length > 0; text: "下载 v" + updateState.version; enabled: !updateState.busy; onClicked: updateState.download() } ActionButton { visible: updateState.downloaded; text: "打开更新包"; onClicked: updateState.openDownloaded() } ActionButton { visible: updateState.version.length > 0 && !updateState.busy; text: "跳过此版本"; quiet: true; onClicked: updateState.skip() } }

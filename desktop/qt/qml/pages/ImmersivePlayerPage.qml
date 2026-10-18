@@ -59,10 +59,19 @@ Item {
         objectName: "immersiveArtwork"
         x: root.artX; y: root.composition.artTop
         width: root.artSize; height: width
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            shadowEnabled: true; shadowColor: "#70000000"; shadowBlur: 0.75
-            blurMax: 32; shadowVerticalOffset: 14; autoPaddingEnabled: true
+        // Content-free silhouette carries the shadow: layering the artwork
+        // item would rasterize the cover (and the spinning vinyl label)
+        // into the shadow texture.
+        Rectangle {
+            anchors.fill: parent
+            radius: music.vinyl ? width / 2 : Math.min(24, width * 0.07)
+            color: "black"
+            layer.enabled: true
+            layer.effect: MultiEffect {
+                shadowEnabled: true; shadowColor: "#70000000"; shadowBlur: 0.75
+                blurMax: 32; shadowVerticalOffset: 14; autoPaddingEnabled: true
+            }
+            PixelSnap.fit: true
         }
         Cover {
             anchors.fill: parent; radius: Math.min(24, width * 0.07)

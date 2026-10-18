@@ -61,6 +61,9 @@ NativeGateway::~NativeGateway() {
     for (const auto& id : std::as_const(work_->pending)) cancel(id);
     work_->pool.waitForDone(); // Native deadlines bound requests; never unload DLL workers still execute.
     if (runtime_->ready && runtime_->shutdown) runtime_->shutdown();
+    // The gateway owns its profile lifetime; drain accepted log records before
+    // callers remove an isolated profile or finish application teardown.
+    flushDiagnostics();
 }
 void NativeGateway::initialize(Callback callback) {
     auto state = runtime_;

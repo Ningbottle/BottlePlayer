@@ -24,7 +24,7 @@ ApplicationWindow {
     flags: Qt.Window | Qt.FramelessWindowHint
     property string presentation: appearanceState.presentation
     property string route: "home"
-    onRouteChanged: homeState.setActive(route === "home")
+    onRouteChanged: { homeState.setActive(route === "home"); if (route !== "player") cancelCoverFlight() }
     property string settingsSection: "appearance"
     property bool listeningOpen: false
     property bool queueExpanded: false
@@ -32,6 +32,7 @@ ApplicationWindow {
     onListeningOpenChanged: if (!listeningOpen) queueExpanded = false
     readonly property bool bravaisHomeScene: curtainScene && route === "home" && !immersive
     property bool immersive: false
+    onImmersiveChanged: if (immersive) cancelCoverFlight()
     property int playbackWindowState: Window.Windowed
     property int immersiveWindowState: Window.Windowed
     property rect playbackWindowRect: Qt.rect(0, 0, 1280, 850)
@@ -39,8 +40,8 @@ ApplicationWindow {
     property rect pendingWindowRect: Qt.rect(0, 0, 1280, 850)
     property rect windowedRect: Qt.rect(0, 0, 1280, 850)
     property int pendingWindowState: Window.Windowed
-    onWidthChanged: rememberGeometry.restart()
-    onHeightChanged: rememberGeometry.restart()
+    onWidthChanged: { rememberGeometry.restart(); cancelCoverFlight() }
+    onHeightChanged: { rememberGeometry.restart(); cancelCoverFlight() }
     onXChanged: rememberGeometry.restart()
     onYChanged: rememberGeometry.restart()
     onVisibilityChanged: rememberGeometry.restart()
@@ -232,7 +233,6 @@ ApplicationWindow {
         onEnterCurtain: window.changeMode("curtain")
         onOpenSettings: section => window.openSettings(section)
         onLeaveSettings: window.leaveSettings()
-        onOpenPlaylist: id => window.openPlaylist(id)
     }
 
     Rectangle {
@@ -259,8 +259,18 @@ ApplicationWindow {
             hoverEnabled: true; cursorShape: Qt.SplitHCursor
             property real startX: 0
             property int startWidth: 232
-            onPressed: mouse => { parent.forceActiveFocus(); startX = mapToItem(window.contentItem, mouse.x, mouse.y).x; startWidth = appearanceState.sidebarWidth }
-            onPositionChanged: mouse => { if (pressed) appearanceState.sidebarWidth = Math.round(startWidth + mapToItem(window.contentItem, mouse.x, mouse.y).x - startX) }
+            property bool engaged: false
+            onPressed: mouse => { parent.forceActiveFocus(); startX = mapToItem(window.contentItem, mouse.x, mouse.y).x; startWidth = appearanceState.sidebarWidth; engaged = false }
+            onPositionChanged: mouse => {
+                if (!pressed) return
+                const dx = mapToItem(window.contentItem, mouse.x, mouse.y).x - startX
+                if (!engaged && Math.abs(dx) >= Theme.dragDeadzone) engaged = true
+                if (engaged) appearanceState.sidebarWidth = Math.round(startWidth + dx)
+            }
+            // Drop the focus ring after mouse use: it is an accent-coloured
+            // strip, so leaving activeFocus on would keep it emphasised until
+            // the next click elsewhere. Keyboard users re-arm it via Tab.
+            onReleased: { engaged = false; parent.focus = false }
             onDoubleClicked: appearanceState.sidebarWidth = 232
         }
     }
@@ -303,7 +313,31 @@ ApplicationWindow {
             // from 8px; Aurora .28s power2.out from 12px), out-in mode.
             opacity: 0
             transform: Translate { id: pageSlide }
-            onLoaded: pageIn.restart()
+            onLoaded: {
+                pageIn.restart()
+                if (!window.coverFlying) return
+                const flightOwner = window.flightGeneration
+                // Deferred so the player page's card layout has settled and
+                // coverSlotRect() reports the final slot, not a half-laid frame.
+                Qt.callLater(() => {
+                    if (flightOwner !== window.flightGeneration) return
+                    if (!window.coverFlying || !pages.item || pages.item.objectName !== "playerPage") { window.cancelCoverFlight(); return }
+                    const slot = pages.item.coverSlotRect()
+                    if (slot.width <= 0 || !pages.item.hasTrack) { window.cancelCoverFlight(); return }
+                    window.flightPage = pages.item
+                    const t = pages.item.mapToItem(window.contentItem, slot.x, slot.y)
+                    // pageIn's temporary translation is not the settled slot.
+                    flightCover.target = Qt.rect(t.x - pageSlide.x, t.y - pageSlide.y, slot.width, slot.height)
+                    flightCover.x = window.coverFrom.x; flightCover.y = window.coverFrom.y
+                    flightCover.width = window.coverFrom.width; flightCover.height = window.coverFrom.height
+                    // Preselect the destination's image bucket, so animation
+                    // geometry never reloads its source at a bucket boundary.
+                    flightCover.pixels = Math.max(512, Math.ceil(Math.max(slot.width, slot.height) * Theme.dpr))
+                    flightCover.radius = Theme.rMd
+                    flightCover.pending = true; flightTimeout.restart()
+                    window.startCoverFlight()
+                })
+            }
         }
         ParallelAnimation {
             id: pageIn
@@ -373,6 +407,7 @@ ApplicationWindow {
     }
 
     PlayerBar {
+        id: playerBar
         visible: window.playbackBarVisible
         onAddToPlaylist: track => window.addToPlaylist(track)
         opacity: window.launched ? 1 : 0
@@ -380,7 +415,7 @@ ApplicationWindow {
         y: parent.height - height; width: parent.width
         queueOpen: window.listeningOpen
         lyricView: window.route === "player"
-        onOpenPlayer: window.navigate("player")
+        onOpenPlayer: window.flyCoverToPlayer()
         onOpenImmersive: window.enterImmersive(true)
         // usePlayerControls.toggleLyricView: the lyric page or back home.
         onToggleLyrics: window.route === "player" ? window.go("home") : window.navigate("player")
@@ -449,6 +484,83 @@ ApplicationWindow {
         width: window.immersive ? window.width : main.width
         height: window.immersive ? window.height - 124 : main.height-(window.bravaisHomeScene?Theme.wallBarH:0); z: 20
         sourceComponent: window.queueExpanded || (window.browseChrome && !window.immersive) ? queuePanel : listeningPanel
+    }
+    // Shared-element cover flight (open-claude-ui): the player bar artwork
+    // grows into the player page's cover slot while the destination stays
+    // hidden, then hands over in one frame.
+    property rect coverFrom: Qt.rect(0, 0, 0, 0)
+    property bool coverFlying: false
+    property int flightGeneration: 0
+    property Item flightPage: null
+    property string flightTrack: ""
+    property string flightImage: ""
+    function cancelCoverFlight() {
+        if (!coverFlying) return
+        ++flightGeneration
+        coverFlying = false
+        flightCover.pending = false; flightTimeout.stop(); coverFlight.stop()
+        flightCover.visible = false
+        if (flightPage) flightPage.hideCover = false
+        flightPage = null
+    }
+    function validateCoverFlight() {
+        if (coverFlying && (route !== "player" || immersive || music.reducedMotion || music.vinyl
+                           || String(music.current.hash || "") !== flightTrack || String(music.current.image || "") !== flightImage))
+            cancelCoverFlight()
+    }
+    function startCoverFlight() {
+        validateCoverFlight()
+        if (!coverFlying || !flightPage || !flightCover.ready || !flightPage.coverReady) return
+        flightCover.pending = false; flightTimeout.stop()
+        flightPage.hideCover = true; flightCover.visible = true; coverFlight.restart()
+    }
+    Connections {
+        target: music
+        function onPlaybackChanged() { window.validateCoverFlight() }
+        function onQueueChanged() { window.validateCoverFlight() }
+        function onAppearanceChanged() { window.validateCoverFlight() }
+    }
+    Connections { target: appearanceState; function onSidebarWidthChanged() { window.cancelCoverFlight() } }
+    Connections { target: playerLayoutState; function onCardsChanged() { window.cancelCoverFlight() } }
+    Connections { target: Theme; function onDprChanged() { window.cancelCoverFlight() } }
+    Connections {
+        target: window.flightPage
+        function onCoverReadyChanged() {
+            if (coverFlight.running && !window.flightPage.coverReady) window.cancelCoverFlight()
+            else if (flightCover.pending) window.startCoverFlight()
+        }
+    }
+    function flyCoverToPlayer() {
+        if (window.route === "player") return
+        window.cancelCoverFlight()
+        if (music.reducedMotion || music.vinyl || !music.current.image || !playerBar.visible) { navigate("player"); return }
+        const p = playerBar.coverItem.mapToItem(window.contentItem, 0, 0)
+        window.coverFrom = Qt.rect(p.x, p.y, playerBar.coverItem.width, playerBar.coverItem.height)
+        window.flightTrack = String(music.current.hash || ""); window.flightImage = String(music.current.image || "")
+        ++window.flightGeneration
+        window.coverFlying = true
+        window.navigate("player")
+    }
+    Cover {
+        id: flightCover; objectName: "coverFlight"; z: 25
+        visible: false
+        url: window.flightImage; pixels: 512; radius: Theme.rMd
+        property rect target: Qt.rect(0, 0, 0, 0)
+        property bool pending: false
+        onReadyChanged: if (ready && pending) window.startCoverFlight()
+    }
+    ParallelAnimation {
+        id: coverFlight
+        NumberAnimation { target: flightCover; property: "x"; to: flightCover.target.x; duration: Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
+        NumberAnimation { target: flightCover; property: "y"; to: flightCover.target.y; duration: Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
+        NumberAnimation { target: flightCover; property: "width"; to: flightCover.target.width; duration: Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
+        NumberAnimation { target: flightCover; property: "height"; to: flightCover.target.height; duration: Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
+        NumberAnimation { target: flightCover; property: "radius"; to: Theme.rCard; duration: Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
+        onStopped: window.cancelCoverFlight()
+    }
+    Timer {
+        id: flightTimeout; interval: 400
+        onTriggered: window.cancelCoverFlight()
     }
     Component {
         id: queuePanel

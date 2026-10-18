@@ -23,12 +23,13 @@ Item {
         CssText { visible: historyState.error.length > 0; width: parent.width; text: historyState.error; wrapMode: Text.Wrap; color: Theme.warning; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
     }
     TrackRows {
-        objectName: "historyTracks"; x: root.inset; y: head.y + head.height + 20
+        id: historyTracks; objectName: "historyTracks"; x: root.inset; y: head.y + head.height + 20
         width: parent.width - x * 2; height: Math.max(0, parent.height - y - 24)
         tracks: historyState.tracks; showDate: true
         onPlay: index => historyState.play(index)
         onAddToPlaylist: track => root.addToPlaylist(track)
     }
+    ScrollFade { x: root.inset; y: head.y + head.height + 20; width: parent.width - x * 2; height: Math.max(0, parent.height - y - 24); flickable: historyTracks }
     Text {
         visible: historyState.tracks.length === 0 && !historyState.loading
         anchors.centerIn: parent; text: "播放一首歌，从这里开始记录。"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsMd

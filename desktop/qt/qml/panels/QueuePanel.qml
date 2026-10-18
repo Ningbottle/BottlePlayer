@@ -21,6 +21,13 @@ Item {
     MouseArea { anchors.fill: parent; onClicked: root.close() }
     Plate {
         id: panel; objectName: "queuePanelCard"; anchors.right: parent.right; anchors.rightMargin: 12; y: 12
+        opacity: 0; scale: 0.97
+        Component.onCompleted: panelIn.start()
+        ParallelAnimation {
+            id: panelIn
+            NumberAnimation { target: panel; property: "opacity"; to: 1; duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
+            NumberAnimation { target: panel; property: "scale"; to: 1; duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
+        }
         width: Math.min(440, parent.width - 24); height: parent.height - 24
         radius: root.wall ? 16 : Theme.rLg; color: root.wall ? Theme.wallChromeSurface : Theme.bgElevated; borderColor: root.wall ? "transparent" : Theme.borderStrong; elevation: root.wall ? 3 : 0
         MouseArea { anchors.fill: parent }
@@ -45,7 +52,7 @@ Item {
             }
         }
         ListView {
-            objectName: "queueTracks"; x: 12; y: header.y + header.height + 12; width: parent.width - 24; height: Math.max(0, parent.height - y - 12)
+            id: tracks; objectName: "queueTracks"; x: 12; y: header.y + header.height + 12; width: parent.width - 24; height: Math.max(0, parent.height - y - 12)
             model: root.shown; clip: true; cacheBuffer: 160; boundsBehavior: Flickable.StopAtBounds
             ScrollBar.vertical: ThinScrollBar { thumbColor: root.wall ? "#3dffffff" : Theme.borderStrong; thumbHoverColor: root.muted }
             delegate: AbstractButton {
@@ -72,6 +79,7 @@ Item {
                 }
             }
         }
+        ScrollFade { x: tracks.x; y: tracks.y; width: tracks.width; height: tracks.height; flickable: tracks; tint: root.wall ? Theme.wallChromeSurface : Theme.bgElevated }
     }
     ConfirmDialog {
         id: confirmClear; title: "清空播放队列"

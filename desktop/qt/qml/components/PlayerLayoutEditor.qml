@@ -27,7 +27,9 @@ Item {
     function update(item, point) {
         if (!dragId) return
         let p = item.mapToItem(root, point.x, point.y)
-        deltaX = p.x - pressPoint.x; deltaY = p.y - pressPoint.y
+        const rawX = p.x - pressPoint.x, rawY = p.y - pressPoint.y
+        if (Math.hypot(rawX, rawY) < Theme.dragDeadzone && !preview) { deltaX = 0; deltaY = 0; targetRect = null; return }
+        deltaX = rawX; deltaY = rawY
         const dx = Math.round(deltaX / (cellWidth + gap)), dy = Math.round(deltaY / (cellHeight + gap))
         if (resizing) {
             preview = layout.previewResize(dragId, origin.w + dx, origin.h + dy); targetRect = preview.cards[dragId]

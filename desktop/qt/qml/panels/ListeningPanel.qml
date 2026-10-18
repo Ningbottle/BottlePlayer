@@ -125,6 +125,13 @@ Item {
         width: Math.min(Theme.rem(22), root.width - Theme.rem(1.5))
         color: Theme.stageCard; radius: Theme.rem(1); elevation: 3
         borderColor: Theme.stageCardBorder
+        opacity: 0; scale: 0.97
+        Component.onCompleted: cardIn.start()
+        ParallelAnimation {
+            id: cardIn
+            NumberAnimation { target: card; property: "opacity"; to: 1; duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
+            NumberAnimation { target: card; property: "scale"; to: 1; duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
+        }
         MouseArea { anchors.fill: parent }
         HoverHandler { id: cardHover }
         Flickable {
@@ -141,6 +148,11 @@ Item {
                 x: card.width - width - 3; y: card.radius
                 height: card.height - card.radius * 2
                 areaHovered: cardHover.hovered
+            }
+            ScrollFade {
+                parent: card; x: scroller.x; y: scroller.y
+                width: scroller.width; height: scroller.height; flickable: scroller
+                tint: Theme.stageCard
             }
             ColumnLayout {
                 id: body

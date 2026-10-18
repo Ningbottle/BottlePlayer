@@ -47,9 +47,12 @@ for path in documents:
         if not (path.parent / target).exists():
             errors.append(f'Broken link in {path.relative_to(root)}: {target}')
 
-for filename in ('Inter-400.ttf', 'Inter-500.ttf', 'Inter-600.ttf', 'LXGWWenKaiLite-Regular.ttf', 'NotoSerifSC-400.ttf', 'EBGaramond-400.ttf', 'EBGaramond-400-italic.ttf', 'EBGaramond-500.ttf', 'LibreCaslonDisplay-400.ttf'):
+for filename in ('Inter-400.ttf', 'Inter-500.ttf', 'Inter-600.ttf', 'LXGWWenKaiLite-Regular.ttf', 'NotoSerifSC-400.ttf', 'EBGaramond-400.ttf', 'EBGaramond-400-italic.ttf', 'EBGaramond-500.ttf', 'LibreCaslonDisplay-400.ttf', 'MiSans-Regular.ttf', 'MiSans-Medium.ttf', 'MiSans-Demibold.ttf', 'MiSans-Bold.ttf'):
     if not (root / 'desktop/qt/assets/fonts' / filename).is_file():
         errors.append(f'Missing bundled font: {filename}')
+misans_license = root / 'desktop/qt/licenses/MiSans-License-Agreement.pdf'
+if not misans_license.is_file() or not misans_license.read_bytes().startswith(b'%PDF-'):
+    errors.append('Missing official MiSans license PDF')
 for path in (root / '.github/workflows').glob('*.yml'):
     if obsolete.search(path.read_text(encoding='utf-8')):
         errors.append(f'Outdated build workflow: {path.relative_to(root)}')

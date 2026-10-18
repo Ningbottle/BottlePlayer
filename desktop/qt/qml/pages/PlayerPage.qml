@@ -20,6 +20,15 @@ Item {
     readonly property var cardIds: ["lyrics", "cover", "info", "progress", "quality"]
     readonly property var cardNames: ({lyrics: "歌词", cover: "封面", info: "歌曲信息", progress: "进度与时间", quality: "音质信息"})
     readonly property bool hasTrack: music.queueIndex >= 0
+    // Shared-element flight: while the bar cover travels here the real
+    // artwork stays hidden; coverSlot is its destination rect in root coords.
+    property bool hideCover: false
+    readonly property bool coverReady: cover.ready
+    function coverSlotRect() {
+        if (!hasTrack) return Qt.rect(0, 0, 0, 0)
+        const p = cover.mapToItem(root, 0, 0)
+        return Qt.rect(p.x, p.y, cover.width, cover.height)
+    }
     readonly property bool narrow: viewportWidth <= 900
     readonly property real gridGap: narrow ? Theme.s5 : Theme.s3
     readonly property var nextTrack: music.queueIndex + 1 < music.queue.length ? music.queue[music.queueIndex + 1] : null
@@ -108,6 +117,7 @@ Item {
                 y: root.infoBelow ? parent.height-10-height : root.infoAbove ? 10 : (parent.height-height)/2
                 width: Math.max(0, Math.min(parent.width, parent.height) - 20); height: width
                 enabled: !root.editing; onOpenImmersive: root.openImmersive()
+                opacity: root.hideCover ? 0 : 1
             }
         }
         Card {
@@ -187,8 +197,8 @@ Item {
                 width: parent.width; anchors.verticalCenter: parent.verticalCenter; spacing: parent.height <= 72 ? Theme.s1 : Theme.s2
                 Row {
                     spacing: Theme.s2
-                    CssText { id: clock; text: Theme.time(music.position); color: Theme.text; font.family: Theme.fontDisplay; font.pixelSize: progressCard.height <= 72 || progressCard.width <= 200 ? Theme.fsLg : Theme.fs2xl; lineBox: font.pixelSize * Theme.lhTight }
-                    CssText { text: "/ " + Theme.time(music.duration); color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic; anchors.baseline: clock.baseline }
+                    CssText { id: clock; text: Theme.time(music.position); color: Theme.text; font.family: Theme.fontMono; font.pixelSize: progressCard.height <= 72 || progressCard.width <= 200 ? Theme.fsLg : Theme.fs2xl; lineBox: font.pixelSize * Theme.lhTight; font.features: { "tnum": 1 } }
+                    CssText { text: "/ " + Theme.time(music.duration); color: Theme.text3; font.family: Theme.fontMono; font.pixelSize: Theme.fsXs; font.features: { "tnum": 1 }; anchors.baseline: clock.baseline }
                 }
                 SeekBar { width: parent.width; showTimes: false; enabled: !root.editing }
             }

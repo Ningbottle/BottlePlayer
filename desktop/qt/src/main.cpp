@@ -1,4 +1,5 @@
 #include "music/MusicController.h"
+#include "core/Diagnostics.h"
 #include "ui/UiAssets.h"
 #include "ui/WindowPresentation.h"
 #include "ui/PlayerLayout.h"
@@ -38,6 +39,7 @@ int main(int argc, char** argv) {
     parser.addOption({"profile", "Independent data directory", "path", QDir(app.applicationDirPath()).filePath("profile")});
     parser.addOption({"native-dll", "EchoCAPI x64 runtime", "path", QDir(app.applicationDirPath()).filePath("EchoCAPI.dll")});
     parser.process(app);
+    struct DiagnosticDrain { ~DiagnosticDrain() { shutdownDiagnostics(); } } diagnosticDrain;
     MusicController music(parser.value("native-dll"), QDir(parser.value("profile")).absolutePath());
     AccountController account(music.nativeGateway());
     VipController vip(music.nativeGateway());
@@ -67,9 +69,11 @@ int main(int argc, char** argv) {
     QObject::connect(&app, &QCoreApplication::aboutToQuit, &music, &MusicController::finishSession);
     PlayerLayout playerLayout(QDir(parser.value("profile")).absolutePath());
     AppearanceController appearance(QDir(parser.value("profile")).absolutePath());
+    QObject::connect(&app, &QCoreApplication::aboutToQuit, &appearance, [&] { appearance.flushStorage(); });
     SettingsController settings(music.nativeGateway(), QDir(parser.value("profile")).absolutePath());
     DataMigration migration(QDir(parser.value("profile")).absolutePath());
     migration.setNativeGateway(&music.nativeGateway());
+    migration.setPrepareSnapshot([&appearance] { return appearance.flushStorage(); });
     QObject::connect(&migration, &DataMigration::statisticsImported, &stats, &StatsController::refresh);
     UpdateController updates(QDir(parser.value("profile")).absolutePath());
     EqualizerController equalizer(*music.mediaPlayer(), *music.audioOutput(), QDir(parser.value("profile")).absolutePath());

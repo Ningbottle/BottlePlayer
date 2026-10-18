@@ -40,7 +40,7 @@ try {
         if ($LASTEXITCODE -ne 0) {
             # Some Windows QtTest builds send their default text to the
             # debugger. Print only fresh reports from this CTest invocation.
-            foreach ($name in @('qt_music_flows', 'qt_lyric_bindings')) {
+            foreach ($name in @('qt_music_flows', 'qt_lyric_bindings', 'qt_settings_migration', 'qt_render_bindings', 'qt_diagnostics')) {
                 $report = Get-Item -LiteralPath (Join-Path $qtBuild "Testing/$name.txt") -ErrorAction SilentlyContinue
                 if ($report -and $report.LastWriteTimeUtc -ge $qtTestStarted) { Get-Content -LiteralPath $report.FullName }
             }

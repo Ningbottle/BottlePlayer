@@ -56,7 +56,7 @@ ListView {
                     text: row.modelData.playedAt > 0 ? Qt.formatDateTime(new Date(Number(row.modelData.playedAt)), "MM/dd HH:mm") : "时间未知"
                     font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; color: Theme.text3
                 }
-                Text { anchors.verticalCenter: parent.verticalCenter; text: music.timeText(Number(row.modelData.duration || 0) * 1000); color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs }
+                Text { anchors.verticalCenter: parent.verticalCenter; text: music.timeText(Number(row.modelData.duration || 0) * 1000); color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.features: { "tnum": 1 } }
                 IconButton { size: "sm"; glyph: "plus"; Accessible.name: "添加到歌单"; onClicked: root.addToPlaylist(row.modelData) }
                 IconButton { visible: root.removable; size: "sm"; glyph: "x"; Accessible.name: "从歌单移除"; onClicked: root.removeTrack(row.modelData) }
             }

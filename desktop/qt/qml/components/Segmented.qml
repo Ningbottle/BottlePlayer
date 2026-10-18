@@ -43,8 +43,8 @@ Rectangle {
         height: row.height
         radius: Theme.rXs
         color: Theme.surfaceActive
-        Behavior on x { enabled: root.sliding; NumberAnimation { duration: Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
-        Behavior on width { enabled: root.sliding; NumberAnimation { duration: Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+        Behavior on x { enabled: root.sliding; NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durTab; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSnap } }
+        Behavior on width { enabled: root.sliding; NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durTab; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSnap } }
     }
 
     Row {

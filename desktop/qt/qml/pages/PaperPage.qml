@@ -57,7 +57,7 @@ Item {
         property bool disc: false
         color: Qt.rgba(Theme.stageBg.r, Theme.stageBg.g, Theme.stageBg.b, 0.45)
         opacity: 0
-        Behavior on opacity { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
         Rectangle {
             anchors.centerIn: parent; visible: parent.disc
             width: Theme.s8; height: Theme.s8; radius: width / 2; color: Theme.playBg
@@ -69,8 +69,13 @@ Item {
     }
 
     Loader {
+        id: viewLoader
         anchors.fill: parent
         sourceComponent: root.results ? searchView : homeView
+    }
+    ScrollFade {
+        anchors.fill: parent
+        flickable: !root.results && viewLoader.item ? viewLoader.item : null
     }
 
     Component {
@@ -78,6 +83,7 @@ Item {
         Flickable {
             id: scroller
             objectName: "homeScroller"
+            readonly property var flickable: scroller
             clip: true; contentWidth: width; contentHeight: page.height
             boundsBehavior: Flickable.StopAtBounds
             HoverHandler { id: scrollHover }
@@ -188,8 +194,7 @@ Item {
                             Cover {
                                 anchors.fill: parent; radius: Theme.rCard; pixels: 400
                                 url: scroller.hero.image || ""; title: ""
-                                layer.enabled: Theme.hasShadow(2)
-                                layer.effect: ShadowEffect { level: 2 }
+                                elevation: 2
                             }
                             // .home-hero-art outline: --rule-w --rule-ink at
                             // 3×--rule-w offset (printer's frame in Mint).
@@ -396,7 +401,7 @@ Item {
                                         background: Rectangle {
                                             radius: Theme.rMd
                                             color: row.hovered ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-                                            Behavior on color { ColorAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+                                            Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
                                         }
                                         contentItem: Item {
                                             Cover {
@@ -496,10 +501,9 @@ Item {
                                             radius: Theme.rCard; pixels: 300; url: tile.modelData.image || ""; title: ""
                                             transform: Translate {
                                                 y: tile.hovered ? -Theme.s1 : 0
-                                                Behavior on y { NumberAnimation { duration: Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+                                                Behavior on y { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
                                             }
-                                            layer.enabled: Theme.hasShadow(2) && tile.hovered
-                                            layer.effect: ShadowEffect { level: 2 }
+                                            elevation: tile.hovered ? 2 : 0
                                             PlayVeil { anchors.fill: parent; radius: Theme.rCard; disc: true; opacity: tile.hovered || tile.visualFocus ? 1 : 0 }
                                         }
                                         // .home-tile: the cover's 8px margin plus the 4px grid
@@ -553,10 +557,12 @@ Item {
                 text: music.searchError || (music.searching ? "正在搜索…" : "找到 " + music.searchTotal + " 条 · 已加载 " + music.searchResults.length + " 条")
                 color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic
             }
-            ListView {
-                id: list; clip: true; model: music.searchResults
+            Item {
                 Layout.fillWidth: true; Layout.fillHeight: true
                 Layout.leftMargin: root.inset - Theme.s1; Layout.rightMargin: root.inset - Theme.s1
+            ListView {
+                id: list; clip: true; model: music.searchResults
+                anchors.fill: parent
                 HoverHandler { id: listHover }
                 ScrollBar.vertical: ThinScrollBar { areaHovered: listHover.hovered }
                 SmoothWheel { flickable: list }
@@ -572,7 +578,7 @@ Item {
                         radius: Theme.rSm
                         color: root.isActive(songRow.modelData) ? Theme.accentSoft
                             : songRow.hovered ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-                        Behavior on color { ColorAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+                        Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
                         Hairline { y: parent.height - Theme.hairline; width: parent.width }
                     }
                     contentItem: RowLayout {
@@ -630,6 +636,8 @@ Item {
                     }
                 }
             }
+            ScrollFade { anchors.fill: parent; flickable: list }
         }
     }
+}
 }

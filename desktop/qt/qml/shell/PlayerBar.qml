@@ -26,6 +26,8 @@ Rectangle {
 
     readonly property real centerWidth: Math.min(Theme.rem(36), Math.max(Theme.rem(18), width * 0.36))
     readonly property real sideWidth: Math.max(0, (width - Theme.s5 * 2 - Theme.s6 * 2 - centerWidth) / 2)
+    // Shared-element flight: the cover button is the artwork's origin rect.
+    readonly property Item coverItem: coverButton
 
     // Track
     Row {
@@ -33,6 +35,7 @@ Rectangle {
         spacing: Theme.s3
         AbstractButton {
             id: coverButton
+            objectName: "playerCoverButton"
             width: Theme.coverInBar; height: Theme.coverInBar
             enabled: music.queueIndex >= 0
             hoverEnabled: true
@@ -41,8 +44,7 @@ Rectangle {
             contentItem: Cover {
                 radius: Theme.rMd; pixels: 200
                 url: music.current.image || ""; title: ""
-                layer.enabled: Theme.hasShadow(1)
-                layer.effect: ShadowEffect { level: 1 }
+                elevation: 1
             }
             background: null
         }
@@ -176,6 +178,7 @@ Rectangle {
                     Behavior on opacity { NumberAnimation { duration: Theme.durFast } }
                     layer.enabled: Theme.hasShadow(1)
                     layer.effect: ShadowEffect { level: 1 }
+                    PixelSnap.fit: true
                 }
             }
         }

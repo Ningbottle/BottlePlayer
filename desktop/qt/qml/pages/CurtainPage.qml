@@ -103,8 +103,8 @@ Flickable {
         Rectangle { anchors.fill: parent; color: Theme.bg }
         Image {
             width: parent.width * 0.88; height: parent.height
-            source: root.hero.image || ""
-            sourceSize.width: 400; sourceSize.height: 400; asynchronous: true; cache: false
+            source: Theme.artwork(root.hero.image || "", 800)
+            sourceSize.width: 800; sourceSize.height: 800; asynchronous: true; cache: false
             fillMode: Image.PreserveAspectCrop; opacity: Theme.stageArtOpacity
         }
         Rectangle {
@@ -395,7 +395,7 @@ Flickable {
             DragHandler {
                 target: null
                 enabled: music.feed.length > 1
-                dragThreshold: 8
+                dragThreshold: Theme.dragDeadzone
                 grabPermissions: PointerHandler.CanTakeOverFromAnything
                 onActiveChanged: active ? covers.gliding = false : covers.release()
                 onTranslationChanged: if (active) { covers.panX = translation.x; covers.panY = translation.y }

@@ -43,6 +43,8 @@ Button {
         : restFill.a > 0 ? restFill : Theme.clear(hoverFill)
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
+    scale: pressed ? Theme.pressScale : 1
+    Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce } }
     padding: 0
     // padding-inline plus the 1px border every variant carries (transparent
     // on ghost), which Chromium lays out as one device pixel.
@@ -53,7 +55,7 @@ Button {
     font.pixelSize: typeSize
     font.weight: weight
     opacity: !enabled ? Theme.disabledOpacity : down ? Theme.pressedOpacity : 1
-    Behavior on opacity { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+    Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
     background: Rectangle {
         radius: root.bgRadius
         color: root.fill
@@ -61,8 +63,8 @@ Button {
         border.color: root.edgeColor
         // Frame edges on whole device pixels, like Blink's snapped paint rect.
         PixelSnap.fit: true
-        Behavior on color { ColorAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
-        Behavior on border.color { ColorAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+        Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+        Behavior on border.color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
         Rectangle {
             anchors.fill: parent; anchors.margins: -4 / root.worldScale; radius: parent.radius + 4 / root.worldScale
             color: "transparent"; border.width: 2 / root.worldScale; border.color: root.focusInk
@@ -88,7 +90,7 @@ Button {
                 anchors.verticalCenter: parent.verticalCenter
                 width: Math.max(0, content.width - content.extras)
                 elide: Text.ElideRight
-                Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
             }
             Icon {
                 visible: root.trailingGlyph !== ""; name: root.trailingGlyph; color: root.ink

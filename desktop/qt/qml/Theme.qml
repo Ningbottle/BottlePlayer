@@ -66,12 +66,14 @@ QtObject {
         return 1.2 + (size - 38) * 0.25 / 8
     }
 
-    // ── Radius ladder (aurora 6/10/14/20, card 18 · mint 2/3/4/6, card 2) ──
-    readonly property real rXs: mint ? 2 : 6
-    readonly property real rSm: mint ? 3 : 10
-    readonly property real rMd: mint ? 4 : 14
-    readonly property real rLg: mint ? 6 : 20
-    readonly property real rCard: mint ? 2 : 18
+    // ── Radius ladder (aurora 6/10/14/20, card 18 · mint 4/6/8/16, card 12) ──
+    // Mint follows the open-claude-ui geometry: controls 6-8px, cards 12px,
+    // overlays 16px.
+    readonly property real rXs: mint ? 4 : 6
+    readonly property real rSm: mint ? 6 : 10
+    readonly property real rMd: mint ? 8 : 14
+    readonly property real rLg: mint ? 16 : 20
+    readonly property real rCard: mint ? 12 : 18
     readonly property real rFull: 9999
 
     // ── Spacing ladder ──
@@ -152,6 +154,20 @@ QtObject {
     readonly property int durBase: 180
     // cubic-bezier(.2, 0, 0, 1) for Easing.BezierSpline.
     readonly property var easeStandard: [0.2, 0, 0, 1, 1, 1]
+    // open-claude-ui curve set: soft deceleration for hovers and toolbars
+    // (150–220ms), the magnetic snap for tab switches (120ms), the small
+    // bounce for favourite/play feedback (200ms), and the smooth expand for
+    // panel reveals (200ms).
+    readonly property var easeSoft: [0.16, 1, 0.3, 1, 1, 1]
+    readonly property var easeSnap: [0.32, 0.72, 0, 1, 1, 1]
+    readonly property var easeBounce: [0.34, 1.3, 0.64, 1, 1, 1]
+    readonly property var easeExpand: [0.19, 1, 0.22, 1, 1, 1]
+    readonly property int durHover: 180
+    readonly property int durTab: 120
+    readonly property int durPop: 200
+    readonly property real pressScale: 0.975
+    readonly property real scrollFade: 28
+    readonly property real dragDeadzone: 4
     // pageEnter: Mint .24s power3.out from 8px, Aurora .28s power2.out from 12px.
     readonly property int pageEnterMs: mint ? 240 : 280
     readonly property int pageEnterEasing: mint ? Easing.OutCubic : Easing.OutQuad
@@ -181,8 +197,9 @@ QtObject {
     readonly property color warning: dark ? mint ? "#E6B15D" : "#E8B469" : "#A96B16"
     readonly property color focus: accent
     // --pane-bg (sidebar column) and --bar-bg (player bar) over --bg.
-    readonly property color paneBg: mint ? "transparent" : dark ? Qt.rgba(0, 0, 0, .2) : Qt.rgba(1, 1, 1, 0.35)
-    readonly property color barBg: mint ? bg : dark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(1, 1, 1, 0.55)
+    // Zones separate by tiny luminance deltas rather than visible borders.
+    readonly property color paneBg: mint ? dark ? "#0D1210" : "#EBF1EA" : dark ? Qt.rgba(0, 0, 0, .2) : Qt.rgba(1, 1, 1, 0.35)
+    readonly property color barBg: mint ? dark ? "#151D1A" : "#FAFCF8" : dark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(1, 1, 1, 0.55)
     readonly property color progressTrack: borderStrong
     // --play-bg / --play-fg: the round play buttons. Mint inks them.
     readonly property color playBg: mint ? ruleInk : accent

@@ -62,28 +62,43 @@ QImage IconProvider::requestImage(const QString& id, QSize* size, const QSize& r
 
 void installUiAssets(QQmlEngine& engine) {
     QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
-    // DirectComposition uses an alpha buffer. Native ClearType glyphs carry
-    // coloured subpixel coverage that produces coloured fringes on that
-    // surface. Use the existing grayscale RHI backend, matching the web
-    // reference's composited text. Retain an explicit diagnostic override.
-    if (qEnvironmentVariable("BOTTLE_TEXT_AA") != QLatin1String("subpixel"))
+    // ClearType composites correctly on the DirectComposition alpha surface —
+    // probe runs rendered pixel-identical to an opaque swapchain — so the
+    // stock backend (subpixel when the system enables ClearType, gray when
+    // not, gray inside item layers) is the default. BOTTLE_TEXT_AA=gray
+    // selects the custom grayscale backend for diagnostics.
+    if (qgetenv("BOTTLE_TEXT_AA") == "gray")
         QQuickWindow::setSceneGraphBackend(QStringLiteral("bottle-graytext"));
     const QDir fonts(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("fonts")));
     for (const QString& name : fonts.entryList({QStringLiteral("*.ttf"), QStringLiteral("*.otf")}, QDir::Files))
         QFontDatabase::addApplicationFont(fonts.filePath(name));
-    // Font fallback stacks: Inter → (HarmonyOS Sans SC) → Microsoft YaHei UI for
-    // CJK, the bundled WenKai → KaiTi for lyrics, and Mint's newsprint serif
-    // chain Libre Caslon Display → EB Garamond → Noto Serif SC → SimSun.
-    QFont::insertSubstitutions(QStringLiteral("Inter"), {QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei")});
+    // Font fallback stacks: Inter → MiSans → Microsoft YaHei UI for CJK (the
+    // bundled MiSans supplies a consistent CJK face), the bundled WenKai
+    // → KaiTi for lyrics, and
+    // Mint's newsprint serif chain Libre Caslon Display → EB Garamond →
+    // SimSun → Noto Serif SC. SimSun leads the CJK fallback because its
+    // outlines are hand-instructed for the GDI rasterizer we select below:
+    // hinted Noto Serif SC draws uneven strokes at small sizes.
+    QFont::insertSubstitutions(QStringLiteral("Inter"),
+                               {QStringLiteral("MiSans"), QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei")});
     QFont::insertSubstitution(QStringLiteral("LXGW WenKai Lite"), QStringLiteral("KaiTi"));
     QFont::insertSubstitutions(QStringLiteral("Libre Caslon Display"),
-                               {QStringLiteral("EB Garamond"), QStringLiteral("Noto Serif SC"), QStringLiteral("SimSun")});
-    QFont::insertSubstitutions(QStringLiteral("EB Garamond"), {QStringLiteral("Noto Serif SC"), QStringLiteral("SimSun")});
+                               {QStringLiteral("EB Garamond"), QStringLiteral("SimSun"), QStringLiteral("Noto Serif SC")});
+    QFont::insertSubstitutions(QStringLiteral("EB Garamond"), {QStringLiteral("SimSun"), QStringLiteral("Noto Serif SC")});
     QFont::insertSubstitution(QStringLiteral("Noto Serif SC"), QStringLiteral("SimSun"));
     QFont::insertSubstitution(QStringLiteral("Cascadia Code"), QStringLiteral("Consolas"));
     QFont base(QStringLiteral("Inter"));
     base.setPixelSize(14);
-    base.setHintingPreference(QFont::PreferVerticalHinting);
+    // Preserve fractional horizontal advances when DPI or UI scale changes.
+    // PreferVerticalHinting selects the DirectWrite engine (the Chromium
+    // pipeline): vertical-only hinting, fractional X advances, subpixel
+    // positioning under ClearType. GDI (PreferFullHinting, excluded from
+    // QWindowsFontEngine::useDirectWrite()'s whitelist) snaps stems to the
+    // pixel grid but also rounds advances to whole pixels — ~2% wider lines
+    // versus the web reference — and reads uneven on serif faces. It stays
+    // reachable through BOTTLE_TEXT_ENGINE=gdi for comparison.
+    base.setHintingPreference(qgetenv("BOTTLE_TEXT_ENGINE") == "gdi"
+        ? QFont::PreferFullHinting : QFont::PreferVerticalHinting);
     // Blink sizes a line from the primary face alone; Qt grows it to the
     // tallest fallback on the line, so 外观 under Caslon or 聆听 under EB
     // Garamond used a lower baseline. Typo metrics put the CJK fallbacks

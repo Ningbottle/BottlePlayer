@@ -20,7 +20,6 @@ Rectangle {
     signal enterCurtain()
     signal openSettings(string section)
     signal leaveSettings()
-    signal openPlaylist(string id)
 
     // .shell-sidebar border-right: var(--rule-w) solid var(--border).
     Hairline {
@@ -49,7 +48,7 @@ Rectangle {
             Rectangle {
                 anchors.fill: parent; radius: Theme.rSm
                 color: row.hovered && !row.current ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-                Behavior on color { ColorAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
             }
             Rectangle {
                 anchors.fill: parent; radius: Theme.rSm; color: Theme.accentSoft
@@ -70,7 +69,7 @@ Rectangle {
                 text: row.text; color: row.ink; elide: Text.ElideRight
                 font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
                 font.weight: row.current ? Theme.fwMedium : Theme.fwRegular
-                Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
             }
         }
         Accessible.name: text
@@ -94,7 +93,7 @@ Rectangle {
             background: Rectangle {
                 radius: Theme.rMd
                 color: user.hovered ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-                Behavior on color { ColorAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
             }
             contentItem: Row {
                 spacing: Theme.s3
@@ -132,7 +131,6 @@ Rectangle {
             visible: !root.settingsMode
             Layout.fillWidth: true; spacing: 2
             NavRow { objectName: "homeEntry"; glyph: "house"; text: "首页"; current: root.route === "home"; onClicked: root.navigate("home") }
-            NavRow { objectName: "playerEntry"; glyph: "disc-3"; text: "正在播放"; current: root.route === "player"; onClicked: root.navigate("player") }
         }
         Text {
             visible: !root.settingsMode && !root.compactHeight
@@ -183,25 +181,7 @@ Rectangle {
                 }
             }
         }
-        RowLayout {
-            visible: !root.settingsMode && accountState.loggedIn; Layout.fillWidth: true; Layout.topMargin: root.compactHeight ? 4 : Theme.s3
-            Text { Layout.fillWidth: true; leftPadding: Theme.s3; text: "我的歌单"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic }
-            IconButton { glyph: "refresh-cw"; size: "sm"; enabled: !libraryState.playlistsLoading; Accessible.name: "刷新个人歌单"; onClicked: libraryState.refreshPlaylists() }
-        }
-        ListView {
-            id: userLists; objectName: "sidebarPlaylists"; visible: !root.settingsMode && accountState.loggedIn
-            Layout.fillWidth: true; Layout.fillHeight: true; clip: true
-            model: libraryState.playlists; boundsBehavior: Flickable.StopAtBounds; cacheBuffer: 100
-            delegate: NavRow {
-                required property var modelData; required property int index
-                objectName: "sidebarPlaylist_" + index; width: userLists.width; height: implicitHeight
-                text: modelData.name; glyph: "list-music"
-                current: root.route === "playlist" && libraryState.playlistId === modelData.id
-                onClicked: root.openPlaylist(modelData.id)
-            }
-            footer: ActionButton { visible: libraryState.playlistsMore; text: "加载更多"; size: "sm"; enabled: !libraryState.playlistsLoading; onClicked: libraryState.morePlaylists() }
-        }
-        Item { Layout.fillHeight: true; visible: root.settingsMode || !accountState.loggedIn }
+        Item { Layout.fillHeight: true }
 
         // .sidebar-foot: margin-top auto, 8px top padding.
         NavRow {

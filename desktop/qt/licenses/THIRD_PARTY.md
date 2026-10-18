@@ -40,10 +40,20 @@ stroke suppression are applied by IconProvider at render time; SVG files are
 not rewritten.
 The retained Phosphor notice documents the previous preview; no Phosphor SVGs
 remain in the current interface.
-The runtime TTF files are prepared from the existing webfont packages. Their
-SIL Open Font License notices are included as `Inter-LICENSE`,
+The Inter, EB Garamond, Libre Caslon Display, Noto Serif SC and LXGW WenKai
+Lite TTF files use the SIL Open Font License. Their notices are included as `Inter-LICENSE`,
 `EBGaramond-LICENSE`, `LibreCaslonDisplay-LICENSE`, `NotoSerifSC-LICENSE`, and
-`LXGWWenKaiLite-LICENSE`. No new cover images are generated or substituted.
+`LXGWWenKaiLite-LICENSE`.
+
+BottleMusic uses MiSans for interface font fallback. The four bundled
+weights identify themselves as Version 2.000 and retain their embedded
+copyright notices. `MiSans-LICENSE` records the bundled files, upstream
+source and agreement checksum. The complete official terms are preserved
+unchanged in `MiSans-License-Agreement.pdf` and distributed beside the
+application. MiSans is included as part of the application, rather than
+provided as a standalone font download.
+
+No new cover images are generated or substituted.
 
 Qt is dynamically linked. Its runtime remains replaceable beside the executable;
 the source, build instructions and Qt 6.8.3 private-header dependency are retained.

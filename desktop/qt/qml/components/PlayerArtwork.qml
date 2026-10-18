@@ -3,11 +3,12 @@ import BottleMusic
 
 Item {
     id: root
+    readonly property bool ready: art.ready
     signal openImmersive()
     Cover {
         id: art; anchors.fill: parent
         radius: music.vinyl ? width / 2 : Theme.rCard
-        // Fixed decode size: resizing never starts another cover request.
+        // Minimum decode bucket; Cover also accounts for the device-pixel box.
         url: music.current.image || ""; title: ""; pixels: 400; glyphScale: 0.3
         RotationAnimator { id: spin; target: art; from: 0; to: 360; duration: 12000; loops: Animation.Infinite }
         Rectangle {

@@ -489,10 +489,13 @@ Item {
         }
     }
     // .wall-preview-note when nothing is playing yet.
-    Glass {
+    Item {
         visible: !nowPlaying.visible && root.tracks.length > 0
         x: root.inset; y: root.height - height - root.inset
         width: previewColumn.implicitWidth + 28; height: previewColumn.implicitHeight + 24
+        // The glass face is layered for its shadow; the text sits on top
+        // unlayered so it keeps native glyph rendering (Plate's pattern).
+        Glass { anchors.fill: parent }
         Column {
             id: previewColumn; anchors.centerIn: parent; spacing: 5
             Text { text: "推荐预览 · " + root.tracks.length + " 首"; color: Theme.wallInk; font.family: Theme.fontUi; font.pixelSize: 12 }

@@ -1,0 +1,24 @@
+BottleMusic uses the MiSans font family in its application interface.
+
+The bundled MiSans-Regular.ttf, MiSans-Medium.ttf, MiSans-Demibold.ttf and
+MiSans-Bold.ttf each identify themselves as Version 2.000 in the OpenType
+name table, with head.fontRevision 2.0 and 29093 glyphs. BottleMusic retains
+the supplied font files without editing or subsetting them.
+
+Copyright notice retained in all four font files:
+Copyright (c)  2020-2021  Beijing Xiaomi Mobile Software Co.,Ltd. All Rights Reserved.
+The font metadata identifies the manufacturer as Hanyi Fonts.
+
+The complete official MiSans Font Intellectual Property License Agreement
+is included, unchanged, as MiSans-License-Agreement.pdf. This notice records
+the bundled files and does not replace that agreement. The fonts are
+embedded in the BottleMusic application; they are not offered as a
+standalone font distribution. The agreement permits use in applications
+and requires the copyright notice and agreement to accompany font copies.
+
+Upstream font site: https://hyperos.mi.com/font/
+Official embedding FAQ: https://hyperos.mi.com/font/en/faq/
+Official agreement source (retrieved 2026-10-18):
+https://hyperos.mi.com/font-download/MiSans%E5%AD%97%E4%BD%93%E7%9F%A5%E8%AF%86%E4%BA%A7%E6%9D%83%E8%AE%B8%E5%8F%AF%E5%8D%8F%E8%AE%AE.pdf
+Agreement file size: 79535 bytes
+Agreement SHA-256: 4a93a27cd2bd81b3b5ecfd0a853144a876fa26938a93a68443c67d74172fcb86

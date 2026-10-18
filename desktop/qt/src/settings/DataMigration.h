@@ -5,6 +5,7 @@
 #include <QPointer>
 #include <atomic>
 #include <memory>
+#include <functional>
 class NativeGateway;
 
 class DataMigration final : public QObject {
@@ -19,6 +20,7 @@ public:
     bool restartNeeded() const { return restart_; }
     bool busy() const { return busy_; }
     void setNativeGateway(NativeGateway* gateway);
+    void setPrepareSnapshot(std::function<bool()> prepare) { prepareSnapshot_ = std::move(prepare); }
     Q_INVOKABLE void exportData(const QUrl& file);
     Q_INVOKABLE void importData(const QUrl& file);
     Q_INVOKABLE void restartApp();
@@ -36,4 +38,5 @@ private:
     bool busy_ = false;
     QPointer<NativeGateway> gateway_;
     std::shared_ptr<std::atomic_bool> stopped_;
+    std::function<bool()> prepareSnapshot_;
 };

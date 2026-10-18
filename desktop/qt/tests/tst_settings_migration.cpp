@@ -3,6 +3,7 @@
 #include "playback/PcmOutput.h"
 #include "settings/StatsArchive.h"
 #include "platform/UpdateController.h"
+#include "ui/AppearanceController.h"
 #include <QtTest>
 #include <QTemporaryDir>
 #include <QSettings>
@@ -21,6 +22,63 @@ class SettingsMigrationTests : public QObject {
     Q_OBJECT
     QString root() { return qEnvironmentVariable("BOTTLE_TEST_TEMP_ROOT", QDir::tempPath()) + "/bottle-settings-XXXXXX"; }
 private slots:
+    void appearanceDragBatchesDiskWritesAndSeparatesNotifications() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        QSettings baseline(profile.filePath("synchronous-baseline.ini"), QSettings::IniFormat);
+        QElapsedTimer baselineClock; baselineClock.start();
+        for (int i = 200; i <= 360; ++i) { baseline.setValue("sidebarWidth", i); baseline.sync(); }
+        qInfo() << "161 original synchronous sidebar saves in us:" << baselineClock.nsecsElapsed() / 1000;
+        QVERIFY(baseline.status() == QSettings::NoError);
+        AppearanceController appearance(profile.path());
+        QSignalSpy broad(&appearance, &AppearanceController::changed);
+        QSignalSpy width(&appearance, &AppearanceController::sidebarWidthChanged);
+        QElapsedTimer elapsed; elapsed.start();
+        for (int i = 200; i <= 360; ++i) appearance.setSidebarWidth(i);
+        qInfo() << "161 sidebar updates queued in us:" << elapsed.nsecsElapsed() / 1000;
+        QCOMPARE(appearance.sidebarWidth(), 360); QCOMPARE(width.size(), 161); QCOMPARE(broad.size(), 0);
+        QVERIFY(!QFileInfo::exists(profile.filePath("appearance.ini")));
+        QTRY_VERIFY(QFileInfo::exists(profile.filePath("appearance.ini")));
+        QSettings saved(profile.filePath("appearance.ini"), QSettings::IniFormat);
+        QCOMPARE(saved.value("sidebarWidth").toInt(), 360);
+        appearance.setMode("dark"); QCOMPARE(broad.size(), 1);
+        QVERIFY(appearance.flushStorage()); saved.sync(); QCOMPARE(saved.value("mode").toString(), QString("dark"));
+    }
+    void appearanceFlushesOnDestructionAndBeforeSnapshots() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        { AppearanceController appearance(profile.path()); appearance.setSidebarWidth(300); }
+        QSettings saved(profile.filePath("appearance.ini"), QSettings::IniFormat); QCOMPARE(saved.value("sidebarWidth").toInt(), 300);
+        AppearanceController appearance(profile.path());
+        DataMigration migration(profile.path());
+        migration.setPrepareSnapshot([&] { return appearance.flushStorage(); });
+        appearance.setSidebarWidth(340);
+        migration.exportData(QUrl::fromLocalFile(profile.filePath("export.json")));
+        QFile exported(profile.filePath("export.json")); QVERIFY(exported.open(QIODevice::ReadOnly));
+        const auto payload = QJsonDocument::fromJson(exported.readAll()).object();
+        QCOMPARE(payload.value("appearance").toObject().value("sidebarWidth").toInt(), 340); exported.close();
+        auto imported = payload; imported.insert("appearance", QJsonObject{{"sidebarWidth", 250}});
+        QFile source(profile.filePath("import.json")); QVERIFY(source.open(QIODevice::WriteOnly)); source.write(QJsonDocument(imported).toJson()); source.close();
+        appearance.setSidebarWidth(350);
+        migration.importData(QUrl::fromLocalFile(source.fileName())); QVERIFY(migration.restartNeeded());
+        const auto backups = QDir(profile.path()).entryList({"import-backup-*.json"}, QDir::Files); QCOMPARE(backups.size(), 1);
+        QFile backup(profile.filePath(backups.first())); QVERIFY(backup.open(QIODevice::ReadOnly));
+        QCOMPARE(QJsonDocument::fromJson(backup.readAll()).object().value("appearance").toObject().value("sidebarWidth").toInt(), 350);
+        QTest::qWait(350); appearance.flushStorage(); saved.sync(); QCOMPARE(saved.value("sidebarWidth").toInt(), 250);
+    }
+    void failedAppearanceSaveStopsSnapshotAndCanRetry() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        // A directory in the file's place is a deterministic write failure.
+        QVERIFY(QDir().mkdir(profile.filePath("appearance.ini")));
+        AppearanceController appearance(profile.path()); appearance.setSidebarWidth(320);
+        QVERIFY(!appearance.flushStorage()); QVERIFY(!appearance.storageError().isEmpty());
+        DataMigration migration(profile.path()); migration.setPrepareSnapshot([&] { return appearance.flushStorage(); });
+        migration.exportData(QUrl::fromLocalFile(profile.filePath("blocked.json")));
+        QVERIFY(!QFileInfo::exists(profile.filePath("blocked.json")));
+        QVERIFY(QDir().rmdir(profile.filePath("appearance.ini")));
+        appearance.retryStorage(); QVERIFY(appearance.storageError().isEmpty());
+        QSettings saved(profile.filePath("appearance.ini"), QSettings::IniFormat); QCOMPARE(saved.value("sidebarWidth").toInt(), 320);
+        migration.exportData(QUrl::fromLocalFile(profile.filePath("recovered.json")));
+        QVERIFY(QFileInfo::exists(profile.filePath("recovered.json")));
+    }
     void snapshotPreservesSelectedSurvivorAndRejectsBadOffset() {
         const auto restored = DataMigration::sanitizeSnapshot({{"queue", QJsonArray{QJsonObject{{"FileHash", "a"}, {"SongName", "First"}}, QJsonObject{}, QJsonObject{{"FileHash", "b"}, {"SongName", "Second"}}}}, {"currentIndex", 2}, {"position", 12}}, true);
         QCOMPARE(restored.value("queue").toArray().size(), 2); QCOMPARE(restored.value("index").toInt(), 1); QCOMPARE(restored.value("position").toInt(), 12000);

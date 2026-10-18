@@ -16,3 +16,7 @@
 4. 对照 `audio-diagnostics.jsonl` 的设备与 PCM 状态，在耳机连接、拔出和重连场景实测。
 
 每类诊断保留两份、每份约 512 KiB。分享前按 [数据边界](../security/data-boundaries.md) 脱敏。回归入口包括 `qt_music_flows`、`qt_audio_runtime` 及 `bottle_qt_smoke` 的 `user-fixes` 模式。
+
+Qt 诊断由单一后台 writer 串行写入。调用线程只生成记录并进入有界队列，不等待目录创建、轮转或写盘；最多排队 512 条，其中 64 条为错误/失败/超时等事件预留。单条记录上限 16KiB（含内部统计字段），超量丢弃和写失败通过统计及下一条成功记录中的 `diagnosticDropped`、`diagnosticCriticalDropped`、`diagnosticWriteFailures` 可见。文件短写会尝试回滚，下一次写入会清理未完成的末行。
+
+`flushDiagnostics()` 只用于明确的测试和销毁屏障；网关销毁前排空已接收记录，应用在所有生产者销毁后调用 `shutdownDiagnostics()`。正常退出保留队列，强制终止可能丢失尚未写出的记录。此机制不替代 Native 的崩溃取证。

@@ -70,6 +70,7 @@ QJsonObject DataMigration::sanitizeSnapshot(const QJsonObject& source, bool lega
 void DataMigration::exportData(const QUrl& target) {
     if (!target.isLocalFile() || busy_) return;
     if (QFileInfo(target.toLocalFile()).suffix().compare("json", Qt::CaseInsensitive) != 0) { message_ = QStringLiteral("请选择 .json 档案，避免覆盖播放器文件"); emit changed(); return; }
+    if (prepareSnapshot_ && !prepareSnapshot_()) { message_ = QStringLiteral("当前设置未能保存，导出已停止"); emit changed(); return; }
     const auto preferences = readPreferences(QDir(profile_).filePath("preferences.ini"), preferenceKeys);
     const auto appearance = readPreferences(QDir(profile_).filePath("appearance.ini"), appearanceKeys);
     QSettings favorites(QDir(profile_).filePath("favorites.ini"), QSettings::IniFormat);
@@ -91,6 +92,7 @@ void DataMigration::importData(const QUrl& source) {
     const auto payload = document.object(); const bool legacy = payload.value("schema") == "bottlemusic.user-data-export";
     if (error.error != QJsonParseError::NoError || payload.value("version").toInt() != 1
         || (!legacy && payload.value("schema") != "bottlemusic.qt-data-export")) { message_ = QStringLiteral("导出格式或版本不受支持"); emit changed(); return; }
+    if (prepareSnapshot_ && !prepareSnapshot_()) { message_ = QStringLiteral("当前设置未能保存，导入已停止"); emit changed(); return; }
     const auto backup = QDir(profile_).filePath("import-backup-" + QDateTime::currentDateTime().toString("yyyyMMdd-HHmmsszzz") + ".json");
     QSettings preferences(QDir(profile_).filePath("preferences.ini"), QSettings::IniFormat), appearance(QDir(profile_).filePath("appearance.ini"), QSettings::IniFormat);
     QSettings favorites(QDir(profile_).filePath("favorites.ini"), QSettings::IniFormat), history(QDir(profile_).filePath("history.ini"), QSettings::IniFormat), layout(QDir(profile_).filePath("player-layout.ini"), QSettings::IniFormat);

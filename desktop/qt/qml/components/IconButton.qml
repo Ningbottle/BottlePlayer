@@ -30,6 +30,9 @@ AbstractButton {
     property color checkedTint: Theme.text
     property color primaryFill: Theme.accent
     property color primaryDownFill: Theme.accentHover
+    // Elevation renders on the content-free background face, like Plate:
+    // layering the whole button would rasterize the glyph with the shadow.
+    property int shadowLevel: 0
     // .player-bar-side / .player-bar-favorite [aria-pressed]: pressed reads as
     // ink only (checkedTint) and keeps a clear background under hover/press.
     property bool flatChecked: false
@@ -46,8 +49,16 @@ AbstractButton {
     padding: 0
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
+    scale: pressed ? Theme.pressScale : 1
+    Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce } }
+    onCheckedChanged: if (checked && !music.reducedMotion) glyphPop.restart()
+    SequentialAnimation {
+        id: glyphPop
+        NumberAnimation { target: glyphIcon; property: "scale"; to: 1.18; duration: Theme.durPop / 2; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce }
+        NumberAnimation { target: glyphIcon; property: "scale"; to: 1; duration: Theme.durPop / 2; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce }
+    }
     opacity: !enabled ? Theme.disabledOpacity : down ? Theme.pressedOpacity : 1
-    Behavior on opacity { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+    Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
     Accessible.role: Accessible.Button
     background: Rectangle {
         radius: root.radius
@@ -60,7 +71,9 @@ AbstractButton {
         border.color: Theme.border
         // Fill edges on whole device pixels, like Blink's snapped paint rect.
         PixelSnap.fit: true
-        Behavior on color { ColorAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+        layer.enabled: root.shadowLevel > 0 && root.enabled && Theme.hasShadow(root.shadowLevel)
+        layer.effect: ShadowEffect { level: root.shadowLevel }
+        Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
         Rectangle {
             anchors.fill: parent; anchors.margins: -4 / root.worldScale; radius: parent.radius + 4 / root.worldScale
             color: "transparent"; border.width: 2 / root.worldScale; border.color: root.focusInk
@@ -69,6 +82,7 @@ AbstractButton {
     }
     contentItem: Item {
         Icon {
+            id: glyphIcon
             objectName: root.objectName ? root.objectName + "_glyph" : ""
             anchors.centerIn: parent; anchors.verticalCenterOffset: -root.glyphLift
             anchors.alignWhenCentered: root.media === ""

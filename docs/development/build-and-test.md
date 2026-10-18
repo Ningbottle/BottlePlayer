@@ -41,6 +41,10 @@ git diff --check
 默认运行原生 CTest 和 Qt 契约测试，排除依赖现场音频设备的 `qt_audio_runtime`。契约测试使用临时目录，不访问日常 profile。
 已经验证后端时可用 `-QtOnly` 单独运行 Qt 契约。`qt_lyric_bindings` 直接加载真实歌词组件，检查进度更新不再读取整首歌词，并覆盖逐字时间、末行回退、点击定位和时钟启停。`qt_music_flows` 检查队列投影、索引/模式/等待通知、歌词及元数据更新，并包含 2000 首队列 getter 微基准；它不代表实际窗口帧率。
 
+`qt_render_bindings` 检查实际封面请求尺寸与列表非零原点下的渐隐；`qt_diagnostics` 用阻塞 sink 验证入队与 I/O 分离、队列上限、错误预留、轮转及故障恢复。`qt_settings_migration` 覆盖连续侧栏修改合并、退出保存、保存失败重试和导入/导出屏障。相关 QtTest 报告均位于构建目录 `Testing/`，失败时由测试脚本打印本次报告。
+
+`bottle_qt_smoke` 的 `render-review` 模式使用本机图片服务验证封面动画的尺寸稳定、导航取消、切歌取消、迟到图片及减少动画选项；可通过 `QT_SCALE_FACTOR=1.25` 验证分数缩放。字体视觉比较仍应在 Windows 图形平台下观察，offscreen 通过不代表实际 DirectWrite 和多屏环境已验收。
+
 Qt 的属性引用序列赋给局部变量后仍可能反复调用 C++ getter。歌词在内容更新时用 `slice()` 分离快照；测试允许此时逐项读取，约束后续时钟更新不再读取整首歌词。相关新测试把 QtTest 文本保存到 Qt 构建目录的 `Testing/qt_music_flows.txt` 和 `Testing/qt_lyric_bindings.txt`；测试脚本在失败时输出本次生成的报告，保留断言位置和微基准结果。
 测试入口把 `TEMP`、`TMP` 和 `ECHO_NATIVE_DATA_DIR` 统一指向新的 `output/test-profiles/` 子目录，避免继承受限临时路径或默认应用数据目录；退出后恢复调用者环境。
 

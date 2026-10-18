@@ -15,12 +15,13 @@ Item {
         Hairline { width: parent.width; color: Theme.ruleInk }
     }
     TrackRows {
-        objectName: "localFavoriteTracks"; x: root.inset; y: head.y + head.height + 20
+        id: favoriteTracks; objectName: "localFavoriteTracks"; x: root.inset; y: head.y + head.height + 20
         width: parent.width - x * 2; height: Math.max(0, parent.height - y - 24)
         tracks: favoriteState.localTracks; removable: true
         onPlay: index => root.play(tracks, index)
         onAddToPlaylist: track => root.addToPlaylist(track)
         onRemoveTrack: track => favoriteState.removeLocal(String(track.hash))
     }
+    ScrollFade { x: root.inset; y: head.y + head.height + 20; width: parent.width - x * 2; height: Math.max(0, parent.height - y - 24); flickable: favoriteTracks }
     Text { visible: !favoriteState.localTracks.length; anchors.centerIn: parent; text: "喜欢一首歌，点亮它旁边的红心。"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsMd }
 }

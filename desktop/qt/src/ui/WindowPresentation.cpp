@@ -9,6 +9,9 @@ void configureWindowPresentation() {
     // which retains and stretches the last frame during that interval.
     // Main.qml still clears to an opaque Theme.bg. GPU rendering and the
     // threaded render loop remain enabled; no private graphics API is used.
+    // ClearType text composites correctly on this alpha surface (measured
+    // pixel-identical to an opaque swapchain), so no opaque-mode trade is
+    // needed.
     QQuickWindow::setDefaultAlphaBuffer(true);
 #endif
 }

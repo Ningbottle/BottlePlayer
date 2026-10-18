@@ -122,6 +122,7 @@ int main(int argc, char** argv) {
     SettingsController settings(music.nativeGateway(), profile);
     DataMigration migration(profile);
     migration.setNativeGateway(&music.nativeGateway());
+    migration.setPrepareSnapshot([&appearance] { return appearance.flushStorage(); });
     UpdateController updates(profile);
     EqualizerController equalizer(*music.mediaPlayer(), *music.audioOutput(), profile);
     QObject::connect(&migration, &DataMigration::importing, &music, &MusicController::holdPersistenceForImport);
@@ -176,6 +177,55 @@ int main(int argc, char** argv) {
     #include "visual_assertions.h"
     if (args[3] == "user-fixes") {
         #include "user_report_smoke.h"
+    }
+    if (args[3] == "render-review") {
+        #include "render_review_smoke.h"
+    }
+    if (args[3] == "settings-probe") {
+        // Font-weight probe: the settings page is the heaviest bold CJK sans
+        // surface; captures it so gamma values can be A/B'd on the same text.
+        QLibrary sFixture(args[1]);
+        if (!sFixture.load()) return 2;
+        auto sConfigure = reinterpret_cast<void(*)(const char*)>(sFixture.resolve("EchoTestConfigure"));
+        if (!sConfigure) return 2;
+        sConfigure("{\"feed_count\":30}");
+        music.setVolume(0); music.setReducedMotion(true); music.initialize();
+        check("probe_core_ready", waitFor([&]{return music.ready();},10000));
+        window->resize(900, 620);
+        QMetaObject::invokeMethod(window,"openSettings",Q_ARG(QVariant,QStringLiteral("appearance"))); QTest::qWait(900);
+        screenshot("settings-top");
+        report.insert("checks", checks); report.insert("qml_warnings", QJsonArray::fromStringList(warnings));
+        bool sOk = warnings.isEmpty(); for (const auto& item : checks) sOk = sOk && item.toObject().value("ok").toBool();
+        report.insert("ok", sOk); writeReport(); window->close(); return sOk ? 0 : 1;
+    }
+    if (args[3] == "blur-probe") {
+        // Rendering diagnosis: capture identical content at a device-pixel-snapped
+        // scroll offset and at a half-device-pixel offset. Pairwise crops then
+        // measure how much the scene softens when the flickable rests off-grid.
+        QLibrary probeFixture(args[1]);
+        if (!probeFixture.load()) return 2;
+        auto probeConfigure = reinterpret_cast<void(*)(const char*)>(probeFixture.resolve("EchoTestConfigure"));
+        if (!probeConfigure) return 2;
+        probeConfigure("{\"feed_count\":30}");
+        music.setVolume(0); music.setReducedMotion(true); music.initialize();
+        check("probe_core_ready", waitFor([&]{return music.ready() && music.feed().size()>=20 && !home.loading();},10000));
+        QMetaObject::invokeMethod(window,"changeMode",Q_ARG(QVariant,QStringLiteral("paper"))); QTest::qWait(600);
+        auto* scroller = qobject_cast<QQuickItem*>(find("homeScroller"));
+        check("probe_scroller", scroller != nullptr);
+        const double dpr = window->devicePixelRatio();
+        report.insert("dpr", dpr);
+        if (scroller) { scroller->setProperty("contentY", 0.0); QTest::qWait(300); }
+        screenshot("probe-top");
+        const double snapY = std::round(200.0 * dpr) / dpr;
+        const double halfY = snapY + 0.5 / dpr;
+        if (scroller) { scroller->setProperty("contentY", snapY); QTest::qWait(300); }
+        screenshot("probe-scrolled-snap");
+        if (scroller) { scroller->setProperty("contentY", halfY); QTest::qWait(300); }
+        screenshot("probe-scrolled-half");
+        report.insert("snap_contentY", snapY); report.insert("half_contentY", halfY);
+        report.insert("checks", checks); report.insert("qml_warnings", QJsonArray::fromStringList(warnings));
+        bool probeOk = warnings.isEmpty(); for (const auto& item : checks) probeOk = probeOk && item.toObject().value("ok").toBool();
+        report.insert("ok", probeOk); writeReport(); window->close(); return probeOk ? 0 : 1;
     }
     if (args[3] == "search-home" || args[3] == "search-home-live" || args[3] == "hanging-home" || args[3] == "hanging-home-live" || args[3] == "bravais" || args[3] == "live-bravais") {
         #include "visual_search_home.h"
@@ -531,7 +581,7 @@ int main(int argc, char** argv) {
         check("confirmed_login_updates_profile", waitFor([&] { return account.loggedIn() && account.username() == QStringLiteral("纸页听众"); }, 6000));
         check("personal_playlists_loaded", waitFor([&] { return library.playlists().size() == 2; }, 5000));
         click(window,find("settingsClose")); QTest::qWait(200); screenshot("sidebar-1280x850-loggedin");
-        window->resize(900,620);QTest::qWait(300);check("sidebar_personal_list_still_visible_900",quick("sidebarPlaylists")&&quick("sidebarPlaylists")->height()>=28);screenshot("sidebar-900x620-loggedin");
+        window->resize(900,620);QTest::qWait(300);check("sidebar_personal_list_not_duplicated_900",!find("sidebarPlaylists")&&quick("libraryEntry")&&quick("libraryEntry")->isVisible());screenshot("sidebar-900x620-loggedin");
         window->resize(1280,850);click(window,find("sidebarUser"));QTest::qWait(200);
         check("daily_recommendation_and_public_collections", waitFor([&] { return !home.loading() && home.playlists().size() == 2 && music.feed().size() == 2; }, 5000));
         check("membership_initial_query", waitFor([&] { return !vip.loading() && vip.tier() == "none"; }, 5000));
@@ -826,11 +876,11 @@ int main(int argc, char** argv) {
         double previousSize = 0;
         for (const auto* name : {"lyricSizeS", "lyricSizeM", "lyricSizeL", "lyricSizeXL"}) {
             click(window, find("settingsButton"));
-            auto* settings = qobject_cast<QQuickItem*>(find("settingsPage"));
+            auto* settingsPage = qobject_cast<QQuickItem*>(find("settingsPage"));
             auto* option = qobject_cast<QQuickItem*>(find(name));
-            if (settings && option) {
+            if (settingsPage && option) {
                 const double sceneY = option->mapToScene(QPointF(0, option->height()/2)).y();
-                settings->setProperty("contentY", std::max(0.0, settings->property("contentY").toDouble() + sceneY - window->height()/2));
+                settingsPage->setProperty("contentY", std::max(0.0, settingsPage->property("contentY").toDouble() + sceneY - window->height()/2));
                 QTest::qWait(150);
             }
             click(window, find(name));
@@ -989,7 +1039,7 @@ int main(int argc, char** argv) {
     QTest::qWait(400);
     click(window, find("settingsOpenPaper"));
     check("paper_mode_returns", window->property("presentation").toString() == "paper" && find("paperSidebar")->property("visible").toBool());
-    click(window, find("playerEntry")); check("paper_player_render", screenshot("paper-player"));
+    click(window, find("playerCoverButton")); check("paper_player_render", screenshot("paper-player"));
     click(window, find("settingsButton"));
     check("settings_route", window->property("route").toString() == "settings" && find("settingsPage") != nullptr);
     check("settings_render", screenshot("settings"));
@@ -1011,7 +1061,7 @@ int main(int argc, char** argv) {
     check("loop_cycles_back_to_list", music.loopMode() == QLatin1String("list"));
     click(window, find("favoriteButton"));
     check("favorite_untoggles", !music.favorite());
-    click(window, find("playerEntry"));
+    click(window, find("playerCoverButton"));
     for (const auto& line : music.lyrics()) {
         const auto cue = line.toMap();
         if (cue.value("time").toLongLong() >= 40000 && cue.value("text").toString().size() < 60) {

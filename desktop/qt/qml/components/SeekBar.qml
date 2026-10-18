@@ -46,6 +46,7 @@ RowLayout {
             Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
             layer.enabled: Theme.hasShadow(1)
             layer.effect: ShadowEffect { level: 1 }
+            PixelSnap.fit: true
         }
     }
     Time { visible: root.showTimes; text: Theme.time(music.duration) }
