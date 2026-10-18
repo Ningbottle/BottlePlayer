@@ -23,13 +23,14 @@ Item {
     property bool followPlayback: true
     property bool positioning: false
     property bool modelReady: false
-    readonly property bool hasLyrics: music.lyrics.length > 0
+    readonly property bool hasLyrics: lyricModel.count > 0
     ListModel { id: lyricModel }
     LyricGeometry { id: lyricGeometry }
     property real displayPosition: music.position
     property double sampledAt: Date.now()
     function sampleClock() { displayPosition = music.position; sampledAt = Date.now() }
     Timer {
+        objectName: "lyricFillClock"
         interval: 33; repeat: true
         running: root.visible && root.Window.window && root.Window.window.active && root.Window.window.visibility !== Window.Minimized && root.hasLyrics && music.playing && !music.loading && !music.reducedMotion
         onTriggered: root.displayPosition = music.position + Math.max(0, Math.min(200, Date.now() - root.sampledAt))
@@ -37,7 +38,14 @@ Item {
     function syncLyrics() {
         modelReady = false
         lyricModel.clear()
-        for (const row of music.lyrics) lyricModel.append({ lyric: String(row.text || ""), translated: String(row.translation || ""), timestamp: Number(row.time), timedWords: JSON.stringify(row.words || []) })
+        // Detach Qt's reference sequence while handling lyricsChanged. Reading
+        // an alias's length/index would otherwise call its C++ getter again.
+        // The fill clock only needs this row's cached boundary.
+        const rows = music.lyrics.slice()
+        for (let index = 0; index < rows.length; ++index) {
+            const row = rows[index]
+            lyricModel.append({ lyric: String(row.text || ""), translated: String(row.translation || ""), timestamp: Number(row.time), nextTimestamp: index + 1 < rows.length ? Number(rows[index + 1].time) : -1, timedWords: JSON.stringify(row.words || []) })
+        }
         modelReady = true
         reflow.restart()
     }
@@ -109,6 +117,7 @@ Item {
             required property string lyric
             required property string translated
             required property real timestamp
+            required property real nextTimestamp
             required property string timedWords
             required property int index
             objectName: "lyricLine_" + index
@@ -127,6 +136,7 @@ Item {
             Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : 280 } }
             Item {
                 id: words
+                objectName: "lyricFill_" + line.index
                 x: root.immersive ? 0 : Theme.s3; y: root.immersive ? 0 : Theme.s1
                 width: parent.width - x * 2
                 readonly property real gap: root.immersive ? 10 : 6
@@ -163,7 +173,7 @@ Item {
                 readonly property var shaped: line.activeLine ? lyricGeometry.shape(line.lyric, lyricText.font, lyricText.width, root.immersive ? root.textSize * 1.22 : root.textSize * 1.5) : []
                 readonly property real fillCursor: {
                     if (!line.activeLine) return 0
-                    const next = line.index + 1 < music.lyrics.length ? Number(music.lyrics[line.index + 1].time) : Math.max(line.timestamp + 4000, music.duration)
+                    const next = line.nextTimestamp >= 0 ? line.nextTimestamp : Math.max(line.timestamp + 4000, music.duration)
                     const clock = root.displayPosition
                     if (!timing.length) return line.lyric.length * Math.max(0, Math.min(1, (clock - line.timestamp) / Math.max(50, next - line.timestamp)))
                     var cursor = 0

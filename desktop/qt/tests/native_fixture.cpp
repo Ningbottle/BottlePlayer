@@ -178,14 +178,23 @@ Q_DECL_EXPORT void EchoHandleRequest(const char* methodRaw, const char* pathRaw,
                 response = {{"status", 1}};
             }
         } else if (path == "/song/url") {
+            auto data = options.value("song_metadata").toObject();
+            data.insert("backup_url", options.value("backup_url"));
+            data.insert("available_qualities", QJsonArray{QJsonObject{{"quality", "128"}}, QJsonObject{{"quality", "320"}}, QJsonObject{{"quality", "flac"}}});
             response = {{"status", 1}, {"url", options.value("audio_url").toString("http://127.0.0.1:1/fixture.wav")},
-                {"quality", query.value("quality").toString("128")}, {"data", QJsonObject{{"backup_url",options.value("backup_url")},{"available_qualities", QJsonArray{QJsonObject{{"quality", "128"}}, QJsonObject{{"quality", "320"}}, QJsonObject{{"quality", "flac"}}}}}}};
+                {"quality", query.value("quality").toString("128")}, {"data", data}};
         } else if (path == "/search/lyric") response = {{"status", 1}, {"candidates", QJsonArray{QJsonObject{{"id", "fixture-cue"}, {"accesskey", "fixture-key"}}}}};
         else if (path == "/lyric") response = {{"status", 1}, {"lyric", QStringLiteral("[00:00.00]<00:00.00>窗边<00:02.00>传来轻轻的旋律\n[00:04.00]把这一刻留在纸页里\n[00:08.00]风吹过安静的街道\n[00:12.00]我们听见时间的回音\n[00:16.00]一首歌陪伴漫长旅途\n[00:20.00]让心事慢慢舒展开来\n[00:24.00]故事还在继续")}};
         else if (path == "/search" && query.value("keywords").toString() == "__bottle_search_error__")
             response = {{"status",0}};
         else if (path == "/search" && query.value("keywords").toString() == "__bottle_no_match__")
             response = {{"status",1},{"data",QJsonObject{{"info",QJsonArray{}},{"total",0}}}};
+        else if (path == "/search" && options.value("search_batches").isArray()) {
+            const auto batches = options.value("search_batches").toArray();
+            const int page = query.value("page").toInt(1) - 1;
+            const auto rows = page >= 0 && page < batches.size() ? batches[page].toArray() : QJsonArray{};
+            response = {{"status",1},{"data",QJsonObject{{"info",rows},{"total",options.value("search_total").toInt()}}}};
+        }
         else response = {{"status", 1}, {"data", QJsonObject{{"info", QJsonArray{track(1), track(2)}}}}};
     }
     *output = copy(QJsonDocument(QJsonObject{{"status", 200}, {"body", response}}).toJson(QJsonDocument::Compact));

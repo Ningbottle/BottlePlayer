@@ -3,9 +3,11 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+from native_boundary import check_native_boundary
 
 root = Path(__file__).resolve().parents[1]
 errors = []
+errors.extend(check_native_boundary(root / 'native'))
 for relative in ('ui', 'server', 'desktop/host', '.gitmodules', 'package.json', 'Cargo.toml'):
     if (root / relative).exists():
         errors.append(f'Inactive source entry remains: {relative}')

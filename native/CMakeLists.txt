@@ -2,6 +2,9 @@ cmake_minimum_required(VERSION 3.24)
 
 project(BottleMusicNative VERSION 1.1.0 LANGUAGES CXX)
 
+include(cmake/NoQtDependencies.cmake)
+echo_native_guard_no_qt()
+
 option(ECHO_NATIVE_BUILD_TESTS "Build native smoke tests" ON)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -276,6 +279,12 @@ target_link_libraries(EchoCAPI PUBLIC EchoCore)
 
 if(ECHO_NATIVE_BUILD_TESTS)
   enable_testing()
+
+  add_test(NAME EchoNoQtDependenciesTest COMMAND "${CMAKE_COMMAND}"
+    "-DGUARD_FILE=${CMAKE_CURRENT_SOURCE_DIR}/cmake/NoQtDependencies.cmake"
+    "-DTEST_BINARY_DIR=${CMAKE_CURRENT_BINARY_DIR}/no-qt-fixtures"
+    "-DTEST_GENERATOR=${CMAKE_GENERATOR}"
+    -P "${CMAKE_CURRENT_SOURCE_DIR}/tests/no_qt_dependencies_test.cmake")
 
   add_executable(EchoIdentityCommitTest tests/identity_commit_test.cpp)
   target_link_libraries(EchoIdentityCommitTest PRIVATE EchoCore)

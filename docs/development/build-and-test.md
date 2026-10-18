@@ -18,17 +18,30 @@
 
 此命令先构建 `output/native-build` 的后端和测试，再构建 `output/qt-build` 的 Qt 应用与测试，并复制原生运行库、字体、图标和许可。也可用 `-NativeBuildDirectory`、`-QtBuildDirectory` 选择新的输出目录。
 
+只构建后端时不需要 Qt SDK：
+
+```powershell
+./tools/build-native.ps1
+./tools/test.ps1 -NativeOnly
+```
+
+CI 先运行仓库检查和 Native 构建/测试，再安装 Qt 并构建界面。这使后端无 Qt 依赖成为可执行约束。
+
 脚本自动加载 MSVC 环境，并在 CMake 和 Ninja 启动前设置 UTF-8 控制台，防止本地化 `/showIncludes` 前缀损坏导致头文件依赖漏跟踪。遇到旧缓存前缀损坏时使用新的构建目录。`tools/build-qt.ps1` 是已具备原生运行库时的高级入口，可单独指定 `-ShaderToolsRoot` 和 `-NativeDirectory`。
 
 ## 自动测试
 
 ```powershell
 python tools/check-repository.py
+python tools/tests/test_native_boundary.py
 ./tools/test.ps1 -QtRoot C:/Qt/6.8.3/msvc2022_64
 git diff --check
 ```
 
 默认运行原生 CTest 和 Qt 契约测试，排除依赖现场音频设备的 `qt_audio_runtime`。契约测试使用临时目录，不访问日常 profile。
+已经验证后端时可用 `-QtOnly` 单独运行 Qt 契约。`qt_lyric_bindings` 直接加载真实歌词组件，检查进度更新不再读取整首歌词，并覆盖逐字时间、末行回退、点击定位和时钟启停。`qt_music_flows` 检查队列投影、索引/模式/等待通知、歌词及元数据更新，并包含 2000 首队列 getter 微基准；它不代表实际窗口帧率。
+
+Qt 的属性引用序列赋给局部变量后仍可能反复调用 C++ getter。歌词在内容更新时用 `slice()` 分离快照；测试允许此时逐项读取，约束后续时钟更新不再读取整首歌词。相关新测试把 QtTest 文本保存到 Qt 构建目录的 `Testing/qt_music_flows.txt` 和 `Testing/qt_lyric_bindings.txt`；测试脚本在失败时输出本次生成的报告，保留断言位置和微基准结果。
 测试入口把 `TEMP`、`TMP` 和 `ECHO_NATIVE_DATA_DIR` 统一指向新的 `output/test-profiles/` 子目录，避免继承受限临时路径或默认应用数据目录；退出后恢复调用者环境。
 
 连接目标输出设备后增加 `-IncludeAudio`。真实网络音频和推荐测试还需显式设置 `BOTTLE_LIVE_NATIVE_DLL`，这些检查不计入普通 CI 的已验证范围。查看测试输出中的跳过项，不能将“通过但跳过现场项目”描述为耳机或在线链路已验收。

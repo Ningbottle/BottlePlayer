@@ -31,6 +31,8 @@ MediaIntegration::MediaIntegration(MusicController& music, QObject* parent) : QO
     QCoreApplication::instance()->installNativeEventFilter(this);
     connect(&music_, &MusicController::playbackChanged, this, &MediaIntegration::update);
     connect(&music_, &MusicController::queueChanged, this, &MediaIntegration::update);
+    connect(&music_, &MusicController::queueIndexChanged, this, &MediaIntegration::update);
+    connect(&music_, &MusicController::radioChanged, this, &MediaIntegration::update);
 }
 MediaIntegration::~MediaIntegration() {
     QCoreApplication::instance()->removeNativeEventFilter(this);

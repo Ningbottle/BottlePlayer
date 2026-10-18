@@ -17,7 +17,7 @@ class MusicController final : public QObject {
     Q_PROPERTY(QVariantList queue READ queue NOTIFY queueChanged)
     Q_PROPERTY(QVariantMap hero READ hero NOTIFY heroChanged)
     Q_PROPERTY(QVariantMap current READ current NOTIFY playbackChanged)
-    Q_PROPERTY(int queueIndex READ queueIndex NOTIFY queueChanged)
+    Q_PROPERTY(int queueIndex READ queueIndex NOTIFY queueIndexChanged)
     Q_PROPERTY(int searchTotal READ searchTotal NOTIFY searchChanged)
     Q_PROPERTY(QString searchTerm READ searchTerm NOTIFY searchChanged)
     Q_PROPERTY(QString searchError READ searchError NOTIFY searchChanged)
@@ -25,8 +25,8 @@ class MusicController final : public QObject {
     Q_PROPERTY(bool ready READ ready NOTIFY statusChanged)
     Q_PROPERTY(bool loading READ loading NOTIFY playbackChanged)
     Q_PROPERTY(bool playing READ playing NOTIFY playbackChanged)
-    Q_PROPERTY(bool radio READ radio NOTIFY queueChanged)
-    Q_PROPERTY(bool radioPending READ radioPending NOTIFY queueChanged)
+    Q_PROPERTY(bool radio READ radio NOTIFY radioChanged)
+    Q_PROPERTY(bool radioPending READ radioPending NOTIFY radioPendingChanged)
     Q_PROPERTY(bool preview READ preview NOTIFY playbackChanged)
     Q_PROPERTY(QString quality READ quality WRITE setQuality NOTIFY playbackChanged)
     Q_PROPERTY(QString actualQuality READ actualQuality NOTIFY playbackChanged)
@@ -120,6 +120,7 @@ public:
     void setReducedMotion(bool value);
 signals:
     void feedChanged(); void searchChanged(); void queueChanged(); void heroChanged();
+    void queueIndexChanged(); void radioChanged(); void radioPendingChanged();
     void playbackChanged(); void positionChanged(); void durationChanged();
     void appearanceChanged(); void lyricsChanged(); void lyricIndexChanged(); void statusChanged();
     void loopModeChanged(); void favoriteChanged();
@@ -141,12 +142,19 @@ private:
     void finishListeningInterval();
     void finalizeSession(bool completed);
     void tracePlayback(const QString& event) const;
+    void updateQueueProjection(int previousIndex, bool previousRadio);
+    void updateLyricProjection();
+    void setQueueIndex(int index);
+    void setRadio(bool enabled);
+    void setRadioPending(bool pending);
     NativeGateway gateway_;
     QSettings settings_;
     QAudioOutput output_;
     QMediaPlayer player_;
     QVector<Track> feed_, search_, queue_;
     QVector<LyricCue> cues_;
+    // Read-only projections of the vectors above; business decisions never use these caches.
+    QVariantList feedProjection_, searchProjection_, queueProjection_, lyricProjection_;
     int queueIndex_ = -1, searchTotal_ = 0, searchPage_ = 0, lyricIndex_ = -1, lyricSize_ = 32;
     bool ready_ = false, loading_ = false, searching_ = false, radio_ = false, preview_ = false;
     bool vinyl_ = false, reducedMotion_ = false;

@@ -20,7 +20,11 @@ FocusScope {
     function move(step) { focusIndex = Math.max(0, Math.min(music.queue.length - 1, focusIndex + step)) }
     function activate(index) { if (index === focusIndex) music.playQueue(index); else focusIndex = index }
     onVisibleChanged: if (visible) focusIndex = Math.max(0, music.queueIndex)
-    Connections { target: music; function onQueueChanged() { root.focusIndex = Math.max(0, music.queueIndex) } }
+    Connections {
+        target: music
+        function onQueueChanged() { root.focusIndex = Math.max(0, music.queueIndex) }
+        function onQueueIndexChanged() { root.focusIndex = Math.max(0, music.queueIndex) }
+    }
     Accessible.role: Accessible.Dialog; Accessible.name: "播放队列封面架"
     Keys.onPressed: event => {
         if (event.key === Qt.Key_Left || event.key === Qt.Key_Right) { move(event.key === Qt.Key_Right ? 1 : -1); event.accepted = true }

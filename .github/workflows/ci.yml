@@ -25,7 +25,18 @@ jobs:
           python-version: '3.12'
       - name: Check repository boundaries and documentation
         run: python tools/check-repository.py
+      - name: Verify Native boundary source guard
+        run: python tools/tests/test_native_boundary.py
       - uses: ilammy/msvc-dev-cmd@0b201ec74fa43914dc39ae48a89fd1d8cb592756 # v1
+      - uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
+        with:
+          vcpkgGitCommitId: a0400024711b283056538ac19ced80b91a83c24c
+      - name: Install C++ dependencies
+        run: '& "$env:VCPKG_ROOT/vcpkg.exe" install --triplet=x64-windows --x-manifest-root=native --x-install-root=native/vcpkg_installed'
+      - name: Build native backend without Qt SDK
+        run: ./tools/build-native.ps1
+      - name: Run native contracts before installing Qt
+        run: ./tools/test.ps1 -NativeOnly
       - uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4
         with:
           version: '6.8.3'
@@ -33,15 +44,10 @@ jobs:
           # SVG is included in the base Qt archives for this version.
           modules: qtmultimedia qtshadertools
           cache: true
-      - uses: lukka/run-vcpkg@b1a0dd252f06b9e25b3c022a9a03bd7a427fb6a2 # v11
-        with:
-          vcpkgGitCommitId: a0400024711b283056538ac19ced80b91a83c24c
-      - name: Install C++ dependencies
-        run: '& "$env:VCPKG_ROOT/vcpkg.exe" install --triplet=x64-windows --x-manifest-root=native --x-install-root=native/vcpkg_installed'
-      - name: Build native backend and Qt application
-        run: ./tools/build.ps1 -QtRoot $env:QT_ROOT_DIR
-      - name: Run native and Qt contracts (hardware audio verified separately)
-        run: ./tools/test.ps1 -QtRoot $env:QT_ROOT_DIR
+      - name: Build Qt application
+        run: ./tools/build-qt.ps1 -QtRoot $env:QT_ROOT_DIR -NativeDirectory "$PWD/output/native-build" -BuildDirectory output/qt-build
+      - name: Run Qt contracts (hardware audio verified separately)
+        run: ./tools/test.ps1 -QtRoot $env:QT_ROOT_DIR -QtOnly
       - name: Package portable application
         if: inputs.package == true
         run: ./tools/package.ps1 -QtRoot $env:QT_ROOT_DIR

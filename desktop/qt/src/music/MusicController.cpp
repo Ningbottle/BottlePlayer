@@ -52,6 +52,7 @@ MusicController::MusicController(QString dll, QString profile, QObject* parent)
             if (known > 0 && resumePosition_ >= known - 1000) resumePosition_ = 0;
         }
     }
+    queueProjection_ = variants(queue_);
     persistTimer_.setInterval(5000);
     connect(&persistTimer_, &QTimer::timeout, this, &MusicController::saveQueue);
     resumeDeadline_.setSingleShot(true); resumeDeadline_.setInterval(5000);
@@ -67,8 +68,9 @@ MusicController::MusicController(QString dll, QString profile, QObject* parent)
         if (qualitySwitchPending_) { quality_ = committedQuality_; qualitySwitchPending_ = false; }
         setMessage(QStringLiteral("音频加载超时，点击播放可重新获取音源")); emit playbackChanged();
     });
-    // The heart follows the current track, so every queue move re-reads it.
+    // Content replacement and selection changes can both change the heart.
     connect(this, &MusicController::queueChanged, this, &MusicController::favoriteChanged);
+    connect(this, &MusicController::queueIndexChanged, this, &MusicController::favoriteChanged);
     player_.setAudioOutput(&output_);
     connect(&player_, &QMediaPlayer::positionChanged, this, [this] {
         session_.position(player_.position(), player_.duration()); listenedMs_ = session_.listenedMilliseconds();
@@ -76,7 +78,11 @@ MusicController::MusicController(QString dll, QString profile, QObject* parent)
     });
     connect(&player_, &QMediaPlayer::durationChanged, this, [this] {
         if (player_.duration() > 0 && queueIndex_ >= 0 && queueIndex_ < queue_.size()) {
-            queue_[queueIndex_].duration = int(player_.duration() / 1000); emit queueChanged();
+            const auto duration = int(player_.duration() / 1000);
+            if (queue_[queueIndex_].duration != duration) {
+                queue_[queueIndex_].duration = duration;
+                updateQueueProjection(queueIndex_, radio_);
+            }
         }
         applyResume(); emit durationChanged();
     });
@@ -133,24 +139,52 @@ void MusicController::initialize() {
         if (ready_) refreshFeed();
     });
 }
-QVariantList MusicController::feed() const { return variants(feed_); }
-QVariantList MusicController::searchResults() const { return variants(search_); }
-QVariantList MusicController::queue() const { return variants(queue_); }
+QVariantList MusicController::feed() const { return feedProjection_; }
+QVariantList MusicController::searchResults() const { return searchProjection_; }
+QVariantList MusicController::queue() const { return queueProjection_; }
 QVariantMap MusicController::hero() const {
-    if (queueIndex_ >= 0 && queueIndex_ < queue_.size()) return queue_[queueIndex_].toVariant();
-    return feed_.isEmpty() ? QVariantMap{} : feed_.first().toVariant();
+    if (queueIndex_ >= 0 && queueIndex_ < queueProjection_.size()) return queueProjection_.at(queueIndex_).toMap();
+    return feedProjection_.isEmpty() ? QVariantMap{} : feedProjection_.first().toMap();
 }
 QVariantMap MusicController::current() const {
-    return queueIndex_ >= 0 && queueIndex_ < queue_.size() ? queue_[queueIndex_].toVariant() : QVariantMap{};
+    return queueIndex_ >= 0 && queueIndex_ < queueProjection_.size() ? queueProjection_.at(queueIndex_).toMap() : QVariantMap{};
 }
-QVariantList MusicController::lyrics() const {
+QVariantList MusicController::lyrics() const { return lyricProjection_; }
+void MusicController::updateLyricProjection() {
     QVariantList result;
+    result.reserve(cues_.size());
     for (const auto& cue : cues_) {
         QVariantList words;
+        words.reserve(cue.words.size());
         for (const auto& word : cue.words) words.append(QVariantMap{{"time", word.time}, {"end", word.end}, {"start", word.start}, {"length", word.length}});
         result.append(QVariantMap{{"time", cue.time}, {"text", cue.text}, {"translation", cue.translation}, {"words", words}});
     }
-    return result;
+    lyricProjection_ = std::move(result);
+    emit lyricsChanged();
+}
+void MusicController::updateQueueProjection(int previousIndex, bool previousRadio) {
+    auto projection = variants(queue_);
+    if (projection != queueProjection_) {
+        queueProjection_ = std::move(projection);
+        emit queueChanged();
+    }
+    if (previousIndex != queueIndex_) emit queueIndexChanged();
+    if (previousRadio != radio_) emit radioChanged();
+}
+void MusicController::setQueueIndex(int index) {
+    if (index == queueIndex_) return;
+    queueIndex_ = index;
+    emit queueIndexChanged();
+}
+void MusicController::setRadio(bool enabled) {
+    if (enabled == radio_) return;
+    radio_ = enabled;
+    emit radioChanged();
+}
+void MusicController::setRadioPending(bool pending) {
+    if (pending == radioPending_) return;
+    radioPending_ = pending;
+    emit radioPendingChanged();
 }
 QString MusicController::cue() const {
     return lyricIndex_ >= 0 && lyricIndex_ < cues_.size() ? cues_[lyricIndex_].text : QString{};
@@ -167,13 +201,13 @@ void MusicController::refreshFeed() {
         if (generation != feedGeneration_) return;
         const auto tracks = parseTracks(response);
         if (tracks.isEmpty()) { setMessage(QStringLiteral("推荐暂时无法加载，可重试或打开本地音乐")); return; }
-        feed_ = tracks; emit feedChanged(); emit heroChanged(); setMessage({});
+        feed_ = tracks; feedProjection_ = variants(feed_); emit feedChanged(); emit heroChanged(); setMessage({});
     });
 }
 void MusicController::setFeed(const QVariantList& rows) {
     QVector<Track> tracks;
     for (const auto& value : rows) { auto track = Track::fromJson(QJsonObject::fromVariantMap(value.toMap())); if (!track.hash.isEmpty()) tracks.append(std::move(track)); }
-    feed_ = std::move(tracks); emit feedChanged(); emit heroChanged();
+    feed_ = std::move(tracks); feedProjection_ = variants(feed_); emit feedChanged(); emit heroChanged();
 }
 void MusicController::search(const QString& term, bool more) {
     if (!ready_ || (more && searching_)) return;
@@ -182,7 +216,7 @@ void MusicController::search(const QString& term, bool more) {
     if (more && (cleaned != searchTerm_ || search_.size() >= searchTotal_)) return;
     gateway_.cancel(searchId_);
     const auto generation = ++searchGeneration_;
-    if (!more) { search_.clear(); searchTotal_ = 0; searchPage_ = 0; searchTerm_ = cleaned; }
+    if (!more) { search_.clear(); searchProjection_.clear(); searchTotal_ = 0; searchPage_ = 0; searchTerm_ = cleaned; }
     const auto page = searchPage_ + 1;
     searchError_.clear(); searching_ = true; emit searchChanged();
     searchId_ = gateway_.get("/search", {{"keywords", cleaned}, {"pagesize", 30}, {"page", page}}, this,
@@ -196,6 +230,7 @@ void MusicController::search(const QString& term, bool more) {
         QSet<QString> seen; for (const auto& track : search_) seen.insert(track.hash.toLower() + "|" + track.audioId);
         int added = 0;
         for (const auto& track : tracks) { const auto identity = track.hash.toLower() + "|" + track.audioId; if (seen.contains(identity)) continue; seen.insert(identity); search_.append(track); ++added; }
+        if (added) searchProjection_ = variants(search_);
         searchPage_ = page;
         searchTotal_ = std::max(static_cast<int>(search_.size()), response.value("data").toObject().value("total").toInt());
         if (tracks.isEmpty() || (page > 1 && added == 0)) searchTotal_ = static_cast<int>(search_.size());
@@ -205,14 +240,15 @@ void MusicController::search(const QString& term, bool more) {
 void MusicController::playFrom(const QString& source, int index) {
     const auto& tracks = source == "search" ? search_ : feed_;
     if (index < 0 || index >= tracks.size()) return;
-    cancelRadioRequest(); ++generation_; radio_ = false;
-    queue_ = tracks; queueIndex_ = index; emit queueChanged(); resolveCurrent();
+    cancelRadioRequest(); ++generation_; const bool previousRadio = radio_; radio_ = false;
+    const int previousIndex = queueIndex_;
+    queue_ = tracks; queueIndex_ = index; updateQueueProjection(previousIndex, previousRadio); resolveCurrent();
 }
 void MusicController::playQueue(int index) {
     if (index < 0 || index >= queue_.size()) return;
     if (!radio_) cancelRadioRequest();
     if (index == queueIndex_) { toggle(); return; }
-    queueIndex_ = index; emit queueChanged(); resolveCurrent();
+    setQueueIndex(index); resolveCurrent();
 }
 void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preserveSession, bool coldResume) {
     if (queueIndex_ < 0 || queueIndex_ >= queue_.size()) return;
@@ -225,7 +261,7 @@ void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preser
     if (!preserveSession) {
         backupUrls_.clear();
         player_.stop(); player_.setSource({}); listenedMs_ = 0; cues_.clear(); lyricIndex_ = -1; preview_ = false;
-        emit lyricsChanged(); emit lyricIndexChanged();
+        updateLyricProjection(); emit lyricIndexChanged();
     }
     resumePending_ = !preserveSession; resumePosition_ = std::max<qint64>(0, position);
     resumeDeadline_.stop(); emit playbackChanged(); emit heroChanged(); setMessage({}); saveQueue();
@@ -236,7 +272,7 @@ void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preser
         if (!QFileInfo(local.toLocalFile()).isFile()) { loading_ = false; resumePending_ = false; setMessage(QStringLiteral("本地音频文件已不存在")); emit playbackChanged(); return; }
         QFile lyricFile(QFileInfo(local.toLocalFile()).dir().filePath(QFileInfo(local.toLocalFile()).completeBaseName() + ".lrc"));
         if (lyricFile.open(QIODevice::ReadOnly)) cues_ = LyricTimeline::parseBilingual(QString::fromUtf8(lyricFile.readAll()));
-        actualQuality_ = "local"; availableQualities_.clear(); emit lyricsChanged(); emit lyricIndexChanged();
+        actualQuality_ = "local"; availableQualities_.clear(); updateLyricProjection(); emit lyricIndexChanged();
         player_.setSource(local); applyResume(); if (resumePending_) resumeDeadline_.start(); saveQueue(); return;
     }
     resolveId_ = gateway_.get("/song/url", {{"hash", track.hash}, {"album_id", track.albumId},
@@ -267,9 +303,10 @@ void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preser
         }
         auto metadata = Track::fromJson(data);
         auto& current = queue_[queueIndex_];
-        if (current.image.isEmpty() && !metadata.image.isEmpty()) current.image = metadata.image;
-        if (current.album.isEmpty() && !metadata.album.isEmpty()) current.album = metadata.album;
-        emit queueChanged(); emit heroChanged();
+        bool metadataChanged = false;
+        if (current.image.isEmpty() && !metadata.image.isEmpty()) { current.image = metadata.image; metadataChanged = true; }
+        if (current.album.isEmpty() && !metadata.album.isEmpty()) { current.album = metadata.album; metadataChanged = true; }
+        if (metadataChanged) { updateQueueProjection(queueIndex_, radio_); emit heroChanged(); }
         availableQualities_.clear();
         for (const auto& value : data.value("available_qualities").toArray()) {
             const auto option = value.toObject(); const auto key = option.value("quality").toString();
@@ -291,7 +328,7 @@ void MusicController::loadLyrics(const Track& track, quint64 generation) {
             [this, generation](const QJsonObject& detail) {
             if (generation != generation_) return;
             cues_ = LyricTimeline::parseBilingual(detail.value("lyric").toString());
-            emit lyricsChanged(); updateLyricIndex();
+            updateLyricProjection(); updateLyricIndex();
         });
     });
 }
@@ -323,7 +360,7 @@ void MusicController::step(int delta) {
     if (loopMode_ == QLatin1String("random") && count > 1) {
         do index = QRandomGenerator::global()->bounded(count); while (index == queueIndex_);
     }
-    queueIndex_ = index; emit queueChanged(); resolveCurrent();
+    setQueueIndex(index); resolveCurrent();
 }
 // usePlayerControls.cycleLoopMode: list → single → random, with its toast.
 void MusicController::cycleLoopMode() {
@@ -364,19 +401,19 @@ void MusicController::startRadio() {
 }
 void MusicController::cancelRadioRequest() {
     ++radioGeneration_; gateway_.cancel(radioId_); radioId_.clear();
-    radioPending_ = radioAdvancePending_ = false;
+    radioAdvancePending_ = false; setRadioPending(false);
 }
 void MusicController::stopRadio() {
-    cancelRadioRequest(); radio_ = false; emit queueChanged(); saveQueue();
+    cancelRadioRequest(); setRadio(false); saveQueue();
 }
 void MusicController::setAccount(const QString& account) {
     if (account_ == account) return;
     account_ = account; cancelRadioRequest();
-    if (radio_) clearQueue(); else emit queueChanged();
+    if (radio_) clearQueue();
 }
 void MusicController::radioNext() {
     if (queueIndex_ + 1 < queue_.size()) {
-        ++queueIndex_; emit queueChanged(); resolveCurrent();
+        setQueueIndex(queueIndex_ + 1); resolveCurrent();
         if (queue_.size() - queueIndex_ - 1 <= 2) fetchRadio(false);
         return;
     }
@@ -386,7 +423,7 @@ void MusicController::fetchRadio(bool starting, bool advance) {
     if (radioPending_) { radioAdvancePending_ = radioAdvancePending_ || advance; return; }
     if (!ready_ || (!starting && !radio_)) return;
     const auto owner = ++radioGeneration_;
-    radioPending_ = true; radioAdvancePending_ = advance; emit queueChanged();
+    radioAdvancePending_ = advance; setRadioPending(true);
     finishListeningInterval();
     const int remain = starting ? 0 : std::max(0, int(queue_.size()) - queueIndex_ - 1);
     QJsonObject query{{"action", "play"}, {"remain_songcnt", remain}, {"is_overplay", remain == 0 ? 1 : 0}};
@@ -397,33 +434,35 @@ void MusicController::fetchRadio(bool starting, bool advance) {
     }
     radioId_ = gateway_.get("/personal/fm", query, this, [this, owner, starting](const QJsonObject& response) {
         if (owner != radioGeneration_ || (!starting && !radio_)) return;
-        radioId_.clear(); radioPending_ = false;
+        radioId_.clear(); const bool wasPending = std::exchange(radioPending_, false);
         const bool advance = std::exchange(radioAdvancePending_, false);
         auto tracks = parseTracks(response);
         QSet<QString> seen;
         if (!starting) for (const auto& track : std::as_const(queue_)) seen.insert(track.hash.toUpper());
         QVector<Track> fresh;
         for (auto& track : tracks) if (!seen.contains(track.hash.toUpper())) { seen.insert(track.hash.toUpper()); fresh.append(std::move(track)); }
-        if (fresh.isEmpty()) { emit queueChanged(); setMessage(QStringLiteral("暂时没有新的红心推荐，可稍后点击下一首重试")); return; }
-        if (starting) { radio_ = true; queue_ = std::move(fresh); queueIndex_ = 0; emit queueChanged(); resolveCurrent(); return; }
+        if (fresh.isEmpty()) { if (wasPending) emit radioPendingChanged(); setMessage(QStringLiteral("暂时没有新的红心推荐，可稍后点击下一首重试")); return; }
+        const int previousIndex = queueIndex_;
+        if (starting) { const bool previousRadio = radio_; radio_ = true; queue_ = std::move(fresh); queueIndex_ = 0; updateQueueProjection(previousIndex, previousRadio); if (wasPending) emit radioPendingChanged(); resolveCurrent(); return; }
         queue_ += fresh;
         // Keep a bounded recent history without discarding unplayed recommendations.
         if (queueIndex_ > 100) { const int trim = queueIndex_ - 100; queue_.remove(0, trim); queueIndex_ -= trim; }
-        emit queueChanged(); saveQueue();
-        if (advance && queueIndex_ + 1 < queue_.size()) { ++queueIndex_; emit queueChanged(); resolveCurrent(); }
+        updateQueueProjection(previousIndex, radio_); if (wasPending) emit radioPendingChanged(); saveQueue();
+        if (advance && queueIndex_ + 1 < queue_.size()) { setQueueIndex(queueIndex_ + 1); resolveCurrent(); }
     });
 }
 void MusicController::openLocal(const QUrl& file) {
     if (!file.isLocalFile() || !QFileInfo(file.toLocalFile()).isFile()) return;
-    cancelRadioRequest(); radio_ = false;
+    cancelRadioRequest(); const bool previousRadio = radio_; radio_ = false;
     Track track; track.hash = file.toString(); track.title = QFileInfo(file.toLocalFile()).completeBaseName();
     const QFileInfo local(file.toLocalFile());
     const QString sidecarBase = local.dir().filePath(local.completeBaseName());
     for (const auto& cover : {sidecarBase + ".jpg", sidecarBase + ".png", local.dir().filePath("cover.jpg")}) {
         if (QFileInfo(cover).isFile()) { track.image = QUrl::fromLocalFile(cover).toString(); break; }
     }
+    const int previousIndex = queueIndex_;
     track.artist = QStringLiteral("本地音乐"); queue_ = {track}; queueIndex_ = 0;
-    emit queueChanged(); resolveCurrent();
+    updateQueueProjection(previousIndex, previousRadio); resolveCurrent();
 }
 void MusicController::playTracks(const QVariantList& values, int index) {
     if (index < 0 || index >= values.size()) return;
@@ -434,8 +473,9 @@ void MusicController::playTracks(const QVariantList& values, int index) {
         if (track.hash.isEmpty()) return; // Never silently change the clicked row's index.
         tracks.append(std::move(track));
     }
-    cancelRadioRequest(); radio_ = false; queue_ = std::move(tracks); queueIndex_ = index;
-    emit queueChanged(); resolveCurrent();
+    cancelRadioRequest(); const bool previousRadio = radio_; radio_ = false; const int previousIndex = queueIndex_;
+    queue_ = std::move(tracks); queueIndex_ = index;
+    updateQueueProjection(previousIndex, previousRadio); resolveCurrent();
 }
 bool MusicController::enqueueTrack(const QVariantMap& value) {
     if (radio_ || queue_.size() >= 2000) return false;
@@ -444,7 +484,7 @@ bool MusicController::enqueueTrack(const QVariantMap& value) {
     for (const auto& queued : queue_) if (queued.hash == track.hash) return true;
     queue_.append(std::move(track));
     // Adding a future song must not reset the current source, clock or session.
-    emit queueChanged(); saveQueue();
+    updateQueueProjection(queueIndex_, radio_); saveQueue();
     return true;
 }
 void MusicController::finishListeningInterval() {
@@ -508,25 +548,30 @@ void MusicController::removeQueue(int index) {
     if (radio_ || index < 0 || index >= queue_.size()) return;
     if (queue_.size() == 1) { clearQueue(); return; }
     const bool removedCurrent = index == queueIndex_; const bool autoplay = playing() || (loading_ && desiredPlay_);
+    const int previousIndex = queueIndex_;
     queue_.removeAt(index);
     if (index < queueIndex_) --queueIndex_;
     else if (removedCurrent) queueIndex_ = std::min(queueIndex_, int(queue_.size()) - 1);
-    emit queueChanged();
+    updateQueueProjection(previousIndex, radio_);
     if (removedCurrent) resolveCurrent(0, autoplay); else saveQueue();
 }
 void MusicController::moveQueue(int from, int to) {
     if (radio_ || from < 0 || to < 0 || from >= queue_.size() || to >= queue_.size() || from == to) return;
+    const int previousIndex = queueIndex_;
     queue_.move(from, to);
     if (queueIndex_ == from) queueIndex_ = to;
     else if (from < queueIndex_ && to >= queueIndex_) --queueIndex_;
     else if (from > queueIndex_ && to <= queueIndex_) ++queueIndex_;
-    emit queueChanged(); saveQueue();
+    updateQueueProjection(previousIndex, radio_); saveQueue();
 }
 void MusicController::clearQueue() {
     finalizeSession(false); ++generation_; gateway_.cancel(resolveId_); gateway_.cancel(lyricId_); cancelRadioRequest();
     loading_ = true; player_.stop(); player_.setSource({}); resumeDeadline_.stop(); loadDeadline_.stop();
+    const int previousIndex = queueIndex_;
+    const bool previousRadio = radio_;
     queue_.clear(); queueIndex_ = -1; radio_ = false; preview_ = false; resumePending_ = false; resumePosition_ = 0;
-    cues_.clear(); lyricIndex_ = -1; loading_ = false; emit queueChanged(); emit lyricsChanged(); emit lyricIndexChanged(); emit playbackChanged(); emit positionChanged(); saveQueue();
+    cues_.clear(); lyricProjection_.clear(); lyricIndex_ = -1; loading_ = false;
+    updateQueueProjection(previousIndex, previousRadio); emit lyricsChanged(); emit lyricIndexChanged(); emit playbackChanged(); emit positionChanged(); saveQueue();
 }
 void MusicController::updateLyricIndex() {
     const auto index = LyricTimeline::indexAt(cues_, player_.position());
