@@ -119,7 +119,11 @@ void SetStopReason(HttpResult& result, const std::atomic_bool* cancelled) {
 long BoundToRouteBudget(long requested) {
   const auto deadline = std::min(t_routeDeadline, execution::currentOperation.deadline);
   if (deadline == std::chrono::steady_clock::time_point::max()) return requested;
-  const auto left = static_cast<long>(std::chrono::duration_cast<std::chrono::milliseconds>(
+  // Round up, not down: request-side timeouts and the watchdog must land at or
+  // after the route deadline so the route check wins the classification. A
+  // truncated slice could expire a hair early and misreport route-budget
+  // exhaustion as a request timeout or cancellation.
+  const auto left = static_cast<long>(std::chrono::ceil<std::chrono::milliseconds>(
       deadline - std::chrono::steady_clock::now()).count());
   return std::min(requested, std::max(1L, left));
 }
