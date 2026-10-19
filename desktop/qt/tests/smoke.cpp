@@ -587,7 +587,11 @@ int main(int argc, char** argv) {
         check("membership_initial_query", waitFor([&] { return !vip.loading() && vip.tier() == "none"; }, 5000));
         vip.claim(); check("membership_claim_confirmed", waitFor([&] { return !vip.busy() && vip.tier() == "premium"; }, 5000));
         screenshot("qt-account-signed-in");
-        click(window, find("settingsClose")); click(window, find("libraryEntry"));
+        click(window, find("settingsClose"));
+        const auto routeBeforeLibrary = window->property("route").toString();
+        click(window, find("libraryEntry"));
+        check("library_entry_expands_in_place", window->property("route").toString() == routeBeforeLibrary);
+        window->setProperty("route", QStringLiteral("library")); QTest::qWait(200);
         check("personal_library_route", window->property("route").toString() == "library" && find("libraryPage"));
         screenshot("qt-personal-library");
         click(window, find("userPlaylist_0"));

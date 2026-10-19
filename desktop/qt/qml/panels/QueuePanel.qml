@@ -6,6 +6,8 @@ Item {
     id: root
     objectName: "queuePanel"
     property bool wall: false
+    property bool shown: true
+    property real preferredWidth: 390
     readonly property color ink: wall ? Theme.wallChromeInk : Theme.text
     readonly property color muted: wall ? Theme.wallChromeMuted : Theme.text3
     readonly property real cardWidth: panel.width
@@ -30,14 +32,25 @@ Item {
     MouseArea { anchors.fill: parent; onClicked: root.close() }
     Plate {
         id: panel; objectName: "queuePanelCard"; anchors.right: parent.right; anchors.rightMargin: 12; y: 12
-        opacity: 0; scale: 0.97
-        Component.onCompleted: panelIn.start()
+        // Springs up from the queue button corner; plays out before unload.
+        transformOrigin: Item.BottomRight
+        opacity: 0; scale: 0.94
+        transform: Translate { id: drift; y: 32 }
+        Component.onCompleted: if (root.shown) panelIn.start()
+        Connections { target: root; function onShownChanged() { root.shown ? panelIn.restart() : panelOut.restart() } }
+        ParallelAnimation {
+            id: panelOut
+            NumberAnimation { target: panel; property: "opacity"; to: 0; duration: music.reducedMotion ? 0 : Theme.durQueueOut; easing.type: Easing.InCubic }
+            NumberAnimation { target: panel; property: "scale"; to: 0.96; duration: music.reducedMotion ? 0 : Theme.durQueueOut; easing.type: Easing.InCubic }
+            NumberAnimation { target: drift; property: "y"; to: 24; duration: music.reducedMotion ? 0 : Theme.durQueueOut; easing.type: Easing.InCubic }
+        }
         ParallelAnimation {
             id: panelIn
-            NumberAnimation { target: panel; property: "opacity"; to: 1; duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
-            NumberAnimation { target: panel; property: "scale"; to: 1; duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
+            NumberAnimation { target: panel; property: "opacity"; to: 1; duration: music.reducedMotion ? 0 : Theme.durQueueIn * 0.6; easing.type: Easing.OutCubic }
+            NumberAnimation { target: panel; property: "scale"; to: 1; duration: music.reducedMotion ? 0 : Theme.durQueueIn; easing.type: Easing.OutBack; easing.overshoot: 0.9 }
+            NumberAnimation { target: drift; property: "y"; to: 0; duration: music.reducedMotion ? 0 : Theme.durQueueIn; easing.type: Easing.OutBack; easing.overshoot: 0.9 }
         }
-        width: Math.min(400, parent.width - 24); height: parent.height - 24
+        width: Math.min(root.preferredWidth, parent.width - 24); height: parent.height - 24
         radius: root.wall ? 16 : Theme.rLg; color: root.wall ? Theme.wallChromeSurface : Theme.bgElevated; borderColor: root.wall ? "transparent" : Theme.borderStrong; elevation: root.wall ? 3 : 0
         MouseArea { anchors.fill: parent }
         Column {
@@ -146,9 +159,9 @@ Item {
                 }
                 contentItem: Item {
                     id: cell
-                    Cover { x: 10; anchors.verticalCenter: parent.verticalCenter; width: 36; height: 36; radius: Theme.rSm; url: row.modelData.image || ""; pixels: 80 }
+                    Cover { x: 10; anchors.verticalCenter: parent.verticalCenter; width: Theme.compactList ? 40 : 44; height: width; radius: Theme.rSm; url: row.modelData.image || ""; pixels: 80 }
                     Column {
-                        x: 56; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 122; spacing: 4
+                        x: 10 + (Theme.compactList ? 40 : 44) + Theme.s3; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 122; spacing: 4
                         CssText { width: parent.width; text: row.modelData.title; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: root.wall ? Theme.fontUi : Theme.fontTitle; font.pixelSize: Theme.fsMd; color: root.wall ? root.ink : row.modelData.queueIndex === music.queueIndex ? Theme.seal : Theme.text }
                         CssText { width: parent.width; text: row.modelData.artist; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; color: root.muted }
                     }
