@@ -323,12 +323,16 @@ Item {
                                     contentItem: Item {
                                         Row {
                                             id: radioRow; anchors.centerIn: parent; spacing: Theme.rem(0.5)
-                                            Icon { name: "heart"; filled: true; size: Theme.rem(1); color: Theme.radioAccent; anchors.verticalCenter: parent.verticalCenter }
+                                            // Centre the heart on the CJK ideographic box (≈0.4em above the
+                                            // baseline), not on the line box, then snap to device pixels.
+                                            Icon {
+                                                name: "heart"; filled: true; size: Theme.rem(1); color: Theme.radioAccent
+                                                y: Math.round((radioLabel.baselineOffset - radioLabel.font.pixelSize * 0.4 - height / 2) * Theme.dpr) / Theme.dpr
+                                            }
                                             Text {
-                                                id: radioLabel; anchors.verticalCenter: parent.verticalCenter
+                                                id: radioLabel
                                                 text: radioStart.active ? "退出红心推荐" : music.radioPending ? "取消准备推荐" : "开启红心推荐"; color: Theme.radioAccent
-                                                font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.75)); font.weight: Theme.fwMedium
-                                                lineHeightMode: Text.FixedHeight; lineHeight: Math.round(Theme.rem(0.75) * 1.4)
+                                                font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; font.weight: Theme.fwMedium
                                             }
                                         }
                                     }
@@ -336,8 +340,8 @@ Item {
                                 Text {
                                     topPadding: Theme.rem(0.6)
                                     text: "先听公共推荐 · 登录后使用账号推荐"; color: Theme.text3
-                                    font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.7))
-                                    lineHeightMode: Text.FixedHeight; lineHeight: Math.round(Theme.rem(0.7) * 1.6)
+                                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
+                                    lineHeightMode: Text.FixedHeight; lineHeight: Math.round(Theme.fsXs * 1.5)
                                 }
                             }
                         }

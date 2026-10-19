@@ -10,6 +10,10 @@ Item {
     property real viewportWidth: width
     property real viewportHeight: height
     property bool queueOpen: false
+    // Width the docked queue card takes from the right edge; the card grid
+    // gives it up so cover and lyrics slide left together.
+    property real queueReserve: 0
+    Behavior on queueReserve { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durQueueIn; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand } }
     property bool editing: false
     property bool shelfOpen: false
     property bool toolsAwake: true
@@ -95,7 +99,7 @@ Item {
     Item {
         id: grid; objectName: "playerCardGrid"; visible: root.hasTrack
         x: root.narrow ? Theme.s4 : Theme.s8; y: Theme.s4
-        width: parent.width - x * 2
+        width: parent.width - x * 2 - Math.max(0, root.queueReserve + Theme.s4 - x)
         height: Math.max(0, parent.height - y - Theme.controlSm - Theme.s3 * 2)
         readonly property real cellWidth: Math.max(0, (width - root.gridGap * 11) / 12)
         readonly property real cellHeight: Math.max(0, (height - root.gridGap * 5) / 6)

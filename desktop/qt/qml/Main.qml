@@ -29,7 +29,14 @@ ApplicationWindow {
     property bool listeningOpen: false
     property bool queueExpanded: false
     property string bravaisTab: "playlists"
-    onListeningOpenChanged: if (!listeningOpen) queueExpanded = false
+    // Keep the queue card alive for its exit animation after it closes.
+    property bool queueLingering: false
+    readonly property real queueCardWidth: Math.round(Theme.clamp(320, main.width * 0.28, 390))
+    onListeningOpenChanged: {
+        if (listeningOpen) { queueLinger.stop(); queueLingering = false; return }
+        if (queueLoader.item && queueLoader.item.objectName === "queuePanel") { queueLingering = true; queueLinger.restart() }
+        queueExpanded = false
+    }
     readonly property bool bravaisHomeScene: curtainScene && route === "home" && !immersive
     property bool immersive: false
     onImmersiveChanged: if (immersive) cancelCoverFlight()
@@ -379,6 +386,7 @@ ApplicationWindow {
         id: playerPage
         PlayerPage {
             viewportWidth: window.width; viewportHeight: window.height; queueOpen: window.listeningOpen
+            queueReserve: window.listeningOpen && queueLoader.item && queueLoader.item.objectName === "queuePanel" ? queueLoader.item.cardWidth + 12 : 0
             onBack: window.goBack(); onOpenHome: window.go("home"); onOpenSearch: window.go("search")
             onOpenImmersive: window.enterImmersive(true); onToggleQueue: window.listeningOpen = !window.listeningOpen
         }
@@ -479,12 +487,13 @@ ApplicationWindow {
     }
     Loader {
         id: queueLoader
-        active: window.listeningOpen
+        active: window.listeningOpen || window.queueLingering
         x: window.immersive ? 0 : main.x; y: window.immersive ? 48 : window.bravaisHomeScene ? Theme.wallBarH : main.y
         width: window.immersive ? window.width : main.width
         height: window.immersive ? window.height - 124 : main.height-(window.bravaisHomeScene?Theme.wallBarH:0); z: 20
-        sourceComponent: window.queueExpanded || (window.browseChrome && !window.immersive) ? queuePanel : listeningPanel
+        sourceComponent: window.queueExpanded || window.queueLingering || (window.browseChrome && !window.immersive) ? queuePanel : listeningPanel
     }
+    Timer { id: queueLinger; interval: music.reducedMotion ? 1 : Theme.durQueueOut + 20; onTriggered: window.queueLingering = false }
     // Shared-element cover flight (open-claude-ui): the player bar artwork
     // grows into the player page's cover slot while the destination stays
     // hidden, then hands over in one frame.
@@ -564,7 +573,12 @@ ApplicationWindow {
     }
     Component {
         id: queuePanel
-        QueuePanel { wall: window.curtainScene && !window.immersive; onClose: window.listeningOpen = false; onAddToPlaylist: track => window.addToPlaylist(track) }
+        QueuePanel {
+            wall: window.curtainScene && !window.immersive
+            shown: window.listeningOpen; preferredWidth: window.queueCardWidth
+            // On the lyric page the card docks beside the lyrics instead of covering them.
+            scrim: window.route !== "player" || window.immersive
+            onClose: window.listeningOpen = false; onAddToPlaylist: track => window.addToPlaylist(track) }
     }
     Component {
         id: listeningPanel

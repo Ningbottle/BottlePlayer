@@ -19,6 +19,9 @@ Text {
     // e.g. .stage-cue's 6rem); the text stays top-aligned inside it.
     property real minBox: 0
     readonly property real lead: Theme.lineBaseline(metrics.ascent, metrics.descent, lineBox) - metrics.ascent
+    // Display sizes draw from outlines: hinted native glyphs lose the thin
+    // curves of serif CJK at heading sizes.
+    renderType: font.pixelSize >= 28 ? Text.CurveRendering : Text.NativeRendering
     lineHeightMode: Text.FixedHeight
     lineHeight: lineBox
     topPadding: lead

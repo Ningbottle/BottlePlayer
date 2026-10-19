@@ -165,6 +165,8 @@ QtObject {
     readonly property int durHover: 180
     readonly property int durTab: 120
     readonly property int durPop: 200
+    readonly property int durQueueIn: 320
+    readonly property int durQueueOut: 220
     readonly property real pressScale: 0.975
     readonly property real scrollFade: 28
     readonly property real dragDeadzone: 4

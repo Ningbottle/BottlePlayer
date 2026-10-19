@@ -44,6 +44,10 @@ The Inter, EB Garamond, Libre Caslon Display, Noto Serif SC and LXGW WenKai
 Lite TTF files use the SIL Open Font License. Their notices are included as `Inter-LICENSE`,
 `EBGaramond-LICENSE`, `LibreCaslonDisplay-LICENSE`, `NotoSerifSC-LICENSE`, and
 `LXGWWenKaiLite-LICENSE`.
+`NotoSerifSC-500.ttf` and `NotoSerifSC-Display.ttf` are static wght 500 and
+600 instances of the OFL Noto Serif SC variable font, subset to the same
+character set as `NotoSerifSC-400.ttf`; the Display file is renamed to the
+family "Noto Serif SC Display" (OFL permits renaming modified versions).
 
 BottleMusic uses MiSans for interface font fallback. The four bundled
 weights identify themselves as Version 2.000 and retain their embedded
