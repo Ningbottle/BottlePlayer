@@ -59,3 +59,53 @@ jobs:
             output/packages/*.zip
             output/packages/*.sha256
           if-no-files-found: error
+  linux:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.12'
+      - name: Check repository boundaries and documentation
+        run: python tools/check-repository.py
+      - name: Verify Native boundary source guard
+        run: python tools/tests/test_native_boundary.py
+      - name: Install native and Qt build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential ninja-build pkg-config nlohmann-json3-dev libsqlite3-dev libcurl4-openssl-dev libssl-dev libsecret-1-dev libpq5 curl imagemagick libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 libxcb-render-util0 libxcb-image0 libegl1 libpulse0 libfontconfig1 libdbus-1-3 libxcb-xkb1 libxcb-randr0 libxcb-render0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 libxcb-util1 libxcb-xtest0 libxcb-xinput0 libx11-xcb1
+      - name: Ensure CMake 3.24 or newer
+        run: |
+          if ! python3 -c 'import re, subprocess, sys; version = tuple(map(int, re.search(r"cmake version ([0-9]+)\.([0-9]+)", subprocess.check_output(["cmake", "--version"], text=True)).groups())); sys.exit(0 if version >= (3, 24) else 1)'; then
+            python3 -m pip install --user cmake
+            echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          fi
+      - name: Build native backend without Qt SDK
+        run: |
+          cmake -S native -B output/native-build-linux -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build output/native-build-linux --parallel 2
+      - name: Run native contracts before installing Qt
+        run: ./tools/test.sh --native-only
+      - uses: jurplel/install-qt-action@a9c63c7c123f3069cff414e7e482d95dfa9d8125 # v4
+        with:
+          version: '6.8.3'
+          arch: linux_gcc_64
+          modules: qtmultimedia qtshadertools
+          cache: true
+      - name: Build Qt application
+        run: ./tools/build.sh --qt-root "$QT_ROOT_DIR"
+      - name: Run Qt contracts (hardware audio verified separately)
+        run: ./tools/test.sh --qt-only
+      - name: Package AppImage
+        if: inputs.package == true
+        run: ./tools/package.sh --qt-root "$QT_ROOT_DIR"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        if: inputs.package == true
+        with:
+          name: BottleMusicQt-linux-x86_64
+          path: |
+            output/packages/BottleMusicQt-1.1.0-qt-preview-x86_64.AppImage
+            output/packages/BottleMusicQt-1.1.0-qt-preview-x86_64.AppImage.sha256
+          if-no-files-found: error

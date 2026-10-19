@@ -135,14 +135,23 @@ private slots:
         QVERIFY(!QFileInfo::exists(profile.filePath("cancel.json")));
     }
     void updaterRequiresQtPackageAndTrustedChecksum() {
+#ifdef Q_OS_LINUX
+        QJsonObject asset{{"name","BottleMusicQt-1.2.0-x86_64.AppImage"},{"digest","sha256:"+QString(64,'a')},{"browser_download_url","https://github.com/Ningbottle/BottlePlayer/releases/download/v1.2.0/BottleMusicQt-1.2.0-x86_64.AppImage"}};
+#else
         QJsonObject asset{{"name","BottleMusicQt-1.2.0-x64.zip"},{"digest","sha256:"+QString(64,'a')},{"browser_download_url","https://github.com/Ningbottle/BottlePlayer/releases/download/v1.2.0/BottleMusicQt-1.2.0-x64.zip"}};
+#endif
         QJsonObject release{{"tag_name","v1.2.0"},{"assets",QJsonArray{asset}}};
         QCOMPARE(UpdateController::selectRelease(release,"1.1.0-qt-preview",{}).value("version").toString(),QString("1.2.0"));
         QVERIFY(UpdateController::selectRelease(release,"1.1.0","1.2.0").value("version").toString().isEmpty());
         QVERIFY(UpdateController::selectRelease(release,"1.2.0",{}).value("version").toString().isEmpty());
         asset.insert("digest",""); release.insert("assets",QJsonArray{asset}); QVERIFY(UpdateController::selectRelease(release,"1.1.0",{}).value("asset").toString().isEmpty());
         asset.insert("digest","sha256:"+QString(64,'a')); asset.insert("browser_download_url","https://other.example/BottleMusicQt-1.2.0-x64.zip"); release.insert("assets",QJsonArray{asset}); QVERIFY(UpdateController::selectRelease(release,"1.1.0",{}).value("asset").toString().isEmpty());
-        asset.insert("name","BottleMusic-1.2.0-x64.exe"); release.insert("assets",QJsonArray{asset}); QVERIFY(UpdateController::selectRelease(release,"1.1.0",{}).value("asset").toString().isEmpty());
+#ifdef Q_OS_LINUX
+        asset.insert("name","BottleMusic-1.2.0-x86_64.AppImage");
+#else
+        asset.insert("name","BottleMusic-1.2.0-x64.exe");
+#endif
+        release.insert("assets",QJsonArray{asset}); QVERIFY(UpdateController::selectRelease(release,"1.1.0",{}).value("asset").toString().isEmpty());
     }
     void eqFlatIsTransparentAndBoostTargetsFrequency() {
         constexpr int rate = 48000; std::vector<float> flat(1000, .25f); EqProcessor processor; processor.configure(rate, 1); processor.process(flat.data(), int(flat.size()));

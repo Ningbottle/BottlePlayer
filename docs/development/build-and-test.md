@@ -67,3 +67,31 @@ output/qt-build/bottle_qt_smoke.exe output/qt-build/bottle_native_fixture.dll ou
 默认输出 `output/packages/BottleMusicQt-1.1.0-qt-preview-x64.zip` 与 SHA-256。脚本使用 `windeployqt` 部署运行库和 QML 插件，只复制程序、运行库、字体、图标与许可，不复制 profile。再次打包时选择新的 `-PackageDirectory`。
 
 将包解压到全新目录，使用独立 `--profile` 验证启动、关闭、媒体输出和页面交互。构建成功不代表便携包已验收。GitHub 的手动打包工作流只保留 Actions 产物，不自动创建或发布 Release。
+
+## Linux
+
+支持基线为 Ubuntu 22.04、系统 GCC 11、CMake 3.24+、Ninja 和 Qt 6.8.3。安装后端与 Qt 运行/构建依赖：
+
+```sh
+sudo apt-get update
+sudo apt-get install -y build-essential ninja-build pkg-config nlohmann-json3-dev libsqlite3-dev libcurl4-openssl-dev libssl-dev libsecret-1-dev libpq5 curl imagemagick libgl1-mesa-dev libxkbcommon-dev libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 libxcb-keysyms1 libxcb-shape0 libxcb-xinerama0 libxcb-render-util0 libxcb-image0 libegl1 libpulse0 libfontconfig1 libdbus-1-3 libxcb-xkb1 libxcb-randr0 libxcb-render0 libxcb-shm0 libxcb-sync1 libxcb-xfixes0 libxcb-util1 libxcb-xtest0 libxcb-xinput0 libx11-xcb1
+python3 -m pip install --user aqtinstall
+python3 -m aqt install-qt linux desktop 6.8.3 linux_gcc_64 -m qtmultimedia qtshadertools -O ~/Qt
+```
+
+If the system CMake is older than 3.24, install a newer CMake with `python3 -m pip install --user cmake`. Build and test with:
+
+```sh
+tools/build.sh --clean --qt-root "$HOME/Qt/6.8.3/gcc_64"
+tools/test.sh
+tools/test.sh --native-only
+tools/test.sh --qt-only
+tools/test.sh --include-audio
+tools/package.sh --qt-root "$HOME/Qt/6.8.3/gcc_64"
+```
+
+The Qt app defaults to a writable profile under `QStandardPaths::AppDataLocation/profile` (organization `BottleMusic`, application `BottleMusic Qt Preview`). The native backend uses `ECHO_NATIVE_DATA_DIR` when set, otherwise `$XDG_DATA_HOME/EchoMusicNative` or `~/.local/share/EchoMusicNative`; when Secret Service is unavailable, its fallback key is `session.key` in that native data directory. Tests always use a fresh `output/test-profiles/` directory and force `ECHO_NATIVE_SECRET_BACKEND=file`.
+
+When a session bus is available, the app registers `org.mpris.MediaPlayer2.bottlemusic` and exposes playback controls and current-track metadata at `/org/mpris/MediaPlayer2`. Linux does not yet provide a tray icon. Linux font rendering is useful for functional review but is not a visual substitute for Windows DirectWrite review.
+
+The AppImage and checksum are written to `output/packages/BottleMusicQt-1.1.0-qt-preview-x86_64.AppImage` and the adjacent `.sha256` file. Packaging downloads checksum-pinned linuxdeploy tools into `output/tools/`.

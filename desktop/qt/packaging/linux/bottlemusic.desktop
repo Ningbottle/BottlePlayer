@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=BottleMusic
+Comment=Music player
+Exec=BottleMusicQt
+Icon=bottlemusic
+Terminal=false
+Categories=AudioVideo;Audio;Player;
+StartupWMClass=BottleMusic

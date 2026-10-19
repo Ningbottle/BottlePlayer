@@ -26,6 +26,10 @@
 #include <QCommandLineParser>
 #include <QDir>
 #include <QIcon>
+#ifdef Q_OS_LINUX
+#include <QDebug>
+#include <QStandardPaths>
+#endif
 
 int main(int argc, char** argv) {
     QGuiApplication app(argc, argv);
@@ -36,9 +40,21 @@ int main(int argc, char** argv) {
     QQuickStyle::setStyle("Basic");
     configureWindowPresentation();
     QCommandLineParser parser; parser.addHelpOption();
+#ifdef Q_OS_LINUX
+    const auto appDataPath = QStandardPaths::writableLocation(QStandardPaths::AppDataLocation);
+    parser.addOption({"profile", "Independent data directory", "path", QDir(appDataPath).filePath("profile")});
+    parser.addOption({"native-dll", "EchoCAPI x64 runtime", "path", QDir(app.applicationDirPath()).filePath("libEchoCAPI.so")});
+#else
     parser.addOption({"profile", "Independent data directory", "path", QDir(app.applicationDirPath()).filePath("profile")});
     parser.addOption({"native-dll", "EchoCAPI x64 runtime", "path", QDir(app.applicationDirPath()).filePath("EchoCAPI.dll")});
+#endif
     parser.process(app);
+#ifdef Q_OS_LINUX
+    if (!QDir().mkpath(QDir(parser.value("profile")).absolutePath())) {
+        qCritical() << "Unable to create profile directory:" << parser.value("profile");
+        return 2;
+    }
+#endif
     struct DiagnosticDrain { ~DiagnosticDrain() { shutdownDiagnostics(); } } diagnosticDrain;
     MusicController music(parser.value("native-dll"), QDir(parser.value("profile")).absolutePath());
     AccountController account(music.nativeGateway());

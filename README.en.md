@@ -2,6 +2,8 @@
 
 A Windows 10/11 x64 music player built with Qt Quick, QML and C++20. The native service boundary is `EchoCAPI`.
 
+A Linux x86_64 AppImage preview is also available; see the [build and test guide](docs/development/build-and-test.md).
+
 [中文](README.md) · [Documentation](docs/README.md) · [Contributing](CONTRIBUTING.md) · [Privacy](PRIVACY.md) · [Security](SECURITY.md)
 
 This is a development preview. The current source tree and documentation describe the Qt application. Existing release assets are not evidence of a stable Qt release.

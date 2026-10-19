@@ -2,6 +2,8 @@
 
 面向 Windows 10/11 x64 的桌面音乐播放器。界面使用 Qt Quick / QML，播放和应用逻辑使用 C++20，原生后端通过 `EchoCAPI` 提供服务。
 
+Linux x86_64 AppImage 预览包也可用，参见[构建与验证](docs/development/build-and-test.md)。
+
 [English](README.en.md) · [开发文档](docs/README.md) · [贡献指南](CONTRIBUTING.md) · [隐私说明](PRIVACY.md) · [安全政策](SECURITY.md)
 
 当前是 Qt 开发预览版。仓库默认源码、构建和文档统一维护 Qt / C++ / QML；已有发布页中的文件不能据此视为 Qt 稳定版。

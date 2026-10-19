@@ -17,6 +17,10 @@ public:
 signals:
     void changed();
 private:
+#ifdef Q_OS_LINUX
+    friend class MprisRootAdaptor;
+    friend class MprisPlayerAdaptor;
+#endif
     void update();
     void button(int command);
     struct Impl;

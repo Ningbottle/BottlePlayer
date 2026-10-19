@@ -3,6 +3,9 @@ project(BottleMusicQt VERSION 1.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(Qt6 6.8 REQUIRED COMPONENTS Quick QuickControls2 Concurrent Multimedia Network Svg ShaderTools Sql Test)
+if(UNIX AND NOT APPLE)
+    find_package(Qt6 6.8 REQUIRED COMPONENTS DBus)
+endif()
 qt_standard_project_setup(REQUIRES 6.8)
 add_library(bottle_qrcode STATIC third_party/qrcodegen/qrcodegen.cpp)
 target_include_directories(bottle_qrcode PUBLIC third_party/qrcodegen)
@@ -27,7 +30,7 @@ add_library(bottle_qt_core STATIC
     src/settings/SettingsController.cpp src/settings/SettingsController.h
     src/settings/DataMigration.cpp src/settings/DataMigration.h
     src/settings/StatsArchive.cpp src/settings/StatsArchive.h
-    src/platform/MediaIntegration.cpp src/platform/MediaIntegration.h
+    src/platform/MediaIntegration.h
     src/platform/UpdateController.cpp src/platform/UpdateController.h
     src/lyrics/LyricTimeline.cpp src/lyrics/LyricTimeline.h
     src/ui/UiAssets.cpp src/ui/UiAssets.h
@@ -35,6 +38,11 @@ add_library(bottle_qt_core STATIC
     src/ui/PlayerLayout.cpp src/ui/PlayerLayout.h
     src/ui/AppearanceController.cpp src/ui/AppearanceController.h
     src/ui/GrayTextBackend.cpp)
+if(UNIX AND NOT APPLE)
+    target_sources(bottle_qt_core PRIVATE src/platform/MediaIntegration_mpris.cpp)
+else()
+    target_sources(bottle_qt_core PRIVATE src/platform/MediaIntegration.cpp)
+endif()
 target_include_directories(bottle_qt_core PUBLIC src PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/../../native/include")
 target_link_libraries(bottle_qt_core PUBLIC Qt6::Quick Qt6::Concurrent Qt6::Multimedia Qt6::Svg Qt6::Sql PRIVATE bottle_qrcode)
 # The gray-text scene graph backend subclasses the stock RHI context, a
@@ -42,6 +50,8 @@ target_link_libraries(bottle_qt_core PUBLIC Qt6::Quick Qt6::Concurrent Qt6::Mult
 target_link_libraries(bottle_qt_core PRIVATE Qt6::QuickPrivate Qt6::GuiPrivate)
 if(WIN32)
     target_link_libraries(bottle_qt_core PRIVATE windowsapp runtimeobject shell32 ole32)
+elseif(UNIX AND NOT APPLE)
+    target_link_libraries(bottle_qt_core PRIVATE Qt6::DBus)
 endif()
 set_source_files_properties(src/ui/GrayTextBackend.cpp PROPERTIES COMPILE_DEFINITIONS QT_STATICPLUGIN)
 if(MSVC)
@@ -116,15 +126,31 @@ add_custom_command(TARGET BottleMusicQt POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/MiSans-LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/MiSans-License-Agreement.pdf"
         "$<TARGET_FILE_DIR:BottleMusicQt>/licenses")
-set(ECHO_NATIVE_DIR "" CACHE PATH "Existing x64 EchoCAPI.dll and sqlite3.dll directory")
-if(ECHO_NATIVE_DIR)
-    foreach(dll EchoCAPI.dll sqlite3.dll)
-        if(NOT EXISTS "${ECHO_NATIVE_DIR}/${dll}")
-            message(FATAL_ERROR "Missing native runtime: ${ECHO_NATIVE_DIR}/${dll}")
+if(WIN32)
+    set(ECHO_NATIVE_DIR "" CACHE PATH "Existing x64 EchoCAPI.dll and sqlite3.dll directory")
+    if(ECHO_NATIVE_DIR)
+        foreach(dll EchoCAPI.dll sqlite3.dll)
+            if(NOT EXISTS "${ECHO_NATIVE_DIR}/${dll}")
+                message(FATAL_ERROR "Missing native runtime: ${ECHO_NATIVE_DIR}/${dll}")
+            endif()
+            add_custom_command(TARGET BottleMusicQt POST_BUILD COMMAND ${CMAKE_COMMAND} -E
+                copy_if_different "${ECHO_NATIVE_DIR}/${dll}" "$<TARGET_FILE_DIR:BottleMusicQt>/${dll}")
+        endforeach()
+    endif()
+elseif(UNIX AND NOT APPLE)
+    set(ECHO_NATIVE_DIR "" CACHE PATH "Existing directory containing libEchoCAPI.so")
+    if(ECHO_NATIVE_DIR)
+        file(GLOB ECHO_NATIVE_LIBRARIES CONFIGURE_DEPENDS "${ECHO_NATIVE_DIR}/libEchoCAPI.so*")
+        if(NOT ECHO_NATIVE_LIBRARIES)
+            message(FATAL_ERROR "Missing native runtime: ${ECHO_NATIVE_DIR}/libEchoCAPI.so")
         endif()
-        add_custom_command(TARGET BottleMusicQt POST_BUILD COMMAND ${CMAKE_COMMAND} -E
-            copy_if_different "${ECHO_NATIVE_DIR}/${dll}" "$<TARGET_FILE_DIR:BottleMusicQt>/${dll}")
-    endforeach()
+        foreach(native_library IN LISTS ECHO_NATIVE_LIBRARIES)
+            get_filename_component(native_library_name "${native_library}" NAME)
+            add_custom_command(TARGET BottleMusicQt POST_BUILD COMMAND ${CMAKE_COMMAND} -E
+                copy_if_different "${native_library}" "$<TARGET_FILE_DIR:BottleMusicQt>/${native_library_name}")
+        endforeach()
+    endif()
+    set_target_properties(BottleMusicQt PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
 endif()
 # Runtime fonts are source assets, with redistribution notices in licenses/.
 # UiAssets.cpp registers them from <app>/fonts.
