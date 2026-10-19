@@ -388,13 +388,14 @@ Item {
                                             // .pp — the cinnabar disc.
                                             anchors.verticalCenter: parent.verticalCenter
                                             width: heroPlay.height - (heroPlay.leftPadding * 2); height: width; radius: width / 2
-                                            color: Theme.seal
+                                            // A custom tone makes seal equal the pill, so invert the disc.
+                                            color: Theme.customAccent.length > 0 ? Theme.accentContrast : Theme.seal
                                             Icon {
                                                 // The play triangle's mass sits left of its box.
                                                 anchors.centerIn: parent; anchors.horizontalCenterOffset: name === "play" ? 1 : 0
                                                 name: scroller.heroIsCurrent && music.playing ? "pause" : "play"
                                                 filled: true; size: Theme.rem(0.7)
-                                                color: Theme.accentContrast
+                                                color: Theme.customAccent.length > 0 ? Theme.accent : Theme.accentContrast
                                             }
                                         }
                                         Text {
