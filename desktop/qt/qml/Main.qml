@@ -577,7 +577,7 @@ ApplicationWindow {
         id: queuePanel
         QueuePanel {
             wall: window.curtainScene && !window.immersive
-            shown: window.listeningOpen; preferredWidth: window.queueCardWidth
+            cardShown: window.listeningOpen; preferredWidth: window.queueCardWidth
             onClose: window.listeningOpen = false; onAddToPlaylist: track => window.addToPlaylist(track) }
     }
     Component {

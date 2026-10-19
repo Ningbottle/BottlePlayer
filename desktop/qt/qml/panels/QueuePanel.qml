@@ -6,7 +6,7 @@ Item {
     id: root
     objectName: "queuePanel"
     property bool wall: false
-    property bool shown: true
+    property bool cardShown: true
     property real preferredWidth: 390
     readonly property color ink: wall ? Theme.wallChromeInk : Theme.text
     readonly property color muted: wall ? Theme.wallChromeMuted : Theme.text3
@@ -36,8 +36,8 @@ Item {
         transformOrigin: Item.BottomRight
         opacity: 0; scale: 0.94
         transform: Translate { id: drift; y: 32 }
-        Component.onCompleted: if (root.shown) panelIn.start()
-        Connections { target: root; function onShownChanged() { root.shown ? panelIn.restart() : panelOut.restart() } }
+        Component.onCompleted: if (root.cardShown) panelIn.start()
+        Connections { target: root; function onCardShownChanged() { root.cardShown ? panelIn.restart() : panelOut.restart() } }
         ParallelAnimation {
             id: panelOut
             NumberAnimation { target: panel; property: "opacity"; to: 0; duration: music.reducedMotion ? 0 : Theme.durQueueOut; easing.type: Easing.InCubic }
