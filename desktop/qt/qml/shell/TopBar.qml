@@ -14,6 +14,7 @@ Item {
     signal back()
     signal forward()
     signal search(string query)
+    signal openSettings(string section)
     height: Theme.topbarH
 
     readonly property real inset: Math.min(Theme.s10, Math.max(Theme.s4, viewportWidth * 0.024))
@@ -30,7 +31,7 @@ Item {
         objectName: "searchInput"
         x: arrows.x + arrows.width + Theme.s2
         anchors.verticalCenter: parent.verticalCenter
-        width: Math.max(0, Math.min(Theme.rem(26), root.width - x - root.inset))
+        width: Math.max(0, Math.min(Theme.rem(26), trailing.x - x - Theme.s4))
         implicitHeight: Theme.controlMd
         leftPadding: Theme.s8; rightPadding: Theme.s3; topPadding: 0; bottomPadding: 0
         verticalAlignment: TextInput.AlignVCenter
@@ -50,5 +51,126 @@ Item {
             name: "search"; stroke: 2; color: Theme.text3
         }
         onAccepted: root.search(text)
+    }
+
+    // Membership badge and the quick-settings popover (the old top bar's
+    // right edge); the full settings page stays one click further.
+    Row {
+        id: trailing
+        anchors.right: parent.right; anchors.rightMargin: root.inset; anchors.verticalCenter: parent.verticalCenter
+        spacing: Theme.s2
+        AbstractButton {
+            id: vipBadge; objectName: "vipBadge"
+            visible: accountState.loggedIn
+            anchors.verticalCenter: parent.verticalCenter
+            readonly property bool member: vipState.tier !== "" && vipState.tier !== "none"
+            implicitHeight: Theme.controlSm; leftPadding: Theme.s1; rightPadding: Theme.s3
+            implicitWidth: leftPadding + rightPadding + vipRow.implicitWidth
+            hoverEnabled: true
+            Accessible.name: vipLabel.text
+            onClicked: root.openSettings("account")
+            background: Rectangle {
+                radius: height / 2
+                color: vipBadge.member ? (vipBadge.hovered ? Qt.lighter(Theme.text, 1.25) : Theme.text) : (vipBadge.hovered ? Theme.surfaceHover : "transparent")
+                border.width: vipBadge.member ? 0 : Theme.hairline; border.color: Theme.borderStrong
+                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
+                PixelSnap.fit: true
+            }
+            contentItem: Row {
+                id: vipRow; spacing: Theme.s2
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: vipBadge.implicitHeight - Theme.s1 * 2; height: width; radius: width / 2
+                    color: vipBadge.member ? Theme.seal : Theme.surfaceActive
+                    Text {
+                        anchors.centerIn: parent; text: "V"; color: vipBadge.member ? "#ffffff" : Theme.text3
+                        font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwBold
+                    }
+                }
+                Text {
+                    id: vipLabel; anchors.verticalCenter: parent.verticalCenter
+                    text: vipBadge.member ? (vipState.label || "VIP 畅听中") : "开通会员"
+                    color: vipBadge.member ? Theme.bg : Theme.text2
+                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium
+                }
+            }
+        }
+        IconButton {
+            id: quickButton; objectName: "quickSettingsButton"
+            anchors.verticalCenter: parent.verticalCenter
+            glyph: "sliders-horizontal"; checked: quick.opened; Accessible.name: "快捷设置"
+            onClicked: quick.opened ? quick.close() : quick.open()
+        }
+    }
+    Popup {
+        id: quick; objectName: "quickSettings"
+        readonly property var swatches: ["", "#b0392e", "#c2703d", "#a8862f", "#4f7a4a", "#2f6f7a", "#3d5a99", "#7a4f8f"]
+        parent: quickButton
+        x: quickButton.width - width; y: quickButton.height + Theme.s2
+        width: 300; padding: Theme.s4
+        transformOrigin: Popup.TopRight
+        enter: Transition {
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: music.reducedMotion ? 0 : 160; easing.type: Easing.OutCubic }
+            NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: music.reducedMotion ? 0 : 240; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+        }
+        exit: Transition {
+            NumberAnimation { property: "opacity"; to: 0; duration: music.reducedMotion ? 0 : 140; easing.type: Easing.InCubic }
+            NumberAnimation { property: "scale"; to: 0.97; duration: music.reducedMotion ? 0 : 140; easing.type: Easing.InCubic }
+        }
+        background: Plate { radius: Theme.rLg; color: Theme.bgElevated; borderColor: Theme.borderStrong; elevation: 3 }
+        component Label: Text { color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium }
+        contentItem: Column {
+            spacing: Theme.s3
+            Label { text: "光感" }
+            Segmented {
+                objectName: "quickMode"; width: parent.width; value: appearanceState.mode
+                options: [{value:"light",label:"浅色"},{value:"dark",label:"深色"},{value:"system",label:"跟随系统"}]
+                onSelected: value => appearanceState.mode = value
+            }
+            Label { text: "色调" }
+            Row {
+                spacing: Theme.s2
+                Repeater {
+                    model: quick.swatches
+                    AbstractButton {
+                        id: swatch
+                        required property string modelData
+                        objectName: "quickAccent_" + (modelData || "default")
+                        readonly property bool active: String(appearanceState.accent).toLowerCase() === modelData
+                        width: 26; height: 26; hoverEnabled: true
+                        Accessible.name: modelData || "默认色调"
+                        scale: down ? 0.92 : hovered ? 1.12 : 1
+                        Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : 160; easing.type: Easing.OutBack } }
+                        onClicked: appearanceState.accent = modelData
+                        background: Item {
+                            Rectangle {
+                                anchors.centerIn: parent; width: 30; height: 30; radius: 15
+                                color: "transparent"; border.width: 2; border.color: Theme.text
+                                opacity: swatch.active ? 1 : 0
+                                Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
+                            }
+                            Rectangle {
+                                anchors.fill: parent; radius: width / 2
+                                color: swatch.modelData || (Theme.dark ? (Theme.mint ? "#F5F0E4" : "#7CE0B8") : (Theme.mint ? "#221B12" : "#2FAE84"))
+                                border.width: Theme.hairline; border.color: Theme.border
+                            }
+                        }
+                    }
+                }
+            }
+            Item {
+                width: parent.width; height: compactToggle.height
+                Text { anchors.verticalCenter: parent.verticalCenter; text: "紧凑列表"; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
+                Toggle { id: compactToggle; objectName: "quickCompact"; anchors.right: parent.right; checked: appearanceState.compact; onToggled: appearanceState.compact = checked }
+            }
+            Label { text: "歌词字体" }
+            Segmented {
+                objectName: "quickLyricFont"; width: parent.width; value: appearanceState.lyricFont
+                options: [{value:"skin",label:"跟随皮肤"},{value:"kai",label:"文楷"},{value:"song",label:"宋体"},{value:"hei",label:"黑体"}]
+                onSelected: value => appearanceState.lyricFont = value
+            }
+            Hairline { width: parent.width }
+            ActionButton { objectName: "quickMore"; quiet: true; text: "更多设置"; glyph: "chevron-right"; onClicked: { quick.close(); root.openSettings("appearance") } }
+        }
     }
 }

@@ -295,6 +295,7 @@ ApplicationWindow {
             id: topbar
             visible: window.browseChrome
             width: parent.width; viewportWidth: window.width
+            onOpenSettings: section => window.go("settings", section)
             canGoBack: window.backStack.length > 0
             canGoForward: window.forwardStack.length > 0
             onBack: window.goBack()
