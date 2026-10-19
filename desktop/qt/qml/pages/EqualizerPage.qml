@@ -6,6 +6,7 @@ Flickable {
     id: root
     objectName: "equalizerPage"
     clip: true; contentWidth: width; contentHeight: content.y + content.height + 32; boundsBehavior: Flickable.StopAtBounds
+    SnapSettle { flickable: root }
     ScrollBar.vertical: ThinScrollBar { }
     readonly property var frequencies: ["31 Hz","62 Hz","125 Hz","250 Hz","500 Hz","1 kHz","2 kHz","4 kHz","8 kHz","16 kHz"]
     Column {

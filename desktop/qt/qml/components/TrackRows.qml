@@ -13,6 +13,7 @@ ListView {
     model: tracks
     clip: true
     boundsBehavior: Flickable.StopAtBounds
+    SnapSettle { flickable: root }
     cacheBuffer: height
     ScrollBar.vertical: ThinScrollBar { }
     delegate: AbstractButton {
@@ -24,8 +25,9 @@ ListView {
         onClicked: root.play(index)
         Accessible.name: modelData.title + "，" + modelData.artist
         background: Rectangle {
-            color: row.hovered || row.visualFocus ? Theme.surfaceHover : String(row.modelData.hash) === String(music.current.hash) ? Theme.accentSoft : "transparent"
+            color: row.hovered || row.visualFocus ? Theme.surfaceHover : String(row.modelData.hash) === String(music.current.hash) ? Theme.sealSoft : "transparent"
             radius: Theme.rSm
+            Hairline { y: parent.height; width: parent.width; visible: Theme.rules }
         }
         contentItem: Item {
             Text {
@@ -39,8 +41,8 @@ ListView {
                 width: Math.max(0, parent.width - x - actions.width - 24); spacing: 4
                 Text {
                     width: parent.width; text: row.modelData.title || "未知歌曲"; textFormat: Text.PlainText; elide: Text.ElideRight
-                    color: String(row.modelData.hash) === String(music.current.hash) ? Theme.accent : Theme.text
-                    font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd; font.weight: Theme.fwMedium
+                    color: String(row.modelData.hash) === String(music.current.hash) ? Theme.seal : Theme.text
+                    font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd
                 }
                 Text {
                     width: parent.width; text: (row.modelData.artist || "未知歌手") + (row.modelData.album ? " · " + row.modelData.album : "")

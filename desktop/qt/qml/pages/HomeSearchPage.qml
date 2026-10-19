@@ -80,6 +80,7 @@ Item {
         model: root.hasSearch ? music.searchResults : []
         visible: root.hasSearch; clip: true; currentIndex: -1
         boundsBehavior: Flickable.StopAtBounds
+        SnapSettle { flickable: results }
         ScrollBar.vertical: ThinScrollBar { thumbColor: "#596362"; thumbHoverColor: "#a4abaa" }
         Keys.onReturnPressed: if (currentIndex>=0) music.playFrom("search",currentIndex)
         delegate: AbstractButton {

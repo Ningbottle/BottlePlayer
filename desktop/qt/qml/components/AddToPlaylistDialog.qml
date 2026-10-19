@@ -24,7 +24,9 @@ Popup {
         Text { visible: libraryState.playlistsLoading; text: "正在读取个人歌单…"; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; color: Theme.text3 }
         Text { visible: libraryState.playlistsError.length > 0; width: parent.width; text: libraryState.playlistsError; wrapMode: Text.Wrap; color: Theme.warning; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
         ListView {
+            id: dialogList
             width: parent.width; height: Math.max(0, root.availableHeight - y); clip: true
+            SnapSettle { flickable: dialogList }
             model: libraryState.playlists
             ScrollBar.vertical: ThinScrollBar { }
             delegate: AbstractButton {

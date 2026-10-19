@@ -23,15 +23,22 @@ Item {
     // .home-page: padding s2 / clamp(20px, 3vw, 40px) / s10 (.scroll:has()
     // clears the shell scroll padding for the home page).
     readonly property real homePad: Theme.clamp(Theme.s5, vw * 0.03, Theme.s10)
-    readonly property real inset: homePad
+    // Snapped to device pixels: the whole page column rides this offset, so a
+    // fractional inset would put every glyph on the page off-grid at 125%.
+    readonly property real inset: Theme.snap(homePad)
 
     function greeting() {
         var h = new Date().getHours()
         return h < 5 ? "夜深了" : h < 11 ? "早上好" : h < 13 ? "中午好" : h < 18 ? "下午好" : "晚上好"
     }
-    function todayLine() {
+    // The edition name follows the press day, like the old "LATE EDITION".
+    function edition() {
+        var h = new Date().getHours()
+        return h < 11 ? "Morning Edition · 早报" : h < 18 ? "Afternoon Edition · 午报" : "Late Edition · 晚刊"
+    }
+    function dateline() {
         var d = new Date(), days = ["日", "一", "二", "三", "四", "五", "六"]
-        return (d.getMonth() + 1) + "月" + d.getDate() + "日 · 星期" + days[d.getDay()]
+        return "星期" + days[d.getDay()] + " · " + (d.getMonth() + 1) + "月" + d.getDate() + "日"
     }
     function feedIndex(hash) {
         for (var i = 0; i < music.feed.length; i++) if (music.feed[i].hash === hash) return i
@@ -45,10 +52,30 @@ Item {
         font.letterSpacing: Theme.metaTracking; font.capitalization: Theme.metaCase
         font.italic: Theme.metaItalic
     }
-    // .home-section-title: fs-xl --font-display, --display-tracking.
-    component SectionTitle: CssText {
-        color: Theme.text; font.family: Theme.fontDisplay; font.pixelSize: Theme.fsXl
-        font.weight: Theme.fwDisplay; font.letterSpacing: Theme.displayTracking * Theme.fsXl
+    // The bilingual section head — a Song-serif Chinese title with its
+    // italic latin byline on the same baseline ("每日推荐 Daily"), plus a
+    // trailing slot for the section action.
+    component SectionHead: Item {
+        id: head
+        property string cn: ""
+        property string en: ""
+        default property alias tail: tailBox.data
+        implicitHeight: Theme.controlMd
+        CssText {
+            id: cnTxt; anchors.verticalCenter: parent.verticalCenter
+            text: head.cn; color: Theme.text
+            font.family: Theme.fontSerif; font.pixelSize: Theme.fsXl; font.weight: Theme.fwRegular
+        }
+        CssText {
+            anchors.baseline: cnTxt.baseline; anchors.left: cnTxt.right; anchors.leftMargin: Theme.s2
+            visible: head.en !== ""; text: head.en; color: Theme.text3
+            font.family: Theme.fontMeta; font.pixelSize: Theme.fsMd; font.italic: true
+        }
+        Item {
+            id: tailBox; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
+            implicitWidth: children.length > 0 ? children[0].implicitWidth : 0
+            implicitHeight: children.length > 0 ? children[0].implicitHeight : 0
+        }
     }
     // .home-thumb-play / .home-tile-play: --stage-bg at 45% over the art; the
     // tile badge is a --play-bg disc with a --play-fg glyph (Mint inks both).
@@ -89,6 +116,7 @@ Item {
             HoverHandler { id: scrollHover }
             ScrollBar.vertical: ThinScrollBar { areaHovered: scrollHover.hovered }
             SmoothWheel { flickable: scroller }
+            SnapSettle { flickable: scroller }
             property int railOffset: 0
             property bool dailyExpanded: false
             function toggleDaily() {
@@ -127,30 +155,48 @@ Item {
                 spacing: Theme.clamp(Theme.s8, root.vh * 0.04, Theme.s10)
                 height: implicitHeight + Theme.s2 + Theme.s10
 
-                // .home-greeting (Mint --greet-flow: column): date kicker over
-                // the display greeting, then 16px padding-bottom, then the
-                // --rule-ink border-bottom (the padding sits ABOVE the rule).
+                // The masthead: edition eyebrow and dateline over the
+                // bilingual display line, then the folio double rule —
+                // "LATE EDITION · 晚刊 / 为你精选 For You / 星期日 · 10月18日".
                 Column {
                     width: parent.width
                     spacing: 0
-                    Column {
+                    Item {
                         width: parent.width
-                        bottomPadding: Theme.s4
-                        spacing: Theme.s2
-                        Kicker { text: root.todayLine() }
-                        CssText {
-                            id: greetText
-                            // --greet-size (51.2px at 1280) with a 1.1 line
-                            // box, smaller than Caslon's natural line.
-                            readonly property real exact: Theme.greetSize(root.vw)
-                            readonly property int size: Math.round(exact)
-                            clamp: true; lineBox: exact * 1.1
-                            text: root.greeting(); color: Theme.text
-                            font.family: Theme.fontDisplay; font.pixelSize: size; font.weight: Theme.fwDisplay
-                            font.letterSpacing: Theme.displayTracking * size
+                        height: Math.max(editionKicker.height, datelineCol.implicitHeight) + Theme.s2
+                        Kicker { id: editionKicker; anchors.left: parent.left; anchors.bottom: parent.bottom; text: root.edition() }
+                        Column {
+                            id: datelineCol; anchors.right: parent.right; anchors.bottom: parent.bottom; spacing: 0
+                            CssText {
+                                anchors.right: parent.right; text: root.dateline(); color: Theme.text2
+                                font.family: Theme.fontTitle; font.pixelSize: Theme.fsSm
+                            }
+                            CssText {
+                                anchors.right: parent.right; text: root.greeting(); color: Theme.text3
+                                font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: true
+                            }
                         }
                     }
-                    Hairline { visible: Theme.rules; width: parent.width; color: Theme.ruleInk }
+                    Item {
+                        width: parent.width; height: mastCn.height
+                        CssText {
+                            id: mastCn
+                            readonly property real exact: Theme.greetSize(root.vw)
+                            clamp: true; lineBox: exact * 1.1
+                            text: "为你精选"; color: Theme.text
+                            font.family: Theme.fontSerif; font.pixelSize: Math.round(exact); font.weight: Theme.fwRegular
+                        }
+                        CssText {
+                            id: mastEn
+                            anchors.baseline: mastCn.baseline; anchors.left: mastCn.right; anchors.leftMargin: Theme.s3
+                            readonly property real exact: Theme.greetSize(root.vw) * 0.62
+                            clamp: true; lineBox: exact * 1.1
+                            text: "For You"; color: Theme.text3
+                            font.family: Theme.fontMeta; font.pixelSize: Math.round(exact); font.italic: true
+                        }
+                    }
+                    Item { width: 1; height: Theme.s4 }
+                    DoubleRule { visible: Theme.rules; width: parent.width }
                 }
 
                 // .home-stage: hero (1.5fr) + rail (minmax(17rem, 1fr)).
@@ -158,17 +204,35 @@ Item {
                     id: stage
                     width: parent.width
                     columns: scroller.stacked ? 1 : 2
-                    columnSpacing: Theme.clamp(Theme.s6, root.vw * 0.03, Theme.s10)
+                    columnSpacing: Theme.snap(Theme.clamp(Theme.s6, root.vw * 0.03, Theme.s10))
                     rowSpacing: columnSpacing
                     verticalItemAlignment: Grid.AlignVCenter
-                    readonly property real heroW: scroller.stacked ? width
-                        : width - columnSpacing - Math.max(Theme.rem(17), (width - columnSpacing) * 0.4)
-                    readonly property real railW: scroller.stacked ? width : width - columnSpacing - heroW
+                    // .feature: 1.15fr hero beside the 1fr side-list.
+                    readonly property real railW: scroller.stacked ? width
+                        : Math.max(Theme.rem(17), (width - columnSpacing) * (1.0 / 2.15))
+                    readonly property real heroW: scroller.stacked ? width : width - columnSpacing - railW
 
                     Item {
                         id: hero
-                        width: stage.heroW; height: Math.max(cover.height, info.implicitHeight)
-                        readonly property real coverSize: scroller.hero.hash ? Theme.clamp(192, root.vw * 0.19, 352) : 0
+                        width: stage.heroW; height: heroPlate.height
+                        readonly property real coverSize: scroller.hero.hash ? Theme.snap(Theme.clamp(148, root.vw * 0.13, 240)) : 0
+                        // The headline runs on a press plate — --paper-2 fill,
+                        // translucent-ink hairline, the dashed plate mark inset
+                        // 5px, and the vinyl print cut by the lower-right edge.
+                        PlateFrame {
+                            id: heroPlate; width: parent.width
+                            height: heroInner.implicitHeight + Theme.s6 * 2
+                            innerRule: true; clip: true
+                            VinylMark {
+                                z: -1
+                                size: Theme.clamp(120, heroPlate.height * 0.68, 200)
+                                x: parent.width - width + Theme.snap(10)
+                                y: parent.height - height + Theme.snap(10)
+                            }
+                            Item {
+                                id: heroInner
+                                x: Theme.s6; y: Theme.s6; width: parent.width - Theme.s6 * 2
+                                implicitHeight: Math.max(cover.height, info.implicitHeight)
                         Item {
                             id: cover
                             visible: !!scroller.hero.hash
@@ -192,50 +256,50 @@ Item {
                                 opacity: Theme.heroGlowOpacity; autoPaddingEnabled: true
                             }
                             Cover {
-                                anchors.fill: parent; radius: Theme.rCard; pixels: 400
+                                anchors.fill: parent; radius: Theme.rXs; pixels: 400
                                 url: scroller.hero.image || ""; title: ""
                                 elevation: 2
                             }
-                            // .home-hero-art outline: --rule-w --rule-ink at
-                            // 3×--rule-w offset (printer's frame in Mint).
-                            // Four aliased quads — Chromium pixel-snaps the
-                            // outline, a bordered+rounded Rectangle smears it
-                            // over two device rows at 125% DPI.
-                            Item {
-                                id: coverFrame
-                                anchors.fill: parent
-                                visible: Theme.rules
-                                readonly property real gap: Math.floor(3 * Theme.dpr) / Theme.dpr
-                                readonly property real ext: gap + Theme.hairline
-                                Rectangle { x: -coverFrame.ext; y: -coverFrame.ext; width: coverFrame.width + 2 * coverFrame.ext; height: Theme.hairline; color: Theme.ruleInk }
-                                Rectangle { x: -coverFrame.ext; y: coverFrame.height + coverFrame.gap; width: coverFrame.width + 2 * coverFrame.ext; height: Theme.hairline; color: Theme.ruleInk }
-                                Rectangle { x: -coverFrame.ext; y: -coverFrame.gap; width: Theme.hairline; height: coverFrame.height + 2 * coverFrame.gap; color: Theme.ruleInk }
-                                Rectangle { x: coverFrame.width + coverFrame.gap; y: -coverFrame.gap; width: Theme.hairline; height: coverFrame.height + 2 * coverFrame.gap; color: Theme.ruleInk }
+                            // Pressed into the plate: the photo keeps the
+                            // press's halftone screen and an inset ink edge —
+                            // no floating black border.
+                            Halftone { anchors.fill: parent; opacity: 0.14 }
+                            Rectangle {
+                                anchors.fill: parent; radius: Theme.rXs; color: "transparent"
+                                border.width: Theme.hairline
+                                border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.22)
                             }
                         }
                         Column {
                             id: info
                             x: cover.visible ? cover.width + Theme.clamp(Theme.s5, root.vw * 0.025, Theme.s8) : 0
-                            width: hero.width - x
+                            width: heroInner.width - x
                             anchors.verticalCenter: parent.verticalCenter
                             spacing: Theme.s3
                             bottomPadding: Theme.s2
-                            Row {
-                                spacing: Theme.s2
-                                Item {
-                                    width: Theme.s2; height: Theme.s2; anchors.verticalCenter: parent.verticalCenter
-                                    Rectangle {
-                                        anchors.centerIn: parent; width: Theme.s4; height: width; radius: width / 2
-                                        color: Theme.accentSoft; visible: music.playing && scroller.heroIsCurrent
+                            // "HEADLINE · 头条" on the left, the playback state
+                            // dot on the right — the deck line of the card.
+                            Item {
+                                width: parent.width; height: Theme.s4
+                                Kicker { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "Headline · 头条" }
+                                Row {
+                                    anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: Theme.s2
+                                    Item {
+                                        width: Theme.s2; height: Theme.s2; anchors.verticalCenter: parent.verticalCenter
+                                        Rectangle {
+                                            anchors.centerIn: parent; width: Theme.s4; height: width; radius: width / 2
+                                            color: Theme.sealSoft; visible: music.playing && scroller.heroIsCurrent
+                                        }
+                                        Rectangle {
+                                            anchors.fill: parent; radius: width / 2
+                                            color: music.playing && scroller.heroIsCurrent ? Theme.seal : Theme.text3
+                                        }
                                     }
-                                    Rectangle {
-                                        anchors.fill: parent; radius: width / 2
-                                        color: music.playing && scroller.heroIsCurrent ? Theme.accent : Theme.text3
+                                    Kicker {
+                                        anchors.verticalCenter: parent.verticalCenter
+                                        text: !scroller.hero.hash ? "还没有开始播放"
+                                            : scroller.heroIsCurrent ? (music.playing ? "正在播放" : "已暂停") : "今日推荐"
                                     }
-                                }
-                                Kicker {
-                                    text: !scroller.hero.hash ? "还没有开始播放"
-                                        : scroller.heroIsCurrent ? (music.playing ? "正在播放" : "已暂停") : "今日推荐"
                                 }
                             }
                             CssText {
@@ -268,19 +332,50 @@ Item {
                             Row {
                                 topPadding: Theme.s2
                                 spacing: Theme.s3
-                                ActionButton {
+                                AbstractButton {
+                                    // .hero-cta: the ink pill carrying the
+                                    // cinnabar record — .pp disc + tracked copy.
+                                    id: heroPlay
                                     objectName: "heroPlay"
                                     visible: !!scroller.hero.hash
-                                    filled: true; size: "lg"; bgRadius: Theme.rFull
-                                    leftPadding: Theme.s5 + Theme.hairline; rightPadding: leftPadding
-                                    media: scroller.heroIsCurrent && (music.playing || music.loading) ? "pause" : "play"
-                                    glyphFilled: true
-                                    text: !scroller.heroIsCurrent ? "播放" : music.loading ? "正在加载…" : music.playing ? "暂停" : "播放"
+                                    implicitHeight: Theme.s10
+                                    implicitWidth: ctaRow.implicitWidth + Theme.s5 + Theme.s2
+                                    hoverEnabled: true
                                     enabled: !(scroller.heroIsCurrent && music.loading && !music.playing)
+                                    Accessible.name: ctaLabel.text
                                     onClicked: {
                                         if (scroller.heroIsCurrent) { music.toggle(); return }
                                         var index = root.feedIndex(scroller.hero.hash)
                                         if (index >= 0) music.playFrom("feed", index)
+                                    }
+                                    background: Rectangle {
+                                        radius: height / 2
+                                        color: !heroPlay.enabled ? Theme.accentSoft : heroPlay.down ? Theme.accentHover : Theme.accent
+                                        PixelSnap.fit: true
+                                        Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
+                                    }
+                                    contentItem: Row {
+                                        id: ctaRow
+                                        anchors.centerIn: parent; spacing: Theme.s2
+                                        Rectangle {
+                                            // .pp — the cinnabar disc.
+                                            anchors.verticalCenter: parent.verticalCenter
+                                            width: Theme.rem(1.6); height: width; radius: width / 2
+                                            color: Theme.seal
+                                            Icon {
+                                                anchors.centerIn: parent
+                                                name: scroller.heroIsCurrent && music.playing ? "pause" : "play"
+                                                filled: true; size: Theme.rem(0.7)
+                                                color: Theme.accentContrast
+                                            }
+                                        }
+                                        Text {
+                                            id: ctaLabel; anchors.verticalCenter: parent.verticalCenter
+                                            text: !scroller.heroIsCurrent ? "播放" : music.loading ? "正在加载…" : music.playing ? "暂停" : "播放"
+                                            color: heroPlay.enabled ? Theme.accentContrast : Theme.text3
+                                            font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; font.weight: Theme.fwMedium
+                                            font.letterSpacing: Theme.rem(0.05)
+                                        }
                                     }
                                 }
                                 ActionButton {
@@ -341,111 +436,116 @@ Item {
                                 }
                             }
                         }
+                            }
+                        }
                     }
 
-                    // .home-rail: title + reshuffle, six 40px-thumb rows;
-                    // --rule-w --border left rule outside the padding.
+                    // The trending rail: the side-list plate — translucent
+                    // paper under a hairline, "每周飙升 Trending" head, and
+                    // numbered serif rows parted by dotted leaders.
                     Item {
                         width: stage.railW
-                        height: rail.implicitHeight
-                        readonly property real railPad: scroller.stacked ? 0 : Theme.clamp(0, root.vw * 0.02, Theme.s8)
-                        Hairline {
-                            visible: Theme.rules && !scroller.stacked; vertical: true
-                            height: parent.height
-                        }
-                        Column {
-                            id: rail
-                            x: parent.railPad
-                            width: parent.width - parent.railPad
-                            spacing: Theme.s2
-                            Item {
-                                width: rail.width; height: Theme.controlMd
-                                SectionTitle {
-                                    anchors.verticalCenter: parent.verticalCenter
-                                    text: music.radio ? "接下来播放" : "随心推荐"
-                                }
-                                IconButton {
-                                    objectName: "railReshuffle"
-                                    anchors.right: parent.right; visible: !music.radio
-                                    glyph: "refresh-cw"; tint: Theme.text3
-                                    // .home-reshuffle:hover svg: rotate(90deg).
-                                    glyphRotation: hovered ? 90 : 0
-                                    enabled: music.feed.length > 6
-                                    Accessible.name: "换一批"
-                                    onClicked: scroller.railOffset = (scroller.railOffset + 6) % Math.max(1, music.feed.length)
-                                }
-                            }
-                            Grid {
-                                id: railGrid
-                                width: rail.width
-                                columns: scroller.stacked ? 2 : 1
-                                columnSpacing: Theme.s2; rowSpacing: 2
-                                Repeater {
-                                    model: scroller.railTracks
-                                    AbstractButton {
-                                        id: row
-                                        required property var modelData
-                                        required property int index
-                                        objectName: "railTrack" + index
-                                        width: (railGrid.width - (railGrid.columns - 1) * railGrid.columnSpacing) / railGrid.columns
-                                        // .home-row: 8px padding around max(40px thumb, copy),
-                                        // the copy being 21 + 2 + 18 at the button's 1.5 line-height.
-                                        height: Theme.s2 * 2 + Math.max(Theme.s10, rowCopy.implicitHeight)
-                                        hoverEnabled: true
-                                        Accessible.name: "播放 " + (modelData.title || "") + "，" + (modelData.artist || "")
-                                        onClicked: {
-                                            if (music.radio) { music.playQueue(music.queueIndex + 1 + index); return }
-                                            var at = root.feedIndex(modelData.hash)
-                                            if (at >= 0) music.playFrom("feed", at)
+                        height: railPlate.height
+                        PlateFrame {
+                            id: railPlate; width: parent.width
+                            height: rail.implicitHeight + Theme.s5 * 2
+                            fill: Theme.paperVeil
+                            Column {
+                                id: rail
+                                x: Theme.s5; y: Theme.s5; width: parent.width - Theme.s5 * 2
+                                spacing: 0
+                                Column {
+                                    width: rail.width; spacing: Theme.s1; bottomPadding: Theme.s1
+                                    SectionHead {
+                                        width: rail.width
+                                        cn: music.radio ? "接下来播放" : "每周飙升"
+                                        en: music.radio ? "Up Next" : "Trending"
+                                        IconButton {
+                                            objectName: "railReshuffle"
+                                            visible: !music.radio
+                                            glyph: "refresh-cw"; tint: Theme.text3
+                                            // .home-reshuffle:hover svg: rotate(90deg).
+                                            glyphRotation: hovered ? 90 : 0
+                                            enabled: music.feed.length > 6
+                                            Accessible.name: "换一批"
+                                            onClicked: scroller.railOffset = (scroller.railOffset + 6) % Math.max(1, music.feed.length)
                                         }
-                                        background: Rectangle {
-                                            radius: Theme.rMd
-                                            color: row.hovered ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-                                            Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
-                                        }
-                                        contentItem: Item {
-                                            Cover {
-                                                id: thumb; x: Theme.s2; anchors.verticalCenter: parent.verticalCenter
-                                                width: Theme.s10; height: Theme.s10; radius: Theme.rSm; pixels: 120
-                                                url: row.modelData.image || ""; title: ""
-                                                PlayVeil { anchors.fill: parent; radius: Theme.rSm; opacity: row.hovered ? 1 : 0 }
+                                    }
+                                    Hairline { width: rail.width }
+                                }
+                                Grid {
+                                    id: railGrid
+                                    width: rail.width
+                                    columns: scroller.stacked ? 2 : 1
+                                    columnSpacing: Theme.s4; rowSpacing: 0
+                                    Repeater {
+                                        model: scroller.railTracks
+                                        AbstractButton {
+                                            id: row
+                                            required property var modelData
+                                            required property int index
+                                            objectName: "railTrack" + index
+                                            width: (railGrid.width - (railGrid.columns - 1) * railGrid.columnSpacing) / railGrid.columns
+                                            // .side-list li: 6px row padding
+                                            // over the two-line copy.
+                                            height: Theme.s3 + rowCopy.implicitHeight
+                                            hoverEnabled: true
+                                            Accessible.name: "播放 " + (modelData.title || "") + "，" + (modelData.artist || "")
+                                            onClicked: {
+                                                if (music.radio) { music.playQueue(music.queueIndex + 1 + index); return }
+                                                var at = root.feedIndex(modelData.hash)
+                                                if (at >= 0) music.playFrom("feed", at)
                                             }
-                                            // .home-row-copy: <b> in --font-title, <small> stays
-                                            // in the button's inherited --font-ui.
-                                            Column {
-                                                id: rowCopy
-                                                x: thumb.x + thumb.width + Theme.s3
-                                                width: time.x - x - Theme.s3
-                                                anchors.verticalCenter: parent.verticalCenter; spacing: 2
-                                                Text {
-                                                    width: parent.width; height: Theme.fsMd * Theme.lhNormal; verticalAlignment: Text.AlignVCenter
-                                                    text: row.modelData.title || ""; elide: Text.ElideRight
-                                                    color: root.isActive(row.modelData) ? Theme.accent : Theme.text
-                                                    font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd; font.weight: Theme.fwMedium
-                                                }
-                                                Text {
-                                                    width: parent.width; height: Theme.fsXs * Theme.lhNormal; verticalAlignment: Text.AlignVCenter
-                                                    text: row.modelData.artist || ""; elide: Text.ElideRight
-                                                    color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
-                                                }
+                                            background: Rectangle {
+                                                // li:hover — the 2% ink wash, not a surface card.
+                                                color: row.hovered ? Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.035) : "transparent"
+                                                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+                                                DotRule { y: parent.height - height; width: parent.width; visible: scroller.stacked || row.index < scroller.railTracks.length - 1 }
                                             }
-                                            Text {
-                                                id: time
-                                                anchors.right: parent.right; anchors.rightMargin: Theme.s2
-                                                anchors.verticalCenter: parent.verticalCenter
-                                                text: row.modelData.duration > 0 ? Theme.duration(row.modelData.duration) : ""
-                                                color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
-                                                font.features: { "tnum": 1 }
+                                            contentItem: Item {
+                                                CssText {
+                                                    id: num
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    width: Theme.s6
+                                                    text: String(row.index + 1).padStart(2, "0"); color: Theme.text3
+                                                    font.family: Theme.fontMeta; font.pixelSize: Theme.fsMd; font.italic: true
+                                                    font.features: { "tnum": 1 }
+                                                }
+                                                Column {
+                                                    id: rowCopy
+                                                    x: num.width + Theme.s2
+                                                    width: time.x - x - Theme.s3
+                                                    anchors.verticalCenter: parent.verticalCenter; spacing: 0
+                                                    CssText {
+                                                        width: parent.width
+                                                        text: row.modelData.title || ""; elide: Text.ElideRight
+                                                        color: root.isActive(row.modelData) ? Theme.seal : Theme.text
+                                                        font.family: Theme.fontSerif; font.pixelSize: Theme.fsSm
+                                                    }
+                                                    CssText {
+                                                        width: parent.width; lineBox: Theme.fsXs * Theme.lhNormal
+                                                        text: row.modelData.artist || ""; elide: Text.ElideRight
+                                                        color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
+                                                    }
+                                                }
+                                                CssText {
+                                                    id: time
+                                                    anchors.right: parent.right
+                                                    anchors.verticalCenter: parent.verticalCenter
+                                                    text: row.modelData.duration > 0 ? Theme.duration(row.modelData.duration) : ""
+                                                    color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: true
+                                                    font.features: { "tnum": 1 }
+                                                }
                                             }
                                         }
                                     }
                                 }
-                            }
-                            Text {
-                                visible: scroller.railTracks.length === 0
-                                topPadding: Theme.s4; bottomPadding: Theme.s4
-                                text: music.ready ? "暂时没有推荐，稍后再试" : "正在准备推荐…"
-                                color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
+                                Text {
+                                    visible: scroller.railTracks.length === 0
+                                    topPadding: Theme.s4; bottomPadding: Theme.s4
+                                    text: music.ready ? "暂时没有推荐，稍后再试" : "正在准备推荐…"
+                                    color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
+                                }
                             }
                         }
                     }
@@ -462,12 +562,11 @@ Item {
                     Column {
                         width: parent.width; spacing: Theme.s4
                         topPadding: Theme.s3
-                        Item {
-                            width: parent.width; height: Theme.controlSm
-                            SectionTitle { anchors.verticalCenter: parent.verticalCenter; text: "每日推荐" }
+                        SectionHead {
+                            width: parent.width
+                            cn: "每日推荐"; en: "Daily"
                             ActionButton {
                                 objectName: "dailyExpand"
-                                anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
                                 visible: scroller.daily.length > scroller.collapsed
                                 quiet: true; size: "sm"; restInk: Theme.text3
                                 text: scroller.dailyExpanded ? "收起到两行" : "展开全部 · " + scroller.daily.length + " 首"
@@ -498,13 +597,18 @@ Item {
                                     contentItem: Item {
                                         Cover {
                                             id: art; width: tile.width; height: width
-                                            radius: Theme.rCard; pixels: 300; url: tile.modelData.image || ""; title: ""
+                                            radius: Theme.rXs; pixels: 300; url: tile.modelData.image || ""; title: ""
                                             transform: Translate {
                                                 y: tile.hovered ? -Theme.s1 : 0
                                                 Behavior on y { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
                                             }
                                             elevation: tile.hovered ? 2 : 0
-                                            PlayVeil { anchors.fill: parent; radius: Theme.rCard; disc: true; opacity: tile.hovered || tile.visualFocus ? 1 : 0 }
+                                            PlayVeil { anchors.fill: parent; radius: Theme.rXs; disc: true; opacity: tile.hovered || tile.visualFocus ? 1 : 0 }
+                                            Rectangle {
+                                                anchors.fill: parent; radius: Theme.rXs; color: "transparent"
+                                                border.width: Theme.hairline
+                                                border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.16)
+                                            }
                                         }
                                         // .home-tile: the cover's 8px margin plus the 4px grid
                                         // gap, then title (--font-title) and sub (inherited
@@ -514,8 +618,8 @@ Item {
                                             Text {
                                                 width: parent.width; height: Theme.fsMd * Theme.lhNormal; verticalAlignment: Text.AlignVCenter
                                                 text: tile.modelData.title || ""; elide: Text.ElideRight
-                                                color: root.isActive(tile.modelData) ? Theme.accent : Theme.text
-                                                font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd; font.weight: Theme.fwMedium
+                                                color: root.isActive(tile.modelData) ? Theme.seal : Theme.text
+                                                font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd
                                             }
                                             Text {
                                                 width: parent.width; height: Theme.fsXs * Theme.lhNormal; verticalAlignment: Text.AlignVCenter
@@ -529,9 +633,9 @@ Item {
                         }
                     }
                 }
-                HomeCollections { width: parent.width; title: "精选歌单"; collections: homeState.playlists; onOpenPlaylist: playlist => root.openPlaylist(playlist) }
-                HomeCollections { width: parent.width; title: "推荐专辑"; collections: homeState.recommendedAlbums; onOpenAlbum: album => root.openAlbum(album) }
-                HomeCollections { width: parent.width; title: "新歌与发现"; collections: homeState.albums; onOpenPlaylist: playlist => root.openPlaylist(playlist) }
+                HomeCollections { width: parent.width; title: "编辑推荐"; en: "Editor's Picks"; collections: homeState.playlists; onOpenPlaylist: playlist => root.openPlaylist(playlist) }
+                HomeCollections { width: parent.width; title: "推荐专辑"; en: "Albums"; collections: homeState.recommendedAlbums; onOpenAlbum: album => root.openAlbum(album) }
+                HomeCollections { width: parent.width; title: "新歌与发现"; en: "New & Found"; collections: homeState.albums; onOpenPlaylist: playlist => root.openPlaylist(playlist) }
             }
         }
     }
@@ -576,7 +680,7 @@ Item {
                     onDoubleClicked: music.playFrom("search", index)
                     background: Rectangle {
                         radius: Theme.rSm
-                        color: root.isActive(songRow.modelData) ? Theme.accentSoft
+                        color: root.isActive(songRow.modelData) ? Theme.sealSoft
                             : songRow.hovered ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
                         Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
                         Hairline { y: parent.height - Theme.hairline; width: parent.width }
@@ -586,7 +690,7 @@ Item {
                         Text {
                             Layout.preferredWidth: Theme.s8; Layout.leftMargin: Theme.s1
                             text: String(songRow.index + 1).padStart(2, "0"); color: Theme.text3
-                            font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; font.features: { "tnum": 1 }
+                            font.family: Theme.fontMeta; font.pixelSize: Theme.fsSm; font.italic: true; font.features: { "tnum": 1 }
                         }
                         Cover {
                             Layout.preferredWidth: 50; Layout.preferredHeight: 50; Layout.rightMargin: Theme.s2
@@ -596,8 +700,8 @@ Item {
                         Text {
                             Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.horizontalStretchFactor: 22
                             text: songRow.modelData.title || ""; elide: Text.ElideRight
-                            color: root.isActive(songRow.modelData) ? Theme.accent : Theme.text
-                            font.family: Theme.fontTitle; font.pixelSize: Theme.fsSm; font.weight: Theme.fwMedium
+                            color: root.isActive(songRow.modelData) ? Theme.seal : Theme.text
+                            font.family: Theme.fontTitle; font.pixelSize: Theme.fsSm
                         }
                         Text {
                             Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.horizontalStretchFactor: 12

@@ -637,7 +637,7 @@ int main(int argc, char** argv) {
         screenshot("qt-history");
         window->setProperty("settingsSection", "appearance"); window->setProperty("route", "settings"); QTest::qWait(200);
         appearance.setMode("dark");
-        check("dark_mode_updates_window", waitFor([&] { return window->color() == QColor("#101614"); }, 2000)); screenshot("qt-appearance-dark");
+        check("dark_mode_updates_window", waitFor([&] { return window->color() == QColor("#1A1714"); }, 2000)); screenshot("qt-appearance-dark");
         appearance.setLyricFont("kai"); window->setProperty("route", "player"); QTest::qWait(250);
         check("lyric_font_preference_applies", find("activeLyricText") && find("activeLyricText")->property("font").value<QFont>().family() == "LXGW WenKai Lite");
         appearance.setLyricFont("skin"); appearance.setMode("light");
@@ -652,6 +652,7 @@ int main(int argc, char** argv) {
         equalizer.setEnabled(false); music.setPlaying(false); appearance.setLabMode(false);
         check("equalizer_bypass_restores_raw_output", !equalizer.active() && !music.audioOutput()->isMuted());
         QMetaObject::invokeMethod(window,"changeMode",Q_ARG(QVariant,QStringLiteral("curtain"))); QTest::qWait(450);
+        click(window,find("homeSidebarToggle")); QTest::qWait(350);
         click(window,find("bravaisTab_mine")); waitFor([&]{auto* item=find("bravaisHome");return item&&item->property("selectedTab").toString()=="mine";},1500);
         auto* personalWall=qobject_cast<QQuickItem*>(find("bravaisHome"));
         check("collage_personal_playlists_loaded",personalWall && personalWall->property("selectedTab").toString()=="mine"

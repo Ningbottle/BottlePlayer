@@ -10,6 +10,13 @@ import BottleMusic
 Text {
     id: root
     property real lineBox: font.pixelSize * Theme.lhNormal
+    // snap lands the item's origin on the device-pixel grid (PixelSnap), so
+    // the snapped lead/ascent math lands every baseline on a whole device
+    // pixel even when the surrounding layout is fractional. Baseline-anchored
+    // runs (mastCn/mastEn, SectionHead bylines) opt out: their anchor already
+    // shares the first line's snapped baseline, and re-snapping the origin
+    // would knock it off by up to half a pixel.
+    property bool snap: true
     // FixedHeight cannot shrink a line below the font's natural height (big
     // display faces: Caslon's line is 1.24em, so a 1.1 line box never
     // applies). `clamp` forces the box to lines × lineBox anyway; the glyphs
@@ -25,4 +32,5 @@ Text {
     bottomPadding: -lead
     height: clamp ? Math.max(lineBox * lineCount, minBox) : implicitHeight
     FontMetrics { id: metrics; font: root.font }
+    PixelSnap.enabled: root.snap
 }

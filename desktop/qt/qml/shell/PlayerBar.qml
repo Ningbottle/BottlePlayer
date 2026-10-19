@@ -36,6 +36,7 @@ Rectangle {
         AbstractButton {
             id: coverButton
             objectName: "playerCoverButton"
+            anchors.verticalCenter: parent.verticalCenter
             width: Theme.coverInBar; height: Theme.coverInBar
             enabled: music.queueIndex >= 0
             hoverEnabled: true
@@ -90,11 +91,11 @@ Rectangle {
             glyph: "heart"; glyphSize: 18; glyphFilled: music.favorite
             enabled: music.queueIndex >= 0
             checked: music.favorite; flatChecked: true
-            tint: Theme.text3; checkedTint: Theme.accent
+            tint: Theme.text3; checkedTint: Theme.mark
             Accessible.name: music.favorite ? "已收藏" : "收藏"
             onClicked: music.toggleFavorite()
         }
-        IconButton { size: "sm"; glyph: "plus"; enabled: music.queueIndex >= 0; Accessible.name: "添加当前歌曲到歌单"; onClicked: root.addToPlaylist(music.current) }
+        IconButton { size: "sm"; glyph: "list-plus"; anchors.verticalCenter: parent.verticalCenter; enabled: music.queueIndex >= 0; Accessible.name: "添加当前歌曲到歌单"; onClicked: root.addToPlaylist(music.current) }
     }
 
     // Loop · transport · lyrics over the progress line (2px row gap),
@@ -109,7 +110,7 @@ Rectangle {
             spacing: Theme.s3
             IconButton {
                 objectName: "loopButton"
-                glyphSize: 18; tint: Theme.text3; checkedTint: Theme.accent; flatChecked: true
+                glyphSize: 18; tint: Theme.text3; checkedTint: Theme.mark; flatChecked: true
                 glyph: music.loopMode === "random" ? "shuffle" : music.loopMode === "single" ? "repeat-1" : "repeat"
                 enabled: music.queueIndex >= 0 && !music.radio
                 checked: music.loopMode !== "list"
@@ -119,7 +120,7 @@ Rectangle {
             Transport { id: transport }
             IconButton {
                 objectName: "lyricsButton"
-                glyph: "mic-vocal"; glyphSize: 18; tint: Theme.text3; checkedTint: Theme.accent; flatChecked: true
+                glyph: "mic-vocal"; glyphSize: 18; tint: Theme.text3; checkedTint: Theme.mark; flatChecked: true
                 checked: root.lyricView
                 Accessible.name: "歌词"; onClicked: root.toggleLyrics()
             }
@@ -127,33 +128,115 @@ Rectangle {
         SeekBar { width: parent.width }
     }
 
-    // Actions: right-aligned, 8px apart, --text-2 ink.
+    // Actions: right-aligned, 8px apart, --text-2 ink. Every child centres
+    // itself in the row so the sm button, md icons and the slider share one
+    // baseline axis.
     Row {
         anchors.right: parent.right; anchors.rightMargin: Theme.s5; anchors.verticalCenter: parent.verticalCenter
         spacing: Theme.s2
-        ActionButton {
-            objectName: "qualityButton"; size: "sm"; text: music.qualityText(music.actualQuality)
+        // .quality tag: a hairline chip in the queue/volume row — the delivered
+        // quality label beside the seal-bordered 切换 tag, like the press's
+        // red folio marks. Opens the shared QualityMenu.
+        AbstractButton {
+            id: qualityButton
+            objectName: "qualityButton"
+            anchors.verticalCenter: parent.verticalCenter
+            implicitWidth: qualityRow.implicitWidth + Theme.s3 * 2
+            implicitHeight: Theme.controlSm
+            hoverEnabled: true; focusPolicy: Qt.TabFocus
             enabled: music.queueIndex >= 0 && !String(music.current.hash).startsWith("file:")
+            opacity: !enabled ? Theme.disabledOpacity : 1
             onClicked: qualityMenu.popup()
+            Accessible.name: "音质 · " + music.qualityText(music.actualQuality)
+            background: Rectangle {
+                radius: Theme.rSm
+                color: qualityButton.down ? Theme.surfaceActive : qualityButton.hovered || qualityButton.visualFocus ? Theme.surfaceHover : "transparent"
+                border.width: Theme.hairline; border.color: Theme.borderStrong
+                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+                PixelSnap.fit: true
+                Rectangle {
+                    anchors.fill: parent; anchors.margins: -4; radius: parent.radius + 4
+                    color: "transparent"; border.width: 2; border.color: Theme.focus
+                    visible: qualityButton.visualFocus
+                }
+            }
+            contentItem: Row {
+                id: qualityRow; anchors.centerIn: parent; spacing: Theme.s2
+                Text {
+                    anchors.verticalCenter: parent.verticalCenter
+                    text: music.qualityText(music.actualQuality); color: qualityButton.hovered ? Theme.text : Theme.text2
+                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium
+                }
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    implicitWidth: switchTag.implicitWidth + Theme.s2; implicitHeight: Theme.s4
+                    radius: 2; color: "transparent"
+                    border.width: Theme.hairline; border.color: Theme.seal
+                    Text {
+                        id: switchTag; anchors.centerIn: parent; text: "切换"; color: Theme.seal
+                        font.family: Theme.fontUi; font.pixelSize: 10
+                    }
+                }
+            }
             QualityMenu { id: qualityMenu; objectName: "qualityMenu" }
         }
         IconButton {
             objectName: "queueButton"; glyph: "list-music"; glyphSize: 18
+            anchors.verticalCenter: parent.verticalCenter
             checked: root.queueOpen
             Accessible.name: "播放队列"; onClicked: root.toggleQueue()
         }
         Row {
             id: volumeGroup
+            anchors.verticalCenter: parent.verticalCenter
             spacing: Theme.s1
             property real restore: 0.7
             HoverHandler { id: volumeHover }
-            IconButton {
-                glyphSize: 18
-                glyph: music.volume <= 0 ? "volume-x" : music.volume < 0.34 ? "volume" : music.volume < 0.67 ? "volume-1" : "volume-2"
+            // The volume glyph is a layered composite: the speaker is
+            // constant while both sound waves fade in with the level, so the
+            // icon grows continuously instead of snapping between presets.
+            AbstractButton {
+                id: volumeButton
+                anchors.verticalCenter: parent.verticalCenter
+                implicitWidth: Theme.controlMd; implicitHeight: Theme.controlMd
+                hoverEnabled: true; focusPolicy: Qt.TabFocus
+                readonly property bool lit: enabled && (hovered || visualFocus)
+                readonly property color ink: lit ? Theme.text : Theme.text2
                 Accessible.name: music.volume > 0 ? "静音" : "取消静音"
                 onClicked: {
                     if (music.volume > 0) { volumeGroup.restore = music.volume; music.volume = 0 }
                     else music.volume = Math.max(0.1, volumeGroup.restore)
+                }
+                scale: pressed ? Theme.pressScale : 1
+                Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce } }
+                background: Rectangle {
+                    radius: Theme.rSm
+                    color: volumeButton.down ? Theme.surfaceActive : volumeButton.lit ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
+                    Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+                    PixelSnap.fit: true
+                    Rectangle {
+                        anchors.fill: parent; anchors.margins: -4; radius: parent.radius + 4
+                        color: "transparent"; border.width: 2; border.color: Theme.focus
+                        visible: volumeButton.visualFocus
+                    }
+                }
+                contentItem: Item {
+                    Icon { anchors.centerIn: parent; name: "volume"; size: 18; color: volumeButton.ink }
+                    Icon {
+                        anchors.centerIn: parent; name: "volume-wave-1"; size: 18; color: volumeButton.ink
+                        opacity: Theme.clamp(0, (music.volume - 0.05) / 0.5, 1)
+                        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast } }
+                    }
+                    Icon {
+                        anchors.centerIn: parent; name: "volume-wave-2"; size: 18; color: volumeButton.ink
+                        opacity: Theme.clamp(0, (music.volume - 0.45) / 0.5, 1)
+                        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast } }
+                    }
+                    Icon {
+                        anchors.centerIn: parent; name: "volume-x-mark"; size: 18; color: volumeButton.ink
+                        opacity: music.volume <= 0 ? 1 : 0
+                        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast } }
+                    }
                 }
             }
             Slider {

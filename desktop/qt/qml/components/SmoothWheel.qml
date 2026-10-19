@@ -17,14 +17,17 @@ WheelHandler {
     function clampY(v) {
         return Math.max(flickable.originY, Math.min(v, flickable.originY + flickable.contentHeight - flickable.height))
     }
+    // Rest positions land on whole device pixels (Blink paints scrolled text
+    // the same way) — a fractional contentY leaves every glyph half a device
+    // pixel off at 125% scaling, which is what made columns read soft.
     onWheel: event => {
         if (event.pixelDelta.y !== 0) {
             glide.stop()
-            flickable.contentY = clampY(flickable.contentY - event.pixelDelta.y)
+            flickable.contentY = Theme.snap(clampY(flickable.contentY - event.pixelDelta.y))
             goal = flickable.contentY
         } else if (event.angleDelta.y !== 0) {
             if (!glide.running) goal = flickable.contentY
-            goal = clampY(goal - event.angleDelta.y / 120 * step)
+            goal = Theme.snap(clampY(goal - event.angleDelta.y / 120 * step))
             glide.to = goal
             glide.restart()
         }
@@ -39,5 +42,10 @@ WheelHandler {
         target: wheel.flickable
         function onDraggingChanged() { if (wheel.flickable.dragging) wheel.glide.stop() }
         function onFlickingChanged() { if (wheel.flickable.flicking) wheel.glide.stop() }
+        function onMovementEnded() {
+            const f = wheel.flickable
+            if (f.contentY >= f.originY - 0.5 && f.contentY <= f.originY + f.contentHeight - f.height + 0.5)
+                f.contentY = Theme.snap(f.contentY)
+        }
     }
 }

@@ -72,19 +72,21 @@ void installUiAssets(QQmlEngine& engine) {
     const QDir fonts(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("fonts")));
     for (const QString& name : fonts.entryList({QStringLiteral("*.ttf"), QStringLiteral("*.otf")}, QDir::Files))
         QFontDatabase::addApplicationFont(fonts.filePath(name));
-    // Font fallback stacks: Inter → MiSans → Microsoft YaHei UI for CJK (the
-    // bundled MiSans supplies a consistent CJK face), the bundled WenKai
+    // Font fallback stacks: Inter → Microsoft YaHei UI → MiSans for CJK UI
+    // text. The system YaHei face (the web reference's own stack) holds its
+    // stems at small sizes where MiSans's rounder, lighter strokes read soft;
+    // MiSans stays in the chain for any glyph YaHei lacks. The bundled WenKai
     // → KaiTi for lyrics, and
     // Mint's newsprint serif chain Libre Caslon Display → EB Garamond →
-    // SimSun → Noto Serif SC. SimSun leads the CJK fallback because its
-    // outlines are hand-instructed for the GDI rasterizer we select below:
-    // hinted Noto Serif SC draws uneven strokes at small sizes.
+    // Noto Serif SC → SimSun. Noto Serif SC leads the CJK fallback: under the
+    // DirectWrite engine selected below its serif strokes hold up at small
+    // sizes, while SimSun's GDI-hinted outlines read thin and uneven there.
     QFont::insertSubstitutions(QStringLiteral("Inter"),
-                               {QStringLiteral("MiSans"), QStringLiteral("Microsoft YaHei UI"), QStringLiteral("Microsoft YaHei")});
+                               {QStringLiteral("Microsoft YaHei UI"), QStringLiteral("MiSans"), QStringLiteral("Microsoft YaHei")});
     QFont::insertSubstitution(QStringLiteral("LXGW WenKai Lite"), QStringLiteral("KaiTi"));
     QFont::insertSubstitutions(QStringLiteral("Libre Caslon Display"),
-                               {QStringLiteral("EB Garamond"), QStringLiteral("SimSun"), QStringLiteral("Noto Serif SC")});
-    QFont::insertSubstitutions(QStringLiteral("EB Garamond"), {QStringLiteral("SimSun"), QStringLiteral("Noto Serif SC")});
+                               {QStringLiteral("EB Garamond"), QStringLiteral("Noto Serif SC"), QStringLiteral("SimSun")});
+    QFont::insertSubstitutions(QStringLiteral("EB Garamond"), {QStringLiteral("Noto Serif SC"), QStringLiteral("SimSun")});
     QFont::insertSubstitution(QStringLiteral("Noto Serif SC"), QStringLiteral("SimSun"));
     QFont::insertSubstitution(QStringLiteral("Cascadia Code"), QStringLiteral("Consolas"));
     QFont base(QStringLiteral("Inter"));

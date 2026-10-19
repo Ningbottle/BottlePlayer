@@ -76,6 +76,8 @@ qt_add_qml_module(bottle_qt_ui URI BottleMusic VERSION 1.0
     qml/components/DeviceSettings.qml
     qml/components/HomeCollections.qml
     qml/components/ImmersiveBackground.qml qml/components/ImmersiveControls.qml
+    qml/components/DoubleRule.qml qml/components/SnapSettle.qml
+    qml/components/PlateFrame.qml qml/components/DotRule.qml qml/components/Halftone.qml qml/components/VinylMark.qml
     qml/shell/TitleBar.qml qml/shell/Sidebar.qml qml/shell/TopBar.qml qml/shell/PlayerBar.qml
     qml/pages/PaperPage.qml qml/pages/CurtainPage.qml qml/pages/BravaisHome.qml qml/pages/HomeSearchPage.qml qml/pages/PosterWallPage.qml
     qml/pages/PlayerPage.qml qml/pages/SettingsPage.qml qml/pages/ImmersivePlayerPage.qml

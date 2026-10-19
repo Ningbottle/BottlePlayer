@@ -16,8 +16,17 @@ Item {
         hoverFill: root.wall ? Theme.wallChromeHover : Theme.surfaceHover; downFill: root.wall ? Theme.wallChromePressed : Theme.surfaceActive
         focusInk: root.wall ? Theme.wallFocus : Theme.focus; radius: root.wall ? width/2 : Theme.rSm
     }
-    readonly property var shown: music.queue.map((track, index) => Object.assign({queueIndex:index}, track)).filter(track =>
-        (String(track.title || "") + " " + String(track.artist || "")).toLowerCase().includes(search.text.toLowerCase()))
+    readonly property var shown: {
+        // Stable per-row keys (hash + occurrence) let a recreated delegate
+        // find where it used to sit — the FLIP animation's memory.
+        var seen = {}
+        return music.queue.map((track, index) => {
+            var h = String(track.hash || track.url || index)
+            var occ = seen[h] = (seen[h] || 0) + 1
+            return Object.assign({queueIndex: index, key: h + "#" + occ}, track)
+        }).filter(track =>
+            (String(track.title || "") + " " + String(track.artist || "")).toLowerCase().includes(search.text.toLowerCase()))
+    }
     MouseArea { anchors.fill: parent; onClicked: root.close() }
     Plate {
         id: panel; objectName: "queuePanelCard"; anchors.right: parent.right; anchors.rightMargin: 12; y: 12
@@ -28,16 +37,28 @@ Item {
             NumberAnimation { target: panel; property: "opacity"; to: 1; duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
             NumberAnimation { target: panel; property: "scale"; to: 1; duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
         }
-        width: Math.min(440, parent.width - 24); height: parent.height - 24
+        width: Math.min(400, parent.width - 24); height: parent.height - 24
         radius: root.wall ? 16 : Theme.rLg; color: root.wall ? Theme.wallChromeSurface : Theme.bgElevated; borderColor: root.wall ? "transparent" : Theme.borderStrong; elevation: root.wall ? 3 : 0
         MouseArea { anchors.fill: parent }
         Column {
             id: header; x: 20; y: 20; width: parent.width - 40; spacing: 12
-            Row {
-                width: parent.width
-                CssText { width: parent.width - close.width; text: "播放队列 · " + music.queue.length; font.family: root.wall ? Theme.fontUi : Theme.fontTitle; font.pixelSize: root.wall ? 14 : Theme.fsXl; font.weight: root.wall ? Theme.fwSemiBold : Theme.fwRegular; color: root.ink }
-                QueueIcon { id: close; objectName: "queueClose"; glyph: "x"; size: "sm"; onClicked: root.close() }
+            Item {
+                width: parent.width; height: queueTitle.height
+                CssText {
+                    id: queueTitle; anchors.verticalCenter: parent.verticalCenter
+                    text: root.wall ? "播放队列 · " + music.queue.length : "当前播放队列"
+                    font.family: root.wall ? Theme.fontUi : Theme.fontSerif
+                    font.pixelSize: root.wall ? 14 : Theme.fsLg
+                    font.weight: root.wall ? Theme.fwSemiBold : Theme.fwRegular; color: root.ink
+                }
+                CssText {
+                    visible: !root.wall; anchors.baseline: queueTitle.baseline; anchors.left: queueTitle.right; anchors.leftMargin: Theme.s2
+                    text: "Queue · " + music.queue.length; color: Theme.text3
+                    font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.letterSpacing: Theme.metaTracking; font.capitalization: Theme.metaCase
+                }
+                QueueIcon { id: close; objectName: "queueClose"; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; glyph: "x"; size: "sm"; onClicked: root.close() }
             }
+            Hairline { visible: Theme.rules; width: parent.width }
             TextField {
                 id: search; objectName: "queueSearch"; width: parent.width
                 placeholderText: "搜索队列中的歌曲或艺人"; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
@@ -54,27 +75,89 @@ Item {
         ListView {
             id: tracks; objectName: "queueTracks"; x: 12; y: header.y + header.height + 12; width: parent.width - 24; height: Math.max(0, parent.height - y - 12)
             model: root.shown; clip: true; cacheBuffer: 160; boundsBehavior: Flickable.StopAtBounds
+            // A 4px gutter reads each row as its own card.
+            spacing: Theme.s1
+            SnapSettle { flickable: tracks }
             ScrollBar.vertical: ThinScrollBar { thumbColor: root.wall ? "#3dffffff" : Theme.borderStrong; thumbHoverColor: root.muted }
+            // FLIP: queue is a QVariantList — every edit resets the view, so
+            // row positions are snapshotted before the mutation and each
+            // recreated delegate springs back from where it used to sit.
+            property var preMoveYs: ({})
+            property double preMoveStamp: 0
+            function capturePositions() {
+                var map = {}
+                for (var i = 0; i < count; ++i) {
+                    var it = itemAtIndex(i)
+                    if (it) map[it.rowKey] = it.y
+                }
+                preMoveYs = map
+                preMoveStamp = Date.now()
+            }
             delegate: AbstractButton {
                 id: row
                 required property var modelData
-                width: ListView.view.width; height: Theme.compactList ? 60 : 76; hoverEnabled: true; enabled: !music.radio
+                readonly property string rowKey: modelData.key || ""
+                width: ListView.view.width; height: Theme.compactList ? 52 : 64; hoverEnabled: true; enabled: !music.radio
                 objectName: "queueTrack_" + modelData.queueIndex
                 onClicked: music.playQueue(modelData.queueIndex)
-                background: Rectangle { radius: root.wall ? 8 : Theme.rSm; color: row.modelData.queueIndex === music.queueIndex ? (root.wall ? Theme.wallChromePressed : Theme.accentSoft) : row.hovered ? (root.wall ? Theme.wallChromeHover : Theme.surfaceHover) : "transparent" }
+                function dismiss() {
+                    if (music.reducedMotion) { music.removeQueue(modelData.queueIndex); return }
+                    tracks.capturePositions()
+                    exitOut.restart()
+                }
+                Component.onCompleted: {
+                    if (music.reducedMotion || Date.now() - tracks.preMoveStamp > 600) return
+                    var old = tracks.preMoveYs[rowKey]
+                    if (old !== undefined) {
+                        delete tracks.preMoveYs[rowKey]
+                        var dy = old - y
+                        if (Math.abs(dy) > 1) {
+                            // Slid out of place; fly back with a card tilt.
+                            cell.y += dy
+                            cell.rotation = Theme.clamp(-2.4, -dy * 0.025, 2.4)
+                            flipBack.restart()
+                        }
+                    } else {
+                        // A newly added row rises and settles.
+                        cell.opacity = 0; cell.y += Theme.s2; cell.rotation = 1.2
+                        flipBack.restart()
+                    }
+                }
+                ParallelAnimation {
+                    id: flipBack
+                    NumberAnimation { target: cell; property: "y"; to: 0; duration: 280; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSnap }
+                    NumberAnimation { target: cell; property: "rotation"; to: 0; duration: 280; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSnap }
+                    NumberAnimation { target: cell; property: "opacity"; to: 1; duration: 160 }
+                }
+                SequentialAnimation {
+                    id: exitOut
+                    ParallelAnimation {
+                        NumberAnimation { target: cell; property: "opacity"; to: 0; duration: 150 }
+                        NumberAnimation { target: cell; property: "scale"; to: 0.94; duration: 150 }
+                        NumberAnimation { target: cell; property: "rotation"; to: -2.5; duration: 150 }
+                    }
+                    ScriptAction { script: music.removeQueue(row.modelData.queueIndex) }
+                }
+                background: Rectangle {
+                    radius: root.wall ? 8 : Theme.rMd
+                    color: row.modelData.queueIndex === music.queueIndex ? (root.wall ? Theme.wallChromePressed : Theme.sealSoft) : row.hovered ? (root.wall ? Theme.wallChromeHover : Theme.surfaceHover) : root.wall ? Theme.wallSoftBg : Theme.surface
+                    border.width: root.wall || row.modelData.queueIndex === music.queueIndex ? 0 : Theme.hairline
+                    border.color: Theme.border
+                }
                 contentItem: Item {
-                    Cover { x: 8; anchors.verticalCenter: parent.verticalCenter; width: 36; height: 36; url: row.modelData.image || ""; pixels: 80 }
+                    id: cell
+                    Cover { x: 10; anchors.verticalCenter: parent.verticalCenter; width: 36; height: 36; radius: Theme.rSm; url: row.modelData.image || ""; pixels: 80 }
                     Column {
-                        x: 56; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 126; spacing: 4
-                        Text { width: parent.width; text: row.modelData.title; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: root.wall ? Theme.fontUi : Theme.fontTitle; font.pixelSize: Theme.fsMd; color: root.wall ? root.ink : row.modelData.queueIndex === music.queueIndex ? Theme.accent : Theme.text }
-                        Text { width: parent.width; text: row.modelData.artist; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; color: root.muted }
+                        x: 56; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 122; spacing: 4
+                        CssText { width: parent.width; text: row.modelData.title; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: root.wall ? Theme.fontUi : Theme.fontTitle; font.pixelSize: Theme.fsMd; color: root.wall ? root.ink : row.modelData.queueIndex === music.queueIndex ? Theme.seal : Theme.text }
+                        CssText { width: parent.width; text: row.modelData.artist; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; color: root.muted }
                     }
                     Row {
                         anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter; spacing: 0
-                        QueueIcon { size: "sm"; glyph: "chevron-up"; enabled: row.modelData.queueIndex > 0; Accessible.name: "向前移动"; onClicked: music.moveQueue(row.modelData.queueIndex, row.modelData.queueIndex - 1) }
-                        QueueIcon { size: "sm"; glyph: "chevron-down"; enabled: row.modelData.queueIndex < music.queue.length - 1; Accessible.name: "向后移动"; onClicked: music.moveQueue(row.modelData.queueIndex, row.modelData.queueIndex + 1) }
-                        QueueIcon { size: "sm"; glyph: "plus"; Accessible.name: "添加到歌单"; onClicked: root.addToPlaylist(row.modelData) }
-                        QueueIcon { objectName: "queueRemove_" + row.modelData.queueIndex; size: "sm"; glyph: "x"; Accessible.name: "移除歌曲"; onClicked: music.removeQueue(row.modelData.queueIndex) }
+                        QueueIcon { size: "sm"; glyph: "arrow-up"; enabled: row.modelData.queueIndex > 0; Accessible.name: "向前移动"; onClicked: { tracks.capturePositions(); music.moveQueue(row.modelData.queueIndex, row.modelData.queueIndex - 1) } }
+                        QueueIcon { size: "sm"; glyph: "arrow-down"; enabled: row.modelData.queueIndex < music.queue.length - 1; Accessible.name: "向后移动"; onClicked: { tracks.capturePositions(); music.moveQueue(row.modelData.queueIndex, row.modelData.queueIndex + 1) } }
+                        QueueIcon { size: "sm"; glyph: "list-plus"; Accessible.name: "添加到歌单"; onClicked: root.addToPlaylist(row.modelData) }
+                        QueueIcon { objectName: "queueRemove_" + row.modelData.queueIndex; size: "sm"; glyph: "x"; Accessible.name: "移除歌曲"; onClicked: row.dismiss() }
                     }
                 }
             }

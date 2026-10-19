@@ -16,10 +16,18 @@ Rectangle {
     property bool settingsMode: false
     property string settingsSection: "appearance"
     property var sections: []
+    property bool playlistsExpanded: false
+    onRouteChanged: if (route === "library" || route === "playlist") playlistsExpanded = true
+    // The submenu caps its rows so the foot links stay reachable; the
+    // overflow row lands on the catalog page instead.
+    readonly property int playlistRowLimit: compactHeight ? 4 : 6
+    readonly property var playlistRows: libraryState.playlists.slice(0, playlistRowLimit)
+    readonly property bool playlistsTruncated: libraryState.playlists.length > playlistRows.length || libraryState.playlistsMore
     signal navigate(string page)
     signal enterCurtain()
     signal openSettings(string section)
     signal leaveSettings()
+    signal openPlaylist(string id)
 
     // .shell-sidebar border-right: var(--rule-w) solid var(--border).
     Hairline {
@@ -30,20 +38,29 @@ Rectangle {
     // .nav a: 34px row, 0 12px padding, 12px gap, --r-sm, fs-sm --text-2;
     // hover --surface-hover/--text; active --accent-soft/--accent/500.
     // Background and ink ease over --dur-fast; the active fill cross-fades
-    // between rows.
+    // between rows. `depth` indents a level for the playlist submenu (smaller
+    // row, smaller glyph); `expandable` adds a trailing chevron that rotates
+    // open over --dur-base.
     component NavRow: AbstractButton {
         id: row
         property string glyph: ""
+        property real glyphSize: Theme.iconSize
+        // `bullet` swaps the icon box for the press column's middle dot —
+        // playlist submenu rows read as a bulleted list, not an icon grid.
+        property bool bullet: false
         property bool current: false
+        property bool expandable: false
+        property bool expanded: false
+        property int depth: 0
         property color restInk: Theme.text2
         readonly property color ink: current ? Theme.accent : hovered || visualFocus ? Theme.text : restInk
         Layout.fillWidth: true
         // Fixed so the eliding label never feeds back into the layout width.
         implicitWidth: Theme.sidebarW - Theme.s3 * 2
-        implicitHeight: root.compactHeight ? Theme.controlSm : Theme.controlMd
+        implicitHeight: root.compactHeight || row.depth > 0 ? Theme.controlSm : Theme.controlMd
         hoverEnabled: true
         focusPolicy: Qt.TabFocus
-        leftPadding: Theme.s3; rightPadding: Theme.s3
+        leftPadding: Theme.s3 + row.depth * Theme.s4; rightPadding: Theme.s3
         background: Item {
             Rectangle {
                 anchors.fill: parent; radius: Theme.rSm
@@ -55,6 +72,12 @@ Rectangle {
                 opacity: row.current ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
             }
+            // The seal tick: the current column carries a short cinnabar bar
+            // at its left edge, like the paper's red folio marks.
+            Rectangle {
+                x: 0; y: Math.round((row.height - height) / 2); width: Math.max(2, Math.round(3 * Theme.dpr) / Theme.dpr); height: row.height * 0.55
+                radius: width / 2; color: Theme.seal; visible: row.current
+            }
             Rectangle {
                 anchors.fill: parent; radius: Theme.rSm; color: "transparent"
                 border.width: 2; border.color: Theme.focus; visible: row.visualFocus
@@ -62,17 +85,38 @@ Rectangle {
         }
         contentItem: Row {
             spacing: Theme.s3
-            Icon { anchors.verticalCenter: parent.verticalCenter; name: row.glyph; color: row.ink }
+            Icon { anchors.verticalCenter: parent.verticalCenter; visible: !row.bullet; name: row.glyph; color: row.ink; size: row.glyphSize }
+            Item {
+                anchors.verticalCenter: parent.verticalCenter; visible: row.bullet
+                width: row.glyphSize; height: width
+                Rectangle { anchors.centerIn: parent; width: Math.max(2, Math.round(3 * Theme.dpr) / Theme.dpr); height: width; radius: width / 2; color: row.ink }
+            }
             Text {
                 anchors.verticalCenter: parent.verticalCenter
-                width: row.availableWidth - Theme.iconSize - Theme.s3
+                width: row.availableWidth - row.glyphSize - Theme.s3 - (row.expandable ? 14 + Theme.s3 : 0)
                 text: row.text; color: row.ink; elide: Text.ElideRight
-                font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
-                font.weight: row.current ? Theme.fwMedium : Theme.fwRegular
+                font.family: row.depth > 0 ? Theme.fontSerif : Theme.fontUi; font.pixelSize: row.depth > 0 ? Theme.fsXs : Theme.fsSm
+                // Noto Serif SC ships regular only — submenu rows never take
+                // the medium weight that would embolden synthetically.
+                font.weight: row.current && row.depth === 0 ? Theme.fwMedium : Theme.fwRegular
                 Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
+            }
+            Icon {
+                anchors.verticalCenter: parent.verticalCenter
+                visible: row.expandable; name: "chevron-right"; size: 14; color: row.restInk
+                rotation: row.expanded ? 90 : 0
+                Behavior on rotation { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
             }
         }
         Accessible.name: text
+    }
+
+    // Section eyebrows: the press's small tracked caps — "我的歌单 · PLAYLISTS".
+    component Eyebrow: Text {
+        color: Theme.text3; leftPadding: Theme.s3; rightPadding: Theme.s3
+        font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs
+        font.letterSpacing: Theme.metaTracking; font.capitalization: Theme.metaCase
+        elide: Text.ElideRight
     }
 
     ColumnLayout {
@@ -80,6 +124,19 @@ Rectangle {
         anchors.topMargin: Theme.titlebarH + Theme.s2
         anchors.leftMargin: Theme.s3; anchors.rightMargin: Theme.s3; anchors.bottomMargin: Theme.s3
         spacing: Theme.s1
+
+        // The nameplate: Caslon wordmark over the folio double rule, the way
+        // a newspaper opens its front page below the dateline.
+        Column {
+            visible: !root.settingsMode
+            Layout.fillWidth: true; Layout.bottomMargin: Theme.s2; spacing: Theme.s2
+            CssText {
+                leftPadding: Theme.s3; text: "BottleMusic"; color: Theme.text
+                font.family: Theme.fontDisplay; font.pixelSize: Theme.fsXl
+                font.weight: Theme.fwRegular; font.letterSpacing: Theme.displayTracking * Theme.fsXl
+            }
+            DoubleRule { width: parent.width }
+        }
 
         // .user: 8px padding, 12px gap, --r-md, 12px bottom margin.
         AbstractButton {
@@ -130,31 +187,72 @@ Rectangle {
         ColumnLayout {
             visible: !root.settingsMode
             Layout.fillWidth: true; spacing: 2
-            NavRow { objectName: "homeEntry"; glyph: "house"; text: "首页"; current: root.route === "home"; onClicked: root.navigate("home") }
+            NavRow { objectName: "homeEntry"; glyph: "newspaper"; text: "首页"; current: root.route === "home"; onClicked: root.navigate("home") }
+            NavRow { objectName: "historyEntry"; glyph: "history"; text: "最近播放"; current: root.route === "history"; onClicked: root.navigate("history") }
+            NavRow { objectName: "statsEntry"; glyph: "audio-lines"; text: "统计"; current: root.route === "stats"; onClicked: root.navigate("stats") }
         }
-        Text {
+        Eyebrow {
             visible: !root.settingsMode && !root.compactHeight
             Layout.fillWidth: true; Layout.topMargin: Theme.s5; Layout.bottomMargin: Theme.s1
-            leftPadding: Theme.s3; text: "我的音乐"; color: Theme.text3
-            font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic
+            text: "我的歌单 · Playlists"
         }
         ColumnLayout {
             visible: !root.settingsMode; Layout.fillWidth: true; spacing: 2
             Layout.topMargin: root.compactHeight ? 8 : 0
-            NavRow { objectName: "libraryEntry"; glyph: "list-music"; text: "我的歌单"; current: root.route === "library"; onClicked: root.navigate("library") }
+            NavRow {
+                objectName: "libraryEntry"; glyph: "library"; text: "我的歌单"
+                current: root.route === "library"
+                expandable: true; expanded: root.playlistsExpanded
+                onClicked: {
+                    if (root.route === "library" || root.route === "playlist") root.playlistsExpanded = !root.playlistsExpanded
+                    else { root.playlistsExpanded = true; root.navigate("library") }
+                }
+            }
+            // Playlist submenu: depth-1 rows are bulleted press items — a
+            // middle dot and a serif name, like the reference's list.
+            Item {
+                Layout.fillWidth: true
+                implicitHeight: root.playlistsExpanded && !root.settingsMode ? playlistSubmenu.implicitHeight : 0
+                clip: true
+                Behavior on implicitHeight { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+                Column {
+                    id: playlistSubmenu
+                    width: parent.width; spacing: 2
+                    Repeater {
+                        model: root.playlistRows
+                        NavRow {
+                            required property var modelData
+                            objectName: "sidebarPlaylist_" + modelData.id
+                            depth: 1; bullet: true; restInk: Theme.text3
+                            text: modelData.name
+                            current: root.route === "playlist" && libraryState.playlistId === modelData.id
+                            onClicked: root.openPlaylist(modelData.id)
+                        }
+                    }
+                    NavRow {
+                        visible: accountState.loggedIn && libraryState.playlistsLoading && root.playlistRows.length === 0
+                        depth: 1; bullet: true; restInk: Theme.text3
+                        text: "正在读取歌单…"; enabled: false
+                    }
+                    NavRow {
+                        objectName: "sidebarPlaylistsAll"
+                        visible: accountState.loggedIn && root.playlistsTruncated
+                        depth: 1; bullet: true; restInk: Theme.text3
+                        text: "查看全部歌单"; onClicked: root.navigate("library")
+                    }
+                    NavRow {
+                        visible: !accountState.loggedIn
+                        depth: 1; bullet: true; restInk: Theme.text3
+                        text: "登录后查看歌单"; onClicked: root.openSettings("account")
+                    }
+                }
+            }
             NavRow { objectName: "localFavoritesEntry"; glyph: "heart"; text: "本地收藏"; current: root.route === "favorites"; onClicked: root.navigate("favorites") }
-            NavRow { objectName: "historyEntry"; glyph: "history"; text: "最近播放"; current: root.route === "history"; onClicked: root.navigate("history") }
-            NavRow { objectName: "statsEntry"; glyph: "chart-no-axes-combined"; text: "统计"; current: root.route === "stats"; onClicked: root.navigate("stats") }
         }
-        // .section-label: 20px top / 4px bottom margin, fs-xs --font-meta in
-        // --meta-style, --meta-tracking, --meta-transform.
-        Text {
+        Eyebrow {
             visible: !root.settingsMode
             Layout.fillWidth: true; Layout.topMargin: root.compactHeight ? 8 : Theme.s5; Layout.bottomMargin: Theme.s1
-            leftPadding: Theme.s3; rightPadding: Theme.s3
-            text: "外观"; color: Theme.text3
-            font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.letterSpacing: Theme.metaTracking
-            font.italic: Theme.metaItalic; font.capitalization: Theme.metaCase
+            text: "外观 · Appearance"
         }
         ColumnLayout {
             visible: !root.settingsMode
@@ -188,7 +286,38 @@ Rectangle {
             objectName: "settingsButton"
             visible: !root.settingsMode
             Layout.topMargin: Theme.s1
-            glyph: "settings"; text: "设置"; onClicked: root.openSettings("appearance")
+            glyph: "sliders-horizontal"; text: "设置"; onClicked: root.openSettings("appearance")
+        }
+
+        // The colophon: hairline, then the 印 stamp beside the italic
+        // "Printed daily since 2026" the old edition carried.
+        Column {
+            visible: !root.settingsMode && !root.compactHeight
+            Layout.fillWidth: true; Layout.topMargin: Theme.s2; spacing: Theme.s2
+            Hairline { width: parent.width }
+            Row {
+                leftPadding: Theme.s3; topPadding: Theme.s1; spacing: Theme.s2
+                Rectangle {
+                    anchors.verticalCenter: parent.verticalCenter
+                    width: Theme.s5 - 2; height: width; radius: 2
+                    color: "transparent"; border.width: Theme.hairline; border.color: Theme.seal
+                    Text {
+                        anchors.centerIn: parent; text: "印"; color: Theme.seal
+                        font.family: Theme.fontSerif; font.pixelSize: Theme.fsXs
+                    }
+                }
+                Column {
+                    anchors.verticalCenter: parent.verticalCenter; spacing: 0
+                    Text {
+                        text: "Printed daily"; color: Theme.text3
+                        font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: true
+                    }
+                    Text {
+                        text: "since 2026"; color: Theme.text3
+                        font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: true
+                    }
+                }
+            }
         }
     }
 }

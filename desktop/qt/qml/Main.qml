@@ -233,6 +233,7 @@ ApplicationWindow {
         onEnterCurtain: window.changeMode("curtain")
         onOpenSettings: section => window.openSettings(section)
         onLeaveSettings: window.leaveSettings()
+        onOpenPlaylist: id => window.openPlaylist(id)
     }
 
     Rectangle {

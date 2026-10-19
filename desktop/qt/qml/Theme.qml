@@ -107,9 +107,10 @@ QtObject {
     readonly property int wordmarkSize: mint ? fsSm : fsXs
     readonly property int wordmarkWeight: mint ? fwRegular : fwMedium
     readonly property real wordmarkTracking: (mint ? -0.01 : 0.06) * wordmarkSize
-    // --meta-*: Mint sets small meta in italic serif, Aurora in tracked caps.
-    readonly property bool metaItalic: mint
-    readonly property int metaCase: mint ? Font.MixedCase : Font.AllUppercase
+    // --meta-*: Mint sets small meta in tracked caps like a newspaper eyebrow
+    // (italic survives only on explicit latin accents); Aurora keeps its caps.
+    readonly property bool metaItalic: false
+    readonly property int metaCase: Font.AllUppercase
     readonly property real metaTracking: (mint ? 0.01 : 0.08) * fsXs
     readonly property real lhTight: 1.25
     readonly property real lhNormal: 1.5
@@ -174,39 +175,56 @@ QtObject {
     readonly property real pageEnterY: mint ? 8 : 12
 
     // ── Palette ──
-    // Mint light: mint-tinted newsprint. Aurora light: cool glass; the curtain
-    // home swaps in the --stage-home-* paper and text ladder.
-    readonly property color bg: dark ? mint ? "#101614" : "#0B0D14" : mint ? "#F4F7F2" : stageHome ? "#E6ECF3" : "#F2F4FA"
-    readonly property color bgElevated: dark ? mint ? "#151D1A" : "#111520" : mint ? "#FBFCF9" : "#FFFFFF"
-    readonly property color surface: dark ? mint ? "#151D1A" : Qt.rgba(1, 1, 1, .06) : mint ? "#FBFCF9" : Qt.rgba(1, 1, 1, 0.72)
-    readonly property color surfaceHover: dark ? mint ? "#1C2723" : Qt.rgba(1, 1, 1, .09) : mint ? "#EAF1EB" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.06)
-    readonly property color surfaceActive: dark ? mint ? "#23332C" : Qt.rgba(1, 1, 1, .13) : mint ? "#DDEBE2" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.10)
-    readonly property color border: dark ? mint ? "#26342E" : Qt.rgba(1, 1, 1, .09) : mint ? "#D7E0D8" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.08)
-    readonly property color borderStrong: dark ? mint ? "#3B5046" : Qt.rgba(1, 1, 1, .17) : mint ? "#A9B8AE" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.18)
+    // Mint light follows the paper's own ladder — --paper #f1ead8 / --paper-2
+    // #ebe2cb / --ink #221b12 / --rule rgba(34,27,18,.14) / --accent #a8311b —
+    // and the dark edition's matching set (#1a1714 …). The interactive accent
+    // is the ink itself (filled controls read like the paper's black buttons);
+    // `seal` carries the chromatic marks — the active rail, the current track,
+    // the 切换 tag, the 印 stamp and the favorite heart. Aurora light: cool
+    // glass; the curtain home swaps in the --stage-home-* ladder.
+    readonly property color bg: dark ? mint ? "#1A1714" : "#0B0D14" : mint ? "#F1EAD8" : stageHome ? "#E6ECF3" : "#F2F4FA"
+    readonly property color bgElevated: dark ? mint ? "#2E2820" : "#111520" : mint ? "#F8F3E6" : "#FFFFFF"
+    readonly property color surface: dark ? mint ? "#2A2520" : Qt.rgba(1, 1, 1, .06) : mint ? "#EBE2CB" : Qt.rgba(1, 1, 1, 0.72)
+    readonly property color surfaceHover: dark ? mint ? "#3A342E" : Qt.rgba(1, 1, 1, .09) : mint ? "#E3D9BC" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.06)
+    readonly property color surfaceActive: dark ? mint ? "#463E36" : Qt.rgba(1, 1, 1, .13) : mint ? "#DACFAE" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.10)
+    // --rule: translucent ink hairlines — the same separator the sheet uses,
+    // never a solid gray that turns frames into UI cards.
+    readonly property color border: dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .10) : Qt.rgba(1, 1, 1, .09) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .14) : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.08)
+    readonly property color borderStrong: dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .22) : Qt.rgba(1, 1, 1, .17) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .30) : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.18)
+    // --rule-soft: the dotted separators between press-list rows.
+    readonly property color borderSoft: dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .06) : Qt.rgba(1, 1, 1, .05) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .07) : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.05)
     // --rule-ink: Mint's printer's rules; Aurora draws no rules (--rule-w 0).
-    readonly property color ruleInk: mint ? dark ? "#CFE0D6" : "#1D2A24" : border
+    readonly property color ruleInk: mint ? dark ? "#F5F0E4" : "#221B12" : border
     readonly property bool rules: mint
-    readonly property color text: dark ? mint ? "#E9F2EC" : "#F2F5FA" : mint ? "#16211C" : stageHome ? "#25354B" : "#121726"
-    readonly property color text2: dark ? mint ? "#AABBB2" : "#A7B0BC" : mint ? "#4B5952" : stageHome ? "#52657B" : "#4C5670"
-    readonly property color text3: dark ? mint ? "#7A8C83" : "#737F8E" : mint ? "#818D86" : stageHome ? "#73869C" : "#8089A0"
-    readonly property color accent: customAccent.length > 0 ? customAccent : dark ? mint ? "#3CC495" : "#7CE0B8" : mint ? "#1F9D74" : "#2FAE84"
-    readonly property color accentHover: customAccent.length ? Qt.darker(accent, 1.12) : dark ? mint ? "#5FD4AA" : "#9AEACB" : mint ? "#187F5D" : "#26946F"
-    readonly property color accentContrast: dark ? "#0F1614" : "#FFFFFF"
-    readonly property color accentSoft: customAccent.length ? Qt.rgba(accent.r, accent.g, accent.b, .14) : dark ? mint ? "#163A2D" : Qt.rgba(accent.r, accent.g, accent.b, .14) : mint ? "#DDF0E6" : Qt.rgba(47 / 255, 174 / 255, 132 / 255, 0.12)
-    readonly property color danger: dark ? mint ? "#F17A73" : "#FF7E86" : mint ? "#B9403B" : "#D2455A"
-    readonly property color warning: dark ? mint ? "#E6B15D" : "#E8B469" : "#A96B16"
-    readonly property color focus: accent
+    // The tinted sheet inside a plate (the side-list's translucent paper)
+    // and the plate itself (--paper-2), one step deeper than the page.
+    readonly property color paperVeil: mint ? dark ? Qt.rgba(1, 240 / 255, 220 / 255, .04) : Qt.rgba(1, 252 / 255, 243 / 255, .35) : surface
+    readonly property color text: dark ? mint ? "#F5F0E4" : "#F2F5FA" : mint ? "#221B12" : stageHome ? "#25354B" : "#121726"
+    readonly property color text2: dark ? mint ? "#C4B9A0" : "#A7B0BC" : mint ? "#4A3F2F" : stageHome ? "#52657B" : "#4C5670"
+    readonly property color text3: dark ? mint ? "#8A7E6A" : "#737F8E" : mint ? "#847460" : stageHome ? "#73869C" : "#8089A0"
+    readonly property color accent: customAccent.length > 0 ? customAccent : dark ? mint ? "#F5F0E4" : "#7CE0B8" : mint ? "#221B12" : "#2FAE84"
+    readonly property color accentHover: customAccent.length ? Qt.darker(accent, 1.12) : dark ? mint ? "#CFC4A8" : "#9AEACB" : mint ? "#0F0C06" : "#26946F"
+    readonly property color accentContrast: dark ? mint ? "#221B12" : "#0F1614" : mint ? "#F1EAD8" : "#FFFFFF"
+    readonly property color accentSoft: customAccent.length ? Qt.rgba(accent.r, accent.g, accent.b, .14) : dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .10) : Qt.rgba(accent.r, accent.g, accent.b, .14) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .08) : Qt.rgba(47 / 255, 174 / 255, 132 / 255, 0.12)
+    // --seal: the cinnabar stamp red (#a8311b light / #c4391e dark) —
+    // chromatic marks on an inky page; `mark` is seal on paper, accent on glass.
+    readonly property color seal: dark ? "#C4391E" : "#A8311B"
+    readonly property color sealSoft: dark ? Qt.rgba(seal.r, seal.g, seal.b, 0.22) : Qt.rgba(seal.r, seal.g, seal.b, 0.10)
+    readonly property color mark: mint ? seal : accent
+    readonly property color danger: dark ? mint ? "#C4391E" : "#FF7E86" : mint ? "#A8392D" : "#D2455A"
+    readonly property color warning: dark ? mint ? "#E0B26A" : "#E8B469" : "#9A6414"
+    readonly property color focus: mint ? seal : accent
     // --pane-bg (sidebar column) and --bar-bg (player bar) over --bg.
     // Zones separate by tiny luminance deltas rather than visible borders.
-    readonly property color paneBg: mint ? dark ? "#0D1210" : "#EBF1EA" : dark ? Qt.rgba(0, 0, 0, .2) : Qt.rgba(1, 1, 1, 0.35)
-    readonly property color barBg: mint ? dark ? "#151D1A" : "#FAFCF8" : dark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(1, 1, 1, 0.55)
+    readonly property color paneBg: mint ? dark ? "#221D18" : "#EAE1C8" : dark ? Qt.rgba(0, 0, 0, .2) : Qt.rgba(1, 1, 1, 0.35)
+    readonly property color barBg: mint ? dark ? "#221D18" : "#F5EFDE" : dark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(1, 1, 1, 0.55)
     readonly property color progressTrack: borderStrong
     // --play-bg / --play-fg: the round play buttons. Mint inks them.
     readonly property color playBg: mint ? ruleInk : accent
     readonly property color playFg: mint ? bg : accentContrast
     // --stage-bg / --stage-text: hover veils over artwork.
-    readonly property color stageBg: mint ? "#EEF3EC" : "#05060B"
-    readonly property color stageText: mint ? "#16211C" : "#F4F6FB"
+    readonly property color stageBg: mint ? "#EFEADA" : "#05060B"
+    readonly property color stageText: mint ? "#221D12" : "#F4F6FB"
     // --hero-grad / --hero-glow-opacity: Aurora's greeting ink and cover glow.
     readonly property bool heroGradient: aurora
     readonly property real heroGlowOpacity: mint ? 0 : 0.5
@@ -264,7 +282,7 @@ QtObject {
     readonly property real wallTitleClearance: 116
     readonly property color radioAccent: "#B64F69"
     // --radio-soft: color-mix(--radio-accent 12%, --bg).
-    readonly property color radioSoft: dark ? Qt.rgba(radioAccent.r, radioAccent.g, radioAccent.b, 0.18) : mint ? "#EDE3E2" : "#EBE0E9"
+    readonly property color radioSoft: dark ? Qt.rgba(radioAccent.r, radioAccent.g, radioAccent.b, 0.18) : mint ? "#EEE1D6" : "#EBE0E9"
 
     // Wall furniture is independent of the newspaper skin and light preference.
     readonly property int wallBarH: 44
