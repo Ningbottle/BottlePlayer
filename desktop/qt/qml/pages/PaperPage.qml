@@ -115,7 +115,35 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
             HoverHandler { id: scrollHover }
             ScrollBar.vertical: ThinScrollBar { areaHovered: scrollHover.hovered }
-            SmoothWheel { flickable: scroller }
+            SmoothWheel { id: wheel; flickable: scroller }
+            // Magnetic first two screens (stage, playlist ring): once motion
+            // settles above the daily section, glide to the nearer screen
+            // edge, biased toward the direction of travel. Below it the long
+            // page scrolls freely.
+            property real magnetFrom: 0
+            function magnetize() {
+                if (stacked || !carousel.visible) return
+                const stops = [0, Theme.snap(page.y + carousel.y - Theme.s6), Theme.snap(page.y + dailySection.mapToItem(page, 0, 0).y - Theme.s6)]
+                const y = contentY
+                if (y >= stops[2] - 1) { magnetFrom = y; return }
+                var i = 0
+                while (i < stops.length - 2 && y >= stops[i + 1]) i++
+                const t = (y - stops[i]) / Math.max(1, stops[i + 1] - stops[i])
+                const down = y >= magnetFrom
+                var target = (down ? t > 0.12 : t > 0.88) ? stops[i + 1] : stops[i]
+                target = Math.max(0, Math.min(target, contentHeight - height))
+                magnetFrom = target
+                if (Math.abs(target - y) < 1) return
+                magnet.to = target; magnet.restart()
+            }
+            NumberAnimation { id: magnet; target: scroller; property: "contentY"; duration: music.reducedMotion ? 0 : 560; easing.type: Easing.OutQuint }
+            Timer {
+                id: magnetIdle; interval: 110
+                onTriggered: if (!scroller.dragging && !scroller.flicking && !wheel.glide.running && !magnet.running) scroller.magnetize()
+            }
+            onContentYChanged: if (!magnet.running) magnetIdle.restart()
+            Connections { target: wheel.glide; function onRunningChanged() { if (wheel.glide.running) magnet.stop() } }
+            onDraggingChanged: if (dragging) magnet.stop()
             SnapSettle { flickable: scroller }
             property int railOffset: 0
             property bool dailyExpanded: false
@@ -186,14 +214,6 @@ Item {
                             text: "为你精选"; color: Theme.text
                             font.family: Theme.fontSerif; font.pixelSize: Math.round(exact); font.weight: Theme.fwRegular
                         }
-                        CssText {
-                            id: mastEn
-                            anchors.baseline: mastCn.baseline; anchors.left: mastCn.right; anchors.leftMargin: Theme.s3
-                            readonly property real exact: Theme.greetSize(root.vw) * 0.62
-                            clamp: true; lineBox: exact * 1.1
-                            text: "For You"; color: Theme.text3
-                            font.family: Theme.fontMeta; font.pixelSize: Math.round(exact); font.italic: true
-                        }
                     }
                     Item { width: 1; height: Theme.s4 }
                     DoubleRule { visible: Theme.rules; width: parent.width }
@@ -208,8 +228,9 @@ Item {
                     rowSpacing: columnSpacing
                     verticalItemAlignment: Grid.AlignTop
                     // Hero and rail share one row height side by side.
+                    // Side by side they fill the first screen under the masthead.
                     readonly property real rowH: scroller.stacked ? 0
-                        : Math.max(heroInner.implicitHeight + Theme.s6 * 2, rail.implicitHeight + Theme.s5 * 2)
+                        : Math.max(heroInner.implicitHeight + Theme.s6 * 2, rail.implicitHeight + Theme.s5 * 2, scroller.height - y - Theme.s8)
                     // .feature: 1.15fr hero beside the 1fr side-list.
                     readonly property real railW: scroller.stacked ? width
                         : Math.max(Theme.rem(17), (width - columnSpacing) * (1.0 / 2.15))
@@ -560,6 +581,14 @@ Item {
                     }
                 }
 
+                PlaylistCarousel {
+                    id: carousel; objectName: "homeCarousel"
+                    visible: homeState.playlists.length > 0 && !scroller.stacked
+                    width: parent.width; height: Math.max(Theme.rem(26), scroller.height - Theme.s10 - Theme.s6)
+                    title: "编辑推荐"; collections: homeState.playlists
+                    onOpenPlaylist: playlist => root.openPlaylist(playlist)
+                }
+                HomeCollections { visible: scroller.stacked; width: parent.width; title: "编辑推荐"; collections: homeState.playlists; onOpenPlaylist: playlist => root.openPlaylist(playlist) }
                 // .home-section 每日推荐: auto-fill minmax(--home-tile-min, 1fr),
                 // gap 24/20. Mint: rule first (border-top), THEN 12px
                 // padding-top, then head + tiles.
@@ -642,9 +671,8 @@ Item {
                         }
                     }
                 }
-                HomeCollections { width: parent.width; title: "编辑推荐"; en: "Editor's Picks"; collections: homeState.playlists; onOpenPlaylist: playlist => root.openPlaylist(playlist) }
-                HomeCollections { width: parent.width; title: "推荐专辑"; en: "Albums"; collections: homeState.recommendedAlbums; onOpenAlbum: album => root.openAlbum(album) }
-                HomeCollections { width: parent.width; title: "新歌与发现"; en: "New & Found"; collections: homeState.albums; onOpenPlaylist: playlist => root.openPlaylist(playlist) }
+                HomeCollections { width: parent.width; title: "推荐专辑"; collections: homeState.recommendedAlbums; onOpenAlbum: album => root.openAlbum(album) }
+                HomeCollections { width: parent.width; title: "新歌与发现"; collections: homeState.albums; onOpenPlaylist: playlist => root.openPlaylist(playlist) }
             }
         }
     }

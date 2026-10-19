@@ -1,0 +1,97 @@
+import QtQuick
+import BottleMusic
+
+// Rotating playlist ring: a PathView fakes depth with scale, yaw, z order
+// and fade along the path. Drag or the side arrows turn it; tapping the
+// front cover opens the playlist, tapping a side cover brings it forward.
+Item {
+    id: root
+    property var collections: []
+    property string title: "推荐歌单"
+    signal openPlaylist(var playlist)
+    readonly property real cardSize: Theme.snap(Math.max(140, Math.min(ring.height * 0.78, width * 0.24, 300)))
+    readonly property var front: collections[ring.currentIndex] || ({})
+
+    CssText {
+        id: heading
+        text: root.title; color: Theme.text
+        font.family: Theme.fontSerif; font.pixelSize: 28; font.weight: Theme.fwMedium
+    }
+    Row {
+        anchors.right: parent.right; anchors.verticalCenter: heading.verticalCenter
+        spacing: Theme.s1
+        IconButton { objectName: "carouselPrev"; glyph: "chevron-left"; Accessible.name: "上一个歌单"; onClicked: ring.decrementCurrentIndex() }
+        IconButton { objectName: "carouselNext"; glyph: "chevron-right"; Accessible.name: "下一个歌单"; onClicked: ring.incrementCurrentIndex() }
+    }
+
+    PathView {
+        id: ring
+        objectName: "playlistCarousel"
+        anchors { left: parent.left; right: parent.right; top: heading.bottom; topMargin: Theme.s6; bottom: caption.top; bottomMargin: Theme.s5 }
+        model: root.collections.slice(0, 15)
+        pathItemCount: Math.min(count, 7)
+        preferredHighlightBegin: 0.5; preferredHighlightEnd: 0.5
+        highlightRangeMode: PathView.StrictlyEnforceRange
+        snapMode: PathView.SnapToItem
+        highlightMoveDuration: music.reducedMotion ? 0 : 460
+        maximumFlickVelocity: 1600; flickDeceleration: 900
+        dragMargin: height
+        path: Path {
+            startX: 0; startY: ring.height / 2
+            PathAttribute { name: "itemScale"; value: 0.56 }
+            PathAttribute { name: "itemYaw"; value: 52 }
+            PathAttribute { name: "itemZ"; value: 0 }
+            PathAttribute { name: "itemFade"; value: 0.25 }
+            PathQuad { x: ring.width / 2; y: ring.height / 2 + Theme.s4; controlX: ring.width * 0.25; controlY: ring.height / 2 + Theme.s4 }
+            PathAttribute { name: "itemScale"; value: 1 }
+            PathAttribute { name: "itemYaw"; value: 0 }
+            PathAttribute { name: "itemZ"; value: 10 }
+            PathAttribute { name: "itemFade"; value: 1 }
+            PathQuad { x: ring.width; y: ring.height / 2; controlX: ring.width * 0.75; controlY: ring.height / 2 + Theme.s4 }
+            PathAttribute { name: "itemScale"; value: 0.56 }
+            PathAttribute { name: "itemYaw"; value: -52 }
+            PathAttribute { name: "itemZ"; value: 0 }
+            PathAttribute { name: "itemFade"; value: 0.25 }
+        }
+        delegate: Item {
+            id: card
+            required property var modelData
+            required property int index
+            objectName: "carouselCard" + index
+            width: root.cardSize; height: width
+            scale: PathView.itemScale; z: PathView.itemZ; opacity: PathView.itemFade
+            transform: Rotation {
+                origin.x: card.width / 2; origin.y: card.height / 2
+                axis { x: 0; y: 1; z: 0 }
+                angle: card.PathView.itemYaw
+            }
+            Rectangle {
+                anchors.fill: parent; anchors.margins: -1; radius: Theme.rSm + 1
+                color: "transparent"; border.width: Theme.hairline; border.color: Theme.borderStrong
+            }
+            Cover {
+                anchors.fill: parent; radius: Theme.rSm; pixels: 400
+                url: card.modelData.image || ""; title: card.modelData.name || ""
+            }
+            TapHandler {
+                onTapped: card.PathView.isCurrentItem ? root.openPlaylist(card.modelData) : ring.currentIndex = card.index
+            }
+        }
+    }
+
+    Column {
+        id: caption
+        anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
+        width: Math.min(parent.width, root.cardSize * 1.6); spacing: Theme.s1
+        CssText {
+            width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
+            text: root.front.name || ""; color: Theme.text
+            font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwMedium
+        }
+        CssText {
+            width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight
+            text: root.front.author || root.front.artist || ""; visible: text.length > 0; color: Theme.text3
+            font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
+        }
+    }
+}

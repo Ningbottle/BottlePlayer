@@ -184,11 +184,11 @@ QtObject {
     // `seal` carries the chromatic marks — the active rail, the current track,
     // the 切换 tag, the 印 stamp and the favorite heart. Aurora light: cool
     // glass; the curtain home swaps in the --stage-home-* ladder.
-    readonly property color bg: dark ? mint ? "#1A1714" : "#0B0D14" : mint ? "#F1EAD8" : stageHome ? "#E6ECF3" : "#F2F4FA"
-    readonly property color bgElevated: dark ? mint ? "#2E2820" : "#111520" : mint ? "#F8F3E6" : "#FFFFFF"
-    readonly property color surface: dark ? mint ? "#2A2520" : Qt.rgba(1, 1, 1, .06) : mint ? "#EBE2CB" : Qt.rgba(1, 1, 1, 0.72)
-    readonly property color surfaceHover: dark ? mint ? "#3A342E" : Qt.rgba(1, 1, 1, .09) : mint ? "#E3D9BC" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.06)
-    readonly property color surfaceActive: dark ? mint ? "#463E36" : Qt.rgba(1, 1, 1, .13) : mint ? "#DACFAE" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.10)
+    readonly property color bg: dark ? mint ? "#1A1714" : "#0B0D14" : mint ? "#F4F1EA" : stageHome ? "#E6ECF3" : "#F2F4FA"
+    readonly property color bgElevated: dark ? mint ? "#2E2820" : "#111520" : mint ? "#FBF9F4" : "#FFFFFF"
+    readonly property color surface: dark ? mint ? "#2A2520" : Qt.rgba(1, 1, 1, .06) : mint ? "#ECE7DC" : Qt.rgba(1, 1, 1, 0.72)
+    readonly property color surfaceHover: dark ? mint ? "#3A342E" : Qt.rgba(1, 1, 1, .09) : mint ? "#E4DED2" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.06)
+    readonly property color surfaceActive: dark ? mint ? "#463E36" : Qt.rgba(1, 1, 1, .13) : mint ? "#D9D2C4" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.10)
     // --rule: translucent ink hairlines — the same separator the sheet uses,
     // never a solid gray that turns frames into UI cards.
     readonly property color border: dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .10) : Qt.rgba(1, 1, 1, .09) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .14) : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.08)

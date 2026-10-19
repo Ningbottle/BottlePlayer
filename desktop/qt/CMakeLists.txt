@@ -75,6 +75,7 @@ qt_add_qml_module(bottle_qt_ui URI BottleMusic VERSION 1.0
     qml/components/AddToPlaylistDialog.qml
     qml/components/DeviceSettings.qml
     qml/components/HomeCollections.qml
+    qml/components/PlaylistCarousel.qml
     qml/components/ImmersiveBackground.qml qml/components/ImmersiveControls.qml
     qml/components/DoubleRule.qml qml/components/SnapSettle.qml
     qml/components/PlateFrame.qml qml/components/DotRule.qml qml/components/Halftone.qml qml/components/VinylMark.qml
