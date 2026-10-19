@@ -9,7 +9,7 @@ Item {
     property var collections: []
     property string title: "推荐歌单"
     signal openPlaylist(var playlist)
-    readonly property real cardSize: Theme.snap(Math.max(140, Math.min(ring.height * 0.78, width * 0.24, 300)))
+    readonly property real cardSize: Theme.snap(Math.max(140, Math.min(ring.height * 0.86, width * 0.3, 340)))
     readonly property var front: collections[ring.currentIndex] || ({})
 
     CssText {
@@ -27,9 +27,9 @@ Item {
     PathView {
         id: ring
         objectName: "playlistCarousel"
-        anchors { left: parent.left; right: parent.right; top: heading.bottom; topMargin: Theme.s6; bottom: caption.top; bottomMargin: Theme.s5 }
+        anchors { left: parent.left; right: parent.right; top: heading.bottom; topMargin: Theme.s4; bottom: parent.bottom; bottomMargin: caption.height + Theme.s4 }
         model: root.collections.slice(0, 15)
-        pathItemCount: Math.min(count, 7)
+        pathItemCount: Math.min(count, 5)
         preferredHighlightBegin: 0.5; preferredHighlightEnd: 0.5
         highlightRangeMode: PathView.StrictlyEnforceRange
         snapMode: PathView.SnapToItem
@@ -81,7 +81,7 @@ Item {
 
     Column {
         id: caption
-        anchors.bottom: parent.bottom; anchors.horizontalCenter: parent.horizontalCenter
+        y: Math.round(ring.y + ring.height / 2 + Theme.s4 + root.cardSize / 2 + Theme.s5); anchors.horizontalCenter: parent.horizontalCenter
         width: Math.min(parent.width, root.cardSize * 1.6); spacing: Theme.s1
         CssText {
             width: parent.width; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight

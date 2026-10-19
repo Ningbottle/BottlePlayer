@@ -66,8 +66,8 @@ Item {
                 }
                 CssText {
                     visible: !root.wall; anchors.baseline: queueTitle.baseline; anchors.left: queueTitle.right; anchors.leftMargin: Theme.s2
-                    text: "Queue · " + music.queue.length; color: Theme.text3
-                    font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.letterSpacing: Theme.metaTracking; font.capitalization: Theme.metaCase
+                    text: music.queue.length + " 首"; color: Theme.text3
+                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 }
                 QueueIcon { id: close; objectName: "queueClose"; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; glyph: "x"; size: "sm"; onClicked: root.close() }
             }
@@ -153,8 +153,8 @@ Item {
                 }
                 background: Rectangle {
                     radius: root.wall ? 8 : Theme.rMd
-                    color: row.modelData.queueIndex === music.queueIndex ? (root.wall ? Theme.wallChromePressed : Theme.sealSoft) : row.hovered ? (root.wall ? Theme.wallChromeHover : Theme.surfaceHover) : root.wall ? Theme.wallSoftBg : Theme.surface
-                    border.width: root.wall || row.modelData.queueIndex === music.queueIndex ? 0 : Theme.hairline
+                    color: row.modelData.queueIndex === music.queueIndex ? (root.wall ? Theme.wallChromePressed : Theme.sealSoft) : row.hovered ? (root.wall ? Theme.wallChromeHover : Theme.surfaceHover) : "transparent"
+                    border.width: 0
                     border.color: Theme.border
                 }
                 contentItem: Item {
@@ -167,6 +167,8 @@ Item {
                     }
                     Row {
                         anchors.right: parent.right; anchors.rightMargin: 4; anchors.verticalCenter: parent.verticalCenter; spacing: 0
+                        opacity: row.hovered || row.visualFocus ? 1 : 0
+                        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
                         QueueIcon { size: "sm"; glyph: "arrow-up"; enabled: row.modelData.queueIndex > 0; Accessible.name: "向前移动"; onClicked: { tracks.capturePositions(); music.moveQueue(row.modelData.queueIndex, row.modelData.queueIndex - 1) } }
                         QueueIcon { size: "sm"; glyph: "arrow-down"; enabled: row.modelData.queueIndex < music.queue.length - 1; Accessible.name: "向后移动"; onClicked: { tracks.capturePositions(); music.moveQueue(row.modelData.queueIndex, row.modelData.queueIndex + 1) } }
                         QueueIcon { size: "sm"; glyph: "list-plus"; Accessible.name: "添加到歌单"; onClicked: root.addToPlaylist(row.modelData) }

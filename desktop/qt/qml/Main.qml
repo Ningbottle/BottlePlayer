@@ -470,7 +470,7 @@ ApplicationWindow {
     Item {
         objectName: "playerNotices"; z: 30
         readonly property bool noticesAtTop: window.bravaisHomeScene
-        readonly property real noticeInset: noticesAtTop && window.listeningOpen && queueLoader.item && queueLoader.item.objectName === "queuePanel" ? queueLoader.item.cardWidth + 12 : 0
+        readonly property real noticeInset: window.listeningOpen && queueLoader.item && queueLoader.item.objectName === "queuePanel" ? queueLoader.item.cardWidth + 12 : 0
         readonly property real toastWidth: Math.min(window.width/2,Theme.rem(32),Math.max(0,window.width-32-noticeInset))
         anchors.right: parent.right; anchors.rightMargin: 16+noticeInset
         y: noticesAtTop ? 64 : window.height-(window.playbackBarVisible?Theme.playerbarH:0)-8-height

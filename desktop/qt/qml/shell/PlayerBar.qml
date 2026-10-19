@@ -170,12 +170,12 @@ Rectangle {
                 }
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
-                    implicitWidth: switchTag.implicitWidth + Theme.s2 * 2; implicitHeight: Theme.controlSm - Theme.s2 * 2
+                    implicitWidth: Math.round(switchTag.implicitWidth) + Theme.s1 * 2 + 2; implicitHeight: Math.round(switchTag.implicitHeight) + 4
                     radius: 2; color: "transparent"
                     border.width: Theme.hairline; border.color: Theme.seal
                     Text {
                         id: switchTag; anchors.centerIn: parent; text: "切换"; color: Theme.seal
-                        font.family: Theme.fontUi; font.pixelSize: 11; font.weight: Theme.fwMedium
+                        font.family: Theme.fontUi; font.pixelSize: 10; font.weight: Theme.fwMedium
                     }
                 }
             }

@@ -210,7 +210,7 @@ QtObject {
     readonly property color accentSoft: customAccent.length ? Qt.rgba(accent.r, accent.g, accent.b, .14) : dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .10) : Qt.rgba(accent.r, accent.g, accent.b, .14) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .08) : Qt.rgba(47 / 255, 174 / 255, 132 / 255, 0.12)
     // --seal: the cinnabar stamp red (#a8311b light / #c4391e dark) —
     // chromatic marks on an inky page; `mark` is seal on paper, accent on glass.
-    readonly property color seal: dark ? "#C4391E" : "#A8311B"
+    readonly property color seal: customAccent.length > 0 ? customAccent : dark ? "#C4391E" : "#A8311B"
     readonly property color sealSoft: dark ? Qt.rgba(seal.r, seal.g, seal.b, 0.22) : Qt.rgba(seal.r, seal.g, seal.b, 0.10)
     readonly property color mark: mint ? seal : accent
     readonly property color danger: dark ? mint ? "#C4391E" : "#FF7E86" : mint ? "#A8392D" : "#D2455A"

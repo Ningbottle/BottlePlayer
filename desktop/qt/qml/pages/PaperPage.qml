@@ -34,7 +34,7 @@ Item {
     // The edition name follows the press day, like the old "LATE EDITION".
     function edition() {
         var h = new Date().getHours()
-        return h < 11 ? "Morning Edition · 早报" : h < 18 ? "Afternoon Edition · 午报" : "Late Edition · 晚刊"
+        return h < 11 ? "早报" : h < 18 ? "午报" : "晚刊"
     }
     function dateline() {
         var d = new Date(), days = ["日", "一", "二", "三", "四", "五", "六"]
@@ -162,9 +162,11 @@ Item {
             readonly property bool stacked: root.vw <= 1100
             readonly property var hero: music.hero
             readonly property bool heroIsCurrent: root.isActive(hero)
+            // Enough rows to fill the first-screen plate (about 50px each).
+            readonly property int railRows: stacked ? 6 : Math.max(6, Math.min(10, Math.floor((height - Theme.rem(20)) / 50)))
             readonly property var railTracks: {
-                if (music.radio) return music.queue.slice(music.queueIndex + 1, music.queueIndex + 7)
-                var out = [], count = Math.min(6, music.feed.length)
+                if (music.radio) return music.queue.slice(music.queueIndex + 1, music.queueIndex + 1 + railRows)
+                var out = [], count = Math.min(railRows, music.feed.length)
                 for (var i = 0; i < count; i++) out.push(music.feed[(railOffset + i) % music.feed.length])
                 return out
             }
@@ -305,7 +307,7 @@ Item {
                             // dot on the right — the deck line of the card.
                             Item {
                                 width: parent.width; height: Theme.s4
-                                Kicker { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "Headline · 头条" }
+                                Kicker { anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; text: "头条" }
                                 Row {
                                     anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; spacing: Theme.s2
                                     Item {
@@ -489,16 +491,15 @@ Item {
                                     SectionHead {
                                         width: rail.width
                                         cn: music.radio ? "接下来播放" : "每周飙升"
-                                        en: music.radio ? "Up Next" : "Trending"
-                                        IconButton {
+                                                                                IconButton {
                                             objectName: "railReshuffle"
                                             visible: !music.radio
                                             glyph: "refresh-cw"; tint: Theme.text3
                                             // .home-reshuffle:hover svg: rotate(90deg).
                                             glyphRotation: hovered ? 90 : 0
-                                            enabled: music.feed.length > 6
+                                            enabled: music.feed.length > scroller.railRows
                                             Accessible.name: "换一批"
-                                            onClicked: scroller.railOffset = (scroller.railOffset + 6) % Math.max(1, music.feed.length)
+                                            onClicked: scroller.railOffset = (scroller.railOffset + scroller.railRows) % Math.max(1, music.feed.length)
                                         }
                                     }
                                     Hairline { width: rail.width }
@@ -602,7 +603,7 @@ Item {
                         topPadding: Theme.s3
                         SectionHead {
                             width: parent.width
-                            cn: "每日推荐"; en: "Daily"
+                            cn: "每日推荐"
                             ActionButton {
                                 objectName: "dailyExpand"
                                 visible: scroller.daily.length > scroller.collapsed
