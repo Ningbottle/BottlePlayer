@@ -227,6 +227,47 @@ int main(int argc, char** argv) {
         bool probeOk = warnings.isEmpty(); for (const auto& item : checks) probeOk = probeOk && item.toObject().value("ok").toBool();
         report.insert("ok", probeOk); writeReport(); window->close(); return probeOk ? 0 : 1;
     }
+    if (args[3] == "font-layout") {
+        QLibrary fixture(args[1]); fixture.setLoadHints(QLibrary::PreventUnloadHint);
+        if (!fixture.load()) return 2;
+        auto configure = reinterpret_cast<void(*)(const char*)>(fixture.resolve("EchoTestConfigure"));
+        if (!configure) return 2;
+        configure("{\"feed_count\":30}");
+        music.setVolume(0); music.setReducedMotion(true); music.initialize();
+        check("font_layout_ready", waitFor([&] { return music.ready() && !home.loading(); }, 10000));
+        window->resize(1280, 850);
+        QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("paper")));
+        QTest::qWait(500);
+        auto* scroller=quick("homeScroller"); auto* carousel=quick("homeCarousel");
+        check("font_layout_carousel_present", scroller && carousel && carousel->isVisible());
+        const qreal cardSize=carousel?carousel->property("cardSize").toDouble():0;
+        check("font_layout_carousel_space",carousel && cardSize>=280 && carousel->height()-cardSize<=185);
+        screenshot("font-layout-home");
+        if (scroller && carousel) {
+            const qreal top=carousel->mapToItem(scroller,QPointF()).y()+scroller->property("contentY").toDouble();
+            scroller->setProperty("contentY",std::max(0.0,double(top-24)));
+            QTest::qWait(300);
+            screenshot("font-layout-carousel");
+            report.insert("carousel_height",carousel->height());
+            report.insert("carousel_card_size",cardSize);
+            report.insert("carousel_top",top);
+        }
+        window->resize(1600, 900); QTest::qWait(300);
+        const qreal wideCardSize=carousel?carousel->property("cardSize").toDouble():0;
+        check("font_layout_wide_card",carousel && wideCardSize>=339 && wideCardSize<=340.5
+            && carousel->height()-wideCardSize<=185);
+        if (scroller && carousel) {
+            const qreal top=carousel->mapToItem(scroller,QPointF()).y()+scroller->property("contentY").toDouble();
+            scroller->setProperty("contentY",std::max(0.0,double(top-24)));
+            QTest::qWait(300); screenshot("font-layout-wide-carousel");
+            report.insert("wide_carousel_height",carousel->height());
+            report.insert("wide_carousel_card_size",wideCardSize);
+        }
+        check("font_layout_qml_warnings_absent",warnings.isEmpty());
+        report.insert("dpr",window->devicePixelRatio()); report.insert("checks",checks);
+        bool passed=true; for (const auto& item:checks) passed=passed&&item.toObject().value("ok").toBool();
+        report.insert("ok",passed); writeReport(); music.finishSession(); return passed?0:1;
+    }
     if (args[3] == "search-home" || args[3] == "search-home-live" || args[3] == "hanging-home" || args[3] == "hanging-home-live" || args[3] == "bravais" || args[3] == "live-bravais") {
         #include "visual_search_home.h"
     }

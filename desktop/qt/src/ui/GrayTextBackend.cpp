@@ -1,6 +1,5 @@
-// Grayscale text backend, opt-in via BOTTLE_TEXT_AA=gray. The stock backend
-// renders ClearType on the DirectComposition alpha surface, so this remains
-// as a diagnostic path for comparing gray versus subpixel output. Qt Quick's
+// Grayscale text backend, the Windows default; BOTTLE_TEXT_AA=cleartype
+// selects the stock backend for A/B comparison. Qt Quick's
 // native glyph nodes cannot be asked for gray through the font: on Windows
 // the DirectWrite engine leaves its glyph format unset unless ClearType is
 // wanted, and the text material then defaults to subpixel (Format_A32), so
@@ -44,10 +43,8 @@ void applyGrayTextGamma() {
 
 // Optional second-pass weighting, engine-independent: compositing the
 // identical glyph mask again at opacity w yields alpha' = 1-(1-c)(1-wc)
-// (w=1 is the gamma-2 curve). The shipping path weights through GDI's
-// pow_gamma instead, so this defaults off; it stays as the tuning knob
-// for DirectWrite experiments (PreferVerticalHinting) where pow_gamma
-// is never read.
+// (w=1 is the gamma-2 curve). It defaults off: the default DirectWrite
+// path does not read GDI's pow_gamma table. Keep this as a diagnostic knob.
 qreal textWeight() {
     static const qreal weight = [] {
         bool ok = false;

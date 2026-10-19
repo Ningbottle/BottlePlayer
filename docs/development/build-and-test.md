@@ -45,6 +45,8 @@ git diff --check
 
 `bottle_qt_smoke` 的 `render-review` 模式使用本机图片服务验证封面动画的尺寸稳定、导航取消、切歌取消、迟到图片及减少动画选项；可通过 `QT_SCALE_FACTOR=1.25` 验证分数缩放。字体视觉比较仍应在 Windows 图形平台下观察，offscreen 通过不代表实际 DirectWrite 和多屏环境已验收。
 
+Windows 图形平台默认将原生文字绘制为灰度抗锯齿，使它与大字号曲线文字、图层内文字保持一致；`BOTTLE_TEXT_AA=cleartype` 可临时恢复系统 ClearType 作同机对照。`bottle_qt_smoke` 的 `font-layout` 模式使用独立夹具截取报刊首页和圆环，并检查圆环卡片尺寸与纵向留白。改变 `QT_SCALE_FACTOR` 时应核对报告中的实际 `dpr`；系统缩放与该变量会相乘。
+
 Qt 的属性引用序列赋给局部变量后仍可能反复调用 C++ getter。歌词在内容更新时用 `slice()` 分离快照；测试允许此时逐项读取，约束后续时钟更新不再读取整首歌词。相关新测试把 QtTest 文本保存到 Qt 构建目录的 `Testing/qt_music_flows.txt` 和 `Testing/qt_lyric_bindings.txt`；测试脚本在失败时输出本次生成的报告，保留断言位置和微基准结果。
 测试入口把 `TEMP`、`TMP` 和 `ECHO_NATIVE_DATA_DIR` 统一指向新的 `output/test-profiles/` 子目录，避免继承受限临时路径或默认应用数据目录；退出后恢复调用者环境。
 

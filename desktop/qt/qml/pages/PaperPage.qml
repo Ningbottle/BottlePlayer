@@ -214,7 +214,7 @@ Item {
                             readonly property real exact: Theme.greetSize(root.vw)
                             clamp: true; lineBox: exact * 1.1
                             text: "为你精选"; color: Theme.text
-                            font.family: Theme.fontSerif; font.pixelSize: Math.round(exact); font.weight: Theme.fwRegular
+                            font.family: Theme.fontSerifDisplay; font.pixelSize: Math.round(exact); font.weight: Theme.fwRegular
                         }
                     }
                     Item { width: 1; height: Theme.s4 }
@@ -451,7 +451,7 @@ Item {
                                             // the baseline), not the line box, snapped to device pixels.
                                             Icon {
                                                 name: "heart"; filled: true; size: 14; color: Theme.radioAccent
-                                                y: Math.round((radioLabel.baselineOffset - radioLabel.font.pixelSize * 0.4 - height / 2) * Theme.dpr) / Theme.dpr
+                                                y: Math.round((radioLabel.baselineOffset - radioLabel.font.pixelSize * 0.4 - height / 2) * Theme.dpr) / Theme.dpr + Theme.hairline
                                             }
                                             Text {
                                                 id: radioLabel
@@ -586,7 +586,7 @@ Item {
                 PlaylistCarousel {
                     id: carousel; objectName: "homeCarousel"
                     visible: homeState.playlists.length > 0 && !scroller.stacked
-                    width: parent.width; height: Math.max(Theme.rem(26), scroller.height - Theme.s10 - Theme.s6)
+                    width: parent.width; height: implicitHeight
                     title: "编辑推荐"; collections: homeState.playlists
                     onOpenPlaylist: playlist => root.openPlaylist(playlist)
                 }
@@ -691,6 +691,7 @@ Item {
                     text: "搜索音乐"; color: Theme.text
                     font.family: Theme.fontDisplay; font.pixelSize: size
                     font.weight: Theme.fwDisplay; font.letterSpacing: Theme.displayTracking * size
+                    renderType: Text.CurveRendering
                 }
                 Item { Layout.fillWidth: true }
                 ActionButton { quiet: true; glyph: "arrow-left"; text: "回到首页"; onClicked: root.home() }

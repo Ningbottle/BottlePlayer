@@ -138,6 +138,9 @@ QtObject {
     readonly property string fontTitle: mint ? "EB Garamond" : fontUi
     readonly property string fontMeta: mint ? "EB Garamond" : fontUi
     readonly property string fontSerif: "Noto Serif SC"
+    // Static wght=600 outlines in a separate family; asking the regular
+    // family for 600 makes DirectWrite synthesize bold from its 500 face.
+    readonly property string fontSerifDisplay: "Noto Serif SC Display"
     readonly property string fontLyric: lyricFontSetting === "kai" ? "LXGW WenKai Lite" : lyricFontSetting === "song" ? "Noto Serif SC" : lyricFontSetting === "hei" ? fontUi : mint ? "EB Garamond" : "LXGW WenKai Lite"
     // UiAssets.cpp turns on typo line metrics app-wide so CJK fallbacks stop
     // inflating line boxes. WenKai lacks USE_TYPO_METRICS, so as a primary
