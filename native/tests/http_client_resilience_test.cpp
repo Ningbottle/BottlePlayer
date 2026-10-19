@@ -10,6 +10,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <cstdio>
 #include <iostream>
 #include <memory>
 #include <mutex>
@@ -18,9 +19,15 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #include <windows.h>
+#else
+#include "echo/core/TestSocketsPosix.h"
+#include <cstdio>
+#include <dirent.h>
+#endif
 
 #include "echo/async/RequestWatchdog.h"
 #include "echo/core/HttpClient.h"
@@ -324,11 +331,20 @@ static void StartHoldServer() {
 }
 
 static DWORD ProcessHandleCount() {
+#ifdef _WIN32
   DWORD count = 0;
   if (!GetProcessHandleCount(GetCurrentProcess(), &count)) {
     return 0;
   }
   return count;
+#else
+  DIR* directory = opendir("/proc/self/fd");
+  if (!directory) return 0;
+  DWORD count = 0;
+  while (readdir(directory)) ++count;
+  closedir(directory);
+  return count;
+#endif
 }
 
 int main(int argc, char** argv) {
@@ -761,7 +777,12 @@ int main(int argc, char** argv) {
     // therefore never touch the handle — it may only raise the cooperative
     // deadline flag. Greps the Arm call site inside HttpClient.cpp.
     FILE* f = nullptr;
+#ifdef _WIN32
     if (fopen_s(&f, ECHO_NATIVE_SOURCE_DIR "/core/HttpClient.cpp", "rb") != 0 || !f) {
+#else
+    f = std::fopen(ECHO_NATIVE_SOURCE_DIR "/core/HttpClient.cpp", "rb");
+    if (!f) {
+#endif
       CHECK(false, "structural: HttpClient.cpp readable from ECHO_NATIVE_SOURCE_DIR");
       std::cout << "  Passed: " << g_passed << "  Failed: " << g_failed << "\n";
       return 1;
@@ -797,7 +818,12 @@ int main(int argc, char** argv) {
     // load-bearing defense and must live on the request handle, with every
     // setup failure surfaced as an explicit request error.
     FILE* f = nullptr;
+#ifdef _WIN32
     if (fopen_s(&f, ECHO_NATIVE_SOURCE_DIR "/core/HttpClient.cpp", "rb") != 0 || !f) {
+#else
+    f = std::fopen(ECHO_NATIVE_SOURCE_DIR "/core/HttpClient.cpp", "rb");
+    if (!f) {
+#endif
       CHECK(false, "structural: HttpClient.cpp readable from ECHO_NATIVE_SOURCE_DIR");
       std::cout << "  Passed: " << g_passed << "  Failed: " << g_failed << "\n";
       return 1;
@@ -938,7 +964,13 @@ int main(int argc, char** argv) {
           successes.fetch_add(1, std::memory_order_acq_rel);
           continue;
         }
-        if (!res.error.empty() && res.error.find("WinHttp") != std::string::npos) {
+#ifdef _WIN32
+        const bool networkFailure =
+            !res.error.empty() && res.error.find("WinHttp") != std::string::npos;
+#else
+        const bool networkFailure = !res.error.empty() && res.winHttpErrorCode != 0;
+#endif
+        if (networkFailure) {
           networkFailures.fetch_add(1, std::memory_order_acq_rel);
           continue;
         }
@@ -959,9 +991,15 @@ int main(int argc, char** argv) {
 
     CHECK(successes.load() == 0,
           "stress: a resetting server never produces a success");
+#ifdef _WIN32
     CHECK(unexpected.load() == 0,
           "stress: only WinHttp network failures occurred (first unexpected: " +
               firstUnexpected + ")");
+#else
+    CHECK(unexpected.load() == 0,
+          "stress: only curl transport failures occurred (first unexpected: " +
+              firstUnexpected + ")");
+#endif
     CHECK(networkFailures.load() + overloads.load() == kTotal,
           "stress: every request resolved to a network failure/admission rejection");
     CHECK(g_resetAcceptCount.load() >= kTotal - 8,

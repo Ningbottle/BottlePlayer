@@ -1,6 +1,10 @@
 // Backend development regressions. All traffic is confined to 127.0.0.1.
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#else
+#include "echo/core/TestSocketsPosix.h"
+#endif
 
 #include "echo/core/HttpClient.h"
 #include "echo/async/RequestWatchdog.h"
@@ -204,6 +208,11 @@ int main() {
     echo::core::HttpClientCancellationScope route(nullptr, 300);
     std::atomic_bool notCancelled{false};
     const auto result = client.Get(server.Url(), {}, 9000, 1024, &notCancelled);
+    if (result.error != "total_budget_exhausted" || !result.timedOut) {
+      std::cout << "MEASURE route-deadline error=" << result.error
+                << " timed_out=" << result.timedOut
+                << " elapsed_ms=" << result.elapsedMs << '\n';
+    }
     Check(result.error == "total_budget_exhausted" && result.timedOut,
           "a spent route budget is reported as a deadline, not as a user cancellation");
   }

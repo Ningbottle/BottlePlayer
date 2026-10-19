@@ -547,9 +547,16 @@ void Database::OpenLocked(std::filesystem::path path) {
     }
   }
   QuarantineInvalidSqliteFile(path_);
+#ifdef _WIN32
   if (sqlite3_open16(path_.c_str(), &db_) != SQLITE_OK) {
     ThrowSqlite(db_, "sqlite3_open16");
   }
+#else
+  const auto databasePath = path_.string();
+  if (sqlite3_open(databasePath.c_str(), &db_) != SQLITE_OK) {
+    ThrowSqlite(db_, "sqlite3_open");
+  }
+#endif
   ApplyBusyTimeout(db_);
 }
 
@@ -585,9 +592,16 @@ void Database::InitializeLocked() {
     const auto backupPath = QuarantinePathFor(path_);
     QuarantineWithSidecars(path_, backupPath);
 
+#ifdef _WIN32
     if (sqlite3_open16(path_.c_str(), &db_) != SQLITE_OK) {
       ThrowSqlite(db_, "sqlite3_open16 recover");
     }
+#else
+    const auto databasePath = path_.string();
+    if (sqlite3_open(databasePath.c_str(), &db_) != SQLITE_OK) {
+      ThrowSqlite(db_, "sqlite3_open recover");
+    }
+#endif
     ApplyBusyTimeout(db_);
     InitializeSchema();
   }

@@ -15,7 +15,11 @@ namespace {
 
 std::string QueryValue(const std::string& url, const std::string& key) {
   const auto marker = key + "=";
-  const auto start = url.find(marker);
+  auto start = url.find(marker);
+  while (start != std::string::npos &&
+         start != 0 && url[start - 1] != '?' && url[start - 1] != '&') {
+    start = url.find(marker, start + 1);
+  }
   if (start == std::string::npos) return {};
   const auto valueStart = start + marker.size();
   const auto end = url.find('&', valueStart);

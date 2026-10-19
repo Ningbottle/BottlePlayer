@@ -4,8 +4,13 @@
 #include "echo/core/SafeStoll.h"
 #include "echo/core/StringUtils.h"
 
+#ifdef _WIN32
 #include <windows.h>
 #include <wincrypt.h>
+#else
+#include "echo/core/PortableBase64.h"
+using BYTE = unsigned char;
+#endif
 
 #include <ctime>
 #include <sstream>
@@ -17,6 +22,7 @@ namespace {
 
 
 std::string Base64Encode(const std::vector<BYTE>& data) {
+#ifdef _WIN32
   DWORD b64Len = 0;
   if (!CryptBinaryToStringA(data.data(), static_cast<DWORD>(data.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &b64Len)) {
     return {};
@@ -29,9 +35,13 @@ std::string Base64Encode(const std::vector<BYTE>& data) {
     b64Str.pop_back();
   }
   return b64Str;
+#else
+  return portable::Base64Encode(data.data(), data.size());
+#endif
 }
 
 std::vector<BYTE> Base64Decode(const std::string& b64Str) {
+#ifdef _WIN32
   DWORD decodedLen = 0;
   if (!CryptStringToBinaryA(b64Str.data(), static_cast<DWORD>(b64Str.size()), CRYPT_STRING_BASE64, nullptr, &decodedLen, nullptr, nullptr)) {
     return {};
@@ -41,6 +51,9 @@ std::vector<BYTE> Base64Decode(const std::string& b64Str) {
     return {};
   }
   return decoded;
+#else
+  return portable::Base64Decode(b64Str);
+#endif
 }
 
 nlohmann::json MakeError(const std::string& message, long statusCode = 0) {

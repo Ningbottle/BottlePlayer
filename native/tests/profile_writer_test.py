@@ -8,7 +8,10 @@ import tempfile
 
 def open_runtime(dll):
     root = Path(__file__).resolve().parents[2]
-    dependency_directory = os.add_dll_directory(str(root/'native/vcpkg_installed/x64-windows/bin'))
+    dependency_directory = (
+        os.add_dll_directory(str(root/'native/vcpkg_installed/x64-windows/bin'))
+        if hasattr(os, "add_dll_directory") else None
+    )
     runtime = ctypes.CDLL(str(Path(dll).resolve()))
     runtime.EchoInitializeWithPathsV2.argtypes = [ctypes.c_char_p]
     runtime.EchoInitializeWithPathsV2.restype = ctypes.c_int

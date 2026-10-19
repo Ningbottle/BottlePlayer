@@ -3,8 +3,15 @@
 #include "echo/storage/IdentityCodec.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 
+#ifdef _WIN32
 #include <windows.h>
 #include <wincrypt.h>
+#else
+#include "echo/storage/SecretStore.h"
+#include <openssl/crypto.h>
+#include <unistd.h>
+#define SecureZeroMemory OPENSSL_cleanse
+#endif
 
 #include <algorithm>
 #include <atomic>
@@ -23,6 +30,7 @@ namespace model = echo::model;
 using echo::storage::DecodeSession;
 
 constexpr int kProtectedSessionVersion = 1;
+#ifdef _WIN32
 constexpr DWORD kBase64EncodeFlags = CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF;
 
 std::string Base64Encode(const BYTE* data, DWORD size) {
@@ -100,6 +108,10 @@ std::optional<std::string> UnprotectForCurrentUser(const std::string& encoded) {
   LocalFree(output.pbData);
   return plaintext;
 }
+#else
+using echo::storage::ProtectForCurrentUser;
+using echo::storage::UnprotectForCurrentUser;
+#endif
 
 bool IsEmptySession(const model::SessionInfo& session) {
   return session.token.empty() && session.userId.empty() && session.t1.empty() &&
@@ -740,9 +752,16 @@ std::string SessionRepository::CurrentProcessEpoch() {
         value << std::setw(8) << static_cast<std::uint32_t>(random());
       }
     } catch (...) {
+#ifdef _WIN32
       const auto ticks = static_cast<std::uint64_t>(GetTickCount64());
       const auto now = static_cast<std::uint64_t>(CurrentUnixTimeMs());
       const auto process = static_cast<std::uint64_t>(GetCurrentProcessId());
+#else
+      const auto ticks = static_cast<std::uint64_t>(
+          std::chrono::steady_clock::now().time_since_epoch().count());
+      const auto now = static_cast<std::uint64_t>(CurrentUnixTimeMs());
+      const auto process = static_cast<std::uint64_t>(getpid());
+#endif
       const auto first = ticks ^ (process << 32) ^ now;
       const auto second = now ^ (ticks << 1) ^ (process * 0x9e3779b97f4a7c15ULL);
       value << std::hex << std::setfill('0') << std::setw(16) << first

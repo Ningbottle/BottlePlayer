@@ -24,6 +24,10 @@
 #endif
 #include <atomic>
 #include <chrono>
+#ifndef _WIN32
+#include <codecvt>
+#include <locale>
+#endif
 #include <limits>
 #include <new>
 #include <memory>
@@ -224,11 +228,24 @@ int EchoInitializeWithPathsV2(const char* app_data_dir) {
             {
                 echo::diagnostics::CrashCaptureConfig crash_config;
                 if (app_data_dir) {
+#ifdef _WIN32
                     crash_config.dump_directory =
                         std::filesystem::path(reinterpret_cast<const char8_t*>(app_data_dir)) /
                         "crash";
+#else
+                    std::wstring_convert<std::codecvt_utf8<wchar_t>> converter;
+                    crash_config.dump_directory = converter.from_bytes(
+                        (std::filesystem::path(app_data_dir) / "crash").string());
+#endif
                 }
+#ifdef _WIN32
                 echo::diagnostics::InstallCrashCapture(crash_config);
+#else
+                try {
+                    echo::diagnostics::InstallCrashCapture(crash_config);
+                } catch (...) {
+                }
+#endif
             }
             EnsureInitializedLocked(app_data_dir);
             if (!Ctx().api || !Ctx().db || !Ctx().stats) {

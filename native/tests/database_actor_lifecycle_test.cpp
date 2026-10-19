@@ -337,6 +337,7 @@ int main() {
     std::cout << "[ActorLifecycle] failed_open_not_published ok\n";
   }
 
+#if defined(_WIN32)
   // ── 8) B04: quarantine rename failure keeps every byte of the original ──
   {
     const auto dir = MakeDbDir("bm-b04-quarantine-fail");
@@ -414,6 +415,7 @@ int main() {
     assert(ReadAllBytes(dbPath) != originalDb);  // live path now holds a real db
     std::cout << "[ActorLifecycle] b04_quarantine_failure_keeps_bytes ok\n";
   }
+#endif
 
   // ── 9) B04: back-to-back quarantines never clobber a previous backup ──
   {

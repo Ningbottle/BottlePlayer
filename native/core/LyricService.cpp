@@ -132,7 +132,11 @@ bool HasTimedLyrics(const std::string& text) {
 
 std::string ReadString(const nlohmann::json& value, std::string_view key) {
   if (!value.contains(key)) return "";
+#ifdef _WIN32
   const auto& item = value.at(key);
+#else
+  const auto& item = value.at(std::string(key));
+#endif
   if (item.is_string()) return item.get<std::string>();
   if (item.is_number_integer()) return std::to_string(item.get<std::int64_t>());
   if (item.is_number_unsigned()) return std::to_string(item.get<std::uint64_t>());
@@ -229,10 +233,18 @@ void AttachParsedBusinessDiagnostics(
     return;
   }
   diagnostics[presentKey] = true;
+#ifdef _WIN32
   diagnostics[typeKey] = upstream[collectionKey].type_name();
   diagnostics["candidate_count"] = upstream[collectionKey].is_array()
       ? nlohmann::json(upstream[collectionKey].size())
       : nlohmann::json(nullptr);
+#else
+  const auto& collection = upstream[std::string(collectionKey)];
+  diagnostics[typeKey] = collection.type_name();
+  diagnostics["candidate_count"] = collection.is_array()
+      ? nlohmann::json(collection.size())
+      : nlohmann::json(nullptr);
+#endif
 }
 
 void CopyUpstreamErrorCode(nlohmann::json& out, const nlohmann::json& upstream) {

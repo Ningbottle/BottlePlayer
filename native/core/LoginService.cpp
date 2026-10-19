@@ -7,8 +7,13 @@
 #include "echo/diagnostics/EchoDiagnostics.h"
 #include "echo/diagnostics/Redaction.h"
 
+#ifdef _WIN32
 #include <windows.h>
 #include <bcrypt.h>
+#else
+#include <openssl/rand.h>
+#include "echo/core/PortableBase64.h"
+#endif
 #include <array>
 
 #include <chrono>
@@ -28,18 +33,29 @@ std::string SecureTemporaryKey() {
   key.reserve(16);
   std::array<unsigned char, 32> random{};
   while (key.size() < 16) {
+#ifdef _WIN32
     if (BCryptGenRandom(nullptr, random.data(), static_cast<ULONG>(random.size()),
                         BCRYPT_USE_SYSTEM_PREFERRED_RNG) < 0) {
       SecureZeroMemory(random.data(), random.size());
       return {};
     }
+#else
+    if (RAND_bytes(random.data(), static_cast<int>(random.size())) != 1) {
+      portable::SecureZero(random.data(), random.size());
+      return {};
+    }
+#endif
     for (const auto byte : random) {
       if (byte >= 252) continue; // rejection sampling avoids modulo bias
       key += alphabet[byte % 36];
       if (key.size() == 16) break;
     }
   }
+#ifdef _WIN32
   SecureZeroMemory(random.data(), random.size());
+#else
+  portable::SecureZero(random.data(), random.size());
+#endif
   return key;
 }
 

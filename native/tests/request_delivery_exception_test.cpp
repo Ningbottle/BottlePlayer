@@ -115,6 +115,7 @@ static bool IsExpectedException(const std::exception_ptr& ep,
 int main() {
   std::cout << std::unitbuf;
 
+#if defined(_MSC_VER)
   std::cout << "[Test] R04: set_value throw (move-assign path) preserves its exception...\n";
   {
     // The worker WINS the claim (fn completed before the generous deadline),
@@ -141,6 +142,10 @@ int main() {
     CHECK(gotMarker, "set_value delivery preserves the original move-assignment exception");
     s.Shutdown();
   }
+#else
+  std::cout << "[Test] R04: move-assignment delivery case skipped "
+               "(MSVC promise implementation-specific)\n";
+#endif
 
   std::cout << "[Test] R04: set_value throw (placement-new path) preserves its exception...\n";
   {
@@ -223,6 +228,7 @@ int main() {
     s.Shutdown();
   }
 
+#if defined(_MSC_VER)
   std::cout << "[Test] R04: non-deadline Submit delivers the set_value throw as an exception...\n";
   {
     // Submit keeps set_value inside the try whose catch calls set_exception,
@@ -249,6 +255,10 @@ int main() {
     CHECK(gotMarker, "Submit's set_value throw is delivered (got: " + what + ")");
     s.Shutdown();
   }
+#else
+  std::cout << "[Test] R04: Submit move-assignment delivery case skipped "
+               "(MSVC promise implementation-specific)\n";
+#endif
 
   std::cout << "[Test] All R04 delivery-exception tests completed.\n";
   std::cout << "  Passed: " << g_passed << "  Failed: " << g_failed << "\n";

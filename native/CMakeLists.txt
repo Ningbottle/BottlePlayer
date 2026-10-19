@@ -57,6 +57,37 @@ find_package(nlohmann_json CONFIG REQUIRED)
 find_package(unofficial-sqlite3 CONFIG QUIET)
 find_package(SQLite3 QUIET)
 
+if(WIN32)
+  set(ECHO_NATIVE_APP_PATHS storage/AppPaths.cpp)
+  set(ECHO_NATIVE_WRITER_LEASE storage/ProfileWriterLease.cpp)
+  set(ECHO_NATIVE_CRASH_CAPTURE diagnostics/CrashCapture.cpp)
+  set(ECHO_NATIVE_REQUEST_WATCHDOG async/RequestWatchdog.cpp)
+  set(ECHO_NATIVE_HTTP_CLIENT core/HttpClient.cpp)
+  set(ECHO_NATIVE_CRYPTO core/Crypto.cpp)
+  set(ECHO_NATIVE_STORAGE_LIBS crypt32)
+  set(ECHO_NATIVE_DIAGNOSTICS_LIBS psapi dbghelp)
+  set(ECHO_NATIVE_CORE_LIBS EchoApplication winhttp bcrypt crypt32)
+  set(ECHO_NATIVE_TEST_SOCKET_LIB ws2_32)
+else()
+  set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+  find_package(CURL REQUIRED)
+  find_package(OpenSSL REQUIRED COMPONENTS Crypto)
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(SECRET REQUIRED IMPORTED_TARGET libsecret-1)
+  find_package(Threads REQUIRED)
+
+  set(ECHO_NATIVE_APP_PATHS storage/AppPaths_posix.cpp)
+  set(ECHO_NATIVE_WRITER_LEASE storage/ProfileWriterLease_posix.cpp)
+  set(ECHO_NATIVE_SECRET_STORE storage/SecretStore_posix.cpp)
+  set(ECHO_NATIVE_CRASH_CAPTURE diagnostics/CrashCapture_posix.cpp)
+  set(ECHO_NATIVE_REQUEST_WATCHDOG async/RequestWatchdog_posix.cpp)
+  set(ECHO_NATIVE_HTTP_CLIENT core/HttpClient_curl.cpp)
+  set(ECHO_NATIVE_CRYPTO core/Crypto_openssl.cpp)
+  set(ECHO_NATIVE_STORAGE_LIBS OpenSSL::Crypto PkgConfig::SECRET)
+  set(ECHO_NATIVE_DIAGNOSTICS_LIBS ${CMAKE_DL_LIBS})
+  set(ECHO_NATIVE_CORE_LIBS EchoApplication CURL::libcurl OpenSSL::Crypto Threads::Threads ${CMAKE_DL_LIBS})
+endif()
+
 set(ECHO_NATIVE_SQLITE_AVAILABLE FALSE)
 
 # Give leaf targets only their own headers and their declared dependencies.
@@ -84,18 +115,19 @@ echo_leaf_headers(EchoApplication application INTERFACE)
 target_link_libraries(EchoApplication INTERFACE EchoPorts)
 
 add_library(EchoStorage STATIC
-  storage/AppPaths.cpp
+  ${ECHO_NATIVE_APP_PATHS}
   storage/Database.cpp
   storage/DeviceRepository.cpp
   storage/SessionRepository.cpp
   storage/IdentityCodec.cpp
-  storage/ProfileWriterLease.cpp
+  ${ECHO_NATIVE_WRITER_LEASE}
+  ${ECHO_NATIVE_SECRET_STORE}
   storage/SettingsRepository.cpp
 )
 echo_leaf_headers(EchoStorage storage PUBLIC)
 target_link_libraries(EchoStorage
   PUBLIC EchoPorts nlohmann_json::nlohmann_json
-  PRIVATE crypt32 EchoDiagnostics
+  PRIVATE ${ECHO_NATIVE_STORAGE_LIBS} EchoDiagnostics
 )
 if(unofficial-sqlite3_FOUND)
   set(ECHO_NATIVE_SQLITE_AVAILABLE TRUE)
@@ -138,12 +170,10 @@ add_library(EchoDiagnostics STATIC
   diagnostics/MemorySnapshot.cpp
   diagnostics/ScopedTimer.cpp
   diagnostics/Redaction.cpp
-  diagnostics/CrashCapture.cpp
+  ${ECHO_NATIVE_CRASH_CAPTURE}
 )
 echo_leaf_headers(EchoDiagnostics diagnostics PUBLIC)
-target_link_libraries(EchoDiagnostics PRIVATE psapi)
-# dbghelp powers the crash forensics (MiniDumpWriteDump + symbol walk).
-target_link_libraries(EchoDiagnostics PRIVATE dbghelp)
+target_link_libraries(EchoDiagnostics PRIVATE ${ECHO_NATIVE_DIAGNOSTICS_LIBS})
 target_compile_definitions(EchoDiagnostics PRIVATE
   ECHO_CRASH_BUILD_HASH="${ECHO_NATIVE_BUILD_HASH}")
 
@@ -168,7 +198,7 @@ if(MSVC)
       " /OPT:REF /OPT:ICF")
   endforeach()
 endif()
-if(CMAKE_CONFIGURATION_TYPES)
+if(WIN32 AND CMAKE_CONFIGURATION_TYPES)
   # VS multi-config: EXE/PDB land side by side per config already; copy them
   # into the archive dir per build.
   add_custom_target(native_pdb_archive ALL
@@ -178,7 +208,7 @@ if(CMAKE_CONFIGURATION_TYPES)
       -DARCHIVE_DIR=${CMAKE_BINARY_DIR}/pdb/$<CONFIG>
       -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/ArchivePdb.cmake
     COMMENT "Archiving PDBs for symbol retention")
-elseif(CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo")
+elseif(WIN32 AND CMAKE_BUILD_TYPE MATCHES "Release|RelWithDebInfo")
   add_custom_target(native_pdb_archive ALL
     COMMAND ${CMAKE_COMMAND}
       -DCONFIG=${CMAKE_BUILD_TYPE}
@@ -193,7 +223,11 @@ endif()
 # design. Run manually:
 #   CrashForensicsProbe.exe <outdir>            (SEH access-violation path)
 # Expect <outdir>/crash-*.dmp + crash-*.txt with build hash + symbolized stack.
-add_executable(CrashForensicsProbe tools/crash_forensics_probe.cpp)
+if(WIN32)
+  add_executable(CrashForensicsProbe tools/crash_forensics_probe.cpp)
+else()
+  add_executable(CrashForensicsProbe tools/crash_forensics_probe_posix.cpp)
+endif()
 target_include_directories(CrashForensicsProbe PRIVATE include)
 target_link_libraries(CrashForensicsProbe PRIVATE EchoDiagnostics)
 
@@ -216,14 +250,16 @@ target_link_libraries(EchoBpPaginationProbe PRIVATE EchoCAPI)
 # R-external probe (agent B 2026-09-28): read-only real-CDN If-Range probe.
 # Manual run only — makes one song-url resolution plus three <=100-byte
 # range requests against the production CDN.
-add_executable(EchoCdnIfRangeProbe EXCLUDE_FROM_ALL tools/cdn_ifrange_probe.cpp)
-target_include_directories(EchoCdnIfRangeProbe PRIVATE include)
-target_link_libraries(EchoCdnIfRangeProbe PRIVATE EchoCAPI winhttp)
+if(WIN32)
+  add_executable(EchoCdnIfRangeProbe EXCLUDE_FROM_ALL tools/cdn_ifrange_probe.cpp)
+  target_include_directories(EchoCdnIfRangeProbe PRIVATE include)
+  target_link_libraries(EchoCdnIfRangeProbe PRIVATE EchoCAPI winhttp)
+endif()
 
 add_library(EchoAsync STATIC
   async/CancellationToken.cpp
   async/RequestScheduler.cpp
-  async/RequestWatchdog.cpp
+  ${ECHO_NATIVE_REQUEST_WATCHDOG}
 )
 target_include_directories(EchoAsync PUBLIC include)
 target_link_libraries(EchoAsync PUBLIC EchoDiagnostics)
@@ -246,9 +282,9 @@ add_library(EchoCore STATIC
   core/DeviceRegisterService.cpp
   core/HomeService.cpp
   core/RadioService.cpp
-  core/HttpClient.cpp
+  ${ECHO_NATIVE_HTTP_CLIENT}
   core/HttpUtils.cpp
-  core/Crypto.cpp
+  ${ECHO_NATIVE_CRYPTO}
   core/KuGouAndroidRequest.cpp
   core/KuGouProfile.cpp
   core/LoginService.cpp
@@ -270,7 +306,7 @@ add_library(EchoCore STATIC
 target_include_directories(EchoCore PUBLIC include)
 target_link_libraries(EchoCore
   PUBLIC EchoStorage EchoDiagnostics EchoAsync nlohmann_json::nlohmann_json
-  PRIVATE EchoApplication winhttp bcrypt crypt32
+  PRIVATE ${ECHO_NATIVE_CORE_LIBS}
 )
 
 add_library(EchoCAPI SHARED core/C_API.cpp)
@@ -312,6 +348,11 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_include_directories(EchoNativeSmokeTests PRIVATE include)
   target_link_libraries(EchoNativeSmokeTests PRIVATE EchoCore EchoAsync EchoDiagnostics)
   add_test(NAME EchoNativeSmokeTests COMMAND EchoNativeSmokeTests)
+
+  add_executable(EchoCryptoKnownAnswerTest tests/crypto_known_answer_test.cpp)
+  target_include_directories(EchoCryptoKnownAnswerTest PRIVATE include)
+  target_link_libraries(EchoCryptoKnownAnswerTest PRIVATE EchoCore)
+  add_test(NAME EchoCryptoKnownAnswerTest COMMAND EchoCryptoKnownAnswerTest)
 
   # Independent contract test targets
   add_executable(EchoRouteContractTest tests/route_contract_test.cpp)
@@ -388,7 +429,7 @@ if(ECHO_NATIVE_BUILD_TESTS)
 
   add_executable(EchoHttpClientResilienceTest tests/http_client_resilience_test.cpp)
   target_include_directories(EchoHttpClientResilienceTest PRIVATE include)
-  target_link_libraries(EchoHttpClientResilienceTest PRIVATE EchoCore ws2_32)
+  target_link_libraries(EchoHttpClientResilienceTest PRIVATE EchoCore ${ECHO_NATIVE_TEST_SOCKET_LIB})
   # Stage 3a structural test reads HttpClient.cpp to pin "the watchdog
   # action never closes request handles".
   target_compile_definitions(EchoHttpClientResilienceTest PRIVATE
@@ -402,7 +443,7 @@ if(ECHO_NATIVE_BUILD_TESTS)
   # Development regressions: loopback only, no account or real playback.
   add_executable(EchoInteractiveHttpTest tests/interactive_http_test.cpp)
   target_include_directories(EchoInteractiveHttpTest PRIVATE include)
-  target_link_libraries(EchoInteractiveHttpTest PRIVATE EchoCore ws2_32)
+  target_link_libraries(EchoInteractiveHttpTest PRIVATE EchoCore ${ECHO_NATIVE_TEST_SOCKET_LIB})
   add_test(NAME EchoInteractiveHttpTest COMMAND EchoInteractiveHttpTest)
   set_tests_properties(EchoInteractiveHttpTest PROPERTIES TIMEOUT 45)
 
@@ -433,7 +474,7 @@ if(ECHO_NATIVE_BUILD_TESTS)
 
   add_executable(EchoHttpPoolLifecycleTest tests/http_pool_lifecycle_test.cpp)
   target_include_directories(EchoHttpPoolLifecycleTest PRIVATE include)
-  target_link_libraries(EchoHttpPoolLifecycleTest PRIVATE EchoCore ws2_32)
+  target_link_libraries(EchoHttpPoolLifecycleTest PRIVATE EchoCore ${ECHO_NATIVE_TEST_SOCKET_LIB})
   add_test(NAME EchoHttpPoolLifecycleTest COMMAND EchoHttpPoolLifecycleTest)
   set_tests_properties(EchoHttpPoolLifecycleTest PROPERTIES TIMEOUT 30)
 
@@ -442,7 +483,7 @@ if(ECHO_NATIVE_BUILD_TESTS)
   # This does not measure the desktop admission permits or pre-ABI lock wait.
   add_executable(EchoRequestLifecycleStressTest tests/request_lifecycle_stress_test.cpp)
   target_include_directories(EchoRequestLifecycleStressTest PRIVATE include)
-  target_link_libraries(EchoRequestLifecycleStressTest PRIVATE EchoCore EchoAsync ws2_32)
+  target_link_libraries(EchoRequestLifecycleStressTest PRIVATE EchoCore EchoAsync ${ECHO_NATIVE_TEST_SOCKET_LIB})
   add_test(NAME EchoRequestLifecycleStressTest COMMAND EchoRequestLifecycleStressTest)
   set_tests_properties(EchoRequestLifecycleStressTest PROPERTIES TIMEOUT 180)
 
@@ -499,6 +540,7 @@ if(ECHO_NATIVE_BUILD_TESTS)
     EchoStorageStandaloneTest
     EchoOperationContextTest
     EchoNativeSmokeTests
+    EchoCryptoKnownAnswerTest
     EchoRouteContractTest
     EchoDeviceIdentityContractTest
     EchoSongUrlContractTest

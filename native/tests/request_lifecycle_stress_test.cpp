@@ -26,8 +26,12 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#else
+#include "echo/core/TestSocketsPosix.h"
+#endif
 
 #include "echo/async/RequestScheduler.h"
 #include "echo/async/RequestWatchdog.h"

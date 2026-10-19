@@ -26,7 +26,11 @@ std::string Trim(std::string value) {
 
 std::string ReadString(const nlohmann::json& value, std::string_view key) {
   if (!value.contains(key)) return "";
+#ifdef _WIN32
   const auto& item = value.at(key);
+#else
+  const auto& item = value.at(std::string(key));
+#endif
   if (item.is_string()) return item.get<std::string>();
   if (item.is_number_integer()) return std::to_string(item.get<std::int64_t>());
   if (item.is_number_unsigned()) return std::to_string(item.get<std::uint64_t>());
@@ -35,7 +39,11 @@ std::string ReadString(const nlohmann::json& value, std::string_view key) {
 
 int ReadInt(const nlohmann::json& value, std::string_view key, int fallback = 0) {
   if (!value.contains(key)) return fallback;
+#ifdef _WIN32
   const auto& item = value.at(key);
+#else
+  const auto& item = value.at(std::string(key));
+#endif
   if (item.is_number_integer()) return item.get<int>();
   if (item.is_number_unsigned()) return static_cast<int>(item.get<unsigned int>());
   if (item.is_string()) {

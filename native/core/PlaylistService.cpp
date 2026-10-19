@@ -9,8 +9,13 @@
 #include "echo/core/StringUtils.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 
+#ifdef _WIN32
 #include <windows.h>
 #include <wincrypt.h>
+#else
+#include "echo/core/PortableBase64.h"
+using BYTE = unsigned char;
+#endif
 
 #include <algorithm>
 #include <array>
@@ -27,6 +32,7 @@ namespace echo::core {
 namespace {
 
 std::string Base64Encode(const std::vector<BYTE>& data) {
+#ifdef _WIN32
   DWORD b64Len = 0;
   if (!CryptBinaryToStringA(data.data(), static_cast<DWORD>(data.size()), CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &b64Len)) {
     return {};
@@ -39,9 +45,13 @@ std::string Base64Encode(const std::vector<BYTE>& data) {
     b64Str.pop_back();
   }
   return b64Str;
+#else
+  return portable::Base64Encode(data.data(), data.size());
+#endif
 }
 
 std::vector<BYTE> Base64Decode(const std::string& b64Str) {
+#ifdef _WIN32
   DWORD decodedLen = 0;
   if (!CryptStringToBinaryA(b64Str.data(), static_cast<DWORD>(b64Str.size()), CRYPT_STRING_BASE64, nullptr, &decodedLen, nullptr, nullptr)) {
     return {};
@@ -51,6 +61,9 @@ std::vector<BYTE> Base64Decode(const std::string& b64Str) {
     return {};
   }
   return decoded;
+#else
+  return portable::Base64Decode(b64Str);
+#endif
 }
 
 int Clamp(int value, int minValue, int maxValue) {
@@ -71,7 +84,11 @@ std::string Trim(std::string value) {
 
 std::string ReadString(const nlohmann::json& value, std::string_view key) {
   if (!value.contains(key)) return "";
+#ifdef _WIN32
   const auto& item = value.at(key);
+#else
+  const auto& item = value.at(std::string(key));
+#endif
   if (item.is_string()) return item.get<std::string>();
   if (item.is_number_integer()) return std::to_string(item.get<std::int64_t>());
   if (item.is_number_unsigned()) return std::to_string(item.get<std::uint64_t>());
@@ -428,7 +445,11 @@ void CollectUserPlaylists(
   };
   for (const auto key : keys) {
     if (node.contains(key)) {
+#ifdef _WIN32
       CollectUserPlaylists(node.at(key), playlists, seen, skipped, depth + 1);
+#else
+      CollectUserPlaylists(node.at(std::string(key)), playlists, seen, skipped, depth + 1);
+#endif
     }
   }
 }

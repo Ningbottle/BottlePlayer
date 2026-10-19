@@ -3,8 +3,12 @@
 // verifying field correctness, ordering, range filtering, and pagination.
 
 #include <cassert>
+#if defined(_WIN32)
 #include <io.h>
 #include <process.h>
+#else
+#include <unistd.h>
+#endif
 #include <cmath>
 #include <chrono>
 #include <filesystem>
@@ -31,8 +35,13 @@ std::filesystem::path TestDirPath(const wchar_t* name) {
   const auto stamp = std::chrono::duration_cast<std::chrono::milliseconds>(
                          std::chrono::system_clock::now().time_since_epoch())
                          .count();
+#if defined(_WIN32)
   std::wstring unique = std::wstring(name) + L"-" + std::to_wstring(::_getpid()) +
                         L"-" + std::to_wstring(stamp);
+#else
+  std::wstring unique = std::wstring(name) + L"-" + std::to_wstring(::getpid()) +
+                        L"-" + std::to_wstring(stamp);
+#endif
   auto path = std::filesystem::temp_directory_path() / unique;
   std::filesystem::remove_all(path);
   std::filesystem::create_directories(path);
