@@ -141,12 +141,13 @@ Rectangle {
             id: qualityButton
             objectName: "qualityButton"
             anchors.verticalCenter: parent.verticalCenter
-            implicitWidth: qualityRow.implicitWidth + Theme.s3 * 2
+            leftPadding: Theme.s3; rightPadding: Theme.s1 + 2
+            implicitWidth: leftPadding + rightPadding + qualityRow.implicitWidth
             implicitHeight: Theme.controlSm
             hoverEnabled: true; focusPolicy: Qt.TabFocus
             enabled: music.queueIndex >= 0 && !String(music.current.hash).startsWith("file:")
             opacity: !enabled ? Theme.disabledOpacity : 1
-            onClicked: qualityMenu.popup()
+            onClicked: qualityMenu.popup(qualityButton, qualityButton.width - qualityMenu.width, -qualityMenu.height - Theme.s2)
             Accessible.name: "音质 · " + music.qualityText(music.actualQuality)
             background: Rectangle {
                 radius: Theme.rSm
@@ -161,7 +162,7 @@ Rectangle {
                 }
             }
             contentItem: Row {
-                id: qualityRow; anchors.centerIn: parent; spacing: Theme.s2
+                id: qualityRow; spacing: Theme.s2
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: music.qualityText(music.actualQuality); color: qualityButton.hovered ? Theme.text : Theme.text2
@@ -169,12 +170,12 @@ Rectangle {
                 }
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
-                    implicitWidth: switchTag.implicitWidth + Theme.s2; implicitHeight: Theme.s4
+                    implicitWidth: switchTag.implicitWidth + Theme.s2 * 2; implicitHeight: Theme.controlSm - Theme.s2 * 2
                     radius: 2; color: "transparent"
                     border.width: Theme.hairline; border.color: Theme.seal
                     Text {
                         id: switchTag; anchors.centerIn: parent; text: "切换"; color: Theme.seal
-                        font.family: Theme.fontUi; font.pixelSize: 10
+                        font.family: Theme.fontUi; font.pixelSize: 11; font.weight: Theme.fwMedium
                     }
                 }
             }

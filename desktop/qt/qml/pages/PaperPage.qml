@@ -206,7 +206,10 @@ Item {
                     columns: scroller.stacked ? 1 : 2
                     columnSpacing: Theme.snap(Theme.clamp(Theme.s6, root.vw * 0.03, Theme.s10))
                     rowSpacing: columnSpacing
-                    verticalItemAlignment: Grid.AlignVCenter
+                    verticalItemAlignment: Grid.AlignTop
+                    // Hero and rail share one row height side by side.
+                    readonly property real rowH: scroller.stacked ? 0
+                        : Math.max(heroInner.implicitHeight + Theme.s6 * 2, rail.implicitHeight + Theme.s5 * 2)
                     // .feature: 1.15fr hero beside the 1fr side-list.
                     readonly property real railW: scroller.stacked ? width
                         : Math.max(Theme.rem(17), (width - columnSpacing) * (1.0 / 2.15))
@@ -221,7 +224,7 @@ Item {
                         // 5px, and the vinyl print cut by the lower-right edge.
                         PlateFrame {
                             id: heroPlate; width: parent.width
-                            height: heroInner.implicitHeight + Theme.s6 * 2
+                            height: Math.max(heroInner.implicitHeight + Theme.s6 * 2, stage.rowH)
                             innerRule: true; clip: true
                             VinylMark {
                                 z: -1
@@ -231,7 +234,7 @@ Item {
                             }
                             Item {
                                 id: heroInner
-                                x: Theme.s6; y: Theme.s6; width: parent.width - Theme.s6 * 2
+                                x: Theme.s6; y: Theme.snap((heroPlate.height - implicitHeight) / 2); width: parent.width - Theme.s6 * 2
                                 implicitHeight: Math.max(cover.height, info.implicitHeight)
                         Item {
                             id: cover
@@ -339,7 +342,8 @@ Item {
                                     objectName: "heroPlay"
                                     visible: !!scroller.hero.hash
                                     implicitHeight: Theme.s10
-                                    implicitWidth: ctaRow.implicitWidth + Theme.s5 + Theme.s2
+                                    leftPadding: Theme.s1 + 2; rightPadding: Theme.s5
+                                    implicitWidth: leftPadding + rightPadding + ctaRow.implicitWidth
                                     hoverEnabled: true
                                     enabled: !(scroller.heroIsCurrent && music.loading && !music.playing)
                                     Accessible.name: ctaLabel.text
@@ -356,14 +360,15 @@ Item {
                                     }
                                     contentItem: Row {
                                         id: ctaRow
-                                        anchors.centerIn: parent; spacing: Theme.s2
+                                        spacing: Theme.s2
                                         Rectangle {
                                             // .pp — the cinnabar disc.
                                             anchors.verticalCenter: parent.verticalCenter
-                                            width: Theme.rem(1.6); height: width; radius: width / 2
+                                            width: heroPlay.height - (heroPlay.leftPadding * 2); height: width; radius: width / 2
                                             color: Theme.seal
                                             Icon {
-                                                anchors.centerIn: parent
+                                                // The play triangle's mass sits left of its box.
+                                                anchors.centerIn: parent; anchors.horizontalCenterOffset: name === "play" ? 1 : 0
                                                 name: scroller.heroIsCurrent && music.playing ? "pause" : "play"
                                                 filled: true; size: Theme.rem(0.7)
                                                 color: Theme.accentContrast
@@ -418,12 +423,16 @@ Item {
                                     contentItem: Item {
                                         Row {
                                             id: radioRow; anchors.centerIn: parent; spacing: Theme.rem(0.5)
-                                            Icon { name: "heart"; filled: true; size: Theme.rem(1); color: Theme.radioAccent; anchors.verticalCenter: parent.verticalCenter }
+                                            // Centre the heart on the CJK ideographic box (~0.4em above
+                                            // the baseline), not the line box, snapped to device pixels.
+                                            Icon {
+                                                name: "heart"; filled: true; size: 14; color: Theme.radioAccent
+                                                y: Math.round((radioLabel.baselineOffset - radioLabel.font.pixelSize * 0.4 - height / 2) * Theme.dpr) / Theme.dpr
+                                            }
                                             Text {
-                                                id: radioLabel; anchors.verticalCenter: parent.verticalCenter
+                                                id: radioLabel
                                                 text: radioStart.active ? "退出红心推荐" : music.radioPending ? "取消准备推荐" : "开启红心推荐"; color: Theme.radioAccent
-                                                font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.75)); font.weight: Theme.fwMedium
-                                                lineHeightMode: Text.FixedHeight; lineHeight: Math.round(Theme.rem(0.75) * 1.4)
+                                                font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; font.weight: Theme.fwMedium
                                             }
                                         }
                                     }
@@ -431,8 +440,8 @@ Item {
                                 Text {
                                     topPadding: Theme.rem(0.6)
                                     text: "先听公共推荐 · 登录后使用账号推荐"; color: Theme.text3
-                                    font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.7))
-                                    lineHeightMode: Text.FixedHeight; lineHeight: Math.round(Theme.rem(0.7) * 1.6)
+                                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
+                                    lineHeightMode: Text.FixedHeight; lineHeight: Math.round(Theme.fsXs * 1.5)
                                 }
                             }
                         }
@@ -448,7 +457,7 @@ Item {
                         height: railPlate.height
                         PlateFrame {
                             id: railPlate; width: parent.width
-                            height: rail.implicitHeight + Theme.s5 * 2
+                            height: Math.max(rail.implicitHeight + Theme.s5 * 2, stage.rowH)
                             fill: Theme.paperVeil
                             Column {
                                 id: rail

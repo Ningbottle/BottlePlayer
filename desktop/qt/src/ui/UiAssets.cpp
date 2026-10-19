@@ -85,7 +85,7 @@ void installUiAssets(QQmlEngine& engine) {
                                {QStringLiteral("Microsoft YaHei UI"), QStringLiteral("MiSans"), QStringLiteral("Microsoft YaHei")});
     QFont::insertSubstitution(QStringLiteral("LXGW WenKai Lite"), QStringLiteral("KaiTi"));
     QFont::insertSubstitutions(QStringLiteral("Libre Caslon Display"),
-                               {QStringLiteral("EB Garamond"), QStringLiteral("Noto Serif SC"), QStringLiteral("SimSun")});
+                               {QStringLiteral("EB Garamond"), QStringLiteral("Noto Serif SC Display"), QStringLiteral("Noto Serif SC"), QStringLiteral("SimSun")});
     QFont::insertSubstitutions(QStringLiteral("EB Garamond"), {QStringLiteral("Noto Serif SC"), QStringLiteral("SimSun")});
     QFont::insertSubstitution(QStringLiteral("Noto Serif SC"), QStringLiteral("SimSun"));
     QFont::insertSubstitution(QStringLiteral("Cascadia Code"), QStringLiteral("Consolas"));

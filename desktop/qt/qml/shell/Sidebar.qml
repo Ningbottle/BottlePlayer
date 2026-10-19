@@ -194,7 +194,7 @@ Rectangle {
         Eyebrow {
             visible: !root.settingsMode && !root.compactHeight
             Layout.fillWidth: true; Layout.topMargin: Theme.s5; Layout.bottomMargin: Theme.s1
-            text: "我的歌单 · Playlists"
+            text: "音乐库"
         }
         ColumnLayout {
             visible: !root.settingsMode; Layout.fillWidth: true; spacing: 2
@@ -203,10 +203,8 @@ Rectangle {
                 objectName: "libraryEntry"; glyph: "library"; text: "我的歌单"
                 current: root.route === "library"
                 expandable: true; expanded: root.playlistsExpanded
-                onClicked: {
-                    if (root.route === "library" || root.route === "playlist") root.playlistsExpanded = !root.playlistsExpanded
-                    else { root.playlistsExpanded = true; root.navigate("library") }
-                }
+                // Expands the playlist submenu in place; a playlist row opens its detail page.
+                onClicked: root.playlistsExpanded = !root.playlistsExpanded
             }
             // Playlist submenu: depth-1 rows are bulleted press items — a
             // middle dot and a serif name, like the reference's list.
@@ -252,7 +250,7 @@ Rectangle {
         Eyebrow {
             visible: !root.settingsMode
             Layout.fillWidth: true; Layout.topMargin: root.compactHeight ? 8 : Theme.s5; Layout.bottomMargin: Theme.s1
-            text: "外观 · Appearance"
+            text: "外观"
         }
         ColumnLayout {
             visible: !root.settingsMode
@@ -287,37 +285,6 @@ Rectangle {
             visible: !root.settingsMode
             Layout.topMargin: Theme.s1
             glyph: "sliders-horizontal"; text: "设置"; onClicked: root.openSettings("appearance")
-        }
-
-        // The colophon: hairline, then the 印 stamp beside the italic
-        // "Printed daily since 2026" the old edition carried.
-        Column {
-            visible: !root.settingsMode && !root.compactHeight
-            Layout.fillWidth: true; Layout.topMargin: Theme.s2; spacing: Theme.s2
-            Hairline { width: parent.width }
-            Row {
-                leftPadding: Theme.s3; topPadding: Theme.s1; spacing: Theme.s2
-                Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    width: Theme.s5 - 2; height: width; radius: 2
-                    color: "transparent"; border.width: Theme.hairline; border.color: Theme.seal
-                    Text {
-                        anchors.centerIn: parent; text: "印"; color: Theme.seal
-                        font.family: Theme.fontSerif; font.pixelSize: Theme.fsXs
-                    }
-                }
-                Column {
-                    anchors.verticalCenter: parent.verticalCenter; spacing: 0
-                    Text {
-                        text: "Printed daily"; color: Theme.text3
-                        font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: true
-                    }
-                    Text {
-                        text: "since 2026"; color: Theme.text3
-                        font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: true
-                    }
-                }
-            }
         }
     }
 }

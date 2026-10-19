@@ -33,4 +33,7 @@ Text {
     height: clamp ? Math.max(lineBox * lineCount, minBox) : implicitHeight
     FontMetrics { id: metrics; font: root.font }
     PixelSnap.enabled: root.snap
+    // Display sizes draw from outlines; hinted native glyphs drop the thin
+    // curves of serif CJK at heading sizes.
+    renderType: font.pixelSize >= 28 ? Text.CurveRendering : Text.NativeRendering
 }

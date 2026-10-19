@@ -47,7 +47,7 @@ for path in documents:
         if not (path.parent / target).exists():
             errors.append(f'Broken link in {path.relative_to(root)}: {target}')
 
-for filename in ('Inter-400.ttf', 'Inter-500.ttf', 'Inter-600.ttf', 'LXGWWenKaiLite-Regular.ttf', 'NotoSerifSC-400.ttf', 'EBGaramond-400.ttf', 'EBGaramond-400-italic.ttf', 'EBGaramond-500.ttf', 'LibreCaslonDisplay-400.ttf', 'MiSans-Regular.ttf', 'MiSans-Medium.ttf', 'MiSans-Demibold.ttf', 'MiSans-Bold.ttf'):
+for filename in ('Inter-400.ttf', 'Inter-500.ttf', 'Inter-600.ttf', 'LXGWWenKaiLite-Regular.ttf', 'NotoSerifSC-400.ttf', 'NotoSerifSC-500.ttf', 'NotoSerifSC-Display.ttf', 'EBGaramond-400.ttf', 'EBGaramond-400-italic.ttf', 'EBGaramond-500.ttf', 'LibreCaslonDisplay-400.ttf', 'MiSans-Regular.ttf', 'MiSans-Medium.ttf', 'MiSans-Demibold.ttf', 'MiSans-Bold.ttf'):
     if not (root / 'desktop/qt/assets/fonts' / filename).is_file():
         errors.append(f'Missing bundled font: {filename}')
 misans_license = root / 'desktop/qt/licenses/MiSans-License-Agreement.pdf'
