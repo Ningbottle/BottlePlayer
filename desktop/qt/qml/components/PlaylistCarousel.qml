@@ -1,4 +1,5 @@
 import QtQuick
+import QtQuick.Controls
 import BottleMusic
 
 // Rotating playlist ring: a PathView fakes depth with scale, yaw, z order
@@ -21,8 +22,16 @@ Item {
     Row {
         anchors.right: parent.right; anchors.verticalCenter: heading.verticalCenter
         spacing: Theme.s1
-        IconButton { objectName: "carouselPrev"; glyph: "chevron-left"; Accessible.name: "上一个歌单"; onClicked: ring.decrementCurrentIndex() }
-        IconButton { objectName: "carouselNext"; glyph: "chevron-right"; Accessible.name: "下一个歌单"; onClicked: ring.incrementCurrentIndex() }
+        IconButton {
+            objectName: "carouselPrev"; glyph: "chevron-left"; Accessible.name: "上一个歌单"
+            Keys.onShortcutOverride: event => event.accepted = event.key === Qt.Key_Space
+            onClicked: ring.decrementCurrentIndex()
+        }
+        IconButton {
+            objectName: "carouselNext"; glyph: "chevron-right"; Accessible.name: "下一个歌单"
+            Keys.onShortcutOverride: event => event.accepted = event.key === Qt.Key_Space
+            onClicked: ring.incrementCurrentIndex()
+        }
     }
 
     PathView {
@@ -55,28 +64,40 @@ Item {
             PathAttribute { name: "itemZ"; value: 0 }
             PathAttribute { name: "itemFade"; value: 0.25 }
         }
-        delegate: Item {
+        delegate: AbstractButton {
             id: card
             required property var modelData
             required property int index
             objectName: "carouselCard" + index
             width: root.cardSize; height: width
+            padding: 0
+            focusPolicy: PathView.isCurrentItem ? Qt.TabFocus : Qt.NoFocus
+            text: modelData.name || "歌单"
+            Accessible.name: (PathView.isCurrentItem ? "打开歌单：" : "选中歌单：") + text
+            function activate() {
+                if (PathView.isCurrentItem) root.openPlaylist(modelData)
+                else ring.currentIndex = index
+            }
+            onClicked: activate()
+            // Space belongs to the focused card, ahead of the global play shortcut.
+            Keys.onShortcutOverride: event => event.accepted = event.key === Qt.Key_Space
+            Keys.onReturnPressed: activate()
+            Keys.onEnterPressed: activate()
             scale: PathView.itemScale; z: PathView.itemZ; opacity: PathView.itemFade
             transform: Rotation {
                 origin.x: card.width / 2; origin.y: card.height / 2
                 axis { x: 0; y: 1; z: 0 }
                 angle: card.PathView.itemYaw
             }
-            Rectangle {
+            background: Rectangle {
                 anchors.fill: parent; anchors.margins: -1; radius: Theme.rSm + 1
-                color: "transparent"; border.width: Theme.hairline; border.color: Theme.borderStrong
+                color: "transparent"
+                border.width: card.visualFocus ? 2 : Theme.hairline
+                border.color: card.visualFocus ? Theme.focus : Theme.borderStrong
             }
-            Cover {
-                anchors.fill: parent; radius: Theme.rSm; pixels: 400
+            contentItem: Cover {
+                radius: Theme.rSm; pixels: 400
                 url: card.modelData.image || ""; title: card.modelData.name || ""
-            }
-            TapHandler {
-                onTapped: card.PathView.isCurrentItem ? root.openPlaylist(card.modelData) : ring.currentIndex = card.index
             }
         }
     }

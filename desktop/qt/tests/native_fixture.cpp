@@ -151,6 +151,7 @@ Q_DECL_EXPORT void EchoHandleRequest(const char* methodRaw, const char* pathRaw,
             lists.append(QJsonObject{{"global_collection_id", "collection_alpha"}, {"listid", "17"}, {"name", options.value("liked").toBool() ? QStringLiteral("我喜欢的音乐") : QStringLiteral("纸页收藏")}, {"songcount", playlistAlpha.size()}});
             lists.append(QJsonObject{{"global_collection_id", "collection_beta"}, {"listid", "18"}, {"name", QStringLiteral("窗边歌单")}, {"songcount", 2}});
             response = logged ? QJsonObject{{"status", 1}, {"data", QJsonObject{{"info", lists}}}} : QJsonObject{{"status", 0}};
+            if (options.value("user_playlists_error").toBool()) response = {{"status", 0}, {"error", "fixture playlist unavailable"}};
         } else if (path == "/playlist/track/all") {
             const int page = options.value("repeat_page").toBool() ? 1 : query.value("page").toInt(1);
             QJsonArray songs; const bool small = query.value("id").toString() == "collection_beta" || query.value("id").toString() == "18";

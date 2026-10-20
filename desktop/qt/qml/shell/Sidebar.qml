@@ -234,9 +234,12 @@ Rectangle {
                     }
                     NavRow {
                         objectName: "sidebarPlaylistsAll"
-                        visible: accountState.loggedIn && root.playlistsTruncated
+                        // The catalog also exposes errors and refresh for an
+                        // empty or failed first page, so it stays reachable.
+                        visible: accountState.loggedIn
                         depth: 1; bullet: true; restInk: Theme.text3
-                        text: "查看全部歌单"; onClicked: root.navigate("library")
+                        text: root.playlistsTruncated ? "查看全部歌单" : "歌单目录"
+                        onClicked: root.navigate("library")
                     }
                     NavRow {
                         visible: !accountState.loggedIn

@@ -38,6 +38,8 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <QTemporaryDir>
+#include <QWheelEvent>
 #include <QtEndian>
 #include <QtTest>
 #include <QTextLayout>
@@ -95,7 +97,13 @@ int main(int argc, char** argv) {
     const QStringList args = app.arguments();
     if (args.size() != 4) return 2;
     QDir().mkpath(args[2]);
-    const QString profile = qEnvironmentVariable("BOTTLE_SMOKE_PROFILE", QDir(args[2]).filePath("profile"));
+    std::unique_ptr<QTemporaryDir> interactionProfile;
+    if (args[3] == "navigation-interactions") {
+        interactionProfile = std::make_unique<QTemporaryDir>(QDir(args[2]).filePath("profile-XXXXXX"));
+        if (!interactionProfile->isValid()) return 2;
+    }
+    const QString profile = interactionProfile ? interactionProfile->path()
+        : qEnvironmentVariable("BOTTLE_SMOKE_PROFILE", QDir(args[2]).filePath("profile"));
     MusicController music(args[1], profile);
     AccountController account(music.nativeGateway()); LibraryController library(music.nativeGateway());
     VipController vip(music.nativeGateway());
@@ -180,6 +188,9 @@ int main(int argc, char** argv) {
     }
     if (args[3] == "render-review") {
         #include "render_review_smoke.h"
+    }
+    if (args[3] == "navigation-interactions") {
+        #include "navigation_interactions_smoke.h"
     }
     if (args[3] == "settings-probe") {
         // Font-weight probe: the settings page is the heaviest bold CJK sans

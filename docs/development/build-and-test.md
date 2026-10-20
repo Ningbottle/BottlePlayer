@@ -43,6 +43,8 @@ git diff --check
 
 `qt_render_bindings` 检查实际封面请求尺寸与列表非零原点下的渐隐；`qt_diagnostics` 用阻塞 sink 验证入队与 I/O 分离、队列上限、错误预留、轮转及故障恢复。`qt_settings_migration` 覆盖连续侧栏修改合并、退出保存、保存失败重试和导入/导出屏障。相关 QtTest 报告均位于构建目录 `Testing/`，失败时由测试脚本打印本次报告。
 
+`qt_navigation_interactions` 使用真实页面、临时 profile 和 Native 夹具，检查个人歌单首次加载失败后从侧栏进入目录刷新、轮播卡片的 Tab 与 Space/Enter 激活，以及像素/角度滚轮输入取消首页磁吸。测试不访问真实账号。
+
 `bottle_qt_smoke` 的 `render-review` 模式使用本机图片服务验证封面动画的尺寸稳定、导航取消、切歌取消、迟到图片及减少动画选项；可通过 `QT_SCALE_FACTOR=1.25` 验证分数缩放。字体视觉比较仍应在 Windows 图形平台下观察，offscreen 通过不代表实际 DirectWrite 和多屏环境已验收。
 
 Windows 图形平台默认将原生文字绘制为灰度抗锯齿，使它与大字号曲线文字、图层内文字保持一致；`BOTTLE_TEXT_AA=cleartype` 可临时恢复系统 ClearType 作同机对照。`bottle_qt_smoke` 的 `font-layout` 模式使用独立夹具截取报刊首页和圆环，并检查圆环卡片尺寸与纵向留白。改变 `QT_SCALE_FACTOR` 时应核对报告中的实际 `dpr`；系统缩放与该变量会相乘。

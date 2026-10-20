@@ -115,7 +115,10 @@ Item {
             boundsBehavior: Flickable.StopAtBounds
             HoverHandler { id: scrollHover }
             ScrollBar.vertical: ThinScrollBar { areaHovered: scrollHover.hovered }
-            SmoothWheel { id: wheel; flickable: scroller }
+            SmoothWheel {
+                id: wheel; flickable: scroller
+                onScrollInput: { magnet.stop(); magnetIdle.stop() }
+            }
             // Magnetic first two screens (stage, playlist ring): once motion
             // settles above the daily section, glide to the nearer screen
             // edge, biased toward the direction of travel. Below it the long
@@ -136,13 +139,12 @@ Item {
                 if (Math.abs(target - y) < 1) return
                 magnet.to = target; magnet.restart()
             }
-            NumberAnimation { id: magnet; target: scroller; property: "contentY"; duration: music.reducedMotion ? 0 : 560; easing.type: Easing.OutQuint }
+            NumberAnimation { id: magnet; objectName: "homeMagnet"; target: scroller; property: "contentY"; duration: music.reducedMotion ? 0 : 560; easing.type: Easing.OutQuint }
             Timer {
                 id: magnetIdle; interval: 110
                 onTriggered: if (!scroller.dragging && !scroller.flicking && !wheel.glide.running && !magnet.running) scroller.magnetize()
             }
             onContentYChanged: if (!magnet.running) magnetIdle.restart()
-            Connections { target: wheel.glide; function onRunningChanged() { if (wheel.glide.running) magnet.stop() } }
             onDraggingChanged: if (dragging) magnet.stop()
             SnapSettle { flickable: scroller }
             property int railOffset: 0

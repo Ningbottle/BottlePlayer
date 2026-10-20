@@ -205,6 +205,8 @@ if(BUILD_TESTING)
     add_test(NAME qt_diagnostics COMMAND bottle_diagnostics_tests -o "${CMAKE_CURRENT_BINARY_DIR}/Testing/qt_diagnostics.txt,txt")
     qt_add_executable(bottle_qt_smoke tests/smoke.cpp)
     target_link_libraries(bottle_qt_smoke PRIVATE bottle_qt_core bottle_qt_uiplugin Qt6::QuickControls2 Qt6::Test)
+    add_test(NAME qt_navigation_interactions COMMAND bottle_qt_smoke $<TARGET_FILE:bottle_native_fixture>
+        "${CMAKE_CURRENT_BINARY_DIR}/Testing/navigation-interactions" navigation-interactions)
     qt_add_executable(bottle_resize_probe tests/resize_probe.cpp)
     target_link_libraries(bottle_resize_probe PRIVATE bottle_qt_core bottle_qt_uiplugin Qt6::QuickControls2 Qt6::Test)
 endif()
