@@ -54,7 +54,7 @@ Item {
             text: root.title.slice(0, 1)
             font.family: Theme.fontTitle; font.pixelSize: Math.min(frame.width, frame.height) * 0.28
             font.weight: Theme.fwMedium; color: Theme.text3
-            renderType: font.pixelSize >= 28 ? Text.CurveRendering : Text.NativeRendering
+            renderType: Text.NativeRendering
         }
         Icon {
             anchors.centerIn: parent; visible: !root.ready && root.title === ""

@@ -63,9 +63,8 @@ QImage IconProvider::requestImage(const QString& id, QSize* size, const QSize& r
 void installUiAssets(QQmlEngine& engine) {
     QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
     // Native glyphs otherwise use ClearType on the Windows surface, while
-    // CurveRendering headings and layered text are grayscale. Keeping native
-    // glyphs grayscale too removes the coloured fringes and the mismatch in
-    // stroke weight between those text paths. Preserve a ClearType A/B switch.
+    // layered text is grayscale. Use grayscale consistently to avoid coloured
+    // fringes. Preserve a ClearType A/B switch.
 #ifdef Q_OS_WIN
     if (qgetenv("BOTTLE_TEXT_AA") != "cleartype")
 #else

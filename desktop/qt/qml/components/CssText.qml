@@ -33,7 +33,7 @@ Text {
     height: clamp ? Math.max(lineBox * lineCount, minBox) : implicitHeight
     FontMetrics { id: metrics; font: root.font }
     PixelSnap.enabled: root.snap
-    // Display sizes draw from outlines; hinted native glyphs drop the thin
-    // curves of serif CJK at heading sizes.
-    renderType: font.pixelSize >= 28 ? Text.CurveRendering : Text.NativeRendering
+    // Qt 6.8's curve rasterizer drops parts of the bundled CJK outlines
+    // (for example the left stem of 山). Keep native glyphs at every size.
+    renderType: Text.NativeRendering
 }

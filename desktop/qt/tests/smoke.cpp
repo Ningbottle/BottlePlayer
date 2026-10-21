@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
     if (args.size() != 4) return 2;
     QDir().mkpath(args[2]);
     std::unique_ptr<QTemporaryDir> interactionProfile;
-    if (args[3] == "navigation-interactions") {
+    if (args[3] == "navigation-interactions" || args[3] == "text-raster") {
         interactionProfile = std::make_unique<QTemporaryDir>(QDir(args[2]).filePath("profile-XXXXXX"));
         if (!interactionProfile->isValid()) return 2;
     }
@@ -278,6 +278,9 @@ int main(int argc, char** argv) {
         report.insert("dpr",window->devicePixelRatio()); report.insert("checks",checks);
         bool passed=true; for (const auto& item:checks) passed=passed&&item.toObject().value("ok").toBool();
         report.insert("ok",passed); writeReport(); music.finishSession(); return passed?0:1;
+    }
+    if (args[3] == "text-raster") {
+        #include "text_raster_smoke.h"
     }
     if (args[3] == "search-home" || args[3] == "search-home-live" || args[3] == "hanging-home" || args[3] == "hanging-home-live" || args[3] == "bravais" || args[3] == "live-bravais") {
         #include "visual_search_home.h"

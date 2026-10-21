@@ -693,7 +693,7 @@ Item {
                     text: "搜索音乐"; color: Theme.text
                     font.family: Theme.fontDisplay; font.pixelSize: size
                     font.weight: Theme.fwDisplay; font.letterSpacing: Theme.displayTracking * size
-                    renderType: Text.CurveRendering
+                    renderType: Text.NativeRendering
                 }
                 Item { Layout.fillWidth: true }
                 ActionButton { quiet: true; glyph: "arrow-left"; text: "回到首页"; onClicked: root.home() }
