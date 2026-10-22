@@ -98,7 +98,7 @@ int main(int argc, char** argv) {
     if (args.size() != 4) return 2;
     QDir().mkpath(args[2]);
     std::unique_ptr<QTemporaryDir> interactionProfile;
-    if (args[3] == "navigation-interactions" || args[3] == "text-raster") {
+    if (args[3] == "navigation-interactions" || args[3] == "text-raster" || args[3] == "quality-interactions") {
         interactionProfile = std::make_unique<QTemporaryDir>(QDir(args[2]).filePath("profile-XXXXXX"));
         if (!interactionProfile->isValid()) return 2;
     }
@@ -191,6 +191,9 @@ int main(int argc, char** argv) {
     }
     if (args[3] == "navigation-interactions") {
         #include "navigation_interactions_smoke.h"
+    }
+    if (args[3] == "quality-interactions") {
+        #include "quality_interactions_smoke.h"
     }
     if (args[3] == "settings-probe") {
         // Font-weight probe: the settings page is the heaviest bold CJK sans

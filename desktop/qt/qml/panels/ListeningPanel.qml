@@ -267,8 +267,8 @@ Item {
                     FieldLabel { text: "音质"; Layout.fillWidth: true }
                     ActionButton {
                         objectName: "listeningQuality"; size: "sm"
-                        text: music.qualityText(music.actualQuality)
-                        enabled: !!music.current.hash && !String(music.current.hash).startsWith("file:")
+                        text: music.qualityText(music.queueIndex < 0 ? music.quality : music.actualQuality)
+                        enabled: !String(music.current.hash || "").startsWith("file:")
                         onClicked: listeningQualityMenu.popup()
                     }
                 }

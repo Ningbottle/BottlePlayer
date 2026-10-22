@@ -207,6 +207,8 @@ if(BUILD_TESTING)
     target_link_libraries(bottle_qt_smoke PRIVATE bottle_qt_core bottle_qt_uiplugin Qt6::QuickControls2 Qt6::Test)
     add_test(NAME qt_navigation_interactions COMMAND bottle_qt_smoke $<TARGET_FILE:bottle_native_fixture>
         "${CMAKE_CURRENT_BINARY_DIR}/Testing/navigation-interactions" navigation-interactions)
+    add_test(NAME qt_quality_interactions COMMAND bottle_qt_smoke $<TARGET_FILE:bottle_native_fixture>
+        "${CMAKE_CURRENT_BINARY_DIR}/Testing/quality-interactions" quality-interactions)
     add_test(NAME qt_text_raster COMMAND bottle_qt_smoke $<TARGET_FILE:bottle_native_fixture>
         "${CMAKE_CURRENT_BINARY_DIR}/Testing/text-raster" text-raster)
     # The offscreen platform cannot grab this native RHI window. Use the

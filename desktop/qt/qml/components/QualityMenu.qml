@@ -10,11 +10,15 @@ Menu {
     palette.window: Theme.surface; palette.text: Theme.text
     palette.highlight: Theme.accentSoft; palette.highlightedText: Theme.text
     Repeater {
-        model: music.availableQualities.length ? music.availableQualities : [{quality:"128"},{quality:"320"},{quality:"flac"}]
+        // With no track, choose a preference for the next play. A cleared
+        // queue must not keep the previous track's available-only choices.
+        model: music.queueIndex >= 0 && music.availableQualities.length ? music.availableQualities
+            : [{quality:"128"},{quality:"320"},{quality:"flac"},{quality:"hires"}]
         MenuItem {
             required property var modelData
             objectName: "quality_" + modelData.quality
-            text: music.qualityText(modelData.quality); checkable: true; checked: music.quality === modelData.quality
+            text: music.qualityText(modelData.quality); checkable: true; autoExclusive: true
+            checked: music.quality === modelData.quality
             onTriggered: music.quality = modelData.quality
         }
     }

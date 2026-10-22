@@ -145,10 +145,11 @@ Rectangle {
             implicitWidth: leftPadding + rightPadding + qualityRow.implicitWidth
             implicitHeight: Theme.controlSm
             hoverEnabled: true; focusPolicy: Qt.TabFocus
-            enabled: music.queueIndex >= 0 && !String(music.current.hash).startsWith("file:")
+            enabled: !String(music.current.hash || "").startsWith("file:")
+            text: music.qualityText(music.queueIndex < 0 ? music.quality : music.actualQuality)
             opacity: !enabled ? Theme.disabledOpacity : 1
             onClicked: qualityMenu.popup(qualityButton, qualityButton.width - qualityMenu.width, -qualityMenu.height - Theme.s2)
-            Accessible.name: "音质 · " + music.qualityText(music.actualQuality)
+            Accessible.name: "音质 · " + text
             background: Rectangle {
                 radius: Theme.rSm
                 color: qualityButton.down ? Theme.surfaceActive : qualityButton.hovered || qualityButton.visualFocus ? Theme.surfaceHover : "transparent"
@@ -165,7 +166,7 @@ Rectangle {
                 id: qualityRow; spacing: Theme.s2
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
-                    text: music.qualityText(music.actualQuality); color: qualityButton.hovered ? Theme.text : Theme.text2
+                    text: qualityButton.text; color: qualityButton.hovered ? Theme.text : Theme.text2
                     font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium
                 }
                 Rectangle {

@@ -45,6 +45,8 @@ git diff --check
 
 `qt_navigation_interactions` 使用真实页面、临时 profile 和 Native 夹具，检查个人歌单首次加载失败后从侧栏进入目录刷新、轮播卡片的 Tab 与 Space/Enter 激活，以及像素/角度滚轮输入取消首页磁吸。测试不访问真实账号。
 
+`qt_quality_interactions` 使用真实菜单、临时 profile 和本地音频服务，检查未选歌时预选音质、标签和保存、侧面面板与播放页入口、暂停时切换保留进度，以及清空队列后恢复完整选项。此测试验证选择与加载，不代表线上歌曲提供所有音质。
+
 `bottle_qt_smoke` 的 `render-review` 模式使用本机图片服务验证封面动画的尺寸稳定、导航取消、切歌取消、迟到图片及减少动画选项；可通过 `QT_SCALE_FACTOR=1.25` 验证分数缩放。字体视觉比较仍应在 Windows 图形平台下观察，offscreen 通过不代表实际 DirectWrite 和多屏环境已验收。
 
 Windows 图形平台默认将原生文字绘制为灰度抗锯齿，使它与图层内文字保持一致；`BOTTLE_TEXT_AA=cleartype` 可临时恢复系统 ClearType 作同机对照。报刊界面的标题、正文及封面占位字都使用原生文字渲染：Qt 6.8 的曲线渲染在捆绑的中文衬线字形上会产生断笔，例如「山」的左竖。
