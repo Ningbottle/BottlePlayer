@@ -267,7 +267,7 @@ Item {
                     ActionButton {
                         objectName: "listeningQuality"; size: "sm"
                         text: music.qualityText(music.queueIndex < 0 ? music.quality : music.actualQuality)
-                        enabled: !String(music.current.hash || "").startsWith("file:")
+                        enabled: !String(music.current.hash || "").startsWith("file:") && (music.queueIndex < 0 || music.ready)
                         onClicked: listeningQualityMenu.popup()
                     }
                 }

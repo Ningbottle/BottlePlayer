@@ -145,7 +145,7 @@ Rectangle {
             implicitWidth: leftPadding + rightPadding + qualityRow.implicitWidth
             implicitHeight: Theme.controlMd
             hoverEnabled: true; focusPolicy: Qt.TabFocus
-            enabled: !String(music.current.hash || "").startsWith("file:")
+            enabled: !String(music.current.hash || "").startsWith("file:") && (music.queueIndex < 0 || music.ready)
             text: music.qualityText(music.queueIndex < 0 ? music.quality : music.actualQuality)
             opacity: !enabled ? Theme.disabledOpacity : 1
             onClicked: qualityMenu.popup(qualityButton, qualityButton.width - qualityMenu.width, -qualityMenu.height - Theme.s2)

@@ -9,6 +9,7 @@
 #include <QElapsedTimer>
 #include <QTimer>
 #include <functional>
+#include <optional>
 
 class MusicController final : public QObject {
     Q_OBJECT
@@ -135,6 +136,7 @@ signals:
 private:
     void resolveCurrent(qint64 position = 0, bool autoplay = true, bool preserveSession = false, bool coldResume = false);
     void applyResume();
+    bool recoverQualitySwitch(const QString& reason);
     void saveQueue();
     void step(int delta);
     void loadLyrics(const Track& track, quint64 generation);
@@ -176,7 +178,14 @@ private:
     bool radioPending_ = false, radioAdvancePending_ = false;
     PlaySession session_;
     QTimer persistTimer_, resumeDeadline_, loadDeadline_;
-    QString quality_ = "128", committedQuality_ = "128", actualQuality_ = "128";
+    QString quality_ = "128", committedQuality_ = "128", actualQuality_ = "unknown";
+    // A quality change is committed only after the replacement media loads.
+    // Keep the last usable source until that point so a failed decode can recover.
+    struct QualitySource { QUrl url; QStringList backups; qint64 position; };
+    std::optional<QualitySource> qualitySource_;
+    QUrl pendingSource_;
+    QString pendingActualQuality_ = "unknown", qualityRecoveryReason_;
+    bool pendingPreview_ = false, pendingLoadObserved_ = false, recoveringQuality_ = false;
     QVariantList availableQualities_;
     qint64 resumePosition_ = 0;
     bool resumePending_ = false, coldResume_ = false, desiredPlay_ = true, shuttingDown_ = false;

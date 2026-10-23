@@ -260,6 +260,17 @@ private slots:
         QCOMPARE(requests("/privilege/lite").size(),2);
         music.finishSession();
     }
+    void staleLoadedSignalDoesNotCommitNewQualityRequest() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid()); configure({{"song_delay", 250}});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()},0); music.setQuality("flac");
+        QVERIFY(music.loading());
+        // Stopping an older source may emit LoadedMedia before the new URL is ready.
+        QVERIFY(QMetaObject::invokeMethod(music.mediaPlayer(),"mediaStatusChanged",
+            Q_ARG(QMediaPlayer::MediaStatus,QMediaPlayer::LoadedMedia)));
+        QVERIFY(music.loading()); QCOMPARE(music.actualQuality(),QString("unknown"));
+        music.finishSession();
+    }
     void singleDeliveredQualityDoesNotCollapseThePicker() {
         QTemporaryDir profile(root()); QVERIFY(profile.isValid());
         configure({});

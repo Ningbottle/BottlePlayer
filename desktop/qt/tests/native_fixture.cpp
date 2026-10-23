@@ -186,9 +186,12 @@ Q_DECL_EXPORT void EchoHandleRequest(const char* methodRaw, const char* pathRaw,
             // shape causes in the UI.
             const auto audioUrl = options.value("audio_url").toString("http://127.0.0.1:1/fixture.wav");
             const auto requested = query.value("quality").toString("128");
-            data.insert("quality", requested);
-            data.insert("available_qualities", QJsonArray{QJsonObject{{"quality", requested}, {"url", audioUrl}}});
-            response = {{"status", 1}, {"url", audioUrl}, {"quality", requested}, {"data", data}};
+            const auto delivered = options.value("delivered_quality").toString(requested);
+            const bool preview = options.value("song_preview").toBool();
+            data.insert("quality", delivered);
+            data.insert("available_qualities", QJsonArray{QJsonObject{{"quality", delivered}, {"url", audioUrl}, {"is_preview", preview}}});
+            response = {{"status", 1}, {"url", audioUrl}, {"quality", delivered}, {"is_preview", preview}, {"data", data}};
+            if (options.value("song_fail").toBool()) response = {{"status", 0}, {"vip_required", options.value("song_vip_required").toBool()}};
         } else if (path == "/privilege/lite") {
             QJsonArray goods;
             if (options.contains("privilege_goods")) goods = options.value("privilege_goods").toArray();

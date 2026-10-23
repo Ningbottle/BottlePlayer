@@ -208,7 +208,7 @@ Item {
         }
         Card {
             id: qualityCard; cardId: "quality"; objectName: "playerQualityCard"; clip: true
-            readonly property bool switchable: music.queueIndex >= 0 && !String(music.current.hash).startsWith("file:")
+            readonly property bool switchable: music.ready && music.queueIndex >= 0 && !String(music.current.hash).startsWith("file:")
             Column {
                 width: parent.width; anchors.verticalCenter: parent.verticalCenter; spacing: Theme.s1
                 CssText { visible: qualityCard.height > 110; text: "音质"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic }
