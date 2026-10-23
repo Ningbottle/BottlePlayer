@@ -2,9 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import BottleMusic
 
-// Icon button geometry: square sm 28 / md 34 / lg 40, ghost by default, --r-sm
-// corners, 16px glyph. `checked` mirrors aria-pressed (surface-active fill).
-// Fills ease over --dur-fast; presses dim to .86 and fill --surface-active.
+// Stable icon targets with shared optical geometry and keyboard focus.
 AbstractButton {
     id: root
     property string glyph: ""
@@ -15,7 +13,7 @@ AbstractButton {
     property real worldScale: 1
     property color focusInk: Theme.focus
     property color downFill: Theme.surfaceActive
-    property color primaryHoverFill: Theme.customized ? Theme.actionShade(primaryFill, .08) : primaryFill
+    property color primaryHoverFill: Theme.actionShade(primaryFill, .08)
     readonly property var mediaSpec: Theme.mediaStyle[media] || Theme.mediaStyle.play
     property string size: "md"
     property string variant: "ghost"
@@ -24,12 +22,12 @@ AbstractButton {
     property bool glyphFilled: false
     property real glyphRotation: 0
     property real radius: Theme.rSm
-    property color tint: variant === "primary" ? Theme.accentContrast : Theme.text2
-    property color hoverTint: variant === "primary" ? Theme.accentContrast : Theme.text
+    property color tint: variant === "primary" ? Theme.inkOn(down ? primaryDownFill : lit ? primaryHoverFill : primaryFill) : Theme.text2
+    property color hoverTint: variant === "primary" ? tint : Theme.text
     property color hoverFill: Theme.surfaceHover
-    property color checkedTint: Theme.customized ? Theme.accent : Theme.text
+    property color checkedTint: Theme.accentText
     property color primaryFill: Theme.accent
-    property color primaryDownFill: Theme.customized ? Theme.actionShade(primaryFill, .16) : Theme.accentHover
+    property color primaryDownFill: Theme.actionShade(primaryFill, .16)
     // Elevation renders on the content-free background face, like Plate:
     // layering the whole button would rasterize the glyph with the shadow.
     property int shadowLevel: 0
@@ -50,13 +48,13 @@ AbstractButton {
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
     Keys.onShortcutOverride: event => { if (enabled && event.key === Qt.Key_Space) event.accepted = true }
-    scale: pressed ? Theme.pressScale : 1
-    Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast; easing.type: Easing.OutCubic } }
+    scale: 1
+
     ToolTip.visible: enabled && hovered && Accessible.name.length > 0
     ToolTip.text: Accessible.name
     ToolTip.delay: 600
     ToolTip.timeout: 2500
-    opacity: !enabled ? Theme.disabledOpacity : down ? Theme.pressedOpacity : 1
+    opacity: enabled ? 1 : Theme.disabledOpacity
     Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
     Accessible.role: Accessible.Button
     background: Rectangle {
@@ -66,16 +64,16 @@ AbstractButton {
             : root.down || root.checked ? root.downFill
             : root.lit ? root.hoverFill
             : root.variant === "secondary" ? Theme.surface : Theme.clear(root.hoverFill)
-        border.width: root.variant === "secondary" ? Theme.hairline : 0
+        border.pixelAligned: false; antialiasing: true; border.width: root.variant === "secondary" ? Theme.hairline : 0
         border.color: Theme.border
         // Fill edges on whole device pixels, like Blink's snapped paint rect.
         PixelSnap.fit: true
         layer.enabled: root.shadowLevel > 0 && root.enabled && Theme.hasShadow(root.shadowLevel)
         layer.effect: ShadowEffect { level: root.shadowLevel }
-        Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+
         Rectangle {
             anchors.fill: parent; anchors.margins: -4 / root.worldScale; radius: parent.radius + 4 / root.worldScale
-            color: "transparent"; border.width: 2 / root.worldScale; border.color: root.focusInk
+            color: "transparent"; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline / root.worldScale; border.color: root.focusInk
             visible: root.visualFocus
         }
     }

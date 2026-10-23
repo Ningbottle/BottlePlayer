@@ -11,7 +11,7 @@ ApplicationWindow {
     id: window
     objectName: "mainWindow"
     visible: true; width: 1280; height: 850; minimumWidth: 900; minimumHeight: 620
-    title: "BottleMusic · Qt Preview"
+    title: "BottleMusic"
     color: window.curtainScene ? Theme.wallBg : Theme.bg
     palette.window: Theme.bgElevated
     palette.windowText: Theme.text
@@ -19,6 +19,18 @@ ApplicationWindow {
     palette.buttonText: Theme.text
     palette.button: Theme.surface
     palette.base: Theme.bg
+    palette.alternateBase: Theme.surface
+    palette.light: Theme.surfaceHover
+    palette.midlight: Theme.surfaceActive
+    palette.mid: Theme.border
+    palette.dark: Theme.borderStrong
+    palette.shadow: Theme.shadowPopColor
+    palette.toolTipBase: Theme.bgElevated
+    palette.toolTipText: Theme.text
+    palette.placeholderText: Theme.text3
+    palette.accent: Theme.accent
+    font.family: Theme.fontUi
+    font.pixelSize: Theme.fsMd
     palette.highlight: Theme.accent
     palette.highlightedText: Theme.accentContrast
     flags: Qt.Window | Qt.FramelessWindowHint
@@ -64,13 +76,13 @@ ApplicationWindow {
     readonly property bool browseChrome: !curtainScene
     readonly property bool playbackBarVisible: !immersive && browseChrome
     readonly property var settingsSections: [
-        { id: "account", label: "账户与会员", lede: "扫码登录 · 账号资料 · 个人歌单", icon: "user-round" },
-        { id: "appearance", label: "外观", lede: "报刊主界面 · 幕布舞台 · 阅读习惯", icon: "palette" },
-        { id: "playback", label: "播放", lede: "音源连接与设备状态", icon: "sliders-vertical" },
-        { id: "storage", label: "存储与缓存", lede: "本地缓存的去处", icon: "hard-drive" },
-        { id: "experimental", label: "实验室", lede: "默认关闭，按需开启", icon: "flask-conical" },
-        { id: "diagnostics", label: "诊断", lede: "内核状态与资源使用", icon: "bug" },
-        { id: "about", label: "关于与更新", lede: "版本信息与自动更新", icon: "info" }
+        { id: "account", label: "账户与会员", icon: "user-round" },
+        { id: "appearance", label: "外观", icon: "palette" },
+        { id: "playback", label: "播放", icon: "sliders-vertical" },
+        { id: "storage", label: "存储与缓存", icon: "hard-drive" },
+        { id: "experimental", label: "实验室", icon: "flask-conical" },
+        { id: "diagnostics", label: "诊断", icon: "bug" },
+        { id: "about", label: "关于与更新", icon: "info" }
     ]
     readonly property var settingsMeta: settingsSections.find(section => section.id === settingsSection) || settingsSections[1]
 
@@ -89,8 +101,6 @@ ApplicationWindow {
     // Device-pixel ratio for the hairline rules (survives monitor moves).
     Binding { target: Theme; property: "dpr"; value: window.Screen.devicePixelRatio }
 
-    // Skin changes tint the window over one beat, like the CSS transition.
-    Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.pageEnterMs; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
 
     function changeMode(mode) {
         if (immersive) leaveImmersive()
@@ -230,7 +240,7 @@ ApplicationWindow {
         id: sidebar
         visible: window.browseChrome && !window.immersive
         opacity: window.launched ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.durBase } }
+        Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Easing.OutCubic } }
         width: Theme.sidebarW; height: parent.height - Theme.playerbarH
         route: window.route
         settingsMode: window.route === "settings"
@@ -287,7 +297,7 @@ ApplicationWindow {
         id: main
         visible: !window.immersive
         opacity: window.launched ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.durBase } }
+        Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Easing.OutCubic } }
         x: window.browseChrome ? Theme.sidebarW : 0; y: window.bravaisHomeScene ? 0 : Theme.titlebarH
         width: parent.width - x
         height: parent.height - y - (window.playbackBarVisible ? Theme.playerbarH : 0)
@@ -421,7 +431,7 @@ ApplicationWindow {
         visible: window.playbackBarVisible
         onAddToPlaylist: track => window.addToPlaylist(track)
         opacity: window.launched ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.durBase } }
+        Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Easing.OutCubic } }
         y: parent.height - height; width: parent.width
         queueOpen: window.listeningOpen
         lyricView: window.route === "player"
@@ -438,7 +448,7 @@ ApplicationWindow {
         z: 10
         visible: !window.immersive
         opacity: window.launched ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.durBase } }
+        Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Easing.OutCubic } }
         width: parent.width
         win: window
     }

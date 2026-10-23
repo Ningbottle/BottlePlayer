@@ -19,7 +19,7 @@ Item {
         id: face
         anchors.fill: parent
         border.color: root.borderColor
-        border.width: root.borderColor.a > 0 ? root.borderWidth : 0
+        border.pixelAligned: false; antialiasing: true; border.width: root.borderColor.a > 0 ? root.borderWidth : 0
         layer.enabled: root.elevation > 0 && Theme.hasShadow(root.elevation)
         layer.effect: ShadowEffect { level: root.elevation }
     }

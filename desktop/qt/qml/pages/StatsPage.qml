@@ -48,7 +48,7 @@ Flickable {
                 Column {
                     required property var modelData
                     width: (content.width - 40) / 3; spacing: 8
-                    CssText { width: parent.width; text: statsState.loading ? "…" : statsState.error ? "—" : String(modelData.value); elide: Text.ElideRight; font.family: Theme.fontDisplay; font.pixelSize: root.width < 700 ? 22 : 30; color: Theme.text }
+                    CssText { width: parent.width; text: statsState.loading ? "…" : statsState.error ? "—" : String(modelData.value); elide: Text.ElideRight; font.family: Theme.fontDisplay; font.pixelSize: Theme.fs2xl; color: Theme.text }
                     CssText { text: modelData.label; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; color: Theme.text3 }
                 }
             }
@@ -56,7 +56,7 @@ Flickable {
         Column {
             width: parent.width; spacing: 16
             CssText { text: "聆听趋势"; font.family: Theme.fontTitle; font.pixelSize: Theme.fsXl; color: Theme.text }
-            Text { text: "听过艺人 " + Number(statsState.summary.unique_artists || 0) + " 位 · 完成率 " + Math.round(Number(statsState.summary.completion_rate || 0) * 100) + "%"; visible: !statsState.loading && !statsState.error; font.family: Theme.fontMeta; font.pixelSize: Theme.fsSm; color: Theme.text3 }
+            Text { text: "听过艺人 " + Number(statsState.summary.unique_artists || 0) + " 位，完成率 " + Math.round(Number(statsState.summary.completion_rate || 0) * 100) + "%"; visible: !statsState.loading && !statsState.error; font.family: Theme.fontMeta; font.pixelSize: Theme.fsSm; color: Theme.text3 }
             Row {
                 width: parent.width; height: 140; spacing: 4
                 readonly property real maximum: Math.max(1, ...statsState.timeline.map(row => Number(row.count || 0)))
@@ -67,7 +67,7 @@ Flickable {
                         required property int index
                         width: Math.max(4, (content.width - (statsState.timeline.length - 1) * 4) / Math.max(1, statsState.timeline.length)); height: parent.height
                         Rectangle { x: 2; width: Math.max(2, parent.width - 4); anchors.bottom: label.top; anchors.bottomMargin: 8; height: Math.max(2, Number(modelData.count || 0) / parent.parent.maximum * 100); color: Theme.accent; radius: Theme.rXs }
-                        Text { id: label; anchors.bottom: parent.bottom; width: parent.width; text: index % Math.max(1, Math.ceil(statsState.timeline.length / 7)) === 0 ? String(modelData.date).slice(5) : ""; font.family: Theme.fontUi; font.pixelSize: 10; color: Theme.text3; horizontalAlignment: Text.AlignHCenter }
+                        Text { id: label; anchors.bottom: parent.bottom; width: parent.width; text: index % Math.max(1, Math.ceil(statsState.timeline.length / 7)) === 0 ? String(modelData.date).slice(5) : ""; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; color: Theme.text3; horizontalAlignment: Text.AlignHCenter }
                     }
                 }
             }
@@ -97,7 +97,7 @@ Flickable {
             Hairline { width: parent.width; color: Theme.ruleInk }
             CssText { text: "聆听分析"; font.family: Theme.fontTitle; font.pixelSize: Theme.fsXl; color: Theme.text }
             Text { width: parent.width; text: "点击分析会将当前统计发送给 DeepSeek，按其 API 规则计费。密钥仅保留在当前页面内存。"; wrapMode: Text.Wrap; color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
-            TextField { id: apiKey; objectName: "analysisKey"; width: parent.width; placeholderText: "DeepSeek API Key"; echoMode: TextInput.Password; selectByMouse: true; color: Theme.text; background: Rectangle { color: Theme.surface; border.color: Theme.border; border.width: Theme.hairline; radius: Theme.rSm } }
+            TextField { id: apiKey; objectName: "analysisKey"; width: parent.width; placeholderText: "DeepSeek API Key"; echoMode: TextInput.Password; selectByMouse: true; color: Theme.text; background: Rectangle { color: Theme.surface; border.color: Theme.border; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; radius: Theme.rSm } }
             Row { spacing: 8; ActionButton { text: analysisState.loading ? "分析中…" : "分析当前统计"; filled: true; enabled: !analysisState.loading && !statsState.loading && !statsState.error; onClicked: analysisState.analyze(apiKey.text, statsState.summary, statsState.songs, statsState.timeline) } ActionButton { visible: analysisState.loading; text: "取消"; onClicked: analysisState.cancel() } }
             Text { visible: analysisState.error.length > 0; width: parent.width; text: analysisState.error; wrapMode: Text.Wrap; color: Theme.warning; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
             Text { width: parent.width; text: analysisState.result; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd }

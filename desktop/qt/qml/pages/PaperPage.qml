@@ -38,7 +38,7 @@ Item {
     }
     function dateline() {
         var d = new Date(), days = ["日", "一", "二", "三", "四", "五", "六"]
-        return "星期" + days[d.getDay()] + " · " + (d.getMonth() + 1) + "月" + d.getDate() + "日"
+        return "星期" + days[d.getDay()] + " " + (d.getMonth() + 1) + "月" + d.getDate() + "日"
     }
     function feedIndex(hash) {
         for (var i = 0; i < music.feed.length; i++) if (music.feed[i].hash === hash) return i
@@ -82,7 +82,7 @@ Item {
     component PlayVeil: Rectangle {
         property real glyphSize: 16
         property bool disc: false
-        color: Qt.rgba(Theme.stageBg.r, Theme.stageBg.g, Theme.stageBg.b, 0.45)
+        color: Theme.blackA(7)
         opacity: 0
         Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
         Rectangle {
@@ -139,7 +139,7 @@ Item {
                 if (Math.abs(target - y) < 1) return
                 magnet.to = target; magnet.restart()
             }
-            NumberAnimation { id: magnet; objectName: "homeMagnet"; target: scroller; property: "contentY"; duration: music.reducedMotion ? 0 : 560; easing.type: Easing.OutQuint }
+            NumberAnimation { id: magnet; objectName: "homeMagnet"; target: scroller; property: "contentY"; duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic }
             Timer {
                 id: magnetIdle; interval: 110
                 onTriggered: if (!scroller.dragging && !scroller.flicking && !wheel.glide.running && !magnet.running) scroller.magnetize()
@@ -204,7 +204,7 @@ Item {
                         width: parent.width; height: mastCn.height
                         CssText {
                             id: mastCn
-                            readonly property real exact: Theme.clamp(36, root.vw * .035, 50)
+                            readonly property real exact: Theme.fs2xl
                             text: "为你精选"; color: Theme.text; lineBox: exact * 1.2
                             font.family: Theme.fontSerifDisplay; font.pixelSize: Math.round(exact); font.weight: Theme.fwRegular
                         }
@@ -300,7 +300,7 @@ Item {
                                             background: Rectangle {
                                                 // li:hover — the 2% ink wash, not a surface card.
                                                 color: row.down ? Theme.surfaceActive : row.hovered || row.visualFocus ? Theme.surfaceHover : "transparent"
-                                                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+
                                                 DotRule { y: parent.height - height; width: parent.width; visible: scroller.stacked || row.index < scroller.railTracks.length - 1 }
                                             }
                                             contentItem: Item {
@@ -378,7 +378,7 @@ Item {
                                 objectName: "dailyExpand"
                                 visible: scroller.daily.length > scroller.collapsed
                                 quiet: true; size: "sm"; restInk: Theme.text3
-                                text: scroller.dailyExpanded ? "收起到两行" : "展开全部 · " + scroller.daily.length + " 首"
+                                text: scroller.dailyExpanded ? "收起到两行" : "展开全部，" + scroller.daily.length + " 首"
                                 trailingGlyph: "chevron-down"
                                 trailingRotation: scroller.dailyExpanded ? 180 : 0
                                 onClicked: scroller.toggleDaily()
@@ -408,15 +408,15 @@ Item {
                                             id: art; width: tile.width; height: width
                                             radius: Theme.rXs; pixels: 300; url: tile.modelData.image || ""; title: ""
                                             transform: Translate {
-                                                y: tile.hovered ? -Theme.s1 : 0
+                                                y: 0
                                                 Behavior on y { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
                                             }
-                                            elevation: tile.hovered ? 2 : 0
+                                            elevation: 0
                                             PlayVeil { anchors.fill: parent; radius: Theme.rXs; disc: true; opacity: tile.hovered || tile.visualFocus ? 1 : 0 }
                                             Rectangle {
                                                 anchors.fill: parent; radius: Theme.rXs; color: "transparent"
-                                                border.width: Theme.hairline
-                                                border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.16)
+                                                border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
+                                                border.color: Theme.border
                                             }
                                         }
                                         // .home-tile: the cover's 8px margin plus the 4px grid
@@ -467,7 +467,7 @@ Item {
             }
             Text {
                 Layout.leftMargin: root.inset
-                text: music.searchError || (music.searching ? "正在搜索…" : "找到 " + music.searchTotal + " 条 · 已加载 " + music.searchResults.length + " 条")
+                text: music.searchError || (music.searching ? "正在搜索…" : "找到 " + music.searchTotal + " 条，已加载 " + music.searchResults.length + " 条")
                 color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic
             }
             Item {
@@ -491,7 +491,7 @@ Item {
                         radius: Theme.rSm
                         color: root.isActive(songRow.modelData) ? Theme.sealSoft
                             : songRow.hovered ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-                        Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+
                         Hairline { y: parent.height - Theme.hairline; width: parent.width }
                     }
                     contentItem: RowLayout {

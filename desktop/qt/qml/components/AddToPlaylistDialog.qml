@@ -10,7 +10,7 @@ Popup {
     width: Math.min(440, parent.width - 48); height: Math.min(480, parent.height - 80)
     padding: 24
     closePolicy: Popup.CloseOnEscape | Popup.CloseOnPressOutside
-    background: Rectangle { color: Theme.bgElevated; radius: Theme.rLg; border.color: Theme.borderStrong; border.width: Theme.hairline }
+    background: Rectangle { color: Theme.bgElevated; radius: Theme.rLg; border.color: Theme.borderStrong; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline }
     onOpened: libraryState.refreshPlaylists()
     contentItem: Column {
         spacing: 16

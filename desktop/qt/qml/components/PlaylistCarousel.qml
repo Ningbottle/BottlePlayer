@@ -17,7 +17,7 @@ Item {
     CssText {
         id: heading
         text: root.title; color: Theme.text
-        font.family: Theme.fontSerif; font.pixelSize: 28; font.weight: Theme.fwMedium
+        font.family: Theme.fontSerif; font.pixelSize: Theme.fs2xl; font.weight: Theme.fwMedium
     }
     Row {
         anchors.right: parent.right; anchors.verticalCenter: heading.verticalCenter
@@ -92,7 +92,7 @@ Item {
             background: Rectangle {
                 anchors.fill: parent; anchors.margins: -1; radius: Theme.rSm + 1
                 color: "transparent"
-                border.width: card.visualFocus ? 2 : Theme.hairline
+                border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
                 border.color: card.visualFocus ? Theme.focus : Theme.borderStrong
             }
             contentItem: Cover {

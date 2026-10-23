@@ -21,6 +21,6 @@ ScrollBar {
         visible: bar.size < 1
         color: bar.hovered || bar.pressed ? bar.thumbHoverColor
             : bar.areaHovered || bar.active ? bar.thumbColor : Theme.clear(bar.thumbColor)
-        Behavior on color { ColorAnimation { duration: Theme.durFast } }
+
     }
 }

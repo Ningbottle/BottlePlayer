@@ -49,7 +49,7 @@ Item {
                     id: badgeText
                     x: Theme.s2
                     lineBox: Theme.fsXs * 1.6
-                    text: root.badge; color: root.badgeAccent ? Theme.accent : Theme.text2
+                    text: root.badge; color: root.badgeAccent ? Theme.accentText : Theme.text2
                     font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 }
             }

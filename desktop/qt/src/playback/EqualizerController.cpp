@@ -127,7 +127,7 @@ QVariantList EqualizerController::devices() const {
         const auto id = QString::fromLatin1(device.id().toBase64()); found = found || id == deviceId_;
         rows.append(QVariantMap{{"id", id}, {"name", device.description()}});
     }
-    if (!found) rows.append(QVariantMap{{"id", deviceId_}, {"name", QStringLiteral("所选设备已断开 · 暂用系统默认")}});
+    if (!found) rows.append(QVariantMap{{"id", deviceId_}, {"name", QStringLiteral("所选设备已断开，暂用系统默认")}});
     return rows;
 }
 void EqualizerController::setDeviceId(const QString& id) {

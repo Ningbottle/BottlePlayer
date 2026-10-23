@@ -26,7 +26,7 @@ Item {
             width: parent.width; wrapMode: Text.Wrap; color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
             text: !accountState.loggedIn && !libraryState.publicPlaylist ? "登录后查看个人歌单"
                 : root.catalog ? (libraryState.playlistsLoading ? "正在读取歌单…" : libraryState.playlists.length + " 个歌单")
-                : "已加载 " + libraryState.tracks.length + (libraryState.total > 0 ? " / " + libraryState.total : "") + " 首" + (libraryState.loading ? " · 正在继续加载…" : !libraryState.complete ? " · 尚未完整加载" : "")
+                : "已加载 " + libraryState.tracks.length + (libraryState.total > 0 ? " / " + libraryState.total : "") + " 首" + (libraryState.loading ? "，正在继续加载…" : !libraryState.complete ? "，尚未完整加载" : "")
         }
         Text {
             visible: text.length > 0; width: parent.width; wrapMode: Text.Wrap; color: Theme.danger; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm

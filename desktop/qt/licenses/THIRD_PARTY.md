@@ -76,3 +76,7 @@ This records the table's provenance rather than attributing it to BottleMusic.
 The 2026-10-16 focus reflow table and nearest-centre assignment are independently
 derived in BottleMusic. No Folia React components or application runtime are
 incorporated. Visual comparisons use the reference's local test harness.
+
+## Radix Colors
+
+The sRGB light and dark scales in `qml/RadixColors.qml` are from `@radix-ui/colors` 3.0.0, published by WorkOS and Modulz under the MIT license. Source: https://www.radix-ui.com/colors. The full license is in `RadixColors-LICENSE`.

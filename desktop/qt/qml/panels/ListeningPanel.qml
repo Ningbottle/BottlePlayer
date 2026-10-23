@@ -41,7 +41,7 @@ Item {
         background: Rectangle {
             radius: Theme.rem(0.4)
             color: link.hovered ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-            Behavior on color { ColorAnimation { duration: Theme.durFast } }
+
         }
         contentItem: Item {
             Icon {
@@ -53,8 +53,8 @@ Item {
                 x: link.glyph !== "" ? lead.x + lead.width + Theme.rem(0.65) : Theme.rem(0.3)
                 anchors.verticalCenter: parent.verticalCenter
                 text: link.text; color: link.ink
-                font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.75))
-                Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
+
             }
             Icon {
                 anchors.right: parent.right; anchors.rightMargin: Theme.rem(0.3); anchors.verticalCenter: parent.verticalCenter
@@ -75,9 +75,9 @@ Item {
         opacity: enabled ? 1 : Theme.disabledOpacity
         Accessible.role: Accessible.Button
         background: Rectangle {
-            radius: Theme.rem(0.5); border.width: Theme.hairline; border.color: Theme.stageCardBorder
+            radius: Theme.rem(0.5); border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.stageCardBorder
             color: tb.hovered && tb.enabled ? Theme.surfaceHover : "transparent"
-            Behavior on color { ColorAnimation { duration: Theme.durFast } }
+
         }
         contentItem: Item {
             Row {
@@ -86,8 +86,8 @@ Item {
                 Text {
                     visible: tb.text !== ""; text: tb.text; anchors.verticalCenter: parent.verticalCenter
                     color: tb.ink
-                    font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.75))
-                    Behavior on color { ColorAnimation { duration: Theme.durFast } }
+                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
+
                 }
             }
         }
@@ -111,7 +111,7 @@ Item {
     }
     // .panel-field label: .7rem --stage-home-text-2.
     component FieldLabel: Text {
-        color: root.ink2; font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.7))
+        color: root.ink2; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
     }
 
     MouseArea { anchors.fill: parent; onClicked: root.close() }
@@ -125,12 +125,11 @@ Item {
         width: Math.min(Theme.rem(22), root.width - Theme.rem(1.5))
         color: Theme.stageCard; radius: Theme.rem(1); elevation: 3
         borderColor: Theme.stageCardBorder
-        opacity: 0; scale: 0.97
+        opacity: 0; scale: 1
         Component.onCompleted: cardIn.start()
         ParallelAnimation {
             id: cardIn
             NumberAnimation { target: card; property: "opacity"; to: 1; duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
-            NumberAnimation { target: card; property: "scale"; to: 1; duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand }
         }
         MouseArea { anchors.fill: parent }
         HoverHandler { id: cardHover }
@@ -167,12 +166,12 @@ Item {
                         Layout.fillWidth: true; Layout.alignment: Qt.AlignTop
                         Text {
                             text: "LISTENING ROOM"; color: root.ink3
-                            font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.55))
+                            font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                             font.letterSpacing: Theme.rem(0.55) * 0.12
                         }
                         Text {
                             topPadding: Theme.rem(0.3); text: "此刻的声音"; color: root.ink
-                            font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(1.3)); font.weight: Theme.fwSemiBold
+                            font.family: Theme.fontUi; font.pixelSize: Theme.fsXl; font.weight: Theme.fwSemiBold
                             lineHeight: 1.4
                         }
                     }
@@ -192,11 +191,11 @@ Item {
                     verticalAlignment: TextInput.AlignVCenter; placeholderText: "搜索歌曲、歌手、歌单"
                     placeholderTextColor: root.ink3; color: root.ink
                     selectionColor: Theme.accentSoft; selectedTextColor: root.ink
-                    font.family: Theme.fontUi; font.pixelSize: 12
+                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                     Accessible.name: "搜索音乐"
                     onAccepted: if (text.trim()) root.search(text.trim())
                     background: Rectangle {
-                        radius: 20; color: Theme.surface; border.width: Theme.hairline
+                        radius: 20; color: Theme.surface; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
                         border.color: query.activeFocus ? Theme.accent : Theme.stageCardBorder
                     }
                     Icon { x: 12; anchors.verticalCenter: parent.verticalCenter; name: "search"; size: 14; color: root.ink3 }
@@ -211,12 +210,12 @@ Item {
                         id: current; y: Theme.rem(1.25); width: parent.width; spacing: Theme.rem(0.4)
                         Text {
                             width: parent.width; text: music.current.title || "音乐还未开始"; color: root.ink
-                            font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(1.2)); font.weight: Theme.fwSemiBold
+                            font.family: Theme.fontUi; font.pixelSize: Theme.fsXl; font.weight: Theme.fwSemiBold
                             wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                         }
                         Text {
                             width: parent.width; text: music.current.artist || "开启红心推荐，发现下一首"; color: root.ink2
-                            font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.75)); elide: Text.ElideRight
+                            font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; elide: Text.ElideRight
                         }
                     }
                 }
@@ -291,7 +290,7 @@ Item {
                     Text {
                         bottomPadding: Theme.rem(0.75)
                         text: music.radio ? "下一段发现" : "接下来"; color: root.ink2
-                        font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.75)); font.weight: Theme.fwMedium
+                        font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium
                     }
                     Repeater {
                         model: root.upcoming
@@ -301,17 +300,17 @@ Item {
                             Text {
                                 id: number; anchors.verticalCenter: rowText.verticalCenter
                                 text: String(index + 1).padStart(2, "0"); color: root.ink3
-                                font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.65))
+                                font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                             }
                             Column {
                                 id: rowText; y: Theme.rem(0.75); x: number.width + Theme.rem(0.75); width: parent.width - x; spacing: Theme.rem(0.25)
                                 Text {
                                     width: parent.width; text: modelData.title || ""; color: root.ink; elide: Text.ElideRight
-                                    font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.75)); font.weight: Theme.fwMedium
+                                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium
                                 }
                                 Text {
                                     width: parent.width; text: modelData.artist || ""; color: root.ink3; elide: Text.ElideRight
-                                    font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.65))
+                                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                                 }
                             }
                             Hairline { y: parent.height - Theme.hairline; width: parent.width; color: Theme.stageCardBorder }
@@ -320,7 +319,7 @@ Item {
                     Text {
                         visible: root.upcoming.length === 0
                         text: music.radio ? "换一首时继续为你推荐" : "队列里还没有更多歌曲"; color: root.ink3
-                        font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.65))
+                        font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                     }
                     PanelLink {
                         objectName: "listeningQueue"; visible: !music.radio; width: parent.width
@@ -334,7 +333,7 @@ Item {
                     Layout.fillWidth: true; spacing: Theme.rem(0.25)
                     Text {
                         Layout.fillWidth: true; text: "我的音乐"; color: root.ink3
-                        font.family: Theme.fontUi; font.pixelSize: 10; bottomPadding: 4
+                        font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; bottomPadding: 4
                     }
                     PanelLink { objectName: "listeningLibrary"; Layout.fillWidth: true; glyph: "list-music"; text: "个人歌单"; onClicked: root.navigate("library") }
                     PanelLink { objectName: "listeningFavorites"; Layout.fillWidth: true; glyph: "heart"; text: "本地收藏"; onClicked: root.navigate("favorites") }
@@ -343,7 +342,7 @@ Item {
                     Hairline { Layout.fillWidth: true; Layout.topMargin: 8; Layout.bottomMargin: 8; color: Theme.stageCardBorder }
                     Text {
                         Layout.fillWidth: true; text: "界面与账户"; color: root.ink3
-                        font.family: Theme.fontUi; font.pixelSize: 10; bottomPadding: 4
+                        font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; bottomPadding: 4
                     }
                     PanelLink {
                         objectName: "listeningWall"; Layout.fillWidth: true

@@ -62,7 +62,7 @@ Rectangle {
         property bool expanded: false
         property int depth: 0
         property color restInk: Theme.text2
-        readonly property color ink: current ? Theme.accent : hovered || visualFocus ? Theme.text : restInk
+        readonly property color ink: current ? Theme.accentText : hovered || visualFocus ? Theme.text : restInk
         Layout.fillWidth: true
         // Fixed so the eliding label never feeds back into the layout width.
         implicitWidth: Theme.sidebarW - Theme.s3 * 2
@@ -76,22 +76,16 @@ Rectangle {
             Rectangle {
                 anchors.fill: parent; radius: Theme.rSm
                 color: row.hovered && !row.current ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+
             }
             Rectangle {
                 anchors.fill: parent; radius: Theme.rSm; color: Theme.accentSoft
                 opacity: row.current ? 1 : 0
                 Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
             }
-            // The seal tick: the current column carries a short cinnabar bar
-            // at its left edge, like the paper's red folio marks.
-            Rectangle {
-                x: 0; y: Math.round((row.height - height) / 2); width: Math.max(2, Math.round(3 * Theme.dpr) / Theme.dpr); height: row.height * 0.55
-                radius: width / 2; color: Theme.seal; visible: row.current
-            }
             Rectangle {
                 anchors.fill: parent; radius: Theme.rSm; color: "transparent"
-                border.width: 2; border.color: Theme.focus; visible: row.visualFocus
+                border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.focus; visible: row.visualFocus
             }
         }
         contentItem: Row {
@@ -110,7 +104,7 @@ Rectangle {
                 // Noto Serif SC ships regular only — submenu rows never take
                 // the medium weight that would embolden synthetically.
                 font.weight: row.current && row.depth === 0 ? Theme.fwMedium : Theme.fwRegular
-                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
+
             }
             Icon {
                 anchors.verticalCenter: parent.verticalCenter
@@ -122,7 +116,7 @@ Rectangle {
         Accessible.name: text
     }
 
-    // Section eyebrows: the press's small tracked caps — "我的歌单 · PLAYLISTS".
+    // Section eyebrows: the press's small tracked caps — "我的歌单，PLAYLISTS".
     component Eyebrow: Text {
         color: Theme.text3; leftPadding: Theme.s3; rightPadding: Theme.s3
         font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs
@@ -161,7 +155,7 @@ Rectangle {
             background: Rectangle {
                 radius: Theme.rMd
                 color: user.hovered ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+
             }
             contentItem: Row {
                 spacing: Theme.s3
@@ -191,7 +185,7 @@ Rectangle {
                     // .user .meta: --font-meta in --meta-style.
                     Text {
                         width: parent.width; height: Theme.fsXs * Theme.lhNormal; verticalAlignment: Text.AlignVCenter
-                        text: accountState.loggedIn ? "已登录 · 查看个人歌单" : "扫码登录，查看个人歌单"; color: Theme.text3; elide: Text.ElideRight
+                        text: accountState.loggedIn ? "账户与会员" : "扫码登录"; color: Theme.text3; elide: Text.ElideRight
                         font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic
                     }
                 }
@@ -237,7 +231,7 @@ Rectangle {
                         Layout.fillWidth: true
                         implicitHeight: root.playlistsExpanded && !root.settingsMode ? playlistSubmenu.implicitHeight : 0
                         clip: true
-                        Behavior on implicitHeight { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+
                         Column {
                             id: playlistSubmenu
                             width: parent.width; spacing: 2
@@ -283,7 +277,7 @@ Rectangle {
                 ColumnLayout {
                     visible: !root.settingsMode
                     Layout.fillWidth: true; spacing: 2
-                    NavRow { objectName: "stageEntry"; glyph: "gallery-horizontal-end"; text: "幕布舞台"; onClicked: root.enterCurtain() }
+                    NavRow { objectName: "stageEntry"; glyph: "gallery-horizontal-end"; text: "幕布"; onClicked: root.enterCurtain() }
                 }
 
                 ColumnLayout {

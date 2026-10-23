@@ -40,7 +40,7 @@ WheelHandler {
 
     property NumberAnimation glide: NumberAnimation {
         target: wheel.flickable; property: "contentY"
-        duration: 220; easing.type: Easing.OutCubic
+        duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic
     }
     property Connections watcher: Connections {
         target: wheel.flickable

@@ -6,8 +6,8 @@ import BottleMusic
 // Player bar geometry: --playerbar-h strip (Mint 76 / Aurora 84) across the window
 // with a --rule-w --rule-ink top rule, grid
 // [1fr | clamp(18rem, 36vw, 36rem) | 1fr] with a 24px gap and 20px inline
-// padding. Track (cover, title/artist, heart) · loop, transport and lyrics
-// over progress · queue + volume. Every glyph here is 18px (--icon-size).
+// padding. Track (cover, title/artist, heart)，loop, transport and lyrics
+// over progress，queue + volume. Every glyph here is 18px (--icon-size).
 Rectangle {
     id: root
     objectName: "paperPlayerDock"
@@ -71,7 +71,7 @@ Rectangle {
                     id: artist
                     width: Math.min(implicitWidth, parent.width - (status.visible ? status.implicitWidth + Theme.s2 : 0))
                     height: Theme.fsXs * Theme.lhTight; verticalAlignment: Text.AlignVCenter
-                    text: music.current.artist || "选一首歌开始"; color: Theme.text2; elide: Text.ElideRight
+                    text: music.current.artist || ""; color: Theme.text2; elide: Text.ElideRight
                     font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 }
                 Text {
@@ -98,7 +98,7 @@ Rectangle {
         IconButton { size: "sm"; glyph: "list-plus"; anchors.verticalCenter: parent.verticalCenter; enabled: music.queueIndex >= 0; Accessible.name: "添加当前歌曲到歌单"; onClicked: root.addToPlaylist(music.current) }
     }
 
-    // Loop · transport · lyrics over the progress line (2px row gap),
+    // Loop，transport，lyrics over the progress line (2px row gap),
     // centred in the bar. The side keys rest in --text-3 and turn --accent,
     // without a fill, while pressed.
     Column {
@@ -141,7 +141,7 @@ Rectangle {
             id: qualityButton
             objectName: "qualityButton"
             anchors.verticalCenter: parent.verticalCenter
-            leftPadding: Theme.s3; rightPadding: Theme.s1 + 2
+            leftPadding: Theme.s3; rightPadding: Theme.s3
             implicitWidth: leftPadding + rightPadding + qualityRow.implicitWidth
             implicitHeight: Theme.controlMd
             hoverEnabled: true; focusPolicy: Qt.TabFocus
@@ -149,16 +149,16 @@ Rectangle {
             text: music.qualityText(music.queueIndex < 0 ? music.quality : music.actualQuality)
             opacity: !enabled ? Theme.disabledOpacity : 1
             onClicked: qualityMenu.popup(qualityButton, qualityButton.width - qualityMenu.width, -qualityMenu.height - Theme.s2)
-            Accessible.name: "音质 · " + text
+            Accessible.name: "音质，" + text
             background: Rectangle {
                 radius: Theme.rSm
                 color: qualityButton.down ? Theme.surfaceActive : qualityButton.hovered || qualityButton.visualFocus ? Theme.surfaceHover : "transparent"
-                border.width: Theme.hairline; border.color: Theme.borderStrong
-                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+                border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.borderStrong
+
                 PixelSnap.fit: true
                 Rectangle {
                     anchors.fill: parent; anchors.margins: -4; radius: parent.radius + 4
-                    color: "transparent"; border.width: 2; border.color: Theme.focus
+                    color: "transparent"; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.focus
                     visible: qualityButton.visualFocus
                 }
             }
@@ -169,16 +169,7 @@ Rectangle {
                     text: qualityButton.text; color: qualityButton.hovered ? Theme.text : Theme.text2
                     font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium
                 }
-                Rectangle {
-                    anchors.verticalCenter: parent.verticalCenter
-                    implicitWidth: Math.round(switchTag.implicitWidth) + Theme.s1 * 2 + 2; implicitHeight: Math.round(switchTag.implicitHeight) + 4
-                    radius: 2; color: "transparent"
-                    border.width: Theme.hairline; border.color: Theme.seal
-                    Text {
-                        id: switchTag; anchors.centerIn: parent; text: "切换"; color: Theme.seal
-                        font.family: Theme.fontUi; font.pixelSize: 10; font.weight: Theme.fwMedium
-                    }
-                }
+                Icon { anchors.verticalCenter: parent.verticalCenter; name: "chevron-down"; size: 14; color: Theme.text2 }
             }
             QualityMenu { id: qualityMenu; objectName: "qualityMenu" }
         }
@@ -209,16 +200,16 @@ Rectangle {
                     if (music.volume > 0) { volumeGroup.restore = music.volume; music.volume = 0 }
                     else music.volume = Math.max(0.1, volumeGroup.restore)
                 }
-                scale: pressed ? Theme.pressScale : 1
-                Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce } }
+                scale: 1
+
                 background: Rectangle {
                     radius: Theme.rSm
                     color: volumeButton.down ? Theme.surfaceActive : volumeButton.lit ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-                    Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+
                     PixelSnap.fit: true
                     Rectangle {
                         anchors.fill: parent; anchors.margins: -4; radius: parent.radius + 4
-                        color: "transparent"; border.width: 2; border.color: Theme.focus
+                        color: "transparent"; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.focus
                         visible: volumeButton.visualFocus
                     }
                 }
@@ -227,17 +218,17 @@ Rectangle {
                     Icon {
                         anchors.centerIn: parent; name: "volume-wave-1"; size: 18; color: volumeButton.ink
                         opacity: Theme.clamp(0, (music.volume - 0.05) / 0.5, 1)
-                        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast } }
+                        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast; easing.type: Easing.OutCubic } }
                     }
                     Icon {
                         anchors.centerIn: parent; name: "volume-wave-2"; size: 18; color: volumeButton.ink
                         opacity: Theme.clamp(0, (music.volume - 0.45) / 0.5, 1)
-                        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast } }
+                        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast; easing.type: Easing.OutCubic } }
                     }
                     Icon {
                         anchors.centerIn: parent; name: "volume-x-mark"; size: 18; color: volumeButton.ink
                         opacity: music.volume <= 0 ? 1 : 0
-                        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast } }
+                        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast; easing.type: Easing.OutCubic } }
                     }
                 }
             }
@@ -260,7 +251,7 @@ Rectangle {
                     x: volume.visualPosition * (volume.width - width); y: (volume.height - height) / 2
                     width: Theme.s3; height: Theme.s3; radius: Theme.rFull; color: Theme.text
                     opacity: volumeHover.hovered || volume.pressed || volume.visualFocus ? 1 : 0
-                    Behavior on opacity { NumberAnimation { duration: Theme.durFast } }
+                    Behavior on opacity { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutCubic } }
                     layer.enabled: Theme.hasShadow(1)
                     layer.effect: ShadowEffect { level: 1 }
                     PixelSnap.fit: true

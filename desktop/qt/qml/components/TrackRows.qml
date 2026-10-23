@@ -45,7 +45,7 @@ ListView {
                     font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd
                 }
                 Text {
-                    width: parent.width; text: (row.modelData.artist || "未知歌手") + (row.modelData.album ? " · " + row.modelData.album : "")
+                    width: parent.width; text: (row.modelData.artist || "未知歌手") + (row.modelData.album ? " / " + row.modelData.album : "")
                     textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.text3
                     font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 }

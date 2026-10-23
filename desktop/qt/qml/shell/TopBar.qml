@@ -2,9 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import BottleMusic
 
-// Top bar geometry: 56px row, clamp(16px, 2.4vw, 40px) inline
-// padding, back/forward ghost icon buttons, and a pill search field capped at
-// 26rem (364px; 1rem is 14px) with a 16px stroke-2 search glyph inset 12px.
+// Search and navigation share the shell inset; optional settings open here.
 Item {
     id: root
     property real viewportWidth: width
@@ -42,8 +40,8 @@ Item {
         Accessible.name: "搜索歌曲、艺人、专辑、歌单"
         background: Rectangle {
             radius: Theme.rSm; color: Theme.surface
-            border.width: Theme.hairline; border.color: field.activeFocus ? Theme.accent : Theme.clear(Theme.accent)
-            Behavior on border.color { ColorAnimation { duration: Theme.durFast } }
+            border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: field.activeFocus ? Theme.accent : Theme.clear(Theme.accent)
+
             PixelSnap.fit: true
         }
         Icon {
@@ -71,9 +69,9 @@ Item {
             onClicked: root.openSettings("account")
             background: Rectangle {
                 radius: height / 2
-                color: vipBadge.member ? (vipBadge.hovered ? Qt.lighter(Theme.text, 1.25) : Theme.text) : (vipBadge.hovered ? Theme.surfaceHover : "transparent")
-                border.width: vipBadge.member ? 0 : Theme.hairline; border.color: Theme.borderStrong
-                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
+                color: vipBadge.member ? (vipBadge.hovered ? Theme.text2 : Theme.text) : (vipBadge.hovered ? Theme.surfaceHover : "transparent")
+                border.pixelAligned: false; antialiasing: true; border.width: vipBadge.member ? 0 : Theme.hairline; border.color: Theme.borderStrong
+
                 PixelSnap.fit: true
             }
             contentItem: Row {
@@ -81,9 +79,9 @@ Item {
                 Rectangle {
                     anchors.verticalCenter: parent.verticalCenter
                     width: vipBadge.implicitHeight - Theme.s1 * 2; height: width; radius: width / 2
-                    color: vipBadge.member ? Theme.seal : Theme.surfaceActive
+                    color: vipBadge.member ? Theme.accent : Theme.surfaceActive
                     Text {
-                        anchors.centerIn: parent; text: "V"; color: vipBadge.member ? (Theme.customized ? Theme.accentContrast : "#ffffff") : Theme.text3
+                        anchors.centerIn: parent; text: "V"; color: vipBadge.member ? Theme.inkOn(parent.color) : Theme.text3
                         font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwBold
                     }
                 }
@@ -104,60 +102,28 @@ Item {
     }
     Popup {
         id: quick; objectName: "quickSettings"
-        readonly property var swatches: ["", "#b0392e", "#c2703d", "#a8862f", "#4f7a4a", "#2f6f7a", "#3d5a99", "#7a4f8f"]
         parent: quickButton
         x: quickButton.width - width; y: quickButton.height + Theme.s2
         width: 300; padding: Theme.s4
         transformOrigin: Popup.TopRight
         enter: Transition {
-            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: music.reducedMotion ? 0 : 160; easing.type: Easing.OutCubic }
-            NumberAnimation { property: "scale"; from: 0.94; to: 1; duration: music.reducedMotion ? 0 : 240; easing.type: Easing.OutBack; easing.overshoot: 1.2 }
+            NumberAnimation { property: "opacity"; from: 0; to: 1; duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic }
         }
         exit: Transition {
-            NumberAnimation { property: "opacity"; to: 0; duration: music.reducedMotion ? 0 : 140; easing.type: Easing.InCubic }
-            NumberAnimation { property: "scale"; to: 0.97; duration: music.reducedMotion ? 0 : 140; easing.type: Easing.InCubic }
+            NumberAnimation { property: "opacity"; to: 0; duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic }
         }
         background: Plate { radius: Theme.rLg; color: Theme.bgElevated; borderColor: Theme.borderStrong; elevation: 3 }
         component Label: Text { color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium }
         contentItem: Column {
             spacing: Theme.s3
-            Label { text: "光感" }
+            Label { text: "显示模式" }
             Segmented {
                 objectName: "quickMode"; width: parent.width; value: appearanceState.mode
                 options: [{value:"light",label:"浅色"},{value:"dark",label:"深色"},{value:"system",label:"跟随系统"}]
                 onSelected: value => appearanceState.mode = value
             }
-            Label { text: "色调" }
-            Row {
-                spacing: Theme.s2
-                Repeater {
-                    model: quick.swatches
-                    AbstractButton {
-                        id: swatch
-                        required property string modelData
-                        objectName: "quickAccent_" + (modelData || "default")
-                        readonly property bool active: String(appearanceState.accent).toLowerCase() === modelData
-                        width: 26; height: 26; hoverEnabled: true
-                        Accessible.name: modelData || "默认色调"
-                        scale: down ? 0.92 : hovered ? 1.12 : 1
-                        Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : 160; easing.type: Easing.OutBack } }
-                        onClicked: appearanceState.accent = modelData
-                        background: Item {
-                            Rectangle {
-                                anchors.centerIn: parent; width: 30; height: 30; radius: 15
-                                color: "transparent"; border.width: 2; border.color: Theme.text
-                                opacity: swatch.active ? 1 : 0
-                                Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
-                            }
-                            Rectangle {
-                                anchors.fill: parent; radius: width / 2
-                                color: swatch.modelData || (Theme.dark ? (Theme.mint ? "#F5F0E4" : "#7CE0B8") : (Theme.mint ? "#221B12" : "#2FAE84"))
-                                border.width: Theme.hairline; border.color: Theme.border
-                            }
-                        }
-                    }
-                }
-            }
+            Label { text: "主题颜色" }
+            AccentPicker { width: parent.width; namePrefix: "quickAccent_" }
             Item {
                 width: parent.width; height: compactToggle.height
                 Text { anchors.verticalCenter: parent.verticalCenter; text: "紧凑列表"; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
@@ -166,7 +132,7 @@ Item {
             Label { text: "歌词字体" }
             Segmented {
                 objectName: "quickLyricFont"; width: parent.width; value: appearanceState.lyricFont
-                options: [{value:"skin",label:"跟随皮肤"},{value:"kai",label:"文楷"},{value:"song",label:"宋体"},{value:"hei",label:"黑体"}]
+                options: [{value:"skin",label:"默认"},{value:"kai",label:"文楷"},{value:"song",label:"宋体"},{value:"hei",label:"黑体"}]
                 onSelected: value => appearanceState.lyricFont = value
             }
             Hairline { width: parent.width }

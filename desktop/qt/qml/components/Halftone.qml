@@ -7,7 +7,7 @@ import BottleMusic
 // punches the disc-shaped screen the hero's vinyl mark uses.
 Canvas {
     id: root
-    property color ink: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.5)
+    property color ink: Theme.border
     property real pitch: 2.6      // logical px between dot centers
     property real dot: 0.55       // dot radius, logical px
     // >0 keeps only dots inside the centered circle (the vinyl disc).

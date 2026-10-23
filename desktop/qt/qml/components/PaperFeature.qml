@@ -25,12 +25,13 @@ PlateFrame {
         Item {
             width: parent.width; height: 20
             Text {
-                anchors.verticalCenter: parent.verticalCenter; text: "今日主推"
+                anchors.verticalCenter: parent.verticalCenter; text: "今日推荐"
                 font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; color: Theme.text3
             }
             Text {
                 anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter
-                text: root.current ? music.loading ? "正在加载" : music.playing ? "正在播放" : "已暂停" : "推荐单曲"
+                text: root.current ? music.loading ? "正在加载" : music.playing ? "正在播放" : "已暂停" : ""
+                visible: text.length > 0
                 font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 color: root.current ? Theme.mark : Theme.text3
             }
@@ -48,8 +49,8 @@ PlateFrame {
                 width: parent.width - x; spacing: Theme.s2
                 CssText {
                     objectName: "heroTitle"; width: parent.width
-                    text: root.track.title || "选一首歌，开始聆听"; textFormat: Text.PlainText
-                    font.family: Theme.fontDisplay; font.pixelSize: Math.round(Theme.clamp(28, root.viewportWidth * .025, 36))
+                    text: root.track.title || (music.loading ? "正在加载…" : "暂无推荐"); textFormat: Text.PlainText
+                    font.family: Theme.fontDisplay; font.pixelSize: Theme.fs2xl
                     font.weight: Theme.fwDisplay; color: Theme.text
                     lineBox: font.pixelSize * 1.3; wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                     maximumLineCount: 3; elide: Text.ElideRight
@@ -97,23 +98,16 @@ PlateFrame {
             }
         }
         Item {
-            width: parent.width; height: radioButton.height + (root.width < 480 ? 22 : 0)
+            width: parent.width; height: radioButton.height
             ActionButton {
                 id: radioButton; objectName: "heroRadio"
                 readonly property bool running: music.radio && !!music.current.hash
-                text: running ? "退出红心推荐" : music.radioPending ? "取消准备推荐" : "红心推荐"
+                text: running ? "退出红心推荐" : music.radioPending ? "取消加载" : "红心推荐"
                 quiet: true; glyph: "heart"; glyphFilled: running; glyphSize: 16
                 implicitHeight: 36; leftPadding: 0; rightPadding: Theme.s2
                 restInk: running ? Theme.radioAccent : Theme.text2
                 restFill: "transparent"; enabled: music.ready
                 onClicked: running || music.radioPending ? music.stopRadio() : music.startRadio()
-            }
-            Text {
-                anchors.right: parent.right; y: root.width < 480 ? radioButton.height + 3 : (radioButton.height - height) / 2
-                width: root.width < 480 ? parent.width : Math.max(0, parent.width - radioButton.width - Theme.s2)
-                horizontalAlignment: root.width < 480 ? Text.AlignLeft : Text.AlignRight
-                text: accountState.loggedIn ? "按账号偏好推荐" : "公共推荐 · 登录后按偏好推荐"
-                font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; color: Theme.text3; elide: Text.ElideRight
             }
         }
     }

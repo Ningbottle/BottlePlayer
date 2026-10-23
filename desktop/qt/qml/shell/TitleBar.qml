@@ -23,7 +23,7 @@ Item {
     }
     Text {
         anchors.left: parent.left; anchors.leftMargin: Theme.s4; anchors.verticalCenter: parent.verticalCenter
-        visible: root.scene !== "overlay"
+        visible: root.scene !== "overlay" && (root.scene === "wall" || !root.win || root.win.route === "settings")
         text: "BottleMusic"; color: root.wallInk ? Theme.wallChromeMuted : Theme.text3
         font.family: Theme.fontDisplay; font.pixelSize: Theme.wordmarkSize
         font.weight: Theme.wordmarkWeight; font.letterSpacing: Theme.wordmarkTracking
@@ -40,15 +40,15 @@ Item {
     Rectangle {
         visible: root.floating; width: controls.width+12; height: 32; radius: 16
         anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter
-        color: Theme.customized ? Theme.alpha(Theme.wallBg, reveal.hovered ? .85 : .50) : reveal.hovered ? "#da101a20" : "#80101a20"
-        Behavior on color { ColorAnimation { duration: 180 } }
+        color: reveal.hovered ? Theme.wallSurface : Theme.wallBg
+
     }
     Row {
         id: controls
         anchors.right: parent.right; anchors.rightMargin: root.floating ? 14 : Theme.s2; anchors.verticalCenter: parent.verticalCenter
         spacing: root.floating ? 6 : Theme.s1
         opacity: root.floating && !reveal.hovered && !(root.win.activeFocusItem && root.win.activeFocusItem.parent === controls) ? 0.66 : 1
-        Behavior on opacity { NumberAnimation { duration: 180 } }
+        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
         HoverHandler { id: reveal; margin: 16 }
         WindowButton { objectName: "minimizeButton"; size: "sm"; glyph: "minus"; Accessible.name: "最小化"; onClicked: root.win.showMinimized() }
         WindowButton { objectName: "maximizeButton"; size: "sm"; glyph: root.win.visibility === Window.Maximized ? "move-diagonal-2" : "maximize-2"; Accessible.name: root.win.visibility === Window.Maximized ? "还原窗口" : "最大化"; onClicked: root.toggleMaximize() }

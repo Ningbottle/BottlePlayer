@@ -21,8 +21,8 @@ Item {
             anchors.centerIn: parent
             width: root.size * modelData; height: width; radius: width / 2
             color: "transparent"
-            border.width: Theme.hairline
-            border.color: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.25)
+            border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
+            border.color: Theme.borderStrong
         }
     }
     // The record label: seal red with the paper hole at center.

@@ -49,7 +49,7 @@ if(MSVC)
 endif()
 qt_add_executable(BottleMusicQt WIN32 src/main.cpp)
 target_link_libraries(BottleMusicQt PRIVATE bottle_qt_core Qt6::QuickControls2)
-set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
+set_source_files_properties(qml/Theme.qml qml/RadixColors.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/BravaisLayout.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set(QT_QML_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/qml)
 # Lucide and project-owned geometry (see licenses/THIRD_PARTY.md); served through the
@@ -59,7 +59,7 @@ qt_add_library(bottle_qt_ui STATIC)
 qt_add_qml_module(bottle_qt_ui URI BottleMusic VERSION 1.0
     SOURCES src/ui/PixelSnap.cpp src/ui/PixelSnap.h src/ui/LyricGeometry.cpp src/ui/LyricGeometry.h
     src/visuals/ColorExtractor.cpp src/visuals/ColorExtractor.h
-    QML_FILES qml/Main.qml qml/Theme.qml
+    QML_FILES qml/Main.qml qml/Theme.qml qml/RadixColors.qml
     qml/components/ActionButton.qml qml/components/Cover.qml qml/components/CssText.qml qml/components/Hairline.qml
     qml/components/Icon.qml qml/components/IconButton.qml qml/components/Plate.qml
     qml/components/SeekBar.qml qml/components/Segmented.qml qml/components/SettingItem.qml
@@ -74,7 +74,7 @@ qt_add_qml_module(bottle_qt_ui URI BottleMusic VERSION 1.0
     qml/components/QualityMenu.qml
     qml/components/AddToPlaylistDialog.qml
     qml/components/DeviceSettings.qml
-    qml/components/HomeCollections.qml qml/components/PaperFeature.qml
+    qml/components/HomeCollections.qml qml/components/PaperFeature.qml qml/components/AccentPicker.qml
     qml/components/PlaylistCarousel.qml
     qml/components/ImmersiveBackground.qml qml/components/ImmersiveControls.qml
     qml/components/DoubleRule.qml qml/components/SnapSettle.qml
@@ -110,6 +110,7 @@ add_custom_command(TARGET BottleMusicQt POST_BUILD
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/Folia-LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/Nayuki-LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/Lucide-LICENSE"
+        "${CMAKE_CURRENT_SOURCE_DIR}/licenses/RadixColors-LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/Phosphor-LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/Inter-LICENSE"
         "${CMAKE_CURRENT_SOURCE_DIR}/licenses/EBGaramond-LICENSE"

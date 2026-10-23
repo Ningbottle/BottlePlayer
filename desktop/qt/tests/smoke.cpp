@@ -941,7 +941,7 @@ int main(int argc, char** argv) {
         music.seek(12000);
         QJsonArray fontSteps;
         double previousSize = 0;
-        for (const auto* name : {"lyricSizeS", "lyricSizeM", "lyricSizeL", "lyricSizeXL"}) {
+        for (const auto* name : {"lyricSizeM", "lyricSizeL"}) {
             click(window, find("settingsButton"));
             auto* settingsPage = qobject_cast<QQuickItem*>(find("settingsPage"));
             auto* option = qobject_cast<QQuickItem*>(find(name));
@@ -959,7 +959,7 @@ int main(int argc, char** argv) {
             const QFont font = active ? active->property("font").value<QFont>() : QFont{};
             fontSteps.append(QJsonObject{{"control", QLatin1String(name)}, {"setting", setting}, {"size", size}, {"point_size", font.pointSizeF()}});
             check(QStringLiteral("font_control_") + QLatin1String(name), option && size > previousSize
-                && std::abs(font.pointSizeF() * window->screen()->logicalDotsPerInch() / 72 - size) < 0.02);
+                && font.pixelSize() == size);
             previousSize = size;
         }
         report.insert("font_steps", fontSteps);

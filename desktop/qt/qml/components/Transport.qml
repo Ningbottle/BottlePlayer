@@ -2,9 +2,7 @@ import QtQuick
 import QtQuick.Layouts
 import BottleMusic
 
-// PlayerBar transport: 34px ghost skips with filled 18px MediaGlyphs in
-// --text, a 40px --play-bg circle with a 22px --play-fg glyph (Aurora: accent
-// with --fx-glow; Mint: rule ink, no glow) that grows 6% on hover.
+// Stable transport targets; the solid glyph has its own optical offset.
 Row {
     id: root
     spacing: Theme.s3
@@ -20,11 +18,11 @@ Row {
         objectName: "playButton"
         variant: "primary"; radius: Theme.rFull; mediaBox: 44; mediaGlyph: 22; anchors.verticalCenter: parent.verticalCenter
         primaryFill: Theme.playBg; primaryHoverFill: Theme.playHoverBg; primaryDownFill: Theme.playPressedBg
-        tint: Theme.playFg; hoverTint: Theme.playFg
+        tint: Theme.inkOn(down ? primaryDownFill : lit ? primaryHoverFill : primaryFill); hoverTint: tint
         media: music.playing ? "pause" : "play"
         enabled: !music.loading && (music.queueIndex >= 0 || music.feed.length > 0)
-        scale: pressed ? Theme.pressScale : 1
-        Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast; easing.type: Easing.OutCubic } }
+        scale: 1
+
         Accessible.name: music.playing ? "暂停" : "播放"; onClicked: music.toggle()
         shadowLevel: 4
     }

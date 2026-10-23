@@ -13,7 +13,7 @@ Flickable {
         id: content; x: 24; y: 24; width: parent.width - x * 2; spacing: 24
         CssText { text: "SOUND ROOM / EQUALIZER"; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; color: Theme.text3; font.letterSpacing: 1 }
         CssText { text: "均衡器"; font.family: Theme.fontDisplay; font.pixelSize: Theme.fs2xl; color: Theme.text }
-        Text { width: parent.width; text: equalizerState.reason; wrapMode: Text.Wrap; color: equalizerState.active ? Theme.accent : Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
+        Text { width: parent.width; text: equalizerState.reason; wrapMode: Text.Wrap; color: equalizerState.active ? Theme.accentText : Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
         SettingItem { label: "启用音频处理"; hint: "须先开启实验室模式；处理失败时自动回退原始音频。"; Toggle { objectName: "equalizerEnabled"; enabled: equalizerState.allowed; checked: equalizerState.enabled; onToggled: equalizerState.enabled = checked } }
         Row {
             width: parent.width; spacing: 4; height: 220
@@ -22,14 +22,14 @@ Flickable {
                 Column {
                     required property int index
                     width: (content.width - 36) / 10; spacing: 8
-                    Text { width: parent.width; text: root.frequencies[index]; horizontalAlignment: Text.AlignHCenter; color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: 10 }
+                    Text { width: parent.width; text: root.frequencies[index]; horizontalAlignment: Text.AlignHCenter; color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs }
                     Slider {
                         id: gain; objectName: "eqBand_" + index
                         anchors.horizontalCenter: parent.horizontalCenter; height: 160; orientation: Qt.Vertical
                         from: -6; to: 6; stepSize: .5; value: Number(equalizerState.bands[index]); enabled: equalizerState.allowed
                         onMoved: equalizerState.setBand(index, value)
                     }
-                    Text { width: parent.width; text: Number(equalizerState.bands[index]).toFixed(1) + " dB"; horizontalAlignment: Text.AlignHCenter; color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: 10 }
+                    Text { width: parent.width; text: Number(equalizerState.bands[index]).toFixed(1) + " dB"; horizontalAlignment: Text.AlignHCenter; color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs }
                 }
             }
         }

@@ -9,7 +9,7 @@ check("theme_core_ready", waitFor([&] { return music.ready() && music.feed().siz
 window->resize(1280, 850); window->requestActivate();
 QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("paper")));
 
-// Test the shared filled button too; the home has a bespoke play capsule.
+// Test shared actions as well as the home and transport controls.
 QQmlComponent controls(&engine);
 controls.setData(R"(
 import QtQuick
@@ -37,10 +37,33 @@ const auto ratio = [](QColor a, QColor b) {
     return (std::max(x,y)+.05)/(std::min(x,y)+.05);
 };
 const auto color = [](QObject* item, const char* property) { return item ? item->property(property).value<QColor>() : QColor{}; };
-const auto hueMatches = [](QColor actual, QColor seed) {
-    if (seed.hslSaturationF() < .01) return actual.hslSaturationF() < .01;
-    const double delta = std::abs(actual.hslHueF()-seed.hslHueF());
-    return actual.hslSaturationF() > .03 && std::min(delta, 1-delta) < .025;
+// Golden sRGB roles from @radix-ui/colors 3.0.0, independently checked
+// against actual window/sidebar/button paint rather than hue interpolation.
+const QHash<QString, QStringList> expected {
+    {"tomato", {"#fffcfc", "#faf9fb", "#e54d2e", "#181111", "#1a191b", "#e54d2e"}},
+    {"orange", {"#fefcfb", "#f9f9f8", "#f76b15", "#17120e", "#191918", "#f76b15"}},
+    {"amber", {"#fefdfb", "#f9f9f8", "#ffc53d", "#16120c", "#191918", "#ffc53d"}},
+    {"green", {"#fbfefc", "#f7f9f8", "#30a46c", "#0e1512", "#171918", "#30a46c"}},
+    {"teal", {"#fafefd", "#f7f9f8", "#12a594", "#0d1514", "#171918", "#12a594"}},
+    {"blue", {"#fbfdff", "#f9f9fb", "#0090ff", "#0d1520", "#18191b", "#0090ff"}},
+    {"violet", {"#fdfcfe", "#faf9fb", "#6e56cf", "#14121f", "#1a191b", "#6e56cf"}},
+    {"gray", {"#fcfcfc", "#f9f9f9", "#8d8d8d", "#111111", "#191919", "#6e6e6e"}}
+};
+const QHash<QString, QStringList> tintedPanels {
+    {"tomato", {"#fff8f7", "#1f1513"}}, {"orange", {"#fff7ed", "#1e160f"}},
+    {"amber", {"#fefbe9", "#1d180f"}}, {"green", {"#f4fbf6", "#121b17"}},
+    {"teal", {"#f3fbf9", "#111c1b"}}, {"blue", {"#f4faff", "#111927"}},
+    {"violet", {"#faf8ff", "#1b1525"}}, {"gray", {"#f9f9f9", "#191919"}}
+};
+const auto correctSurfaces = [&](bool night) {
+    const QString family = themeObject->property("accentFamily").toString();
+    const auto roles = expected.value(family);
+    const int offset = night ? 3 : 0;
+    return roles.size() == 6 && color(window,"color") == QColor(roles[offset])
+        && color(quick("paperSidebar"),"color") == QColor(tintedPanels.value(family).value(night ? 1 : 0))
+        && color(quick("paperPlayerDock"),"color") == QColor(tintedPanels.value(family).value(night ? 1 : 0))
+        && color(themeObject,"bgElevated") == QColor(roles[offset+1])
+        && color(themeObject,"accent") == QColor(roles[offset+2]);
 };
 const auto buttonReadable = [&](QQuickItem* button, const char* inkProperty, const QString& prefix) {
     auto* face = button ? button->property("background").value<QQuickItem*>() : nullptr;
@@ -59,13 +82,13 @@ const auto buttonReadable = [&](QQuickItem* button, const char* inkProperty, con
     check(prefix+"_hover_contrast", readable());
     QTest::mousePress(window, Qt::LeftButton, Qt::NoModifier, center); QTest::qWait(220);
     check(prefix+"_pressed_contrast", readable());
-    check(prefix+"_states_distinct", rest != hover && hover != color(face,"color"));
+    check(prefix+"_radix_solid_states", rest != hover && hover == color(face,"color"));
     // Release outside the control so these appearance checks never start audio.
     QTest::mouseMove(window, QPoint(320, 90));
     QTest::mouseRelease(window, Qt::LeftButton, Qt::NoModifier, QPoint(320, 90));
 };
-const QStringList presets{"#b0392e", "#c2703d", "#a8862f", "#4f7a4a", "#2f6f7a", "#3d5a99", "#7a4f8f"};
-const QStringList seeds = presets + QStringList{"#000000", "#ffffff", "#777777", "#00ff00", "#ffff00"};
+const QStringList presets{"#e54d2e", "#f76b15", "#ffc53d", "#30a46c", "#12a594", "#0090ff", "#6e56cf"};
+const QStringList seeds = presets + QStringList{"#000000", "#ffffff", "#777777", "#00ff00", "#ffff00", "#3d5a99", "#b0392e"};
 for (const auto& mode : {QStringLiteral("light"), QStringLiteral("dark")}) {
     appearance.setMode(mode); appearance.setAccent(""); QTest::qWait(300);
     const QColor defaultPage = color(window, "color"), defaultPane = color(quick("paperSidebar"), "color");
@@ -80,28 +103,25 @@ for (const auto& mode : {QStringLiteral("light"), QStringLiteral("dark")}) {
             click(window, swatch);
             check(prefix+"_selection_reaches_controller", appearance.accent() == seed);
             if (popup) QMetaObject::invokeMethod(popup, "close");
-        } else appearance.setAccent(seed); // Custom ColorDialog uses this same setter.
+        } else appearance.setAccent(seed); // Resolve legacy custom hex preferences without rewriting their saved values.
         QTest::qWait(300);
-        const QColor selected(seed);
-        check(prefix+"_surfaces_follow_hue", hueMatches(color(window,"color"),selected)
-            && hueMatches(color(quick("paperSidebar"),"color"),selected)
-            && hueMatches(color(quick("paperPlayerDock"),"color"),selected));
+        check(prefix+"_radix_surface_roles", correctSurfaces(mode == "dark"));
         bool textReadable = true;
         for (const char* ink : {"text", "text2", "text3"})
             for (const char* surface : {"bg", "bgElevated", "surface", "surfaceHover", "surfaceActive", "paneBg", "barBg"})
                 textReadable = textReadable && ratio(color(themeObject,ink),color(themeObject,surface)) >= 4.5;
         check(prefix+"_text_contrast", textReadable);
-        check(prefix+"_radio_follows_tone", color(themeObject,"radioAccent") == color(themeObject,"accent"));
+        check(prefix+"_radio_follows_tone", color(themeObject,"radioAccent") == color(themeObject,"accentText"));
         buttonReadable(quick("playButton"), "tint", prefix+"_transport");
         buttonReadable(quick("themeFilledButton"), "ink", prefix+"_filled");
         auto* hero = quick("heroPlay");
         check(prefix+"_hero_matches_transport", hero && color(hero->property("background").value<QQuickItem*>(),"color") == color(quick("playButton"),"primaryFill"));
-        if (seed == "#3d5a99" || seed == "#a8862f") {
+        if (seed == "#0090ff" || seed == "#ffc53d") {
             controlHost->setVisible(false);
             screenshot("theme-"+prefix);
             controlHost->setVisible(true);
         }
-        if (seed == "#3d5a99") {
+        if (seed == "#0090ff") {
             click(window, find("quickSettingsButton"));
             auto* popup = find("quickSettings");
             auto* toggle = popup ? qobject_cast<QQuickItem*>(findItem(popup->property("contentItem").value<QQuickItem*>(), "quickCompact")) : nullptr;
@@ -125,12 +145,12 @@ QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("
 QTest::qWait(250);
 for (const auto& seed : presets) {
     appearance.setAccent(seed); QTest::qWait(220);
-    check("wall_"+seed+"_background_hue", hueMatches(color(window,"color"),QColor(seed)));
+    check("wall_"+seed+"_background_hue", color(window,"color") == QColor(expected.value(themeObject->property("accentFamily").toString()).value(3)));
     auto* wall = find("bravaisHome");
     if (wall) QMetaObject::invokeMethod(wall,"openSearch");
     QTest::qWait(100);
     auto* input = quick("bravaisSearchInput");
-    check("wall_"+seed+"_search_hue", hueMatches(color(quick("homeSearchBackground"),"color"),QColor(seed)));
+    check("wall_"+seed+"_search_hue", color(quick("homeSearchBackground"),"color") == color(window,"color"));
     check("wall_"+seed+"_selection_contrast", input && ratio(color(input,"selectedTextColor"),color(input,"selectionColor")) >= 4.5);
     if (wall) QMetaObject::invokeMethod(wall,"closeSearch");
 }
@@ -139,7 +159,7 @@ for (const auto& seed : presets) {
     appearance.setAccent(seed); QTest::qWait(220);
     auto* button = quick("immersivePlayButton");
     auto* face = button ? button->property("background").value<QQuickItem*>() : nullptr;
-    check("immersive_"+seed+"_play_follows_tone", face && hueMatches(color(face,"color"),QColor(seed))
+    check("immersive_"+seed+"_play_follows_tone", face && color(face,"color") == color(themeObject,"wallAccent")
         && ratio(color(button,"tint"),color(face,"color")) >= 4.5);
 }
 QMetaObject::invokeMethod(window,"leaveImmersive");
@@ -147,6 +167,39 @@ appearance.setAccent("#3d5a99");
 check("theme_preference_flushed", appearance.flushStorage());
 AppearanceController reloaded(profile);
 check("theme_preference_survives_reload", reloaded.accent() == "#3d5a99" && reloaded.mode() == "dark");
+QMetaObject::invokeMethod(window,"changeMode",Q_ARG(QVariant,QStringLiteral("paper")));
+const auto typeLadder = [&](const QString& route) {
+    bool valid = true; int textCount = 0;
+    walkItems(window->contentItem(),[&](QQuickItem* item) {
+        if (!item->isVisible() || item->opacity() == 0 || !sceneRect(item).intersects(QRectF(0,0,window->width(),window->height()))) return;
+        if (!item->metaObject()->className() || !QByteArray(item->metaObject()->className()).startsWith("QQuickText")) return;
+        const auto font = item->property("font").value<QFont>();
+        ++textCount;
+        valid = valid && QList<int>{12,14,20,28}.contains(font.pixelSize());
+    });
+    check(route+"_four_type_sizes_minimum_12",valid && textCount > 5);
+};
+typeLadder("home");
+QMetaObject::invokeMethod(window,"openSettings",Q_ARG(QVariant,QStringLiteral("appearance"))); QTest::qWait(100);
+typeLadder("appearance");
+check("appearance_has_named_color_choices", find("accentChoice_#0090ff") && find("accentChoice_default"));
+check("lyric_choices_use_shared_ladder", find("lyricSizeM") && find("lyricSizeL") && !find("lyricSizeXL"));
+check("all_rules_are_half_pixel", qFuzzyCompare(themeObject->property("hairline").toDouble(),.5));
+auto* qualityFace = quick("qualityButton") ? quick("qualityButton")->property("background").value<QQuickItem*>() : nullptr;
+auto* qualityPen = qualityFace ? qualityFace->property("border").value<QObject*>() : nullptr;
+check("fractional_border_not_rounded_by_qt",qualityPen && !qualityPen->property("pixelAligned").toBool()
+    && qFuzzyCompare(qualityPen->property("width").toDouble(),.5) && qualityFace->property("antialiasing").toBool());
+
+QMetaObject::invokeMethod(window,"openSettings",Q_ARG(QVariant,QStringLiteral("playback"))); QTest::qWait(100);
+typeLadder("playback");
+auto* outputSelector = quick("audioOutputDevice");
+auto* outputPopup = outputSelector ? outputSelector->property("popup").value<QObject*>() : nullptr;
+if (outputPopup) QMetaObject::invokeMethod(outputPopup,"open");
+check("output_device_menu_opens", outputPopup && waitFor([&] { return outputPopup->property("opened").toBool(); },1000));
+if (outputPopup) QMetaObject::invokeMethod(outputPopup,"close");
+QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("player"))); QTest::qWait(100);
+typeLadder("player");
+check("no_default_glow_or_press_zoom",themeObject->property("pressScale").toDouble()==1 && themeObject->property("heroGlowOpacity").toDouble()==0);
 check("theme_qml_warnings_absent", warnings.isEmpty());
 report.insert("checks", checks); report.insert("warnings", QJsonArray::fromStringList(warnings));
 bool passed = true; for (const auto& row : checks) passed = passed && row.toObject().value("ok").toBool();
