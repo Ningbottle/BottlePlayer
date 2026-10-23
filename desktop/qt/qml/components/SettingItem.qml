@@ -35,7 +35,7 @@ Item {
                 id: labelText
                 y: (parent.height - height) / 2
                 text: root.label; color: Theme.text
-                font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd; font.weight: Theme.fwMedium
+                font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwMedium
             }
             // .settings-badge: pill, fs-xs/1.6, 8px inline padding.
             Rectangle {
@@ -49,7 +49,7 @@ Item {
                     id: badgeText
                     x: Theme.s2
                     lineBox: Theme.fsXs * 1.6
-                    text: root.badge; color: root.badgeAccent ? Theme.accent : Theme.text2
+                    text: root.badge; color: root.badgeAccent ? Theme.accentText : Theme.text2
                     font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 }
             }

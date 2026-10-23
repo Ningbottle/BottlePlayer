@@ -12,6 +12,10 @@ native/core/C_API.cpp → CompatApi → compat_routes → 业务服务
 
 QML 负责布局、交互和可视状态，业务状态由对应控制器持有。`Main.qml` 组合页面，`Theme.qml` 统一主题，`ui/` 中的基础设施处理排版、像素对齐和窗口呈现。
 
+自选主题色由 `AppearanceController` 保存，`Theme.qml` 按所选色相生成页面、侧栏、卡片、边框和按钮的颜色。浅色与深色各自保持表面的明度层级；按钮底色和文字按对比度成对生成，悬停与按下继续使用同一组颜色。默认色调保留报刊与幕布的原有配色；幕布界面保持暗底，沉浸背景仍取自封面，操作控件随主题色变化。错误、警告等语义色独立于自选色调。
+
+报刊首页的主推信息由 `PaperFeature.qml` 呈现，标题、歌手、专辑和操作各有独立位置；`PaperPage.qml` 持有列表与页面导航。侧栏导航可独立滚动，底部设置入口固定可见，键盘焦点会带动导航滚动。基础图标沿用 Lucide，播放和歌词符号使用项目自有的几何图形；图标按钮通过提示说明用途，聚焦按钮优先处理空格键。
+
 `MusicController` 维护播放意图和队列；`AccountController`、`LibraryController`、`HomeController`、`StatsController` 等维护各自领域的加载状态及过期结果抑制。网络服务策略和持久化约束归原生后端所有。
 
 音频解码、时钟和输出也在 `desktop/qt`，由 `QMediaPlayer`、`MusicController`、`EqualizerController` 和 `PcmOutput` 协作完成。`native` 提供服务请求、执行策略和存储，不持有音频引擎。动态库与 Qt 宿主运行于同一进程，C ABI 是模块接口，不是进程隔离。
@@ -30,3 +34,13 @@ Qt 的[性能指南](https://doc.qt.io/qt-6.8/qtquick-performance.html)建议测
 新增行为应先选择现有所有者。不要让 QML 直接拼接协议请求或写数据库；不要让原生服务依赖页面布局。共享操作策略位于 `native/include/echo/execution/`，Qt 网关使用同一策略。
 
 具体链路见 [播放](playback-runtime.md)、[后端](native-backend.md) 和 [存储](storage-and-data.md)。
+
+## 界面样式
+
+Qt 界面通过 `Theme.qml` 使用语义颜色。`RadixColors.qml` 内置 Radix Colors 3.0.0 的原始 sRGB 浅色与深色色阶，不在运行时下载颜色，也不生成自定义 HSL 色阶。第 1–2 阶用于页面与面板，第 3–5 阶用于控件状态，第 6–8 阶用于边框与焦点，第 9–10 阶用于实心操作，第 11–12 阶用于文字。主题选择同时应用于报刊、幕布、播放页和弹出面板；旧的十六进制偏好映射到相近色系，保存值不变。封面图片保留原始颜色。
+
+界面字号统一为 12、14、20、28px，使用字重、间距与颜色区分层级。歌词提供 20px 与 28px 两档，旧偏好按当前档位显示。线条和边框使用 0.5px，边框关闭 `pixelAligned` 取整并启用抗锯齿；嵌套圆角由外层圆角减去内边距计算。普通内容面板保持平面，阴影只用于悬浮面板；控件不做悬停放大或按下缩放，必要的展开和位置过渡使用 250ms ease-out。沉浸歌词不使用模糊，背景采用静态 Radix 深色表面。
+
+12px、14px 的标题、列表与辅助文字使用 Inter 的界面字体链，中文在 Windows 优先使用 Microsoft YaHei UI；20px、28px 的报刊标题保留衬线字体。`displayFont(size)` 处理播放页响应式控件的字体选择。Windows 灰度原生文字保留 Qt 的覆盖率 gamma，避免削弱小字号细笔画；`BOTTLE_TEXT_GAMMA` 仅用于显式诊断对照。
+
+界面文案不以中点分隔信息，常规操作不附加重复说明。导入、重置、付费或外发等操作保留必要的影响说明和确认。

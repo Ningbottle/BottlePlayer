@@ -10,7 +10,7 @@ import BottleMusic
 Flickable {
     id: root
     objectName: "settingsPage"
-    property var meta: ({ id: "appearance", label: "外观", lede: "" })
+    property var meta: ({ id: "appearance", label: "外观" })
     property real viewportWidth: width
     signal enterPaper()
     signal enterCurtain()
@@ -32,18 +32,10 @@ Flickable {
     readonly property real scrollInset: Theme.clamp(Theme.s4, viewportWidth * 0.02, Theme.s8)
     readonly property real inset: Theme.clamp(Theme.s5, viewportWidth * 0.03, Theme.s10)
     readonly property var lyricSizes: [
-        { value: 26, label: "小", secondary: "S", objectName: "lyricSizeS" },
-        { value: 32, label: "标准", secondary: "M", objectName: "lyricSizeM" },
-        { value: 38, label: "大", secondary: "L", objectName: "lyricSizeL" },
-        { value: 46, label: "特大", secondary: "XL", objectName: "lyricSizeXL" }
+        { value: 20, label: "标准", objectName: "lyricSizeM" },
+        { value: 28, label: "大", objectName: "lyricSizeL" }
     ]
-    function nearestLyricSize(px) {
-        var best = lyricSizes[0].value
-        for (var i = 0; i < lyricSizes.length; i++)
-            if (Math.abs(lyricSizes[i].value - px) < Math.abs(best - px)) best = lyricSizes[i].value
-        return best
-    }
-    ColorDialog { id: accentPicker; title: "强调色"; selectedColor: Theme.accent; onAccepted: appearanceState.accent = String(selectedColor) }
+    function nearestLyricSize(px) { return Theme.lyricPixels(px) }
 
     Item {
         id: page
@@ -70,12 +62,10 @@ Flickable {
                 height: rule.y + (rule.visible ? rule.height : 0)
                 CssText {
                     id: kicker
-                    text: "BOTTLEMUSIC / PREFERENCES"; color: Theme.text3
+                    text: "设置"; color: Theme.text3
                     font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium
                     font.letterSpacing: Theme.fsXs * 0.12
                 }
-                // --display-lg is 37.12px at 1280; the 1.15 line box keeps
-                // the unrounded size so the rows below land where Blink's do.
                 Text {
                     id: title
                     objectName: "settingsTitle"
@@ -83,22 +73,14 @@ Flickable {
                     text: root.meta.label; color: Theme.text
                     readonly property real exact: Theme.displayLg(root.viewportWidth)
                     readonly property int size: Math.round(exact)
-                    font.family: Theme.fontDisplay; font.pixelSize: size
+                    font.family: Theme.displayFont(size); font.pixelSize: size
                     font.weight: Theme.fwDisplay; font.letterSpacing: Theme.displayTracking * size
                     height: exact * 1.15; verticalAlignment: Text.AlignVCenter
-                }
-                // .settings-lede: --font-meta in --meta-style (italic serif in Mint).
-                CssText {
-                    id: lede
-                    y: title.y + title.height + Theme.s2
-                    width: parent.width
-                    text: root.meta.lede; color: Theme.text3; wrapMode: Text.Wrap
-                    font.family: Theme.fontMeta; font.pixelSize: Theme.fsSm; font.italic: Theme.metaItalic
                 }
                 Hairline {
                     id: rule
                     visible: Theme.rules
-                    y: lede.y + lede.height + Theme.s6
+                    y: title.y + title.height + Theme.s6
                     width: parent.width
                     color: Theme.ruleInk
                 }
@@ -138,7 +120,7 @@ Flickable {
         Accessible.name: title
         background: Rectangle {
             color: choice.hovered ? Theme.surfaceHover : Theme.surface
-            Behavior on color { ColorAnimation { duration: 200 } }
+
             Hairline { width: parent.width; color: Theme.borderStrong }
             Hairline { anchors.bottom: parent.bottom; width: parent.width; color: Theme.borderStrong }
             Icon {
@@ -149,7 +131,7 @@ Flickable {
             // outline: 2px --focus, offset 4px.
             Rectangle {
                 anchors.fill: parent; anchors.margins: -6
-                color: "transparent"; border.width: 2; border.color: Theme.focus
+                color: "transparent"; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.focus
                 visible: choice.visualFocus
             }
         }
@@ -166,7 +148,7 @@ Flickable {
             Text {
                 height: Theme.rem(1.4) * 1.4; verticalAlignment: Text.AlignVCenter
                 text: choice.title; color: Theme.text
-                font.family: Theme.fontTitle; font.pointSize: Theme.pt(Theme.rem(1.4)); font.weight: Theme.fwMedium
+                font.family: Theme.fontTitle; font.pixelSize: Theme.fsXl; font.weight: Theme.fwMedium
             }
             CssText {
                 text: choice.caption; color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
@@ -182,10 +164,9 @@ Flickable {
                 label: appearanceState.storageError
                 ActionButton { text: "重试保存"; onClicked: appearanceState.retryStorage() }
             }
-            Text { text: "界面"; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: 14; font.weight: Theme.fwSemiBold; topPadding: 20; bottomPadding: 8 }
+            Text { text: "界面"; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwSemiBold; topPadding: 20; bottomPadding: 8 }
             SettingItem {
-                label: "聆听方式"; stacked: true
-                hint: "报刊负责浏览与管理，幕布留给音乐。两种界面共用播放与队列，切换时播放不中断。"
+                label: "主页样式"; stacked: true
                 // repeat(2, minmax(0, 1fr)) with a 20px gap.
                 Row {
                     id: interfaces
@@ -193,39 +174,39 @@ Flickable {
                     readonly property real column: (width - spacing) / 2
                     InterfaceOption {
                         width: interfaces.column
-                        objectName: "settingsOpenPaper"; number: "01"; title: "报刊"; caption: "推荐、搜索、歌单与设置"
+                        objectName: "settingsOpenPaper"; number: "01"; title: "报刊"; caption: "列表浏览"
                         onClicked: root.enterPaper()
                     }
                     InterfaceOption {
                         width: interfaces.column
-                        objectName: "settingsOpenCurtain"; number: "02"; title: "幕布舞台"; caption: "沉浸舞台 · 向前发现"
+                        objectName: "settingsOpenCurtain"; number: "02"; title: "幕布"; caption: "封面浏览"
                         onClicked: root.enterCurtain()
                     }
                 }
             }
             SettingItem {
-                label: "光感"
+                label: "显示模式"
                 Segmented { objectName: "appearanceMode"; value: appearanceState.mode; options: [{value:"light",label:"浅色",objectName:"appearanceLight"},{value:"dark",label:"深色",objectName:"appearanceDark"},{value:"system",label:"跟随系统",objectName:"appearanceSystem"}]; onSelected: value => appearanceState.mode = value }
             }
             SettingItem {
-                label: "强调色"; hint: "按钮、进度与当前播放的颜色"
-                Row { spacing: 8; ActionButton { text: "选择颜色"; onClicked: accentPicker.open() } ActionButton { text: "恢复默认"; quiet: true; onClicked: appearanceState.accent = "" } }
+                label: "主题颜色"; stacked: true
+                AccentPicker { width: parent.width }
             }
             SettingItem {
-                label: "紧凑列表"; hint: "每屏显示更多歌曲"
+                label: "紧凑列表"
                 Toggle { objectName: "compactListToggle"; checked: appearanceState.compact; onToggled: appearanceState.compact = checked }
             }
-            Text { text: "歌词"; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: 14; font.weight: Theme.fwSemiBold; topPadding: 20; bottomPadding: 8 }
+            Text { text: "歌词"; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwSemiBold; topPadding: 20; bottomPadding: 8 }
             SettingItem {
-                label: "歌词字体"; hint: "普通与全屏歌词的字体偏好"
-                Segmented { objectName: "lyricFontControl"; value: appearanceState.lyricFont; options: [{value:"skin",label:"跟随皮肤"},{value:"kai",label:"文楷"},{value:"song",label:"宋体"},{value:"hei",label:"黑体"}]; onSelected: value => appearanceState.lyricFont = value }
+                label: "歌词字体"
+                Segmented { objectName: "lyricFontControl"; value: appearanceState.lyricFont; options: [{value:"skin",label:"默认"},{value:"kai",label:"文楷"},{value:"song",label:"宋体"},{value:"hei",label:"黑体"}]; onSelected: value => appearanceState.lyricFont = value }
             }
             SettingItem {
                 label: "歌词阅读"; hint: "舞台模式在上下边缘淡出，阅读模式保持完整文字。"
                 Segmented { objectName: "lyricFocusControl"; value: appearanceState.lyricFocus; options: [{value:"readable",label:"阅读"},{value:"stage",label:"舞台"}]; onSelected: value => appearanceState.lyricFocus = value }
             }
             SettingItem {
-                label: "歌词字号"; hint: "普通播放页、全屏与海报墙同步缩放，小窗口自动适配。"
+                label: "歌词字号"
                 Segmented {
                     objectName: "lyricSizeControl"
                     options: root.lyricSizes
@@ -233,21 +214,21 @@ Flickable {
                     onSelected: choice => music.lyricSize = choice
                 }
             }
-            Text { text: "播放画面"; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: 14; font.weight: Theme.fwSemiBold; topPadding: 20; bottomPadding: 8 }
+            Text { text: "播放画面"; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwSemiBold; topPadding: 20; bottomPadding: 8 }
             SettingItem {
-                label: "封面"; hint: "唱片仅在播放时旋转，暂停后停在原处。"
+                label: "封面"
                 Segmented {
                     objectName: "coverModeControl"
                     options: [
-                        { value: false, label: "方形", secondary: "Square", objectName: "squareMode" },
-                        { value: true, label: "唱片", secondary: "Vinyl", objectName: "vinylMode" }
+                        { value: false, label: "方形", objectName: "squareMode" },
+                        { value: true, label: "唱片", objectName: "vinylMode" }
                     ]
                     value: music.vinyl
                     onSelected: choice => music.vinyl = choice
                 }
             }
             SettingItem {
-                label: "减少动画"; hint: "停止唱片旋转，歌词直接跳到当前行。"
+                label: "减少动画"
                 Toggle {
                     objectName: "reducedMotionSwitch"
                     checked: music.reducedMotion
@@ -262,16 +243,42 @@ Flickable {
         id: playbackSection
         Column {
             SettingItem {
-                label: "音乐核心"; badge: music.ready ? "已连接" : "未连接"; badgeAccent: music.ready
-                hint: "EchoCAPI 原生核心负责推荐、搜索与取流。"
+                label: "音源连接"; badge: music.ready ? "已连接" : "未连接"; badgeAccent: music.ready
             }
             DeviceSettings { width: parent.width }
             SettingItem {
                 label: "输出设备"
                 hint: "当前输出：" + equalizerState.activeDeviceName
-                ComboBox { objectName: "audioOutputDevice"; model: equalizerState.devices; textRole: "name"; valueRole: "id"; currentIndex: model.findIndex(row => row.id === equalizerState.deviceId); onActivated: equalizerState.deviceId = currentValue }
+                ComboBox {
+                    id: outputSelector
+                    objectName: "audioOutputDevice"
+                    model: equalizerState.devices; textRole: "name"; valueRole: "id"
+                    currentIndex: model.findIndex(row => row.id === equalizerState.deviceId)
+                    onActivated: equalizerState.deviceId = currentValue
+                    background: Rectangle {
+                        color: outputSelector.down ? Theme.surfaceActive : outputSelector.hovered ? Theme.surfaceHover : Theme.surface
+                        radius: Theme.rSm; border.color: outputSelector.visualFocus ? Theme.focus : Theme.borderStrong
+                        border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
+                    }
+                    popup: Popup {
+                        y: outputSelector.height + Theme.s1
+                        width: outputSelector.width; padding: Theme.s1
+                        implicitHeight: contentItem.implicitHeight + padding * 2
+                        contentItem: ListView {
+                            clip: true; implicitHeight: Math.min(contentHeight, 240)
+                            model: outputSelector.popup.visible ? outputSelector.delegateModel : null
+                            currentIndex: outputSelector.highlightedIndex
+                            highlightMoveDuration: 0
+                            ScrollBar.vertical: ThinScrollBar { }
+                        }
+                        background: Rectangle {
+                            color: Theme.bgElevated; radius: Theme.rMd; border.color: Theme.borderStrong
+                            border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
+                        }
+                    }
+                }
             }
-            SettingItem { label: "均衡器"; hint: "十段频率与音效预设"; ActionButton { text: "打开均衡器"; onClicked: root.openEqualizer() } }
+            SettingItem { label: "均衡器"; ActionButton { text: "打开均衡器"; onClicked: root.openEqualizer() } }
         }
     }
 
@@ -279,8 +286,8 @@ Flickable {
         id: storageSection
         Column {
             SettingItem {
-                label: "独立配置目录"
-                hint: "设置与播放记录保存在当前数据目录中，可打开目录查看或备份。"
+                label: "数据目录"
+                hint: "保存设置与播放记录"
                 ActionButton { text: "打开目录"; size: "sm"; onClicked: settingsState.openProfileFolder() }
             }
             SettingItem {
@@ -298,10 +305,10 @@ Flickable {
     Component {
         id: aboutSection
         Column {
-            SettingItem { label: "BottleMusic"; hint: "酷狗概念版非官方桌面播放器 · Qt Quick 预览版" }
-            SettingItem { label: "界面字体"; hint: "使用 MiSans 字体。版权归 Xiaomi Inc. 所有；完整协议随应用保存在 licenses 目录。" }
+            SettingItem { label: "BottleMusic"; hint: "酷狗音乐非官方桌面播放器" }
+            SettingItem { label: "界面字体"; hint: "字体许可随应用保存在 licenses 目录。" }
             SettingItem {
-                label: "Qt 更新"; stacked: true; hint: "仅使用本项目的 Qt x64 更新包，下载后检查 SHA-256。"
+                label: "应用更新"; stacked: true; hint: ""
                 Row { spacing: 8; ActionButton { objectName: "checkUpdates"; text: updateState.busy ? "处理中…" : "检查更新"; enabled: !updateState.busy; onClicked: updateState.check() } ActionButton { visible: updateState.version.length > 0; text: "下载 v" + updateState.version; enabled: !updateState.busy; onClicked: updateState.download() } ActionButton { visible: updateState.downloaded; text: "打开更新包"; onClicked: updateState.openDownloaded() } ActionButton { visible: updateState.version.length > 0 && !updateState.busy; text: "跳过此版本"; quiet: true; onClicked: updateState.skip() } }
             }
             Text { width: parent.width; text: updateState.message + (updateState.busy && updateState.progress > 0 ? " " + updateState.progress + "%" : ""); wrapMode: Text.Wrap; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; color: Theme.text2 }

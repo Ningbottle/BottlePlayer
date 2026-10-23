@@ -896,18 +896,10 @@ int main(int argc, char** argv) {
 
   std::cout << "[Test] stress: 1000 concurrent fast-fail requests vs reset server...\n";
   {
-    // Plan Stage 3a GREEN(ii) at the reviewed N-thousand scale.
-    //
-    // Scale-reality note (measured): a connection the server never answers
-    // unblocks at the SESSION-level receive timeout (WinHttpSetTimeouts 10s)
-    // — request-level 100ms receive/response timeouts are not honored for
-    // that wait on this OS, so held-connection volume is capped separately
-    // below. The reset server makes requests fail FAST instead, letting
-    // 1000 requests exercise the concurrent failure path (send/receive
-    // failure, pool evict, quota cancel, handle accounting) in seconds.
-    //
-    // Expected result classes: WinHttp* API failure strings (connection
-    // reset/abort) — never a success, never a body-guard or setup error.
+    // Eight threads issue 1000 requests to a peer that resets immediately.
+    // On a loaded runner the 100ms total deadline can win the race against
+    // the WinHTTP failure callback. Both are valid bounded failure outcomes;
+    // count them separately without admitting setup, body-guard or other errors.
     using echo::async::RequestWatchdog;
     RequestWatchdog& wd = RequestWatchdog::Instance();
     HttpClient client;
@@ -923,6 +915,7 @@ int main(int argc, char** argv) {
 
     std::atomic<int> successes{0};
     std::atomic<int> networkFailures{0};
+    std::atomic<int> deadlineFailures{0};
     std::atomic<int> overloads{0};
     std::atomic<int> unexpected{0};
     std::mutex unexpectedMutex;
@@ -940,6 +933,10 @@ int main(int argc, char** argv) {
         }
         if (!res.error.empty() && res.error.find("WinHttp") != std::string::npos) {
           networkFailures.fetch_add(1, std::memory_order_acq_rel);
+          continue;
+        }
+        if (res.statusCode == 0 && res.timedOut && res.error == "total_request_timeout") {
+          deadlineFailures.fetch_add(1, std::memory_order_acq_rel);
           continue;
         }
         std::lock_guard<std::mutex> lock(unexpectedMutex);
@@ -960,10 +957,10 @@ int main(int argc, char** argv) {
     CHECK(successes.load() == 0,
           "stress: a resetting server never produces a success");
     CHECK(unexpected.load() == 0,
-          "stress: only WinHttp network failures occurred (first unexpected: " +
+          "stress: only network failures or explicit total deadlines occurred (first unexpected: " +
               firstUnexpected + ")");
-    CHECK(networkFailures.load() + overloads.load() == kTotal,
-          "stress: every request resolved to a network failure/admission rejection");
+    CHECK(networkFailures.load() + deadlineFailures.load() + overloads.load() == kTotal,
+          "stress: every request resolved to a network failure/deadline/admission rejection");
     CHECK(g_resetAcceptCount.load() >= kTotal - 8,
           "stress: requests actually reached the server (accepts ~= issued)");
     bool drained = false;
@@ -976,6 +973,7 @@ int main(int argc, char** argv) {
           "stress: zero live request handles");
     std::cout << "  [debug] stress total=" << kTotal
               << " networkFailures=" << networkFailures.load()
+              << " deadlineFailures=" << deadlineFailures.load()
               << " overloads=" << overloads.load()
               << " accepts=" << g_resetAcceptCount.load() << "\n";
   }

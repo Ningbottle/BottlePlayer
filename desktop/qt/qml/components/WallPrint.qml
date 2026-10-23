@@ -35,14 +35,14 @@ Item {
     TapHandler { onTapped: card.picked() }
     Plate {
         objectName: card.detail ? "curtainFocusedPaper" : ""
-        anchors.fill: parent; color: Theme.stageCard; radius: Theme.snap(12 * card.s)
+        anchors.fill: parent; color: Theme.stageCard; radius: Theme.rCard
         borderColor: Theme.stageCardBorder; elevation: 2
     }
     Cover {
         id: art
         objectName: card.detail ? "curtainFocusedArt" : ""
         x: card.pad; y: card.pad; width: card.width - card.pad * 2; height: width
-        radius: Theme.snap(8 * card.s); pixels: card.detail ? 800 : 400
+        radius: Theme.innerRadius(Theme.rCard,card.pad); pixels: card.detail ? 800 : 400
         url: card.track.image || ""; title: card.track.title || ""
     }
     Column {
@@ -53,16 +53,16 @@ Item {
             width: parent.width
             height: Math.min(implicitHeight, Math.round(24 * card.s) * (card.compact ? 2 : 4))
             text: card.track.title || ""; textFormat: Text.PlainText
-            color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Math.round(16 * card.s); font.weight: Theme.fwBold
+            color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwBold
             renderType: Text.NativeRendering
             lineHeightMode: Text.FixedHeight; lineHeight: Math.round(24 * card.s)
             wrapMode: Text.Wrap; maximumLineCount: card.compact ? 2 : 4; elide: Text.ElideRight
         }
         Text {
-            width: parent.width; height: Theme.snap(15 * card.s)
+            width: parent.width; height: Math.max(18, Theme.snap(15 * card.s))
             text: card.track.artist || ""
             textFormat: Text.PlainText; elide: Text.ElideRight
-            color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: Math.round(10 * card.s)
+            color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
             renderType: Text.NativeRendering
         }
     }
@@ -71,15 +71,15 @@ Item {
         width: card.width - card.pad * 2 - (card.detail ? playButton.width + card.labelGap : 0)
         spacing: 0; PixelSnap.enabled: true
         Text {
-            width: parent.width; height: Math.round(13 * card.s)
+            width: parent.width; height: Math.max(18, Math.round(13 * card.s))
             text: card.track.album || ""; textFormat: Text.PlainText; elide: Text.ElideRight
-            color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Math.round(9 * card.s)
+            color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
             renderType: Text.NativeRendering
         }
         Text {
-            height: Math.round(13 * card.s)
+            height: Math.max(18, Math.round(13 * card.s))
             text: Theme.duration(card.track.duration || 0); color: Theme.text3
-            font.family: Theme.fontUi; font.pixelSize: Math.round(9 * card.s); font.features: { "tnum": 1 }
+            font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.features: { "tnum": 1 }
             renderType: Text.NativeRendering
         }
     }
@@ -95,7 +95,7 @@ Item {
         onClicked: card.play()
     }
     Rectangle {
-        anchors.fill: parent; radius: Theme.snap(12 * card.s); color: "transparent"
-        visible: card.activeFocus; border.width: 2; border.color: Theme.focus
+        anchors.fill: parent; radius: Theme.rCard; color: "transparent"
+        visible: card.activeFocus; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.focus
     }
 }

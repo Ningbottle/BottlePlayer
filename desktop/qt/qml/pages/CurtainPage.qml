@@ -20,8 +20,8 @@ Flickable {
     readonly property real frameInset: Theme.snap(Theme.clamp(24, width * 0.06, 98))
     readonly property real frameWidth: width - frameInset * 2
     readonly property real columnGap: width < 1100 ? 32 : 42
-    readonly property real titleSize: width < 1100 ? 34 : width < 1440 ? 48 : 56
-    readonly property real cueSize: compactStage ? 24 : width < 1440 ? 32 : 36
+    readonly property real titleSize: Theme.fs2xl
+    readonly property real cueSize: Theme.fsXl
     readonly property var activeCue: music.lyricIndex >= 0 ? music.lyrics[music.lyricIndex] || ({}) : ({})
     property int selected: 0
     property var hero: music.hero
@@ -57,7 +57,7 @@ Flickable {
             Rectangle {
                 anchors.fill: parent
                 radius: Theme.rem(0.65); color: Theme.stageCard
-                border.width: Theme.hairline; border.color: Theme.stageCardBorder
+                border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.stageCardBorder
                 layer.enabled: chip.elevated && Theme.hasShadow(1)
                 layer.effect: ShadowEffect { level: 1 }
                 PixelSnap.fit: true
@@ -65,7 +65,7 @@ Flickable {
             Rectangle {
                 anchors.fill: parent; radius: Theme.rem(0.65)
                 color: chip.hovered ? Theme.surfaceHover : Theme.clear(Theme.surfaceHover)
-                Behavior on color { ColorAnimation { duration: 200 } }
+
                 PixelSnap.fit: true
             }
         }
@@ -79,8 +79,8 @@ Flickable {
             Text {
                 anchors.verticalCenter: parent.verticalCenter
                 text: chip.text; color: chip.hovered ? Theme.text : Theme.text2
-                font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.75))
-                Behavior on color { ColorAnimation { duration: 200 } }
+                font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
+
             }
         }
     }
@@ -152,7 +152,7 @@ Flickable {
             readonly property bool empty: !root.hero.hash
 
             Text {
-                readonly property real size: root.width < 1100 ? 16 : 20
+                readonly property real size: Theme.fsXl
                 width: parent.width; elide: Text.ElideRight
                 text: copy.empty ? "今天想听些什么" : root.hero.artist
                 color: Theme.text2
@@ -193,7 +193,7 @@ Flickable {
                     visible: !copy.empty
                     y: Theme.rem(0.2) // .stage-open-player: margin-top .2rem
                     glyph: "arrow-up-right"; tint: Theme.text2; opacity: hovered ? 1 : 0.45
-                    Behavior on opacity { NumberAnimation { duration: Theme.durFast } }
+                    Behavior on opacity { NumberAnimation { duration: Theme.durFast; easing.type: Easing.OutCubic } }
                     Accessible.name: "打开播放页"; onClicked: root.player()
                 }
             }
@@ -205,7 +205,7 @@ Flickable {
                 height: text ? (root.compactStage ? 20 : implicitHeight + Theme.rem(0.5)) : 0
                 verticalAlignment: Text.AlignBottom
                 color: Theme.text3; font.family: Theme.fontUi
-                font.pointSize: Theme.pt(Theme.rem(0.8))
+                font.pixelSize: Theme.fsXs
                 lineHeightMode: Text.FixedHeight; lineHeight: Math.round(Theme.rem(0.8) * 1.6)
             }
             // .stage-cue: clamp(2rem,10cqh,6rem) above, clamp(1.5rem,5cqh,3rem)
@@ -230,7 +230,7 @@ Flickable {
                         height: visible ? 32 : 0
                         text: music.previousCue
                         color: Theme.text3
-                        font.family: Theme.fontUi; font.pixelSize: 12
+                        font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                         lineHeightMode: Text.FixedHeight; lineHeight: 20
                         elide: Text.ElideRight
                     }
@@ -251,7 +251,7 @@ Flickable {
                         objectName: "curtainTranslation"
                         width: parent.width; height: root.compactStage ? 28 : 36
                         text: root.activeCue.translation || ""; textFormat: Text.PlainText
-                        color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: root.compactStage ? 13 : 16
+                        color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd
                         wrapMode: Text.Wrap; maximumLineCount: 1; elide: Text.ElideRight
                     }
                 }
@@ -287,7 +287,7 @@ Flickable {
                             : music.current.hash === root.hero.hash ? (music.playing ? "正在播放" : "已暂停")
                             : music.radio ? "红心推荐" : "每日推荐"
                         color: Theme.text2
-                        font.family: Theme.fontMeta; font.pixelSize: 12
+                        font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs
                     }
                 }
             }
@@ -303,13 +303,13 @@ Flickable {
                     implicitHeight: 36
                     hoverEnabled: true; enabled: !active
                     scale: down ? 0.98 : 1
-                    Behavior on scale { NumberAnimation { duration: 200 } }
+
                     onClicked: music.startRadio()
                     Accessible.name: radioLabel.text
                     background: Rectangle {
                         radius: Theme.rem(0.6)
                         color: radioStart.hovered && radioStart.enabled ? Theme.surfaceActive : Theme.radioSoft
-                        Behavior on color { ColorAnimation { duration: 200 } }
+
                     }
                     contentItem: Row {
                         id: radioRow; spacing: Theme.rem(0.5)
@@ -317,15 +317,15 @@ Flickable {
                         Text {
                             id: radioLabel; anchors.verticalCenter: parent.verticalCenter
                             text: radioStart.active ? "红心推荐" : "开启红心推荐"; color: Theme.radioAccent
-                            font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.75)); font.weight: Theme.fwMedium
+                            font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium
                         }
                     }
                 }
                 Text {
                     topPadding: Theme.rem(0.6)
                     visible: !root.compactStage
-                    text: accountState.loggedIn ? "为你推荐，继续发现喜欢的声音" : "公共推荐 · 登录后同步你的音乐"; color: Theme.text3
-                    font.family: Theme.fontUi; font.pixelSize: 11
+                    text: ""; color: Theme.text3
+                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 }
             }
             ActionButton {
@@ -426,10 +426,10 @@ Flickable {
                     visible: inWindow
                     opacity: f.opacity
                     z: Math.round(f.scale * 10)
-                    Behavior on fx { enabled: print.settled && covers.gliding; NumberAnimation { duration: 480; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.2, 0.7, 0.25, 1, 1, 1] } }
-                    Behavior on fy { enabled: print.settled && covers.gliding; NumberAnimation { duration: 480; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.2, 0.7, 0.25, 1, 1, 1] } }
-                    Behavior on fs { enabled: print.settled && covers.gliding; NumberAnimation { duration: 480; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.2, 0.7, 0.25, 1, 1, 1] } }
-                    Behavior on opacity { enabled: print.settled && covers.gliding; NumberAnimation { duration: 360; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.25, 0.1, 0.25, 1, 1, 1] } }
+                    Behavior on fx { enabled: print.settled && covers.gliding; NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.2, 0.7, 0.25, 1, 1, 1] } }
+                    Behavior on fy { enabled: print.settled && covers.gliding; NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.2, 0.7, 0.25, 1, 1, 1] } }
+                    Behavior on fs { enabled: print.settled && covers.gliding; NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.2, 0.7, 0.25, 1, 1, 1] } }
+                    Behavior on opacity { enabled: print.settled && covers.gliding; NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.BezierSpline; easing.bezierCurve: [0.25, 0.1, 0.25, 1, 1, 1] } }
                     Loader {
                         active: print.inWindow
                         x: covers.width * 0.56 + print.fx - width / 2
@@ -474,13 +474,13 @@ Flickable {
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     text: "随心推荐"; color: Theme.text2
-                    font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.8))
+                    font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 }
                 Text {
                     anchors.verticalCenter: parent.verticalCenter
                     leftPadding: Theme.rem(0.5); visible: music.feed.length > 0
                     text: (root.selected + 1) + " / " + music.feed.length; color: Theme.text3
-                    font.family: Theme.fontMeta; font.pointSize: Theme.pt(Theme.rem(0.65))
+                    font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs
                 }
             }
             Row {
@@ -508,7 +508,7 @@ Flickable {
             implicitWidth: 160; implicitHeight: 40; hoverEnabled: true
             contentItem: Row {
                 spacing: 8; anchors.centerIn: parent
-                Text { text: "下滑，发现更多"; font.family: Theme.fontUi; font.pixelSize: 10; color: Theme.text3; anchors.verticalCenter: parent.verticalCenter }
+                Text { text: "下滑，发现更多"; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; color: Theme.text3; anchors.verticalCenter: parent.verticalCenter }
                 Icon { name: "arrow-down"; size: 14; color: Theme.text3; anchors.verticalCenter: parent.verticalCenter }
             }
             onClicked: root.contentY = stage.height
@@ -526,7 +526,7 @@ Flickable {
             RowLayout {
                 width: parent.width
                 Text {
-                    readonly property real size: 20
+                    readonly property real size: Theme.fsXl
                     text: "继续探索"; color: Theme.text
                     font.family: Theme.fontUi; font.weight: Theme.fwSemiBold
                     font.preferTypoLineMetrics: Theme.lyricTypoMetrics
@@ -546,7 +546,7 @@ Flickable {
                         Text {
                             anchors.verticalCenter: parent.verticalCenter
                             text: "回到舞台"; color: back.hovered ? Theme.text : Theme.text2
-                            font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.7)); font.letterSpacing: Theme.rem(0.7) * 0.08
+                            font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.letterSpacing: Theme.rem(0.7) * 0.08
                         }
                         Icon { anchors.verticalCenter: parent.verticalCenter; name: "arrow-up"; size: Theme.rem(1); color: back.hovered ? Theme.text : Theme.text2 }
                     }
@@ -570,11 +570,11 @@ Flickable {
             Text {
                 visible: music.feed.length === 0
                 text: music.loading || homeState.loading ? "正在加载推荐…" : "暂时没有推荐，可刷新重试"
-                font.family: Theme.fontUi; font.pixelSize: 13; color: Theme.text2
+                font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; color: Theme.text2
             }
             Row {
                 visible: homeState.error !== ""; width: parent.width; spacing: 12
-                Text { width: parent.width - retryFeed.width - parent.spacing; wrapMode: Text.Wrap; text: homeState.error; color: Theme.danger; font.family: Theme.fontUi; font.pixelSize: 13 }
+                Text { width: parent.width - retryFeed.width - parent.spacing; wrapMode: Text.Wrap; text: homeState.error; color: Theme.danger; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd }
                 ActionButton { id: retryFeed; text: "重试"; implicitHeight: 40; onClicked: homeState.refresh() }
             }
             HomeCollections { width: parent.width; title: "精选歌单"; collections: homeState.playlists; onOpenPlaylist: playlist => root.openPlaylist(playlist) }

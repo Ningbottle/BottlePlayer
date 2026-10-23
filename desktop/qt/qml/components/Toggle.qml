@@ -26,15 +26,14 @@ AbstractButton {
             x: Theme.hairline; y: Theme.hairline; width: 36; height: 20
             radius: Theme.rFull
             color: root.checked ? Theme.accent : Theme.surfaceHover
-            border.width: Theme.hairline
+            border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
             border.color: root.checked ? Theme.accent : Theme.borderStrong
-            Behavior on color { ColorAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
-            Behavior on border.color { ColorAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+
         }
         // outline: 2px --focus, offset 2px around the --r-sm button box.
         Rectangle {
             anchors.fill: parent; anchors.margins: -4; radius: Theme.rSm + 4
-            color: "transparent"; border.width: 2; border.color: Theme.focus
+            color: "transparent"; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.focus
             visible: root.visualFocus
         }
     }
@@ -42,7 +41,7 @@ AbstractButton {
         Rectangle {
             x: Theme.hairline * 2 + Theme.s1 + (root.checked ? 16 : 0)
             y: Theme.hairline + (20 - height) / 2
-            width: 12; height: 12; radius: Theme.rFull; color: Theme.bgElevated
+            width: 12; height: 12; radius: Theme.rFull; color: root.checked ? Theme.accentContrast : Theme.bgElevated
             Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
         }
     }

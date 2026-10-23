@@ -43,7 +43,23 @@ git diff --check
 
 `qt_render_bindings` 检查实际封面请求尺寸与列表非零原点下的渐隐；`qt_diagnostics` 用阻塞 sink 验证入队与 I/O 分离、队列上限、错误预留、轮转及故障恢复。`qt_settings_migration` 覆盖连续侧栏修改合并、退出保存、保存失败重试和导入/导出屏障。相关 QtTest 报告均位于构建目录 `Testing/`，失败时由测试脚本打印本次报告。
 
+`qt_navigation_interactions` 使用真实页面、临时 profile 和 Native 夹具，检查个人歌单首次加载失败后从侧栏进入目录刷新、轮播卡片的 Tab 与 Space/Enter 激活，以及像素/角度滚轮输入取消首页磁吸。测试不访问真实账号。
+
+该测试还检查 900×620 至 1600×900 的报刊首屏：封面和长标题不重叠，歌手与专辑分开，主操作对齐，播放器点击区域互不覆盖，侧栏设置入口保持可见。Tab/空格检查覆盖主推播放、歌词详情和队列按钮，避免误触全局播放快捷键。
+
+`qt_quality_interactions` 使用真实菜单、临时 profile 和本地音频服务，检查未选歌时预选音质、标签和保存、侧面面板与播放页入口、暂停时切换保留进度，以及清空队列后恢复完整选项。此测试验证选择与加载，不代表线上歌曲提供所有音质。
+
+`qt_theme_interactions` 点击真实色调选项，验证浅色与深色下页面、侧栏和播放器同步变色，以及共享按钮、播放按钮在普通、悬停、按下状态的文字对比度。测试另覆盖自选黑白和高亮颜色、默认色调恢复、幕布搜索与沉浸控件，以及主题偏好的保存和重新加载。
+
 `bottle_qt_smoke` 的 `render-review` 模式使用本机图片服务验证封面动画的尺寸稳定、导航取消、切歌取消、迟到图片及减少动画选项；可通过 `QT_SCALE_FACTOR=1.25` 验证分数缩放。字体视觉比较仍应在 Windows 图形平台下观察，offscreen 通过不代表实际 DirectWrite 和多屏环境已验收。
+
+Windows 图形平台默认将原生文字绘制为灰度抗锯齿，使它与图层内文字保持一致；`BOTTLE_TEXT_AA=cleartype` 可临时恢复系统 ClearType 作同机对照。报刊界面的标题、正文及封面占位字都使用原生文字渲染：Qt 6.8 的曲线渲染在捆绑的中文衬线字形上会产生断笔，例如「山」的左竖。
+
+`qt_text_raster` 使用独立 profile 和夹具，检查 28、37、48、64px 的「山」在深浅底色下保持笔画连通，并保存原生、曲线及距离场的 12–64px 对照图。小字号检查覆盖 12px、14px 的「山」「日」「O」「8」：普通 Text 与 CssText 在深浅底色、四种分数位置下都要保持笔画连通及字腔数量，灰度输出不能带彩边；另比较窗口创建前后的原生小字覆盖率，防止后台改写灰度 gamma，并保存字体角色对照图。
+
+覆盖率一致性检查针对默认渲染配置。显式设置 `BOTTLE_TEXT_GAMMA=1.8` 可复现旧行为，并应触发该检查失败。
+
+它使用 Windows 图形平台和 [D3D 软件适配器](https://doc.qt.io/qt-6.8/windows-graphics.html)，让无独立 GPU 的 CI 也能截取实际 RHI 像素；空白或缺失截图会失败。可在 Windows 图形平台手动运行 `bottle_qt_smoke <fixture.dll> <新证据目录> text-raster` 复核实际显示效果。`font-layout` 模式截取报刊首页和圆环，并检查卡片尺寸与纵向留白。改变 `QT_SCALE_FACTOR` 时应核对报告中的实际 `dpr`；系统缩放与该变量会相乘。
 
 Qt 的属性引用序列赋给局部变量后仍可能反复调用 C++ getter。歌词在内容更新时用 `slice()` 分离快照；测试允许此时逐项读取，约束后续时钟更新不再读取整首歌词。相关新测试把 QtTest 文本保存到 Qt 构建目录的 `Testing/qt_music_flows.txt` 和 `Testing/qt_lyric_bindings.txt`；测试脚本在失败时输出本次生成的报告，保留断言位置和微基准结果。
 测试入口把 `TEMP`、`TMP` 和 `ECHO_NATIVE_DATA_DIR` 统一指向新的 `output/test-profiles/` 子目录，避免继承受限临时路径或默认应用数据目录；退出后恢复调用者环境。

@@ -97,7 +97,7 @@ void VipController::requestClaim(const QString& route, const QString& next) {
         const auto reason = response.value("reason").toString();
         const bool accepted = success(response);
         const bool already = (route == "/youth/day/vip" && reason == "already_claimed_today") || (route.endsWith("upgrade") && reason == "upgrade_already_claimed");
-        if (accepted) accepted_ = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss") + QStringLiteral(" · 已受理，等待权益确认");
+        if (accepted) accepted_ = QDateTime::currentDateTime().toString("yyyy-MM-dd HH:mm:ss") + QStringLiteral("，已受理，等待权益确认");
         if (!accepted && !already) {
             finish(tier_ == "listen" ? QStringLiteral("畅听权益已确认，升级未成功。") + failureMessage(response) : failureMessage(response)); return;
         }

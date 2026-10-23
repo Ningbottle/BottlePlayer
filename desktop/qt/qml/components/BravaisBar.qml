@@ -69,7 +69,7 @@ Rectangle {
         Text {
             id: wordmark; visible: root.showWordmark
             text: "BottleMusic"; color: Theme.wallChromeMuted; font.family: Theme.fontUi
-            font.pixelSize: 13; font.weight: Theme.fwMedium; anchors.verticalCenter: parent.verticalCenter
+            font.pixelSize: Theme.fsMd; font.weight: Theme.fwMedium; anchors.verticalCenter: parent.verticalCenter
         }
         Item { visible: wordmark.visible; width: 20; height: 1 }
         Row {
@@ -99,8 +99,8 @@ Rectangle {
                 id: search; objectName: "bravaisSearchInput"
                 x: 36; width: Math.max(0,parent.width - 68); height: parent.height
                 padding: 0; maximumLength: 100; placeholderText: "搜索歌曲、艺人"
-                font.family: Theme.fontUi; font.pixelSize: 14; color: Theme.wallChromeInk
-                placeholderTextColor: Theme.wallChromeMuted; selectionColor: "#3dffffff"; selectedTextColor: Theme.wallChromeInk
+                font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; color: Theme.wallChromeInk
+                placeholderTextColor: Theme.wallChromeMuted; selectionColor: Theme.wallAccent; selectedTextColor: Theme.wallChromeInk
                 selectByMouse: true; background: null
                 onAccepted: root.query(text)
                 Keys.onEscapePressed: root.closeSearch()
@@ -119,14 +119,14 @@ Rectangle {
             Text {
                 id: status; objectName: "bravaisStatus"; width: Math.min(implicitWidth,root.statusWidth)
                 text: root.statusText; textFormat: Text.PlainText; elide: Text.ElideRight; clip: true
-                font.family: Theme.fontUi; font.pixelSize: 13
+                font.family: Theme.fontUi; font.pixelSize: Theme.fsMd
                 color: root.statusIsError ? Theme.wallChromeInk : Theme.wallChromeMuted
                 anchors.verticalCenter: parent.verticalCenter
                 HoverHandler { id: statusHover }
                 ToolTip {
                     objectName: "bravaisStatusTip"; visible: statusHover.hovered && status.truncated; delay: 500
                     text: root.statusText; y: (root.height + status.height)/2 + 4; width: Math.min(400,root.width - 32)
-                    contentItem: Text { text: root.statusText; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: 13 }
+                    contentItem: Text { text: root.statusText; textFormat: Text.PlainText; wrapMode: Text.Wrap; color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd }
                     background: Rectangle { color: Theme.wallChromeSurface; radius: 8 }
                 }
             }
@@ -144,23 +144,23 @@ Rectangle {
             IconButton {
                 objectName: "bravaisBarPlay"; visible: root.hasTrack; anchors.verticalCenter: parent.verticalCenter
                 media: music.playing ? "pause" : "play"; mediaBox: 32; mediaGlyph: 16; radius: width/2
-                variant: "primary"; primaryFill: Theme.wallChromeSurface
-                primaryHoverFill: Theme.wallHoverOn(primaryFill); primaryDownFill: Theme.wallDownOn(primaryFill)
-                tint: Theme.wallChromeInk; hoverTint: tint; focusInk: Theme.wallFocus
+                variant: "primary"; primaryFill: Theme.wallAccent
+                primaryHoverFill: Theme.wallHoverOn(primaryFill)
+                primaryDownFill: Theme.wallDownOn(primaryFill)
+                tint: Theme.inkOn(down ? primaryDownFill : lit ? primaryHoverFill : primaryFill); hoverTint: tint; focusInk: Theme.wallFocus
                 enabled: !music.loading; Accessible.name: music.playing ? "暂停" : "播放"; onClicked: music.toggle()
             }
             AbstractButton {
                 id: nowPlaying; objectName: "bravaisNowPlaying"
                 visible: root.hasTrack && root.titleBudget >= 120
-                width: visible ? Math.min(root.titleBudget,nowTitle.implicitWidth + nowArtist.implicitWidth + 20 + (nowArtist.text ? separator.width + 8 : 0)) : 0
+                width: visible ? Math.min(root.titleBudget,nowTitle.implicitWidth + nowArtist.implicitWidth + 20 + (nowArtist.text ? 12 : 0)) : 0
                 height: 32; hoverEnabled: true; focusPolicy: Qt.TabFocus
                 Accessible.name: "打开播放页：" + music.current.title; onClicked: root.player()
-                background: Rectangle { radius: 16; color: nowPlaying.down ? Theme.wallChromePressed : nowPlaying.hovered ? Theme.wallChromeHover : "transparent"; border.width: nowPlaying.visualFocus ? 2 : 0; border.color: Theme.wallFocus }
+                background: Rectangle { radius: 16; color: nowPlaying.down ? Theme.wallChromePressed : nowPlaying.hovered ? Theme.wallChromeHover : "transparent"; border.pixelAligned: false; antialiasing: true; border.width: nowPlaying.visualFocus ? Theme.hairline : 0; border.color: Theme.wallFocus }
                 contentItem: Row {
-                    x: 10; spacing: 4; anchors.verticalCenter: parent.verticalCenter
-                    Text { id: nowTitle; anchors.verticalCenter: parent.verticalCenter; width: Math.max(0,nowPlaying.width - 20 - (nowArtist.text ? nowArtist.width+separator.width+8 : 0)); text: music.current.title || ""; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: 13; font.weight: Theme.fwMedium }
-                    Text { id: separator; anchors.verticalCenter: parent.verticalCenter; visible: !!nowArtist.text; text: "·"; color: Theme.wallChromeMuted; font.family: Theme.fontUi; font.pixelSize: 13 }
-                    Text { id: nowArtist; anchors.verticalCenter: parent.verticalCenter; visible: !!text; width: text ? Math.min(implicitWidth,Math.max(0,(nowPlaying.width-20-separator.width-8)*0.4)) : 0; text: music.current.artist || ""; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.wallChromeMuted; font.family: Theme.fontUi; font.pixelSize: 13 }
+                    x: 10; spacing: 12; anchors.verticalCenter: parent.verticalCenter
+                    Text { id: nowTitle; anchors.verticalCenter: parent.verticalCenter; width: Math.max(0,nowPlaying.width - 20 - (nowArtist.text ? nowArtist.width+12 : 0)); text: music.current.title || ""; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwMedium }
+                    Text { id: nowArtist; anchors.verticalCenter: parent.verticalCenter; visible: !!text; width: text ? Math.min(implicitWidth,Math.max(0,(nowPlaying.width-20-12)*0.4)) : 0; text: music.current.artist || ""; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.wallChromeMuted; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd }
                 }
             }
             WallIcon { objectName: "bravaisQueue"; glyph: "list-music"; checked: root.queueOpen; Accessible.name: "播放队列"; onClicked: root.queue() }

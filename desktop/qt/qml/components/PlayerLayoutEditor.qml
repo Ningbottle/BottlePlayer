@@ -62,7 +62,7 @@ Item {
             required property int index
             x: index % 12 * (root.cellWidth + root.gap) + root.cellWidth / 2 - width / 2
             y: Math.floor(index / 12) * (root.cellHeight + root.gap) + root.cellHeight / 2 - height / 2
-            width: 3; height: 3; radius: 1.5; color: Qt.rgba(Theme.ruleInk.r, Theme.ruleInk.g, Theme.ruleInk.b, 0.4)
+            width: 3; height: 3; radius: 1.5; color: Theme.borderStrong
         }
     }
     Rectangle {
@@ -72,7 +72,7 @@ Item {
         y: root.targetRect ? root.targetRect.y * (root.cellHeight + root.gap) : 0
         width: root.targetRect ? root.targetRect.w * root.cellWidth + (root.targetRect.w - 1) * root.gap : 0
         height: root.targetRect ? root.targetRect.h * root.cellHeight + (root.targetRect.h - 1) * root.gap : 0
-        color: Qt.rgba(ink.r, ink.g, ink.b, 0.1); border.color: ink; border.width: Theme.hairline
+        color: Theme.surface; border.color: ink; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
     }
     Repeater {
         model: root.visible && root.layout ? Object.keys(root.layout.cards) : []
@@ -88,7 +88,7 @@ Item {
             transform: Translate { x: root.dragId === frame.modelData && !root.resizing ? root.deltaX : 0; y: root.dragId === frame.modelData && !root.resizing ? root.deltaY : 0 }
             Accessible.role: Accessible.Grouping; Accessible.name: root.cardNames[modelData] + "卡片"
             Keys.onPressed: event => root.key(frame.modelData, event)
-            Rectangle { anchors.fill: parent; radius: Theme.rCard; color: "transparent"; border.width: frame.activeFocus ? 2 : Theme.hairline; border.color: frame.activeFocus ? Theme.focus : Theme.ruleInk }
+            Rectangle { anchors.fill: parent; radius: Theme.rCard; color: "transparent"; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: frame.activeFocus ? Theme.focus : Theme.ruleInk }
             MouseArea {
                 anchors.fill: parent; cursorShape: pressed ? Qt.ClosedHandCursor : Qt.OpenHandCursor
                 onPressed: mouse => { frame.forceActiveFocus(); root.begin(frame.modelData, this, mouse, false) }

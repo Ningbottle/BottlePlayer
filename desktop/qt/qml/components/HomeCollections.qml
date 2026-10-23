@@ -57,14 +57,14 @@ Column {
                         Halftone { anchors.fill: parent; opacity: card.modelData.image ? 0.14 : 0 }
                         Rectangle {
                             anchors.fill: parent; radius: Theme.rXs; color: "transparent"
-                            border.width: Theme.hairline; border.color: Theme.ruleInk
+                            border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.ruleInk
                             PixelSnap.fit: true
                         }
                         Rectangle {
                             x: Theme.s2; y: Theme.s2
                             width: stamp.implicitWidth + Theme.s1; height: stamp.implicitHeight + Theme.hairline * 2
-                            color: Qt.rgba(Theme.bg.r, Theme.bg.g, Theme.bg.b, 0.82)
-                            border.width: Theme.hairline; border.color: Theme.seal
+                            color: Theme.bgElevated
+                            border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.seal
                             CssText {
                                 id: stamp; anchors.centerIn: parent
                                 text: "精选"; color: Theme.seal
@@ -72,7 +72,7 @@ Column {
                             }
                         }
                     }
-                    CssText { width: parent.width; text: card.modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd; color: card.hovered ? Theme.text : Theme.text2 }
+                    CssText { width: parent.width; text: card.modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; color: card.hovered ? Theme.text : Theme.text2 }
                     CssText { width: parent.width; elide: Text.ElideRight; text: card.modelData.artist || (Number(card.modelData.count || 0) > 0 ? card.modelData.count + " 首" : "发现新的旋律"); font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; color: Theme.text3 }
                 }
             }

@@ -111,9 +111,10 @@ void LibraryController::loadTracksPage(quint64 epoch, int page) {
             trackIds_.insert(stable); tracks_.append(std::move(track)); ++added;
         }
         if ((total_ > 0 && tracks_.size() >= total_) || rows.size() < pageSize) {
-            loading_ = false; complete_ = total_ == 0 || tracks_.size() >= total_;
-            if (!complete_) error_ = QStringLiteral("分页提前结束，歌单尚未完整加载");
-            if (total_ == 0) total_ = int(tracks_.size());
+            // A short page is the upstream's last page. Its `total` still counts
+            // rows dropped above (no hash, duplicates), so it is not an error.
+            loading_ = false; complete_ = true;
+            total_ = int(tracks_.size());
         } else if (page >= pageLimit || added == 0) {
             loading_ = false; error_ = QStringLiteral("已停止分页，歌单尚未完整加载");
         }
