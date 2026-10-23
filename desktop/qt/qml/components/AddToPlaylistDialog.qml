@@ -36,7 +36,7 @@ Popup {
                 width: ListView.view.width; height: 52; hoverEnabled: true
                 enabled: accountState.loggedIn && /^[0-9]+$/.test(String(modelData.listid || ""))
                 background: Rectangle { color: parent.hovered ? Theme.surfaceHover : "transparent"; radius: Theme.rSm }
-                contentItem: Text { text: modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter; font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd; color: Theme.text }
+                contentItem: Text { text: modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; verticalAlignment: Text.AlignVCenter; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; color: Theme.text }
                 onClicked: { favoriteState.addToPlaylist(modelData, root.track); root.close() }
             }
         }

@@ -145,7 +145,7 @@ Item {
                         y: infoCard.height <= 64 ? 0 : Theme.s1; width: parent.width
                         text: music.current.title || ""; color: Theme.text; wrapMode: Text.WrapAnywhere
                         maximumLineCount: infoCard.compact ? 1 : 2; elide: Text.ElideRight
-                        font.family: Theme.fontDisplay; font.pixelSize: infoCard.titleSize; font.weight: Theme.fwDisplay
+                        font.family: Theme.displayFont(infoCard.titleSize); font.pixelSize: infoCard.titleSize; font.weight: Theme.fwDisplay
                         font.letterSpacing: Theme.displayTracking * infoCard.titleSize; lineBox: infoCard.titleSize * Theme.lhTight
                     }
                 }
@@ -177,7 +177,7 @@ Item {
                     RowLayout {
                         y: Theme.s4 + Theme.s3; width: parent.width; spacing: Theme.s2
                         Text { text: "下一首"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic }
-                        Text { Layout.fillWidth: true; text: root.nextTrack ? root.nextTrack.title : ""; elide: Text.ElideRight; color: Theme.text; font.family: Theme.fontTitle; font.pixelSize: Theme.fsSm; font.weight: Theme.fwMedium }
+                        Text { Layout.fillWidth: true; text: root.nextTrack ? root.nextTrack.title : ""; elide: Text.ElideRight; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; font.weight: Theme.fwMedium }
                         Text { Layout.maximumWidth: infoCard.width * 0.3; text: root.nextTrack ? root.nextTrack.artist : ""; elide: Text.ElideRight; color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
                     }
                 }
@@ -213,8 +213,9 @@ Item {
                 width: parent.width; anchors.verticalCenter: parent.verticalCenter; spacing: Theme.s1
                 CssText { visible: qualityCard.height > 110; text: "音质"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic }
                 CssText {
+                    readonly property int labelSize: qualityCard.height <= 64 || qualityCard.width <= 160 ? Theme.fsLg : qualityCard.height <= 110 ? Theme.fsXl : Theme.fs2xl
                     width: parent.width; text: music.qualityText(music.actualQuality); color: Theme.text; elide: Text.ElideRight
-                    font.family: Theme.fontDisplay; font.pixelSize: qualityCard.height <= 64 || qualityCard.width <= 160 ? Theme.fsLg : qualityCard.height <= 110 ? Theme.fsXl : Theme.fs2xl
+                    font.family: Theme.displayFont(labelSize); font.pixelSize: labelSize
                     lineBox: font.pixelSize * Theme.lhTight
                 }
                 CssText { text: music.preview ? "当前为试听音源" : music.actualQuality === "local" ? "本地音源" : music.actualQuality === "128" || music.actualQuality === "320" ? music.actualQuality + " kbps" : music.actualQuality === "unknown" ? "等待音源信息" : "由当前音源确认"; color: Theme.text2; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic }
@@ -255,7 +256,7 @@ Item {
         ActionButton { objectName: "playerEditLayout"; size: "sm"; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; visible: !root.editing; text: "编辑布局"; glyph: "layout-dashboard"; restFill: Theme.surfaceHover; onClicked: root.startEditing() }
         Row {
             id: additions; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: Theme.s2; visible: root.editing
-            Text { text: "编辑布局"; height: Theme.controlSm; verticalAlignment: Text.AlignVCenter; color: Theme.text; font.family: Theme.fontTitle; font.pixelSize: Theme.fsSm; font.weight: Font.DemiBold }
+            Text { text: "编辑布局"; height: Theme.controlSm; verticalAlignment: Text.AlignVCenter; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; font.weight: Font.DemiBold }
             Repeater {
                 model: root.cardIds.filter(id => !root.cards[id])
                 ActionButton {

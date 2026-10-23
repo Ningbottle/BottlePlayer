@@ -244,7 +244,7 @@ Item {
         Behavior on x { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
         Column {
             id: navigation; x: 10; y: 14; width: parent.width-20; spacing: 5
-            Text { x: 10; text: "BottleMusic"; color: Theme.wallChromeInk; font.family: Theme.fontDisplay; font.pixelSize: Theme.fsMd; bottomPadding: 7 }
+            Text { x: 10; text: "BottleMusic"; color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; bottomPadding: 7 }
             Repeater {
                 model: [{key:"recommend",label:"今日推荐"},{key:"playlists",label:"发现歌单"},{key:"albums",label:"推荐曲的专辑"},{key:"mine",label:"我的歌单"},{key:"favorites",label:"本地收藏"}]
                 WallAction {

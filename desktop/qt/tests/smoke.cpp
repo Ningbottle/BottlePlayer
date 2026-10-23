@@ -151,6 +151,22 @@ int main(int argc, char** argv) {
     engine.rootContext()->setContextProperty("migrationState", &migration);
     engine.rootContext()->setContextProperty("updateState", &updates);
     engine.rootContext()->setContextProperty("equalizerState", &equalizer);
+    // Record Qt's native small-glyph coverage before the window creates our
+    // scene graph backend. Rendering the UI must not silently weaken it.
+    struct NativeMask { QRawFont font; quint32 glyph; QImage image; };
+    QList<NativeMask> nativeSmallMasks;
+    if (args[3] == "text-raster") {
+        for (int size : {12,14}) {
+            QFont font=QGuiApplication::font(); font.setPixelSize(size);
+            QTextLayout shaped(QStringLiteral("山日曲音 e08"),font);
+            shaped.beginLayout(); auto line=shaped.createLine(); line.setLineWidth(1000); shaped.endLayout();
+            for (const auto& run:shaped.glyphRuns()) {
+                QRawFont raw=run.rawFont(); raw.setPixelSize(size*app.devicePixelRatio());
+                for (quint32 glyph:run.glyphIndexes())
+                    nativeSmallMasks.append({raw,glyph,raw.alphaMapForGlyph(glyph,QRawFont::PixelAntialiasing)});
+            }
+        }
+    }
     engine.loadFromModule("BottleMusic", "Main");
     if (engine.rootObjects().isEmpty()) {
         for (const QString& w : warnings) fprintf(stderr, "%s\n", qPrintable(w));

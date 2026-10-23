@@ -169,15 +169,18 @@ AppearanceController reloaded(profile);
 check("theme_preference_survives_reload", reloaded.accent() == "#3d5a99" && reloaded.mode() == "dark");
 QMetaObject::invokeMethod(window,"changeMode",Q_ARG(QVariant,QStringLiteral("paper")));
 const auto typeLadder = [&](const QString& route) {
-    bool valid = true; int textCount = 0;
+    bool valid = true, readableSmall = true; int textCount = 0;
     walkItems(window->contentItem(),[&](QQuickItem* item) {
         if (!item->isVisible() || item->opacity() == 0 || !sceneRect(item).intersects(QRectF(0,0,window->width(),window->height()))) return;
         if (!item->metaObject()->className() || !QByteArray(item->metaObject()->className()).startsWith("QQuickText")) return;
         const auto font = item->property("font").value<QFont>();
         ++textCount;
         valid = valid && QList<int>{12,14,20,28}.contains(font.pixelSize());
+        if (font.pixelSize()<=14)
+            readableSmall=readableSmall&&(font.family()=="Inter"||font.family()=="Cascadia Code");
     });
     check(route+"_four_type_sizes_minimum_12",valid && textCount > 5);
+    check(route+"_small_text_uses_reading_face",readableSmall && textCount > 5);
 };
 typeLadder("home");
 QMetaObject::invokeMethod(window,"openSettings",Q_ARG(QVariant,QStringLiteral("appearance"))); QTest::qWait(100);

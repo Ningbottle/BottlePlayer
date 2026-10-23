@@ -55,7 +55,11 @@ git diff --check
 
 Windows 图形平台默认将原生文字绘制为灰度抗锯齿，使它与图层内文字保持一致；`BOTTLE_TEXT_AA=cleartype` 可临时恢复系统 ClearType 作同机对照。报刊界面的标题、正文及封面占位字都使用原生文字渲染：Qt 6.8 的曲线渲染在捆绑的中文衬线字形上会产生断笔，例如「山」的左竖。
 
-`qt_text_raster` 使用独立 profile 和夹具，检查 28、37、48、64px 的「山」在深浅底色下保持笔画连通，并保存原生、曲线及距离场的 12–64px 对照图。它使用 Windows 图形平台和 [D3D 软件适配器](https://doc.qt.io/qt-6.8/windows-graphics.html)，让无独立 GPU 的 CI 也能截取实际 RHI 像素；空白或缺失截图会失败。可在 Windows 图形平台手动运行 `bottle_qt_smoke <fixture.dll> <新证据目录> text-raster` 复核实际显示效果。`font-layout` 模式截取报刊首页和圆环，并检查卡片尺寸与纵向留白。改变 `QT_SCALE_FACTOR` 时应核对报告中的实际 `dpr`；系统缩放与该变量会相乘。
+`qt_text_raster` 使用独立 profile 和夹具，检查 28、37、48、64px 的「山」在深浅底色下保持笔画连通，并保存原生、曲线及距离场的 12–64px 对照图。小字号检查覆盖 12px、14px 的「山」「日」「O」「8」：普通 Text 与 CssText 在深浅底色、四种分数位置下都要保持笔画连通及字腔数量，灰度输出不能带彩边；另比较窗口创建前后的原生小字覆盖率，防止后台改写灰度 gamma，并保存字体角色对照图。
+
+覆盖率一致性检查针对默认渲染配置。显式设置 `BOTTLE_TEXT_GAMMA=1.8` 可复现旧行为，并应触发该检查失败。
+
+它使用 Windows 图形平台和 [D3D 软件适配器](https://doc.qt.io/qt-6.8/windows-graphics.html)，让无独立 GPU 的 CI 也能截取实际 RHI 像素；空白或缺失截图会失败。可在 Windows 图形平台手动运行 `bottle_qt_smoke <fixture.dll> <新证据目录> text-raster` 复核实际显示效果。`font-layout` 模式截取报刊首页和圆环，并检查卡片尺寸与纵向留白。改变 `QT_SCALE_FACTOR` 时应核对报告中的实际 `dpr`；系统缩放与该变量会相乘。
 
 Qt 的属性引用序列赋给局部变量后仍可能反复调用 C++ getter。歌词在内容更新时用 `slice()` 分离快照；测试允许此时逐项读取，约束后续时钟更新不再读取整首歌词。相关新测试把 QtTest 文本保存到 Qt 构建目录的 `Testing/qt_music_flows.txt` 和 `Testing/qt_lyric_bindings.txt`；测试脚本在失败时输出本次生成的报告，保留断言位置和微基准结果。
 测试入口把 `TEMP`、`TMP` 和 `ECHO_NATIVE_DATA_DIR` 统一指向新的 `output/test-profiles/` 子目录，避免继承受限临时路径或默认应用数据目录；退出后恢复调用者环境。

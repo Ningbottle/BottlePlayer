@@ -106,7 +106,7 @@ Item {
                     Cover { x: 10; anchors.verticalCenter: parent.verticalCenter; width: Theme.compactList ? 40 : 44; height: width; radius: Theme.rSm; url: row.modelData.image || ""; pixels: 80 }
                     Column {
                         x: 10 + (Theme.compactList ? 40 : 44) + Theme.s3; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 122; spacing: 4
-                        CssText { width: parent.width; text: row.modelData.title; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: root.wall ? Theme.fontUi : Theme.fontTitle; font.pixelSize: Theme.fsMd; color: root.wall ? root.ink : row.modelData.queueIndex === music.queueIndex ? Theme.seal : Theme.text }
+                        CssText { width: parent.width; text: row.modelData.title; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; color: root.wall ? root.ink : row.modelData.queueIndex === music.queueIndex ? Theme.seal : Theme.text }
                         CssText { width: parent.width; text: row.modelData.artist; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; color: root.muted }
                     }
                     Row {

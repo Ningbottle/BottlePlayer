@@ -19,22 +19,19 @@
 
 namespace {
 
-// GDI's alphaMapForGlyph maps gray coverage through pow_gamma:
-// alpha = 255 - pow_gamma[g] * 255 / 2047, i.e. coverage c lands at
-// 1 - (1 - c)^gamma. Qt's stock exponent is 2.31. The DirectWrite engine's
-// alphaMapForGlyph only qGray()s its ClearType texture and NEVER consults
-// pow_gamma — verified in qtbase 6.8.3 qwindowsfontenginedirectwrite.cpp —
-// so this table is dead on the DirectWrite path and only becomes live if a
-// font is deliberately pushed to GDI via PreferFullHinting (which also
-// snaps CJK stems to the pixel grid and reads uneven on serif faces).
-// BOTTLE_TEXT_GAMMA overrides the exponent for such comparisons.
+// Both GDI and DirectWrite's alphaMapForGlyph apply pow_gamma in Qt 6.8.3:
+// coverage c becomes 1 - (1 - c)^gamma. Leave Qt's native 2.31 table intact;
+// the former unconditional 1.8 override weakened small, partially covered
+// strokes. Only an explicit diagnostic override may change the table.
 void applyGrayTextGamma() {
 #ifdef Q_OS_WIN
     static const qreal gamma = [] {
         bool ok = false;
         const qreal value = qEnvironmentVariable("BOTTLE_TEXT_GAMMA").toDouble(&ok);
-        return ok && value > 0 ? value : 1.8;
+        return ok && qIsFinite(value) && value > 0 ? value : 0;
     }();
+    if (gamma <= 0)
+        return;
     if (const auto data = QWindowsFontDatabaseBase::data())
         for (int i = 0; i < 256; ++i)
             data->pow_gamma[i] = uint(qRound(qPow(i / 255.0, gamma) * 2047));
@@ -43,8 +40,8 @@ void applyGrayTextGamma() {
 
 // Optional second-pass weighting, engine-independent: compositing the
 // identical glyph mask again at opacity w yields alpha' = 1-(1-c)(1-wc)
-// (w=1 is the gamma-2 curve). It defaults off: the default DirectWrite
-// path does not read GDI's pow_gamma table. Keep this as a diagnostic knob.
+// (w=1 is the gamma-2 curve). It defaults off: native coverage already has
+// gamma correction. Keep this as a diagnostic knob, not synthetic bold.
 qreal textWeight() {
     static const qreal weight = [] {
         bool ok = false;

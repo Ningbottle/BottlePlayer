@@ -138,7 +138,12 @@ check("raster_panel_created",rasterPanelItem);
 if (rasterPanelItem) {
     rasterPanelItem->setParentItem(window->contentItem());
     screenshot("text-raster-sizes");
+    rasterPanelItem->setVisible(false);
 }
+#include "small_text_raster_smoke.h"
+check("small_text_home_capture",screenshot("small-text-home"));
+QMetaObject::invokeMethod(window,"openSettings",Q_ARG(QVariant,QStringLiteral("appearance")));
+check("small_text_settings_capture",screenshot("small-text-settings"));
 report.insert("checks",checks);
 report.insert("qml_warnings",QJsonArray::fromStringList(warnings));
 bool rasterPassed=warnings.isEmpty();

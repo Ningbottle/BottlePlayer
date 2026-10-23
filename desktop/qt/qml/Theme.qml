@@ -122,7 +122,10 @@ QtObject {
     readonly property string fontUi: "Inter"
     readonly property string fontDisplay: mint ? "Libre Caslon Display" : fontUi
     readonly property string fontTitle: mint ? "EB Garamond" : fontUi
-    readonly property string fontMeta: mint ? "EB Garamond" : fontUi
+    // Reading-size labels use the UI face: the display serifs' thin strokes
+    // and low Latin x-height do not hold up at 12–14 logical pixels.
+    readonly property string fontMeta: fontUi
+    function displayFont(size) { return size <= fsMd ? fontUi : fontDisplay }
     readonly property string fontSerif: "Noto Serif SC"
     // Static wght=600 outlines in a separate family; asking the regular
     // family for 600 makes DirectWrite synthesize bold from its 500 face.

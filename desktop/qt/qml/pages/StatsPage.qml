@@ -86,7 +86,7 @@ Flickable {
                     background: Rectangle { radius: Theme.rSm; color: parent.hovered ? Theme.surfaceHover : "transparent" }
                     contentItem: Item {
                         Cover { x: 4; anchors.verticalCenter: parent.verticalCenter; width: 40; height: 40; url: modelData.cover_url || ""; pixels: 80 }
-                        Text { x: 60; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 100; text: modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd; color: Theme.text }
+                        Text { x: 60; anchors.verticalCenter: parent.verticalCenter; width: parent.width - x - 100; text: modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; color: Theme.text }
                         Text { anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter; text: modelData.play_count + " 次"; color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs }
                     }
                 }

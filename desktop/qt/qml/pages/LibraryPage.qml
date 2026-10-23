@@ -55,7 +55,7 @@ Item {
                 Cover { Layout.preferredWidth: 40; Layout.preferredHeight: 40; radius: Theme.rCard; url: entry.modelData.image || ""; title: root.catalog ? entry.modelData.name : entry.modelData.title; pixels: 100 }
                 Column {
                     Layout.fillWidth: true; spacing: 2
-                    Text { width: parent.width; text: root.catalog ? entry.modelData.name : entry.modelData.title; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.text; font.family: Theme.fontTitle; font.pixelSize: Theme.fsLg }
+                    Text { width: parent.width; text: root.catalog ? entry.modelData.name : entry.modelData.title; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsLg }
                     Text { width: parent.width; text: root.catalog ? entry.modelData.count + " 首" : entry.modelData.artist; textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs }
                 }
                 Text { text: root.catalog ? "" : Theme.duration(entry.modelData.duration); color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; Layout.rightMargin: Theme.s3 }
@@ -72,7 +72,7 @@ Item {
         Column {
             visible: rows.count === 0 && !(root.catalog ? libraryState.playlistsLoading : libraryState.loading)
             anchors.centerIn: parent; spacing: Theme.s3
-            Text { text: accountState.loggedIn ? root.catalog ? "还没有个人歌单" : "这里还没有可播放的曲目" : "登录后，让你的歌单回到这里"; color: Theme.text2; font.family: Theme.fontTitle; font.pixelSize: Theme.fsLg }
+            Text { text: accountState.loggedIn ? root.catalog ? "还没有个人歌单" : "这里还没有可播放的曲目" : "登录后，让你的歌单回到这里"; color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: Theme.fsLg }
             ActionButton { visible: !accountState.loggedIn; text: "登录账户"; filled: true; onClicked: root.openAccount() }
         }
     }

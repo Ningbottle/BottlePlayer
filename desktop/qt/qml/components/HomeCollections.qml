@@ -72,7 +72,7 @@ Column {
                             }
                         }
                     }
-                    CssText { width: parent.width; text: card.modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd; color: card.hovered ? Theme.text : Theme.text2 }
+                    CssText { width: parent.width; text: card.modelData.name; textFormat: Text.PlainText; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; color: card.hovered ? Theme.text : Theme.text2 }
                     CssText { width: parent.width; elide: Text.ElideRight; text: card.modelData.artist || (Number(card.modelData.count || 0) > 0 ? card.modelData.count + " 首" : "发现新的旋律"); font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; color: Theme.text3 }
                 }
             }

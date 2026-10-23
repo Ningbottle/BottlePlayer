@@ -169,7 +169,7 @@ Rectangle {
                     Text {
                         anchors.centerIn: parent; text: accountState.loggedIn ? accountState.username.slice(0, 1) : "听"; color: Theme.accent
                         visible: accountState.loggedIn && !accountState.avatar.length
-                        font.family: Theme.fontDisplay; font.pixelSize: Theme.fsMd; font.weight: Theme.fwDisplay
+                        font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwDisplay
                     }
                     Cover { anchors.fill: parent; visible: accountState.avatar.length > 0; url: accountState.avatar; radius: width / 2; pixels: 100 }
                 }

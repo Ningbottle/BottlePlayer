@@ -75,7 +75,7 @@ FocusScope {
     Column {
         anchors.bottom: parent.bottom; anchors.bottomMargin: Theme.s3; anchors.horizontalCenter: parent.horizontalCenter
         width: parent.width - Theme.s8 * 2; spacing: Theme.s1
-        Text { width: parent.width; text: root.focused ? root.focused.title : "队列为空"; color: Theme.text; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; font.family: Theme.fontTitle; font.pixelSize: Theme.fsLg }
+        Text { width: parent.width; text: root.focused ? root.focused.title : "队列为空"; color: Theme.text; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsLg }
         Text { width: parent.width; text: root.focused ? root.focused.artist : ""; color: Theme.text2; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
     }
 }

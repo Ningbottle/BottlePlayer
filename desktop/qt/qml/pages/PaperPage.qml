@@ -428,7 +428,7 @@ Item {
                                                 width: parent.width; height: Theme.fsMd * Theme.lhNormal; verticalAlignment: Text.AlignVCenter
                                                 text: tile.modelData.title || ""; elide: Text.ElideRight
                                                 color: root.isActive(tile.modelData) ? Theme.seal : Theme.text
-                                                font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd
+                                                font.family: Theme.fontUi; font.pixelSize: Theme.fsMd
                                             }
                                             Text {
                                                 width: parent.width; height: Theme.fsXs * Theme.lhNormal; verticalAlignment: Text.AlignVCenter
@@ -458,7 +458,7 @@ Item {
                 Text {
                     readonly property int size: Math.round(Theme.displayLg(root.vw))
                     text: "搜索音乐"; color: Theme.text
-                    font.family: Theme.fontDisplay; font.pixelSize: size
+                    font.family: Theme.displayFont(size); font.pixelSize: size
                     font.weight: Theme.fwDisplay; font.letterSpacing: Theme.displayTracking * size
                     renderType: Text.NativeRendering
                 }
@@ -510,7 +510,7 @@ Item {
                             Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.horizontalStretchFactor: 22
                             text: songRow.modelData.title || ""; elide: Text.ElideRight
                             color: root.isActive(songRow.modelData) ? Theme.seal : Theme.text
-                            font.family: Theme.fontTitle; font.pixelSize: Theme.fsSm
+                            font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
                         }
                         Text {
                             Layout.fillWidth: true; Layout.preferredWidth: 1; Layout.horizontalStretchFactor: 12

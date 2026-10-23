@@ -73,7 +73,7 @@ Flickable {
                     text: root.meta.label; color: Theme.text
                     readonly property real exact: Theme.displayLg(root.viewportWidth)
                     readonly property int size: Math.round(exact)
-                    font.family: Theme.fontDisplay; font.pixelSize: size
+                    font.family: Theme.displayFont(size); font.pixelSize: size
                     font.weight: Theme.fwDisplay; font.letterSpacing: Theme.displayTracking * size
                     height: exact * 1.15; verticalAlignment: Text.AlignVCenter
                 }

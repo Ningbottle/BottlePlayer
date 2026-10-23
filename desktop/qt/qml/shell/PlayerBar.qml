@@ -63,7 +63,7 @@ Rectangle {
                 id: trackTitle
                 width: parent.width; height: Theme.fsMd * Theme.lhTight; verticalAlignment: Text.AlignVCenter
                 text: music.current.title || "未播放歌曲"; color: Theme.text; elide: Text.ElideRight
-                font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd; font.weight: Theme.fwMedium
+                font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwMedium
             }
             Row {
                 width: parent.width; spacing: Theme.s2

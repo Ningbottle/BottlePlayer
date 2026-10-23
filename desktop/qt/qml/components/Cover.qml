@@ -52,7 +52,7 @@ Item {
         Text {
             anchors.centerIn: parent; visible: !root.ready && root.title !== "" && frame.width >= Theme.fsMd && frame.height >= Theme.fsMd
             text: root.title.slice(0, 1)
-            font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd
+            font.family: Theme.fontUi; font.pixelSize: Theme.fsMd
             font.weight: Theme.fwMedium; color: Theme.text3
             renderType: Text.NativeRendering
         }

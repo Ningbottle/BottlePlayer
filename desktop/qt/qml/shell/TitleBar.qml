@@ -25,7 +25,7 @@ Item {
         anchors.left: parent.left; anchors.leftMargin: Theme.s4; anchors.verticalCenter: parent.verticalCenter
         visible: root.scene !== "overlay" && (root.scene === "wall" || !root.win || root.win.route === "settings")
         text: "BottleMusic"; color: root.wallInk ? Theme.wallChromeMuted : Theme.text3
-        font.family: Theme.fontDisplay; font.pixelSize: Theme.wordmarkSize
+        font.family: Theme.fontUi; font.pixelSize: Theme.wordmarkSize
         font.weight: Theme.wordmarkWeight; font.letterSpacing: Theme.wordmarkTracking
     }
     component WindowButton: IconButton {
