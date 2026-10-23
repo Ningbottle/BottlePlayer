@@ -41,14 +41,14 @@ Item {
         font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
         Accessible.name: "搜索歌曲、艺人、专辑、歌单"
         background: Rectangle {
-            radius: Theme.rFull; color: Theme.surface
+            radius: Theme.rSm; color: Theme.surface
             border.width: Theme.hairline; border.color: field.activeFocus ? Theme.accent : Theme.clear(Theme.accent)
             Behavior on border.color { ColorAnimation { duration: Theme.durFast } }
             PixelSnap.fit: true
         }
         Icon {
             x: Theme.s3; anchors.verticalCenter: parent.verticalCenter
-            name: "search"; stroke: 2; color: Theme.text3
+            name: "search"; color: Theme.text3
         }
         onAccepted: root.search(text)
     }

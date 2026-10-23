@@ -127,10 +127,10 @@ QtObject {
     readonly property real playerbarH: mint ? 76 : 84
     readonly property real coverInBar: playerbarH - s6
     readonly property real scrollBarW: 4
-    // --icon-size / --icon-stroke: every chrome icon is a 16px Lucide glyph at
-    // stroke 1.75 (the CSS width/stroke override beats per-icon size props).
-    readonly property real iconSize: 16
-    readonly property real iconStroke: 1.75
+    // Chrome uses an 18px outline grid. Solid transport geometry is separate
+    // from the preserved Lucide source assets.
+    readonly property real iconSize: 18
+    readonly property real iconStroke: 1.6
     readonly property real disabledOpacity: 0.56
     readonly property real pressedOpacity: 0.86
 
@@ -347,10 +347,10 @@ QtObject {
     function wallHoverOn(c) { return Qt.tint(c, luminance(c)>0.4 ? Qt.rgba(0,0,0,0.06) : wallChromeHover) }
     function wallDownOn(c) { return Qt.tint(c, luminance(c)>0.4 ? Qt.rgba(0,0,0,0.12) : wallChromePressed) }
     readonly property var mediaStyle: ({
-        play: {glyph:"media-play",dx:1,stroke:1.5,stroked:true},
-        pause: {glyph:"media-pause",dx:0,stroke:1.5,stroked:false},
-        prev: {glyph:"media-prev",dx:-0.5,stroke:2,stroked:true},
-        next: {glyph:"media-next",dx:0.5,stroke:2,stroked:true}
+        play: {glyph:"transport-play",dx:0.5,stroke:1.6,stroked:false},
+        pause: {glyph:"transport-pause",dx:0,stroke:1.6,stroked:false},
+        prev: {glyph:"transport-prev",dx:0,stroke:1.6,stroked:false},
+        next: {glyph:"transport-next",dx:0,stroke:1.6,stroked:false}
     })
     function glyphFit(glyph, box, ratio) {
         var r = ratio > 0 ? ratio : dpr

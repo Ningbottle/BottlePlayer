@@ -555,7 +555,8 @@ int main(int argc, char** argv) {
                 for (int y = 0; y < iconImage.height(); ++y) for (int x = 0; x < iconImage.width(); ++x) visible = visible || qAlpha(iconImage.pixel(x, y)) > 0;
                 completeIconSet = completeIconSet && visible;
             }
-            report.insert("icon_count", assets.size()); check("complete_open_source_icon_set", completeIconSet && assets.size() == 68);
+            report.insert("icon_count", assets.size()); check("complete_bundled_icon_set", completeIconSet && assets.size() >= 68
+                && assets.contains("transport-play.svg") && assets.contains("transport-pause.svg") && assets.contains("transport-prev.svg") && assets.contains("transport-next.svg") && assets.contains("lyrics.svg"));
             for (const auto* name : {"play", "pause", "media-play", "media-pause"}) for (const int extent : {22, 28, 44}) {
                 QSize actual; const auto iconImage = icons.requestImage(QStringLiteral("%1/ffffff/1.75").arg(QLatin1String(name)), &actual, QSize(extent, extent));
                 double mass = 0, momentY = 0;
@@ -805,7 +806,7 @@ int main(int argc, char** argv) {
         check("media_box_integer_immersive_prev",mediaGeometry("immersivePreviousButton",false));
         music.setPlaying(true);QTest::qWait(200);window->setProperty("listeningOpen",true);QTest::qWait(250);
         auto* transportGlyph=find("listeningPlay_glyph");
-        check("transport_button_pause_glyph",transportGlyph&&transportGlyph->property("name")=="media-pause"&&!transportGlyph->property("stroked").toBool());
+        check("transport_button_pause_glyph",transportGlyph&&transportGlyph->property("name")=="transport-pause"&&!transportGlyph->property("stroked").toBool());
         window->setProperty("listeningOpen",false);music.setPlaying(false);music.seek(12000);QTest::qWait(200);
         for(const auto& extra:captureSizes()) {
             window->resize(extra); QTest::qWait(400); const auto suffix=QStringLiteral("%1x%2").arg(extra.width()).arg(extra.height()); immersiveCompositionOk(suffix);

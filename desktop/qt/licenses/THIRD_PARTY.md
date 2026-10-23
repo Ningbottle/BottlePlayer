@@ -29,7 +29,7 @@ executable. Login QR images are encoded locally from the native login payload.
 
 # Fonts and icons
 
-All 68 Qt interface SVG resources are unmodified official Lucide files (ISC),
+The original 68 Qt interface SVG resources are unmodified official Lucide files (ISC),
 at commit `6bc1373b3f3075fbcfea542ea5530fdbd6cb99b2`:
 https://github.com/lucide-icons/lucide/tree/6bc1373b3f3075fbcfea542ea5530fdbd6cb99b2/icons
 `Lucide-mapping.json` records canonical names, including media aliases and the
@@ -38,6 +38,9 @@ renamed history/trash icons. `Lucide-provenance.json` records the exact version;
 viewBoxes are unchanged. Tint, media fill, stroke width and the pause glyph's
 stroke suppression are applied by IconProvider at render time; SVG files are
 not rewritten.
+The four `transport-*.svg` controls and `lyrics.svg` are original BottleMusic
+geometry, using simple triangles, bars and text lines. They are separate from
+the preserved Lucide source files and provenance mapping.
 The retained Phosphor notice documents the previous preview; no Phosphor SVGs
 remain in the current interface.
 The Inter, EB Garamond, Libre Caslon Display, Noto Serif SC and LXGW WenKai

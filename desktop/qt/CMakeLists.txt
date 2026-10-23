@@ -52,7 +52,7 @@ target_link_libraries(BottleMusicQt PRIVATE bottle_qt_core Qt6::QuickControls2)
 set_source_files_properties(qml/Theme.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set_source_files_properties(qml/components/BravaisLayout.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set(QT_QML_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/qml)
-# Original official Lucide SVGs (see licenses/THIRD_PARTY.md); served through the
+# Lucide and project-owned geometry (see licenses/THIRD_PARTY.md); served through the
 # image://icon provider from :/qt/qml/BottleMusic/assets/icons/.
 file(GLOB bottle_icons RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" CONFIGURE_DEPENDS assets/icons/*.svg)
 qt_add_library(bottle_qt_ui STATIC)
@@ -74,7 +74,7 @@ qt_add_qml_module(bottle_qt_ui URI BottleMusic VERSION 1.0
     qml/components/QualityMenu.qml
     qml/components/AddToPlaylistDialog.qml
     qml/components/DeviceSettings.qml
-    qml/components/HomeCollections.qml
+    qml/components/HomeCollections.qml qml/components/PaperFeature.qml
     qml/components/PlaylistCarousel.qml
     qml/components/ImmersiveBackground.qml qml/components/ImmersiveControls.qml
     qml/components/DoubleRule.qml qml/components/SnapSettle.qml

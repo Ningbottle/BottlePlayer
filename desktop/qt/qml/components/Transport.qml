@@ -11,7 +11,7 @@ Row {
     property alias playButton: playBtn
 
     IconButton {
-        objectName: "prevButton"; media: "prev"; mediaBox: 34; mediaGlyph: 18; anchors.verticalCenter: parent.verticalCenter; tint: Theme.text
+        objectName: "prevButton"; media: "prev"; mediaBox: 36; mediaGlyph: 20; anchors.verticalCenter: parent.verticalCenter; tint: Theme.text
         enabled: music.queueIndex >= 0 && !music.radio
         Accessible.name: "上一首"; onClicked: music.previous()
     }
@@ -23,13 +23,13 @@ Row {
         tint: Theme.playFg; hoverTint: Theme.playFg
         media: music.playing ? "pause" : "play"
         enabled: !music.loading && (music.queueIndex >= 0 || music.feed.length > 0)
-        scale: pressed ? Theme.pressScale : hovered && enabled ? 1.06 : 1
-        Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce } }
+        scale: pressed ? Theme.pressScale : 1
+        Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast; easing.type: Easing.OutCubic } }
         Accessible.name: music.playing ? "暂停" : "播放"; onClicked: music.toggle()
         shadowLevel: 4
     }
     IconButton {
-        objectName: "nextButton"; media: "next"; mediaBox: 34; mediaGlyph: 18; anchors.verticalCenter: parent.verticalCenter; tint: Theme.text
+        objectName: "nextButton"; media: "next"; mediaBox: 36; mediaGlyph: 20; anchors.verticalCenter: parent.verticalCenter; tint: Theme.text
         enabled: music.queueIndex >= 0
         Accessible.name: "下一首"; onClicked: music.next()
     }

@@ -43,6 +43,7 @@ Button {
         : restFill.a > 0 ? restFill : Theme.clear(hoverFill)
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
+    Keys.onShortcutOverride: event => { if (enabled && event.key === Qt.Key_Space) event.accepted = true }
     scale: pressed ? Theme.pressScale : 1
     Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce } }
     padding: 0

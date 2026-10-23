@@ -120,7 +120,7 @@ Rectangle {
             Transport { id: transport }
             IconButton {
                 objectName: "lyricsButton"
-                glyph: "mic-vocal"; glyphSize: 18; tint: Theme.text3; checkedTint: Theme.mark; flatChecked: true
+                glyph: "lyrics"; glyphSize: 18; tint: Theme.text3; checkedTint: Theme.mark; flatChecked: true
                 checked: root.lyricView
                 Accessible.name: "歌词"; onClicked: root.toggleLyrics()
             }
@@ -143,7 +143,7 @@ Rectangle {
             anchors.verticalCenter: parent.verticalCenter
             leftPadding: Theme.s3; rightPadding: Theme.s1 + 2
             implicitWidth: leftPadding + rightPadding + qualityRow.implicitWidth
-            implicitHeight: Theme.controlSm
+            implicitHeight: Theme.controlMd
             hoverEnabled: true; focusPolicy: Qt.TabFocus
             enabled: !String(music.current.hash || "").startsWith("file:")
             text: music.qualityText(music.queueIndex < 0 ? music.quality : music.actualQuality)

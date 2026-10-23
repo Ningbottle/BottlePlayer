@@ -208,7 +208,7 @@ ApplicationWindow {
     property bool launched: false
     Timer { interval: 1; running: true; onTriggered: window.launched = true }
 
-    Shortcut { sequence: "Space"; enabled: !window.searchInputFocused() && !(window.activeFocusItem && window.activeFocusItem.objectName === "homeSearchPull"); onActivated: music.toggle() }
+    Shortcut { sequence: "Space"; enabled: !window.searchInputFocused() && !(window.activeFocusItem instanceof AbstractButton) && !(window.activeFocusItem && window.activeFocusItem.objectName === "homeSearchPull"); onActivated: music.toggle() }
     Shortcut {
         sequence: "Escape"
         onActivated: {

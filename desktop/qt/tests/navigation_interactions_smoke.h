@@ -93,6 +93,68 @@ if (ring && carousel && pointerScroller) {
     } else check("carousel_pointer_card_present", false);
 } else check("carousel_pointer_page_ready", false);
 
+// The newspaper keeps metadata, artwork and actions separate at desktop sizes.
+navigate("home");
+for (const auto size : {QSize(900,620), QSize(1100,740), QSize(1280,850), QSize(1600,900)}) {
+    window->resize(size); appearance.setSidebarWidth(232); QTest::qWait(150);
+    const auto suffix = QStringLiteral("_%1x%2").arg(size.width()).arg(size.height());
+    auto* feature = quick("paperFeature"); auto* art = quick("heroArtwork");
+    auto* title = quick("heroTitle"); auto* artist = quick("heroArtist");
+    auto* primary = quick("heroPlay"); auto* details = quick("heroOpenPlayer");
+    const auto box = sceneRect(feature).adjusted(-1,-1,1,1);
+    check("paper_feature_content_fits"+suffix, feature && art && title && artist && primary && details
+        && box.contains(sceneRect(art)) && box.contains(sceneRect(title)) && box.contains(sceneRect(artist))
+        && box.contains(sceneRect(primary)) && box.contains(sceneRect(details)));
+    check("paper_metadata_separate_from_art"+suffix, title && art && sceneRect(title).left()-sceneRect(art).right() >= 19
+        && sceneRect(artist).top()-sceneRect(title).bottom() >= 7);
+    check("paper_actions_aligned"+suffix, primary && details && primary->height() >= 40 && details->height() >= 40
+        && qAbs(sceneRect(primary).top()-sceneRect(details).top()) < 1 && sceneRect(details).left()-sceneRect(primary).right() >= 11);
+    const auto dock = sceneRect(quick("paperPlayerDock"));
+    QList<QRectF> buttons; bool dockFits = true;
+    for (const char* name : {"prevButton","playButton","nextButton","lyricsButton","qualityButton","queueButton"}) {
+        auto* button = quick(name); const auto rect = sceneRect(button);
+        dockFits = dockFits && button && rect.height() >= 32 && dock.contains(rect);
+        for (const auto& other : buttons) dockFits = dockFits && !rect.intersects(other);
+        buttons.append(rect);
+    }
+    check("paper_transport_targets_separate"+suffix,dockFits);
+    auto* settingsButton = quick("settingsButton");
+    check("paper_sidebar_footer_reachable"+suffix, settingsButton && settingsButton->height() >= 34
+        && sceneRect(quick("paperSidebar")).contains(sceneRect(settingsButton)));
+}
+window->resize(1280,850); appearance.setSidebarWidth(360); QTest::qWait(150);
+auto* feature = quick("paperFeature");
+if (feature) {
+    auto track = feature->property("track").toMap();
+    track["title"] = QStringLiteral("山风山风等等我（很长的现场演唱版本 / Long title）");
+    track["artist"] = QStringLiteral("歌手甲、歌手乙、歌手丙、歌手丁");
+    track["album"] = QStringLiteral("另一张专辑的独立信息");
+    feature->setProperty("track",track); QTest::qWait(150);
+    check("paper_long_metadata_stays_inside", sceneRect(feature).contains(sceneRect(quick("heroTitle")))
+        && sceneRect(quick("heroArtist")).top() >= sceneRect(quick("heroTitle")).bottom()+7
+        && sceneRect(quick("heroPlay")).top() > sceneRect(quick("heroArtist")).bottom());
+    check("paper_album_separate_from_artist", quick("heroAlbum") && quick("heroAlbum")->isVisible()
+        && sceneRect(quick("heroAlbum")).top() >= sceneRect(quick("heroArtist")).bottom()+7);
+} else check("paper_long_metadata_present",false);
+appearance.setSidebarWidth(232); QTest::qWait(100);
+auto* heroPlay = quick("heroPlay");
+if (heroPlay) heroPlay->forceActiveFocus(Qt::TabFocusReason);
+QTest::keyClick(window,Qt::Key_Tab);
+check("paper_tab_reaches_details", quick("heroOpenPlayer") && quick("heroOpenPlayer")->hasActiveFocus());
+if (quick("heroOpenPlayer") && quick("heroOpenPlayer")->hasActiveFocus()) QTest::keyClick(window,Qt::Key_Space);
+check("paper_details_opens_player",waitFor([&] { return window->property("route").toString() == "player"; },1000));
+navigate("home");
+heroPlay = quick("heroPlay");
+const auto heroHash = quick("paperFeature") ? quick("paperFeature")->property("track").toMap().value("hash").toString() : QString{};
+QSignalSpy featuredAction(quick("paperFeature"), SIGNAL(play()));
+if (heroPlay) { heroPlay->forceActiveFocus(Qt::TabFocusReason); QTest::keyClick(window,Qt::Key_Space); }
+check("paper_play_key_selects_featured_track", waitFor([&] { return featuredAction.count() == 1 && !heroHash.isEmpty() && music.queueIndex() >= 0 && music.current().value("hash").toString() == heroHash; },1000));
+music.setPlaying(false); music.clearQueue();
+if (auto* queue = quick("queueButton")) { queue->forceActiveFocus(Qt::TabFocusReason); QTest::keyClick(window,Qt::Key_Space); }
+check("paper_queue_key_does_not_start_playback", window->property("listeningOpen").toBool() && music.queueIndex() < 0);
+window->setProperty("listeningOpen",false);
+if (auto* statsButton = quick("statsEntry")) { statsButton->forceActiveFocus(Qt::TabFocusReason); QTest::keyClick(window,Qt::Key_Space); }
+check("paper_navigation_key_does_not_start_playback",window->property("route").toString() == "stats" && music.queueIndex() < 0);
 navigate("home");
 music.setReducedMotion(false);
 auto* scroller = quick("homeScroller");

@@ -49,14 +49,13 @@ AbstractButton {
     padding: 0
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
+    Keys.onShortcutOverride: event => { if (enabled && event.key === Qt.Key_Space) event.accepted = true }
     scale: pressed ? Theme.pressScale : 1
-    Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce } }
-    onCheckedChanged: if (checked && !music.reducedMotion) glyphPop.restart()
-    SequentialAnimation {
-        id: glyphPop
-        NumberAnimation { target: glyphIcon; property: "scale"; to: 1.18; duration: Theme.durPop / 2; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce }
-        NumberAnimation { target: glyphIcon; property: "scale"; to: 1; duration: Theme.durPop / 2; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce }
-    }
+    Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durFast; easing.type: Easing.OutCubic } }
+    ToolTip.visible: enabled && hovered && Accessible.name.length > 0
+    ToolTip.text: Accessible.name
+    ToolTip.delay: 600
+    ToolTip.timeout: 2500
     opacity: !enabled ? Theme.disabledOpacity : down ? Theme.pressedOpacity : 1
     Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
     Accessible.role: Accessible.Button
