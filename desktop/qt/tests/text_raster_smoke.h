@@ -99,6 +99,9 @@ for (const auto& variant : {std::pair{2,"curve"}, std::pair{1,"native"}, std::pa
     QTest::qWait(250);
     check(QStringLiteral("title_capture_")+variant.second,captureTitle(QStringLiteral("title-")+variant.second));
 }
+// The following page captures must reflect normal application rendering,
+// not the last diagnostic distance-field variant.
+rasterTitle->setProperty("renderType",report.value("default_render_type").toInt());
 engine.rootContext()->setContextProperty("rasterFontFamily",rasterFont.family());
 engine.rootContext()->setContextProperty("rasterFontWeight",int(rasterFont.weight()));
 QQmlComponent rasterComponent(&engine);
