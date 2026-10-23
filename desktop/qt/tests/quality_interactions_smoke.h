@@ -59,7 +59,7 @@ const auto choose = [&](const char* trigger, const char* name, const QString& qu
     auto* selected = menuItem(menu, quality);
     check(QString(name) + "_checked_" + quality, selected && selected->property("checked").toBool());
     int checked = 0;
-    for (const auto* key : {"128", "320", "flac", "hires"}) {
+    for (const auto* key : {"128", "320", "flac", "high", "master"}) {
         auto* option = menuItem(menu, QString::fromLatin1(key));
         if (option && option->property("checked").toBool()) ++checked;
     }
@@ -67,8 +67,8 @@ const auto choose = [&](const char* trigger, const char* name, const QString& qu
     if (menu) QMetaObject::invokeMethod(menu, "close");
 };
 auto* barMenu = find("qualityMenu");
-check("empty_queue_has_all_preferences", music.queueIndex() < 0 && barMenu && barMenu->property("count").toInt() == 4);
-for (const auto* key : {"320", "flac", "hires", "128"}) {
+check("empty_queue_has_all_preferences", music.queueIndex() < 0 && barMenu && barMenu->property("count").toInt() == 5);
+for (const auto* key : {"320", "flac", "high", "master", "128"}) {
     choose("qualityButton", "qualityMenu", QString::fromLatin1(key));
     check(QString("idle_label_") + key, quick("qualityButton")->property("text").toString() == music.qualityText(QString::fromLatin1(key)));
     QSettings saved(QDir(profile).filePath("preferences.ini"), QSettings::IniFormat);
@@ -86,7 +86,7 @@ QTest::qWait(200);
 music.playFrom("feed", 0);
 check("selected_preference_used_for_playback", waitFor([&] { return !music.loading() && music.playing() && music.actualQuality() == "flac"; }, 5000));
 music.setPlaying(false); music.seek(4000);
-check("track_uses_available_qualities", barMenu && barMenu->property("count").toInt() == 3);
+check("track_uses_available_qualities", waitFor([&] { return barMenu && barMenu->property("count").toInt() == 4; },3000));
 choose("qualityButton", "qualityMenu", "320");
 check("paused_switch_loads_selected_quality", waitFor([&] { return !music.loading() && music.actualQuality() == "320"; }, 5000));
 check("paused_switch_keeps_position", !music.playing() && qAbs(music.position() - 4000) < 150);
@@ -102,10 +102,20 @@ char* raw = snapshot(); const auto requests = QJsonDocument::fromJson(raw).objec
 QStringList requested;
 for (const auto& row : requests) if (row.toObject().value("path") == "/song/url") requested.append(row.toObject().value("query").toObject().value("quality").toString());
 check("menu_selection_reaches_native", requested == QStringList{"flac", "320", "128"});
+auto trimmedOptions=QJsonDocument::fromJson(options).object();
+trimmedOptions.insert("privilege_goods",QJsonArray{QJsonObject{{"quality","128"}}});
+configure(QJsonDocument(trimmedOptions).toJson(QJsonDocument::Compact).constData());
+music.playFrom("feed",1);
+check("known_standard_only_track_trims_menu",waitFor([&] { return barMenu && barMenu->property("count").toInt()==1; },3000));
+trimmedOptions.insert("privilege_goods",QJsonArray{});
+configure(QJsonDocument(trimmedOptions).toJson(QJsonDocument::Compact).constData());
+music.playFrom("feed",0);
+check("unknown_track_qualities_restore_catalog",waitFor([&] { return music.availableQualities().size()==5
+    && barMenu && barMenu->property("count").toInt()==5; },3000));
 QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, QStringLiteral("home")));
 music.clearQueue();
-check("cleared_queue_restores_all_preferences", barMenu && barMenu->property("count").toInt() == 4);
-choose("qualityButton", "qualityMenu", "hires");
+check("cleared_queue_restores_all_preferences", barMenu && barMenu->property("count").toInt() == 5);
+choose("qualityButton", "qualityMenu", "high");
 QFile local(QDir(profile).filePath("fixture.wav"));
 if (!local.open(QIODevice::WriteOnly) || local.write(wav) != wav.size()) return 2;
 local.close(); music.openLocal(QUrl::fromLocalFile(local.fileName()));

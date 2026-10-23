@@ -22,7 +22,7 @@ Menu {
         // With no track, choose a preference for the next play. A cleared
         // queue must not keep the previous track's available-only choices.
         model: music.queueIndex >= 0 && music.availableQualities.length ? music.availableQualities
-            : [{quality:"128"},{quality:"320"},{quality:"flac"},{quality:"hires"}]
+            : music.qualityCatalog
         MenuItem {
             id: choice
             required property var modelData

@@ -239,6 +239,78 @@ private slots:
         music.clearQueue(); QVERIFY(observedClear); QVERIFY(emptyLyricsOnQueueNotification);
         QVERIFY(music.lyrics().isEmpty()); music.finishSession();
     }
+    void legacyHiResPreferenceUsesTheCanonicalToken() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid()); configure({});
+        { QSettings saved(profile.filePath("preferences.ini"),QSettings::IniFormat);
+          saved.setValue("quality","hires"); saved.sync(); }
+        MusicController music(fixture_.fileName(),profile.path());
+        QCOMPARE(music.quality(),QString("high"));
+        music.finishSession();
+    }
+    void earlyQualitySelectionRestartsPendingAvailability() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({{"delay_path","/privilege/lite"},{"delay_ms",200},
+            {"privilege_goods",QJsonArray{QJsonObject{{"quality","128"}}}}});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()},0);
+        QTRY_COMPARE_WITH_TIMEOUT(requests("/privilege/lite").size(),1,3000);
+        QVERIFY(music.availableQualities().isEmpty()); music.setQuality("flac");
+        QTRY_COMPARE_WITH_TIMEOUT(music.availableQualities().size(),1,3000);
+        QCOMPARE(music.availableQualities().first().toMap().value("quality").toString(),QString("128"));
+        QCOMPARE(requests("/privilege/lite").size(),2);
+        music.finishSession();
+    }
+    void singleDeliveredQualityDoesNotCollapseThePicker() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        QStringList catalog; for (const auto& option : music.qualityCatalog()) catalog.append(option.toMap().value("quality").toString());
+        QCOMPARE(catalog, QStringList({"128","320","flac","high","master"}));
+        QCOMPARE(music.qualityText("high"), QString("Hi-Res"));
+        QCOMPARE(music.qualityText("master"), QString("臻品母带"));
+        QVERIFY(music.availableQualities().isEmpty());
+        music.playTracks({track(1).toVariantMap()},0);
+        // Native v5 answers with exactly one quality. The picker must keep the
+        // song's own availability instead of inheriting that single entry.
+        QTRY_VERIFY_WITH_TIMEOUT(music.availableQualities().size()>1,5000);
+        QStringList offered; for (const auto& option : music.availableQualities()) offered.append(option.toMap().value("quality").toString());
+        QCOMPARE(offered, QStringList({"128","320","flac","high"}));
+        QCOMPARE(requests("/privilege/lite").size(),1);
+        QCOMPARE(requests("/privilege/lite")[0].toObject().value("query").toObject().value("hash"),track(1).value("hash"));
+        const int before=requests("/song/url").size();
+        music.setQuality("flac");
+        QCOMPARE(music.quality(),QString("flac"));
+        QTRY_COMPARE_WITH_TIMEOUT(requests("/song/url").size(),before+1,5000);
+        QCOMPARE(requests("/song/url").last().toObject().value("query").toObject().value("quality").toString(),QString("flac"));
+        // Switching quality keeps the same song, so its availability is reused.
+        QCOMPARE(requests("/privilege/lite").size(),1);
+        music.finishSession();
+    }
+    void privilegeAnswerTrimsThePickerPerSong() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({{"privilege_goods",QJsonArray{QJsonObject{{"quality","128"}}}}});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()},0);
+        QTRY_COMPARE_WITH_TIMEOUT(music.availableQualities().size(),1,5000);
+        QCOMPARE(music.availableQualities()[0].toMap().value("quality").toString(),QString("128"));
+        music.finishSession();
+    }
+    void emptyPrivilegeAnswerFallsBackToTheCatalog() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({{"privilege_goods",QJsonArray{}}});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()},0);
+        QTRY_COMPARE_WITH_TIMEOUT(music.availableQualities().size(),music.qualityCatalog().size(),5000);
+        music.finishSession();
+    }
+    void clearedQueueDropsTheResolvedQualities() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()},0);
+        QTRY_VERIFY_WITH_TIMEOUT(music.availableQualities().size()>1,5000);
+        music.clearQueue(); QVERIFY(music.availableQualities().isEmpty()); music.finishSession();
+    }
     void queueAndFeedGetterBenchmark2000Tracks() {
         QTemporaryDir profile(root()); QVERIFY(profile.isValid());
         QJsonArray rows; QVariantList feed;

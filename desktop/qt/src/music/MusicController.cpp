@@ -19,6 +19,18 @@ QVariantList variants(const QVector<Track>& tracks) {
     for (const auto& track : tracks) values.append(track.toVariant());
     return values;
 }
+// KuGou's own quality tokens, in ascending order. They are the wire vocabulary
+// of /song/url and /privilege/lite, so the picker, the validator, the stored
+// preference and the labels must all read this one list — a fourth spelling
+// (the old "hires") made selections silently no-op upstream.
+const QStringList kQualityCatalog{QStringLiteral("128"), QStringLiteral("320"),
+                                  QStringLiteral("flac"), QStringLiteral("high"),
+                                  QStringLiteral("master")};
+QVariantList qualityOptions(const QStringList& present) {
+    QVariantList options;
+    for (const auto& key : kQualityCatalog) if (present.contains(key)) options.append(QVariantMap{{QStringLiteral("quality"), key}});
+    return options;
+}
 }
 MusicController::MusicController(QString dll, QString profile, QObject* parent)
     : QObject(parent), gateway_(std::move(dll), QDir(profile).filePath("native")),
@@ -31,8 +43,9 @@ MusicController::MusicController(QString dll, QString profile, QObject* parent)
     const auto loop = settings_.value("loopMode", loopMode_).toString();
     if (loop == QLatin1String("single") || loop == QLatin1String("random")) loopMode_ = loop;
     favorites_ = settings_.value("favorites").toStringList();
-    const auto quality = settings_.value("quality", "128").toString();
-    if (quality == "128" || quality == "320" || quality == "flac" || quality == "hires") quality_ = quality;
+    const auto storedQuality = settings_.value("quality", "128").toString();
+    const auto quality = storedQuality == "hires" ? QStringLiteral("high") : storedQuality;
+    if (kQualityCatalog.contains(quality)) quality_ = quality;
     committedQuality_ = quality_;
     const auto snapshot = QJsonDocument::fromJson(settings_.value("queueSnapshot").toByteArray()).object();
     if (snapshot.value("version").toInt() == 1) {
@@ -254,12 +267,15 @@ void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preser
     if (queueIndex_ < 0 || queueIndex_ >= queue_.size()) return;
     if (!preserveSession) finalizeSession(false);
     const auto generation = ++generation_;
-    gateway_.cancel(resolveId_); gateway_.cancel(lyricId_); resolveId_.clear(); lyricId_.clear();
+    gateway_.cancel(resolveId_); gateway_.cancel(lyricId_); gateway_.cancel(privilegeId_);
+    resolveId_.clear(); lyricId_.clear(); privilegeId_.clear();
     loading_ = true; desiredPlay_ = autoplay; coldResume_ = coldResume;
     sourceNeedsReload_ = false; qualitySwitchPending_ = preserveSession;
     loadDeadline_.start(); tracePlayback("resolve_start");
     if (!preserveSession) {
         backupUrls_.clear();
+        // A new track must not inherit the previous track's quality options.
+        availableQualities_.clear();
         player_.stop(); player_.setSource({}); listenedMs_ = 0; cues_.clear(); lyricIndex_ = -1; preview_ = false;
         updateLyricProjection(); emit lyricIndexChanged();
     }
@@ -272,9 +288,12 @@ void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preser
         if (!QFileInfo(local.toLocalFile()).isFile()) { loading_ = false; resumePending_ = false; setMessage(QStringLiteral("本地音频文件已不存在")); emit playbackChanged(); return; }
         QFile lyricFile(QFileInfo(local.toLocalFile()).dir().filePath(QFileInfo(local.toLocalFile()).completeBaseName() + ".lrc"));
         if (lyricFile.open(QIODevice::ReadOnly)) cues_ = LyricTimeline::parseBilingual(QString::fromUtf8(lyricFile.readAll()));
-        actualQuality_ = "local"; availableQualities_.clear(); updateLyricProjection(); emit lyricIndexChanged();
+        actualQuality_ = "local"; updateLyricProjection(); emit lyricIndexChanged();
         player_.setSource(local); applyResume(); if (resumePending_) resumeDeadline_.start(); saveQueue(); return;
     }
+    // A quick quality selection can cancel a still-pending availability
+    // request. Restart that request until this track has a resolved list.
+    if (!preserveSession || availableQualities_.isEmpty()) loadQualities(track, generation);
     resolveId_ = gateway_.get("/song/url", {{"hash", track.hash}, {"album_id", track.albumId},
         {"album_audio_id", track.audioId}, {"quality", quality_}}, this, [this, generation, preserveSession](const QJsonObject& response) {
         if (generation != generation_) return;
@@ -307,16 +326,30 @@ void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preser
         if (current.image.isEmpty() && !metadata.image.isEmpty()) { current.image = metadata.image; metadataChanged = true; }
         if (current.album.isEmpty() && !metadata.album.isEmpty()) { current.album = metadata.album; metadataChanged = true; }
         if (metadataChanged) { updateQueueProjection(queueIndex_, radio_); emit heroChanged(); }
-        availableQualities_.clear();
-        for (const auto& value : data.value("available_qualities").toArray()) {
-            const auto option = value.toObject(); const auto key = option.value("quality").toString();
-            if (!key.isEmpty()) availableQualities_.append(QVariantMap{{"quality", key}, {"bitRate", option.value("bitRate").toInt()}});
-        }
         if (preserveSession) { resumePosition_ = player_.position(); player_.pause(); session_.seek(); }
         resumePending_ = true;
         player_.setSource(url); applyResume(); if (resumePending_) resumeDeadline_.start(); emit playbackChanged();
     });
     tracePlayback("source_request"); loadLyrics(track, generation);
+}
+// The picker lists what the song actually has, never what one /song/url answer
+// happened to return: production resolves end on v5, which reports a single
+// quality and used to collapse the menu to that one entry.
+void MusicController::loadQualities(const Track& track, quint64 generation) {
+    privilegeId_ = gateway_.get("/privilege/lite", {{"hash", track.hash}, {"album_id", track.albumId}}, this,
+        [this, generation](const QJsonObject& response) {
+        if (generation != generation_) return;
+        QStringList present;
+        for (const auto& value : response.value("data").toArray().first().toObject().value("relate_goods").toArray())
+            present.append(value.toObject().value("quality").toString());
+        auto options = qualityOptions(present);
+        // An answer that names nothing must not leave the menu empty; the full
+        // catalog stays selectable and actualQuality reports what was delivered.
+        if (options.isEmpty()) options = qualityOptions(kQualityCatalog);
+        if (options == availableQualities_) return;
+        availableQualities_ = std::move(options);
+        emit playbackChanged();
+    });
 }
 void MusicController::loadLyrics(const Track& track, quint64 generation) {
     lyricId_ = gateway_.get("/search/lyric", {{"hash", track.hash}}, this, [this, generation](const QJsonObject& response) {
@@ -532,7 +565,7 @@ void MusicController::saveQueue() {
     settings_.sync();
 }
 void MusicController::setQuality(const QString& value) {
-    if (value != "128" && value != "320" && value != "flac" && value != "hires") return;
+    if (!kQualityCatalog.contains(value)) return;
     if (quality_ == value) return;
     quality_ = value;
     if (queueIndex_ < 0 || QUrl(queue_[queueIndex_].hash).isLocalFile()) {
@@ -565,7 +598,8 @@ void MusicController::moveQueue(int from, int to) {
     updateQueueProjection(previousIndex, radio_); saveQueue();
 }
 void MusicController::clearQueue() {
-    finalizeSession(false); ++generation_; gateway_.cancel(resolveId_); gateway_.cancel(lyricId_); cancelRadioRequest();
+    finalizeSession(false); ++generation_; gateway_.cancel(resolveId_); gateway_.cancel(lyricId_);
+    gateway_.cancel(privilegeId_); privilegeId_.clear(); availableQualities_.clear(); cancelRadioRequest();
     loading_ = true; player_.stop(); player_.setSource({}); resumeDeadline_.stop(); loadDeadline_.stop();
     const int previousIndex = queueIndex_;
     const bool previousRadio = radio_;
@@ -586,10 +620,12 @@ QString MusicController::qualityText(const QString& quality) const {
     if (quality == "128") return QStringLiteral("标准");
     if (quality == "320") return QStringLiteral("高品质");
     if (quality == "flac") return QStringLiteral("无损");
-    if (quality == "hires") return QStringLiteral("Hi-Res");
+    if (quality == "high") return QStringLiteral("Hi-Res");
+    if (quality == "master") return QStringLiteral("臻品母带");
     if (quality == "local") return QStringLiteral("本地");
     return QStringLiteral("音质待确认");
 }
+QVariantList MusicController::qualityCatalog() const { return qualityOptions(kQualityCatalog); }
 void MusicController::setMessage(QString text) { message_ = std::move(text); emit statusChanged(); }
 void MusicController::tracePlayback(const QString& event) const {
     const auto track = current();

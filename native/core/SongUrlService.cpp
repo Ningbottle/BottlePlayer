@@ -504,6 +504,41 @@ std::string NormalizeHash(std::string hash) {
   return hash;
 }
 
+// KuGou stamps a _qu token into the CDN path (_qu128 / _quflac). Measured live
+// it only echoes the requested quality, so it labels bare URL arrays that carry
+// no other evidence — it must never override a real container or bitrate.
+std::string ExtractQuQuality(const std::string& url) {
+  const auto marker = url.find("_qu");
+  if (marker == std::string::npos || marker + 3 >= url.size()) return {};
+  const auto end = url.find_first_of("_.?&/", marker + 3);
+  const auto stop = end == std::string::npos ? url.size() : end;
+  if (stop <= marker + 3) return {};
+  return url.substr(marker + 3, stop - marker - 3);
+}
+
+// v5 uses bits per second (128018 for a 128 kbps mp3); legacy responses and
+// fixtures may use kbps. v6 has a separate kbps field and keeps its own units.
+int V5BitRateKbps(int bitRate) {
+  return bitRate > 2000 ? bitRate / 1000 : bitRate;
+}
+
+// What a delivery may claim as its quality. The CDN path carries a _qu marker
+// that only echoes the requested quality, so it proves nothing: the container
+// and the normalized bitrate decide, and the request is the last resort only
+// when the delivery carries no evidence at all.
+std::string DeliveredQuality(int bitRate, std::string extName,
+                             const std::string& requested) {
+  const auto kbps = V5BitRateKbps(bitRate);
+  std::transform(extName.begin(), extName.end(), extName.begin(),
+                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+  if (extName == "flac" || extName == "ape" || extName == "wav") {
+    return kbps >= 2000 ? "master" : "flac";
+  }
+  if (kbps >= 320) return "320";
+  if (kbps > 0 || !extName.empty()) return "128";
+  return requested;
+}
+
 struct SongUrlOutput {
   std::string hash;
   std::string reqHash;
@@ -787,12 +822,16 @@ nlohmann::json SongUrlService::ResolveV6PrivUrlWithTimeout(
   int timeLength = 0;
   int bitRate = 0;
   std::string extName;
+  // v6 在生产上长期"HTTP 200 + upstream status 1 却提不出 URL"，只记 http 码
+  // 分不清是上游改了协议还是我们解析漏了，故按响应形状计数。
+  int dataItems = 0, withInfo = 0, encryptedOnly = 0;
 
   // v6 API 返回格式: data 是数组 [{info: {filesize, extname, bitrate, ...}, ...}]
   // 需要从 data 数组中提取音质信息
   if (upstream.contains("data") && upstream["data"].is_array()) {
     for (const auto& item : upstream["data"]) {
       if (!item.is_object()) continue;
+      ++dataItems;
       
       // 提取 URL：v6 真实字段 tracker_url / tracker_backup_url（数组）位于 info 对象内；
       // 兼容旧字段 url / backupUrl（可能在 item 顶层）。
@@ -806,10 +845,15 @@ nlohmann::json SongUrlService::ResolveV6PrivUrlWithTimeout(
       std::string itemUrl = readFirstUrl(item, "url");
       std::string itemBackup = readFirstUrl(item, "backupUrl");
       if (item.contains("info") && item["info"].is_object()) {
+        ++withInfo;
         if (itemUrl.empty()) itemUrl = readFirstUrl(item["info"], "tracker_url");
         if (itemBackup.empty()) itemBackup = readFirstUrl(item["info"], "tracker_backup_url");
         // en_tracker_url 是加密流（"en"=encrypted，实测内容不可 demux）——
         // 客户端无法解密，不能当作可播放 URL，刻意忽略让 v6 判失败后回落 v5。
+        if (itemUrl.empty() && itemBackup.empty() &&
+            !readFirstUrl(item["info"], "en_tracker_url").empty()) {
+          ++encryptedOnly;
+        }
       }
       
       // 提取音质信息从 info 对象
@@ -922,13 +966,8 @@ nlohmann::json SongUrlService::ResolveV6PrivUrlWithTimeout(
       if (urlStr.empty()) continue;
       
       // 提取 quality 从 URL 参数 (qu128, qu320 等)
-      std::string quality = "128";
-      auto quPos = urlStr.find("_qu");
-      if (quPos != std::string::npos && quPos + 3 < urlStr.size()) {
-        auto endPos = urlStr.find_first_of("_.?&/", quPos + 3);
-        if (endPos == std::string::npos) endPos = urlStr.size();
-        quality = urlStr.substr(quPos + 3, endPos - quPos - 3);
-      }
+      auto quality = ExtractQuQuality(urlStr);
+      if (quality.empty()) quality = "128";
       
       availableQualities.push_back({
           {"quality", quality},
@@ -961,6 +1000,25 @@ nlohmann::json SongUrlService::ResolveV6PrivUrlWithTimeout(
     extName = ReadString(data, "extName");
   }
 
+  // BuildSongUrlOutput derives status from playUrl alone, so a response that
+  // parses cleanly yet carries no usable URL used to fail with an empty error.
+  std::string noUrlError;
+  std::string noUrlErrorCode;
+  if (playUrl.empty()) {
+    noUrlError = encryptedOnly > 0
+        ? "v6 only offered encrypted en_tracker_url (undecodable client-side)"
+        : "v6 returned no playable URL";
+    noUrlErrorCode = "native_song_url_v6_no_url";
+  }
+  {
+    std::ostringstream parse;
+    parse << "parse data_items=" << dataItems << " with_info=" << withInfo
+          << " encrypted_only=" << encryptedOnly
+          << " url_entries=" << availableQualities.size()
+          << " play_url=" << (playUrl.empty() ? "none" : "present");
+    ECHO_LOG("SongUrlV6", parse.str());
+  }
+
   return finish(BuildSongUrlOutput(SongUrlOutput{
       .hash = hash,
       .quality = bestQuality,
@@ -969,6 +1027,8 @@ nlohmann::json SongUrlService::ResolveV6PrivUrlWithTimeout(
       .backupUrls = backupUrls,
       .availableQualities = availableQualities,
       .raw = upstream,
+      .error = noUrlError,
+      .errorCode = noUrlErrorCode,
       .fileName = fileName,
       .songName = songName,
       .singerName = singerName,
@@ -1098,7 +1158,8 @@ nlohmann::json SongUrlService::Resolve(
       ECHO_LOG("SongUrlV6", "DEGRADED (preview-only) — falling back to v5");
       v6PreviewFallback = std::move(v6);
     } else {
-      ECHO_LOG("SongUrlV6", "FAILED — falling back to v5");
+      ECHO_LOG("SongUrlV6", "FAILED — falling back to v5 error_code=" +
+          v6.value("error_code", std::string{}) + " error=" + v6.value("error", std::string{}));
     }
   }
 
@@ -1379,22 +1440,23 @@ nlohmann::json SongUrlService::Resolve(
 
   const auto delivery = ClassifyDelivery(playUrl, {V5Source(ResponseLevel::kEnvelope, upstream)}, isPreview);
 
-  // 从 v5 upstream 提取当前音质信息（v5 只返回请求的那一个音质）
+  // v5 只回一条音质（本次请求的那一条），标签必须来自下发证据而不是请求值。
+  const auto bitRateV5 = ReadInt(upstream, "bitRate", 0);
+  const auto extNameV5 = ReadString(upstream, "extName");
+  const auto deliveredQuality = DeliveredQuality(bitRateV5, extNameV5, quality);
+  {
+    // Metadata only: whether the label came from the container, the bitrate or
+    // the request is what decides if the UI can be trusted.
+    std::ostringstream log;
+    log << "delivered_quality=" << deliveredQuality << " requested=" << quality
+        << " bit_rate=" << bitRateV5 << " ext_name=" << extNameV5
+        << " preview=" << (delivery == "preview");
+    ECHO_LOG("SongUrlV5", log.str());
+  }
   nlohmann::json v5Qualities = nlohmann::json::array();
   if (!playUrl.empty()) {
-    const auto extNameV5 = upstream.value("extName", "");
-    const auto bitRateV5 = upstream.value("bitRate", 0);
-    // 从请求参数或 URL 中推断音质标签
-    std::string qLabel = quality.empty() ? "128" : quality;
-    // 也从 URL 的 _qu 参数验证
-    auto quPos = playUrl.find("_qu");
-    if (quPos != std::string::npos && quPos + 3 < playUrl.size()) {
-      auto endPos = playUrl.find_first_of("_.?&/", quPos + 3);
-      if (endPos == std::string::npos) endPos = playUrl.size();
-      qLabel = playUrl.substr(quPos + 3, endPos - quPos - 3);
-    }
     v5Qualities.push_back({
-        {"quality", qLabel},
+        {"quality", deliveredQuality},
         {"url", playUrl},
         {"bitRate", bitRateV5},
         {"extName", extNameV5},
@@ -1412,7 +1474,7 @@ nlohmann::json SongUrlService::Resolve(
   return finish(BuildSongUrlOutput(SongUrlOutput{
       .hash = upstreamHash.empty() ? hash : upstreamHash,
       .reqHash = std::string(upstream.value("req_hash", hash)),
-      .quality = quality,
+      .quality = deliveredQuality,
       .playUrl = playUrl,
       .delivery = delivery,
       .vipRequired = ok ? vipLocked : vipRequiredOut,
@@ -1425,8 +1487,8 @@ nlohmann::json SongUrlService::Resolve(
       .songName = std::string(upstream.value("songName", "")),
       .singerName = std::string(upstream.value("singerName", "")),
       .timeLength = upstream.value("timeLength", 0),
-      .bitRate = upstream.value("bitRate", 0),
-      .extName = std::string(upstream.value("extName", "")),
+      .bitRate = bitRateV5,
+      .extName = extNameV5,
       .albumid = upstream.value("albumid", 0),
       .albumAudioId = upstream.value("album_audio_id", 0),
       .audioId = upstream.value("audio_id", 0),

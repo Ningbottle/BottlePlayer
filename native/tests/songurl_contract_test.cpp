@@ -898,7 +898,142 @@ int main() {
     std::cout << "  [ok] authenticated entitlement evidence still reports vip_required" << std::endl;
   }
 
-  if (deliveryFailures != 0) {
+  // ── v5 must report the delivered quality, not the requested one ──────
+  // Production resolves end on v5 (v6 only offers encrypted en_tracker_url),
+  // and v5 answers with a single quality. Echoing the request back made the UI
+  // claim "无损" while a 128 kbps stream was playing. Counted rather than
+  // asserted so the check survives the Release (/DNDEBUG) test build.
+  std::cout << "[SongUrlContract] Testing v5 delivered-quality evidence..." << std::endl;
+  int qualityFailures = 0;
+  {
+    auto expectQuality = [&](const char* surface, const nlohmann::json& result,
+                             const char* expected) {
+      const auto actual = result.value("quality", std::string{"missing"});
+      if (actual == expected) return;
+      std::fprintf(stderr,
+                   "[SongUrlContract] quality FAILED [%s]: expected %s got %s\n",
+                   surface, expected, actual.c_str());
+      ++qualityFailures;
+    };
+    auto resolveV5 = [](const char* body, const std::string& requested) {
+      echo::core::SongUrlService svc(
+          [body](const std::string&,
+                 const std::unordered_map<std::string, std::string>&) {
+            return echo::core::HttpResult{200, body, ""};
+          },
+          [](const std::string&, const std::string&,
+             const std::unordered_map<std::string, std::string>&) {
+            return echo::core::HttpResult{500, "{}", "v6 unavailable"};
+          });
+      return svc.Resolve("V5HASH", "1", "2", requested, "", "42", "tok",
+                         echo::core::DeviceInfo{});
+    };
+
+    const auto downgraded = resolveV5(
+        R"({"status":1,"hash":"V5HASH","url":"http://cdn.example/v5.mp3","bitRate":128,"extName":"mp3"})",
+        "flac");
+    if (downgraded.value("status", 0) != 1) {
+      std::fprintf(stderr, "[SongUrlContract] quality FAILED [downgraded.status]\n");
+      ++qualityFailures;
+    }
+    expectQuality("downgraded", downgraded, "128");
+    expectQuality("downgraded.data", downgraded["data"], "128");
+    if (downgraded["data"]["available_qualities"].size() != 1) {
+      std::fprintf(stderr, "[SongUrlContract] quality FAILED [downgraded.entries]\n");
+      ++qualityFailures;
+    } else {
+      expectQuality("downgraded.entries[0]", downgraded["data"]["available_qualities"][0], "128");
+    }
+
+    // A lossless container outranks the bitrate bands: 900 kbps flac must not
+    // be banded down to "320".
+    const auto lossless = resolveV5(
+        R"({"status":1,"hash":"V5HASH","url":"http://cdn.example/v5.flac","bitRate":900,"extName":"flac"})",
+        "320");
+    expectQuality("lossless", lossless, "flac");
+    expectQuality("lossless.entries[0]", lossless["data"]["available_qualities"][0], "flac");
+
+    // KuGou reports bitRate in bits per second on v5. Measured live: a request
+    // for "flac" came back as a 128018 bps mp3 preview whose URL still carried
+    // _quflac, so neither the marker nor the request may set the label.
+    const auto bpsPreview = resolveV5(
+        R"({"status":1,"hash":"V5HASH","url":"http://cdn.example/a_quflac_b.mp3","bitRate":128018,"extName":"mp3"})",
+        "flac");
+    expectQuality("bps_preview", bpsPreview, "128");
+    expectQuality("bps_preview.entries[0]", bpsPreview["data"]["available_qualities"][0], "128");
+
+    const auto bpsLossy320 = resolveV5(
+        R"({"status":1,"hash":"V5HASH","url":"http://cdn.example/v5.mp3","bitRate":320000,"extName":"mp3"})",
+        "128");
+    expectQuality("bps_lossy_320", bpsLossy320, "320");
+
+    const auto bpsLossless = resolveV5(
+        R"({"status":1,"hash":"V5HASH","url":"http://cdn.example/v5.flac","bitRate":900000,"extName":"flac"})",
+        "128");
+    expectQuality("bps_lossless", bpsLossless, "flac");
+
+    // Only a delivery with no evidence at all may fall back to the request.
+    const auto unevidenced = resolveV5(
+        R"({"status":1,"hash":"V5HASH","url":"http://cdn.example/v5.bin"})",
+        "high");
+    expectQuality("unevidenced", unevidenced, "high");
+
+    if (qualityFailures == 0) {
+      std::cout << "  [ok] v5 delivered-quality evidence" << std::endl;
+    }
+  }
+
+  // v6's kbps field must not be divided again: 2500 kbps is a valid master
+  // stream, whereas v5's 128000 field needs normalization from bps.
+  {
+    echo::core::SongUrlService svc(
+        [](const std::string&,const std::unordered_map<std::string,std::string>&) {
+          return echo::core::HttpResult{500,"{}","unexpected GET"};
+        },
+        [](const std::string&,const std::string&,const std::unordered_map<std::string,std::string>&) {
+          return echo::core::HttpResult{200,
+              R"({"status":1,"data":[{"info":{"tracker_url":["http://cdn.example/master.flac"],"bitrate":2500,"extname":"flac"}}]})",""};
+        });
+    const auto v6=svc.ResolveV6PrivUrl("MASTERHASH","123","42","tok","vipTok",3,{});
+    if (v6.value("status",0)!=1 || v6.value("quality",std::string{})!="master") {
+      std::fprintf(stderr,"[SongUrlContract] v6 kbps normalization FAILED\n");
+      ++qualityFailures;
+    }
+  }
+
+  // ── v6 with no usable URL must name a reason ─────────────────────────
+  // status is derived from playUrl alone, so this used to fail with an empty
+  // error and left the fallback undiagnosable in the field.
+  std::cout << "[SongUrlContract] Testing v6 encrypted-only failure reason..." << std::endl;
+  {
+    echo::core::SongUrlService svc(
+        [](const std::string&,
+           const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{500, "{}", "unexpected GET in v6 test"};
+        },
+        [](const std::string&, const std::string&,
+           const std::unordered_map<std::string, std::string>&) {
+          return echo::core::HttpResult{
+              200,
+              R"({"status":1,"data":[{"info":{"en_tracker_url":["http://cdn.example/en"],"bitrate":320,"extname":"mp3"}}]})",
+              ""};
+        });
+    const auto v6 = svc.ResolveV6PrivUrl("ENCHASH", "123", "42", "tok", "vipTok", 3, {});
+    const auto reason = v6.value("error", std::string{});
+    if (v6.value("status", 1) != 0 ||
+        v6.value("error_code", std::string{}) != "native_song_url_v6_no_url" ||
+        reason.find("encrypted") == std::string::npos) {
+      std::fprintf(stderr,
+                   "[SongUrlContract] v6 reason FAILED: status=%d error_code=%s error=%s\n",
+                   v6.value("status", -1), v6.value("error_code", std::string{"missing"}).c_str(),
+                   reason.c_str());
+      ++qualityFailures;
+    } else {
+      std::cout << "  [ok] v6 encrypted-only failure names its reason" << std::endl;
+    }
+  }
+
+  if (deliveryFailures != 0 || qualityFailures != 0) {
     std::cout << "[SongUrlContract] failed" << std::endl;
     return 1;
   }
