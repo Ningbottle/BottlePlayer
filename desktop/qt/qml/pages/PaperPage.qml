@@ -379,7 +379,7 @@ Item {
                                     }
                                     background: Rectangle {
                                         radius: height / 2
-                                        color: !heroPlay.enabled ? Theme.accentSoft : heroPlay.down ? Theme.accentHover : Theme.accent
+                                        color: !heroPlay.enabled ? Theme.accentSoft : heroPlay.down ? Theme.accentPressed : Theme.customized && (heroPlay.hovered || heroPlay.visualFocus) ? Theme.accentHover : Theme.accent
                                         PixelSnap.fit: true
                                         Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
                                     }

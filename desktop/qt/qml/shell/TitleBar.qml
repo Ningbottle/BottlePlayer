@@ -40,7 +40,7 @@ Item {
     Rectangle {
         visible: root.floating; width: controls.width+12; height: 32; radius: 16
         anchors.right: parent.right; anchors.rightMargin: 8; anchors.verticalCenter: parent.verticalCenter
-        color: reveal.hovered ? "#da101a20" : "#80101a20"
+        color: Theme.customized ? Theme.alpha(Theme.wallBg, reveal.hovered ? .85 : .50) : reveal.hovered ? "#da101a20" : "#80101a20"
         Behavior on color { ColorAnimation { duration: 180 } }
     }
     Row {
@@ -54,7 +54,7 @@ Item {
         WindowButton { objectName: "maximizeButton"; size: "sm"; glyph: root.win.visibility === Window.Maximized ? "move-diagonal-2" : "maximize-2"; Accessible.name: root.win.visibility === Window.Maximized ? "还原窗口" : "最大化"; onClicked: root.toggleMaximize() }
         WindowButton {
             objectName: "closeButton"; size: "sm"; glyph: "x"
-            hoverFill: root.wallInk ? Theme.wallDanger : Theme.danger; downFill: hoverFill; hoverTint: root.wallInk ? "white" : Theme.accentContrast
+            hoverFill: root.wallInk ? Theme.wallDanger : Theme.danger; downFill: hoverFill; hoverTint: Theme.inkOn(hoverFill)
             Accessible.name: "关闭"; onClicked: root.win.close()
         }
     }

@@ -144,9 +144,10 @@ Rectangle {
             IconButton {
                 objectName: "bravaisBarPlay"; visible: root.hasTrack; anchors.verticalCenter: parent.verticalCenter
                 media: music.playing ? "pause" : "play"; mediaBox: 32; mediaGlyph: 16; radius: width/2
-                variant: "primary"; primaryFill: Theme.wallChromeSurface
-                primaryHoverFill: Theme.wallHoverOn(primaryFill); primaryDownFill: Theme.wallDownOn(primaryFill)
-                tint: Theme.wallChromeInk; hoverTint: tint; focusInk: Theme.wallFocus
+                variant: "primary"; primaryFill: Theme.customized ? Theme.wallAccent : Theme.wallChromeSurface
+                primaryHoverFill: Theme.customized ? Theme.actionShade(primaryFill, .08) : Theme.wallHoverOn(primaryFill)
+                primaryDownFill: Theme.customized ? Theme.actionShade(primaryFill, .16) : Theme.wallDownOn(primaryFill)
+                tint: Theme.customized ? Theme.inkOn(primaryFill) : Theme.wallChromeInk; hoverTint: tint; focusInk: Theme.wallFocus
                 enabled: !music.loading; Accessible.name: music.playing ? "暂停" : "播放"; onClicked: music.toggle()
             }
             AbstractButton {

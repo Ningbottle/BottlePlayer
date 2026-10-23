@@ -209,6 +209,8 @@ if(BUILD_TESTING)
         "${CMAKE_CURRENT_BINARY_DIR}/Testing/navigation-interactions" navigation-interactions)
     add_test(NAME qt_quality_interactions COMMAND bottle_qt_smoke $<TARGET_FILE:bottle_native_fixture>
         "${CMAKE_CURRENT_BINARY_DIR}/Testing/quality-interactions" quality-interactions)
+    add_test(NAME qt_theme_interactions COMMAND bottle_qt_smoke $<TARGET_FILE:bottle_native_fixture>
+        "${CMAKE_CURRENT_BINARY_DIR}/Testing/theme-interactions" theme-interactions)
     add_test(NAME qt_text_raster COMMAND bottle_qt_smoke $<TARGET_FILE:bottle_native_fixture>
         "${CMAKE_CURRENT_BINARY_DIR}/Testing/text-raster" text-raster)
     # The offscreen platform cannot grab this native RHI window. Use the

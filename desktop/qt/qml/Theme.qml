@@ -22,6 +22,8 @@ QtObject {
     property string skin: "mint"
     property bool dark: false
     property string customAccent: ""
+    readonly property bool customized: customAccent.length > 0
+    readonly property color accentSeed: customized ? customAccent : "#808080"
     property bool compactList: false
     property string lyricFontSetting: "skin"
     property string lyricFocus: "readable"
@@ -179,6 +181,32 @@ QtObject {
     readonly property int pageEnterEasing: mint ? Easing.OutCubic : Easing.OutQuad
     readonly property real pageEnterY: mint ? 8 : 12
 
+    // A custom color supplies the hue for the whole surface ladder. Lightness
+    // stays role-owned, so dark/light mode and readable text remain predictable.
+    function tone(lightness, saturation, alpha) {
+        return Qt.hsla(Math.max(0, accentSeed.hslHue), accentSeed.hslSaturation * saturation,
+                       lightness, alpha === undefined ? 1 : alpha)
+    }
+    function alpha(c, opacity) { return Qt.rgba(c.r, c.g, c.b, opacity) }
+    function mix(a, b, amount) { return Qt.rgba(a.r+(b.r-a.r)*amount, a.g+(b.g-a.g)*amount, a.b+(b.b-a.b)*amount, 1) }
+    function readableColor(c, background) {
+        if (contrast(c, background) >= 4.6) return c
+        var target = luminance(background) < 0.4 ? Qt.rgba(1,1,1,1) : Qt.rgba(0,0,0,1)
+        var lo = 0, hi = 1
+        for (var i = 0; i < 12; ++i) {
+            var mid = (lo+hi)/2
+            if (contrast(mix(c,target,mid),background) >= 4.6) hi = mid
+            else lo = mid
+        }
+        return mix(c,target,hi)
+    }
+    function actionShade(c, amount) {
+        var blackInk = inkOn(c) === "#000000"
+        // At black/white end stops, move inward so hover and press stay visible.
+        var inward = luminance(c) < .02 || luminance(c) > .94
+        return mix(c, blackInk !== inward ? Qt.rgba(1,1,1,1) : Qt.rgba(0,0,0,1), amount)
+    }
+
     // ── Palette ──
     // Mint light follows the paper's own ladder — --paper #f1ead8 / --paper-2
     // #ebe2cb / --ink #221b12 / --rule rgba(34,27,18,.14) / --accent #a8311b —
@@ -187,33 +215,34 @@ QtObject {
     // `seal` carries the chromatic marks — the active rail, the current track,
     // the 切换 tag, the 印 stamp and the favorite heart. Aurora light: cool
     // glass; the curtain home swaps in the --stage-home-* ladder.
-    readonly property color bg: dark ? mint ? "#1A1714" : "#0B0D14" : mint ? "#F4F1EA" : stageHome ? "#E6ECF3" : "#F2F4FA"
-    readonly property color bgElevated: dark ? mint ? "#2E2820" : "#111520" : mint ? "#FBF9F4" : "#FFFFFF"
-    readonly property color surface: dark ? mint ? "#2A2520" : Qt.rgba(1, 1, 1, .06) : mint ? "#ECE7DC" : Qt.rgba(1, 1, 1, 0.72)
-    readonly property color surfaceHover: dark ? mint ? "#3A342E" : Qt.rgba(1, 1, 1, .09) : mint ? "#E4DED2" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.06)
-    readonly property color surfaceActive: dark ? mint ? "#463E36" : Qt.rgba(1, 1, 1, .13) : mint ? "#D9D2C4" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.10)
+    readonly property color bg: customized ? tone(dark ? .075 : .96, .50) : dark ? mint ? "#1A1714" : "#0B0D14" : mint ? "#F4F1EA" : stageHome ? "#E6ECF3" : "#F2F4FA"
+    readonly property color bgElevated: customized ? tone(dark ? .115 : .99, .40) : dark ? mint ? "#2E2820" : "#111520" : mint ? "#FBF9F4" : "#FFFFFF"
+    readonly property color surface: customized ? tone(dark ? .14 : .925, .40) : dark ? mint ? "#2A2520" : Qt.rgba(1, 1, 1, .06) : mint ? "#ECE7DC" : Qt.rgba(1, 1, 1, 0.72)
+    readonly property color surfaceHover: customized ? tone(dark ? .19 : .89, .40) : dark ? mint ? "#3A342E" : Qt.rgba(1, 1, 1, .09) : mint ? "#E4DED2" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.06)
+    readonly property color surfaceActive: customized ? tone(dark ? .235 : .84, .40) : dark ? mint ? "#463E36" : Qt.rgba(1, 1, 1, .13) : mint ? "#D9D2C4" : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.10)
     // --rule: translucent ink hairlines — the same separator the sheet uses,
     // never a solid gray that turns frames into UI cards.
-    readonly property color border: dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .10) : Qt.rgba(1, 1, 1, .09) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .14) : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.08)
-    readonly property color borderStrong: dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .22) : Qt.rgba(1, 1, 1, .17) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .30) : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.18)
+    readonly property color border: customized ? alpha(text, dark ? .14 : .16) : dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .10) : Qt.rgba(1, 1, 1, .09) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .14) : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.08)
+    readonly property color borderStrong: customized ? alpha(text, .30) : dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .22) : Qt.rgba(1, 1, 1, .17) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .30) : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.18)
     // --rule-soft: the dotted separators between press-list rows.
-    readonly property color borderSoft: dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .06) : Qt.rgba(1, 1, 1, .05) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .07) : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.05)
+    readonly property color borderSoft: customized ? alpha(text, .08) : dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .06) : Qt.rgba(1, 1, 1, .05) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .07) : Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.05)
     // --rule-ink: Mint's printer's rules; Aurora draws no rules (--rule-w 0).
-    readonly property color ruleInk: mint ? dark ? "#F5F0E4" : "#221B12" : border
+    readonly property color ruleInk: customized ? text : mint ? dark ? "#F5F0E4" : "#221B12" : border
     readonly property bool rules: mint
     // The tinted sheet inside a plate (the side-list's translucent paper)
     // and the plate itself (--paper-2), one step deeper than the page.
-    readonly property color paperVeil: mint ? dark ? Qt.rgba(1, 240 / 255, 220 / 255, .04) : Qt.rgba(1, 252 / 255, 243 / 255, .35) : surface
-    readonly property color text: dark ? mint ? "#F5F0E4" : "#F2F5FA" : mint ? "#221B12" : stageHome ? "#25354B" : "#121726"
-    readonly property color text2: dark ? mint ? "#C4B9A0" : "#A7B0BC" : mint ? "#4A3F2F" : stageHome ? "#52657B" : "#4C5670"
-    readonly property color text3: dark ? mint ? "#8A7E6A" : "#737F8E" : mint ? "#847460" : stageHome ? "#73869C" : "#8089A0"
-    readonly property color accent: customAccent.length > 0 ? customAccent : dark ? mint ? "#F5F0E4" : "#7CE0B8" : mint ? "#221B12" : "#2FAE84"
-    readonly property color accentHover: customAccent.length ? Qt.darker(accent, 1.12) : dark ? mint ? "#CFC4A8" : "#9AEACB" : mint ? "#0F0C06" : "#26946F"
-    readonly property color accentContrast: dark ? mint ? "#221B12" : "#0F1614" : mint ? "#F1EAD8" : "#FFFFFF"
+    readonly property color paperVeil: customized ? alpha(bgElevated, dark ? .10 : .50) : mint ? dark ? Qt.rgba(1, 240 / 255, 220 / 255, .04) : Qt.rgba(1, 252 / 255, 243 / 255, .35) : surface
+    readonly property color text: customized ? tone(dark ? .94 : .12, .20) : dark ? mint ? "#F5F0E4" : "#F2F5FA" : mint ? "#221B12" : stageHome ? "#25354B" : "#121726"
+    readonly property color text2: customized ? tone(dark ? .80 : .27, .20) : dark ? mint ? "#C4B9A0" : "#A7B0BC" : mint ? "#4A3F2F" : stageHome ? "#52657B" : "#4C5670"
+    readonly property color text3: customized ? readableColor(tone(dark ? .70 : .36, .20), surfaceActive) : dark ? mint ? "#8A7E6A" : "#737F8E" : mint ? "#847460" : stageHome ? "#73869C" : "#8089A0"
+    readonly property color accent: customized ? readableColor(accentSeed, surfaceActive) : dark ? mint ? "#F5F0E4" : "#7CE0B8" : mint ? "#221B12" : "#2FAE84"
+    readonly property color accentHover: customized ? actionShade(accent, .08) : dark ? mint ? "#CFC4A8" : "#9AEACB" : mint ? "#0F0C06" : "#26946F"
+    readonly property color accentPressed: customized ? actionShade(accent, .16) : accentHover
+    readonly property color accentContrast: customized ? inkOn(accent) : dark ? mint ? "#221B12" : "#0F1614" : mint ? "#F1EAD8" : "#FFFFFF"
     readonly property color accentSoft: customAccent.length ? Qt.rgba(accent.r, accent.g, accent.b, .14) : dark ? mint ? Qt.rgba(1, 240 / 255, 220 / 255, .10) : Qt.rgba(accent.r, accent.g, accent.b, .14) : mint ? Qt.rgba(34 / 255, 27 / 255, 18 / 255, .08) : Qt.rgba(47 / 255, 174 / 255, 132 / 255, 0.12)
     // --seal: the cinnabar stamp red (#a8311b light / #c4391e dark) —
     // chromatic marks on an inky page; `mark` is seal on paper, accent on glass.
-    readonly property color seal: customAccent.length > 0 ? customAccent : dark ? "#C4391E" : "#A8311B"
+    readonly property color seal: customized ? accent : dark ? "#C4391E" : "#A8311B"
     readonly property color sealSoft: dark ? Qt.rgba(seal.r, seal.g, seal.b, 0.22) : Qt.rgba(seal.r, seal.g, seal.b, 0.10)
     readonly property color mark: mint ? seal : accent
     readonly property color danger: dark ? mint ? "#C4391E" : "#FF7E86" : mint ? "#A8392D" : "#D2455A"
@@ -221,22 +250,24 @@ QtObject {
     readonly property color focus: mint ? seal : accent
     // --pane-bg (sidebar column) and --bar-bg (player bar) over --bg.
     // Zones separate by tiny luminance deltas rather than visible borders.
-    readonly property color paneBg: mint ? dark ? "#221D18" : "#EAE1C8" : dark ? Qt.rgba(0, 0, 0, .2) : Qt.rgba(1, 1, 1, 0.35)
-    readonly property color barBg: mint ? dark ? "#221D18" : "#F5EFDE" : dark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(1, 1, 1, 0.55)
+    readonly property color paneBg: customized ? tone(dark ? .10 : .91, .50) : mint ? dark ? "#221D18" : "#EAE1C8" : dark ? Qt.rgba(0, 0, 0, .2) : Qt.rgba(1, 1, 1, 0.35)
+    readonly property color barBg: customized ? tone(dark ? .10 : .94, .45) : mint ? dark ? "#221D18" : "#F5EFDE" : dark ? Qt.rgba(0, 0, 0, .35) : Qt.rgba(1, 1, 1, 0.55)
     readonly property color progressTrack: borderStrong
     // --play-bg / --play-fg: the round play buttons. Mint inks them.
-    readonly property color playBg: mint ? ruleInk : accent
-    readonly property color playFg: mint ? bg : accentContrast
+    readonly property color playBg: customized ? accent : mint ? ruleInk : accent
+    readonly property color playFg: customized ? accentContrast : mint ? bg : accentContrast
+    readonly property color playHoverBg: customized ? accentHover : playBg
+    readonly property color playPressedBg: customized ? accentPressed : mint ? text2 : accentHover
     // --stage-bg / --stage-text: hover veils over artwork.
-    readonly property color stageBg: mint ? "#EFEADA" : "#05060B"
-    readonly property color stageText: mint ? "#221D12" : "#F4F6FB"
+    readonly property color stageBg: customized ? mint ? surface : wallBg : mint ? "#EFEADA" : "#05060B"
+    readonly property color stageText: customized ? mint ? text : wallChromeInk : mint ? "#221D12" : "#F4F6FB"
     // --hero-grad / --hero-glow-opacity: Aurora's greeting ink and cover glow.
     readonly property bool heroGradient: aurora
     readonly property real heroGlowOpacity: mint ? 0 : 0.5
 
     // Curtain stage furniture (aurora light --stage-home-*).
-    readonly property color stageCard: stageHome && !dark ? "#F7FAFE" : bgElevated
-    readonly property color stageCardBorder: stageHome && !dark ? Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.10) : border
+    readonly property color stageCard: !customized && stageHome && !dark ? "#F7FAFE" : bgElevated
+    readonly property color stageCardBorder: !customized && stageHome && !dark ? Qt.rgba(20 / 255, 30 / 255, 60 / 255, 0.10) : border
     readonly property real stageArtOpacity: stageHome ? (dark ? 0.15 : 0.31) : mint ? 0.16 : 0.62
 
     // ── Shadows: shared theme shadows. blurMax carries the CSS blur radius
@@ -254,25 +285,25 @@ QtObject {
     readonly property int shadowPopBlurMax: mint ? 40 : 50
     readonly property real shadowPopY: mint ? 16 : 20
     // --fx-glow on the primary play button.
-    readonly property color glowColor: Qt.rgba(47 / 255, 174 / 255, 132 / 255, 0.20)
+    readonly property color glowColor: customized ? alpha(accent, .20) : Qt.rgba(47 / 255, 174 / 255, 132 / 255, 0.20)
     readonly property int glowBlurMax: 48
     readonly property real glowY: 18
 
     // ── Poster wall (skin-independent artwork scene) ──
-    readonly property color wallBg: "#101721"
-    readonly property color wallSurface: "#1C2735"
+    readonly property color wallBg: customized ? tone(.065, .40) : "#101721"
+    readonly property color wallSurface: customized ? tone(.14, .40) : "#1C2735"
     readonly property color wallInk: "#FFFFFF"
     readonly property color wallInkSecondary: Qt.rgba(1, 1, 1, 0.72)
     readonly property color wallInkMuted: Qt.rgba(1, 1, 1, 0.65)
     readonly property color wallInkDim: Qt.rgba(1, 1, 1, 0.58)
-    readonly property color wallMuted: "#A4B3C5"
+    readonly property color wallMuted: customized ? tone(.72, .20) : "#A4B3C5"
     readonly property color wallBorder: Qt.rgba(1, 1, 1, 0.14)
     readonly property color wallBorderStrong: Qt.rgba(1, 1, 1, 0.20)
     readonly property color wallCurrentBorder: Qt.rgba(1, 1, 1, 0.85)
-    readonly property color wallCurrentBg: "#344F59"
-    readonly property color wallGlassBg: Qt.rgba(13 / 255, 22 / 255, 32 / 255, 0.76)
-    readonly property color wallBadgeBg: Qt.rgba(4 / 255, 12 / 255, 22 / 255, 0.52)
-    readonly property color wallHover: Qt.rgba(38 / 255, 52 / 255, 68 / 255, 0.92)
+    readonly property color wallCurrentBg: customized ? tone(.25, .50) : "#344F59"
+    readonly property color wallGlassBg: customized ? tone(.08, .40, .76) : Qt.rgba(13 / 255, 22 / 255, 32 / 255, 0.76)
+    readonly property color wallBadgeBg: customized ? tone(.04, .40, .52) : Qt.rgba(4 / 255, 12 / 255, 22 / 255, 0.52)
+    readonly property color wallHover: customized ? tone(.22, .40, .92) : Qt.rgba(38 / 255, 52 / 255, 68 / 255, 0.92)
     readonly property color wallSoftBg: Qt.rgba(1, 1, 1, 0.08)
     readonly property color wallPosterHover: Qt.rgba(1, 1, 1, 0.05)
     readonly property color wallControlHover: Qt.rgba(1, 1, 1, 0.15)
@@ -285,19 +316,22 @@ QtObject {
     readonly property color wallLyricShadow: Qt.rgba(0, 0, 0, 0.5)
     readonly property real wallControlWidth: 36
     readonly property real wallTitleClearance: 116
-    readonly property color radioAccent: "#B64F69"
+    readonly property color radioAccent: customized ? accent : "#B64F69"
     // --radio-soft: color-mix(--radio-accent 12%, --bg).
-    readonly property color radioSoft: dark ? Qt.rgba(radioAccent.r, radioAccent.g, radioAccent.b, 0.18) : mint ? "#EEE1D6" : "#EBE0E9"
+    readonly property color radioSoft: customized ? accentSoft : dark ? Qt.rgba(radioAccent.r, radioAccent.g, radioAccent.b, 0.18) : mint ? "#EEE1D6" : "#EBE0E9"
 
     // Wall furniture is independent of the newspaper skin and light preference.
     readonly property int wallBarH: 44
-    readonly property color wallChromeSurface: "#1C2735"
-    readonly property color wallChromeInk: "#EEF2F7"
+    readonly property color wallChromeSurface: wallSurface
+    readonly property color wallChromeInk: customized ? tone(.94, .12) : "#EEF2F7"
     readonly property color wallChromeMuted: Qt.rgba(wallChromeInk.r, wallChromeInk.g, wallChromeInk.b, 0.64)
-    readonly property color wallChromeHover: Qt.rgba(1,1,1,0.08)
-    readonly property color wallChromePressed: Qt.rgba(1,1,1,0.14)
+    readonly property color wallChromeHover: customized ? alpha(wallAccent, .12) : Qt.rgba(1,1,1,0.08)
+    readonly property color wallChromePressed: customized ? alpha(wallAccent, .20) : Qt.rgba(1,1,1,0.14)
     readonly property color wallDanger: "#D2455A"
-    readonly property color wallAccent: customAccent.length ? customAccent : "#7CE0B8"
+    readonly property color wallAccent: customized ? readableColor(accentSeed, tone(.22, .40)) : "#7CE0B8"
+    readonly property color immersivePlayBg: customized ? wallAccent : "#dbffffff"
+    readonly property color immersivePlayFg: customized ? inkOn(wallAccent) : "#31384c"
+    readonly property color immersiveProgress: customized ? wallAccent : "#e6ffffff"
     readonly property color wallFocus: wallFocusFor(wallAccent)
     function luminance(c) {
         function linear(v) { return v <= 0.04045 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4) }

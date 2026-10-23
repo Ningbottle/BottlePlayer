@@ -12,6 +12,8 @@ native/core/C_API.cpp → CompatApi → compat_routes → 业务服务
 
 QML 负责布局、交互和可视状态，业务状态由对应控制器持有。`Main.qml` 组合页面，`Theme.qml` 统一主题，`ui/` 中的基础设施处理排版、像素对齐和窗口呈现。
 
+自选主题色由 `AppearanceController` 保存，`Theme.qml` 按所选色相生成页面、侧栏、卡片、边框和按钮的颜色。浅色与深色各自保持表面的明度层级；按钮底色和文字按对比度成对生成，悬停与按下继续使用同一组颜色。默认色调保留报刊与幕布的原有配色；幕布界面保持暗底，沉浸背景仍取自封面，操作控件随主题色变化。错误、警告等语义色独立于自选色调。
+
 `MusicController` 维护播放意图和队列；`AccountController`、`LibraryController`、`HomeController`、`StatsController` 等维护各自领域的加载状态及过期结果抑制。网络服务策略和持久化约束归原生后端所有。
 
 音频解码、时钟和输出也在 `desktop/qt`，由 `QMediaPlayer`、`MusicController`、`EqualizerController` 和 `PcmOutput` 协作完成。`native` 提供服务请求、执行策略和存储，不持有音频引擎。动态库与 Qt 宿主运行于同一进程，C ABI 是模块接口，不是进程隔离。

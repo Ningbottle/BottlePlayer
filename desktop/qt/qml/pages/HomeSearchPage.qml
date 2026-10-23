@@ -11,8 +11,8 @@ Item {
     property string submittedTerm: ""
     readonly property bool hasSearch: submittedTerm.length > 0 && music.searchTerm === submittedTerm
     readonly property real inset: Math.max(52, (width - 880) / 2)
-    readonly property color ink: "#ecebe6"
-    readonly property color muted: "#a4abaa"
+    readonly property color ink: Theme.customized ? Theme.wallChromeInk : "#ecebe6"
+    readonly property color muted: Theme.customized ? Theme.wallChromeMuted : "#a4abaa"
     signal close()
     signal query(string term, bool append)
     property real openProgress: opened ? 1 : 0
@@ -26,7 +26,7 @@ Item {
     function submit() { var term=input.text.trim(); if (term && music.ready) root.query(term, false) }
     onSubmittedTermChanged: if (input.text !== submittedTerm) input.text=submittedTerm
 
-    Rectangle { anchors.fill: parent; color: "#171d20" }
+    Rectangle { objectName: "homeSearchBackground"; anchors.fill: parent; color: Theme.customized ? Theme.wallBg : "#171d20" }
     MouseArea {
         anchors.fill: parent; acceptedButtons: Qt.AllButtons; preventStealing: true
         onPressed: mouse => mouse.accepted=true
@@ -35,7 +35,7 @@ Item {
     component SearchIcon: IconButton {
         boxSize: 32; radius: 8; glyphSize: 17
         tint: root.muted; hoverTint: root.ink; checkedTint: root.ink
-        hoverFill: "#14ffffff"; downFill: "#22ffffff"; focusInk: "#d5ccb7"
+        hoverFill: Theme.wallChromeHover; downFill: Theme.wallChromePressed; focusInk: Theme.customized ? Theme.wallFocus : "#d5ccb7"
     }
     SearchIcon {
         objectName: "homeSearchBack"; x: 18; y: 48; glyph: "arrow-left"
@@ -51,9 +51,9 @@ Item {
             TextField {
                 id: input; objectName: "bravaisSearchInput"
                 x: 36; width: parent.width - x - 48; height: 46; padding: 0
-                placeholderText: "输入歌名或歌手"; placeholderTextColor: "#8f9999"
+                placeholderText: "输入歌名或歌手"; placeholderTextColor: Theme.customized ? root.muted : "#8f9999"
                 color: root.ink; font.family: Theme.fontUi; font.pixelSize: 22
-                selectionColor: "#576662"; selectedTextColor: "#ffffff"; background: null
+                selectionColor: Theme.customized ? Theme.wallAccent : "#576662"; selectedTextColor: Theme.customized ? Theme.inkOn(Theme.wallAccent) : "#ffffff"; background: null
                 onAccepted: root.submit()
                 Accessible.name: "输入歌名或歌手"
             }
@@ -62,7 +62,7 @@ Item {
                 enabled: music.ready && input.text.trim().length > 0
                 Accessible.name: "搜索"; onClicked: root.submit()
             }
-            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: input.activeFocus ? "#a7b7ae" : "#44504f" }
+            Rectangle { anchors.bottom: parent.bottom; width: parent.width; height: 1; color: Theme.customized ? (input.activeFocus ? Theme.wallAccent : Theme.wallChromePressed) : input.activeFocus ? "#a7b7ae" : "#44504f" }
         }
         Text {
             objectName: "homeSearchStatus"; width: parent.width
@@ -81,7 +81,7 @@ Item {
         visible: root.hasSearch; clip: true; currentIndex: -1
         boundsBehavior: Flickable.StopAtBounds
         SnapSettle { flickable: results }
-        ScrollBar.vertical: ThinScrollBar { thumbColor: "#596362"; thumbHoverColor: "#a4abaa" }
+        ScrollBar.vertical: ThinScrollBar { thumbColor: Theme.customized ? Theme.wallChromeMuted : "#596362"; thumbHoverColor: Theme.customized ? Theme.wallAccent : "#a4abaa" }
         Keys.onReturnPressed: if (currentIndex>=0) music.playFrom("search",currentIndex)
         delegate: AbstractButton {
             id: song; required property var modelData; required property int index
@@ -90,7 +90,7 @@ Item {
             Accessible.name: modelData.title+"，"+modelData.artist
             onClicked: results.currentIndex=index
             onDoubleClicked: music.playFrom("search",index)
-            background: Rectangle { radius: 7; color: song.hovered || song.visualFocus || song.index===results.currentIndex ? "#12ffffff" : "transparent" }
+            background: Rectangle { radius: 7; color: song.hovered || song.visualFocus || song.index===results.currentIndex ? (Theme.customized ? Theme.wallChromeHover : "#12ffffff") : "transparent" }
             contentItem: Item {
                 Cover { x: 8; y: 12; width: 48; height: 48; radius: 5; pixels: 120; url: song.modelData.image || ""; title: song.modelData.title || "" }
                 Column {
@@ -119,7 +119,7 @@ Item {
                 visible: root.hasSearch && (music.searching || !!music.searchError || music.searchResults.length < music.searchTotal)
                 text: music.searching ? "正在加载…" : music.searchError ? "重试搜索" : "加载更多"
                 enabled: !music.searching; quiet: true; restInk: root.muted; hoverInk: root.ink
-                restFill: "transparent"; hoverFill: "#14ffffff"; downFill: "#22ffffff"; focusInk: "#d5ccb7"
+                restFill: "transparent"; hoverFill: Theme.wallChromeHover; downFill: Theme.wallChromePressed; focusInk: Theme.customized ? Theme.wallFocus : "#d5ccb7"
                 onClicked: root.query(root.submittedTerm,music.searchResults.length>0)
             }
         }

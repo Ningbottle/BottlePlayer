@@ -83,7 +83,7 @@ Item {
                     width: vipBadge.implicitHeight - Theme.s1 * 2; height: width; radius: width / 2
                     color: vipBadge.member ? Theme.seal : Theme.surfaceActive
                     Text {
-                        anchors.centerIn: parent; text: "V"; color: vipBadge.member ? "#ffffff" : Theme.text3
+                        anchors.centerIn: parent; text: "V"; color: vipBadge.member ? (Theme.customized ? Theme.accentContrast : "#ffffff") : Theme.text3
                         font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwBold
                     }
                 }

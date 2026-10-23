@@ -12,12 +12,12 @@ Item {
     height: 76
     component LightButton: IconButton {
         id: button
-        tint: "#c9ffffff"; hoverTint: "white"; checkedTint: "white"
+        tint: "#c9ffffff"; hoverTint: "white"; checkedTint: Theme.customized ? Theme.wallAccent : "white"
         glyphSize: 18; glyphLift: 0; radius: width / 2
         background: Rectangle {
             radius: button.radius
-            color: button.down || button.checked ? "#30ffffff" : button.hovered || button.visualFocus ? "#18ffffff" : "transparent"
-            border.width: button.visualFocus ? 2 : 0; border.color: "#99ffffff"
+            color: button.down || button.checked ? (Theme.customized ? Theme.wallChromePressed : "#30ffffff") : button.hovered || button.visualFocus ? (Theme.customized ? Theme.wallChromeHover : "#18ffffff") : "transparent"
+            border.width: button.visualFocus ? 2 : 0; border.color: Theme.customized ? Theme.wallFocus : "#99ffffff"
         }
     }
     Rectangle { anchors.fill: parent; color: "#27ffffff" }
@@ -33,11 +33,11 @@ Item {
             anchors.verticalCenter: parent.verticalCenter
             width: parent.width; height: progress.hovered || progress.pressed ? 5 : 2
             color: "#36ffffff"
-            Rectangle { width: progress.visualPosition * parent.width; height: parent.height; color: "#e6ffffff" }
+            Rectangle { width: progress.visualPosition * parent.width; height: parent.height; color: Theme.immersiveProgress }
         }
         handle: Rectangle {
             x: progress.visualPosition * progress.width - width / 2; y: (progress.height - height) / 2
-            width: 12; height: 12; radius: 6; color: "white"
+            width: 12; height: 12; radius: 6; color: Theme.customized ? Theme.immersiveProgress : "white"
             visible: progress.hovered || progress.pressed || progress.visualFocus
         }
         ToolTip.visible: hovered || pressed
@@ -79,11 +79,16 @@ Item {
             Accessible.name: "上一首"; onClicked: music.previous()
         }
         LightButton {
+            id: playButton
             objectName: "immersivePlayButton"
             mediaBox: 48; mediaGlyph: 24
-            media: music.playing ? "pause" : "play"; tint: "#31384c"; hoverTint: tint
+            media: music.playing ? "pause" : "play"; tint: Theme.immersivePlayFg; hoverTint: tint
             enabled: !music.loading; Accessible.name: music.playing ? "暂停" : "播放"
-            background: Rectangle { radius: width / 2; color: "#dbffffff"; border.width: parent.visualFocus ? 2 : 0; border.color: "white" }
+            background: Rectangle {
+                radius: width / 2
+                color: Theme.customized && (playButton.down || playButton.lit) ? Theme.actionShade(Theme.immersivePlayBg, playButton.down ? .16 : .08) : Theme.immersivePlayBg
+                border.width: playButton.visualFocus ? 2 : 0; border.color: "white"
+            }
             onClicked: music.toggle()
         }
         LightButton {
@@ -118,11 +123,11 @@ Item {
             Accessible.name: "音量"
             background: Rectangle {
                 y: (volume.height - height) / 2; width: volume.width; height: 3; radius: 2; color: "#40ffffff"
-                Rectangle { width: volume.visualPosition * parent.width; height: parent.height; radius: 2; color: "#c9ffffff" }
+                Rectangle { width: volume.visualPosition * parent.width; height: parent.height; radius: 2; color: Theme.customized ? Theme.immersiveProgress : "#c9ffffff" }
             }
             handle: Rectangle {
                 x: volume.visualPosition * (volume.width - width); y: (volume.height - height) / 2
-                width: 9; height: 9; radius: 5; color: "white"
+                width: 9; height: 9; radius: 5; color: Theme.customized ? Theme.immersiveProgress : "white"
             }
         }
         LightButton {

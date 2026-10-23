@@ -19,7 +19,7 @@ Row {
         id: playBtn
         objectName: "playButton"
         variant: "primary"; radius: Theme.rFull; mediaBox: 44; mediaGlyph: 22; anchors.verticalCenter: parent.verticalCenter
-        primaryFill: Theme.playBg; primaryDownFill: Theme.mint ? Theme.text2 : Theme.accentHover
+        primaryFill: Theme.playBg; primaryHoverFill: Theme.playHoverBg; primaryDownFill: Theme.playPressedBg
         tint: Theme.playFg; hoverTint: Theme.playFg
         media: music.playing ? "pause" : "play"
         enabled: !music.loading && (music.queueIndex >= 0 || music.feed.length > 0)

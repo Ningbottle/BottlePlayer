@@ -15,7 +15,7 @@ AbstractButton {
     property real worldScale: 1
     property color focusInk: Theme.focus
     property color downFill: Theme.surfaceActive
-    property color primaryHoverFill: primaryFill
+    property color primaryHoverFill: Theme.customized ? Theme.actionShade(primaryFill, .08) : primaryFill
     readonly property var mediaSpec: Theme.mediaStyle[media] || Theme.mediaStyle.play
     property string size: "md"
     property string variant: "ghost"
@@ -27,9 +27,9 @@ AbstractButton {
     property color tint: variant === "primary" ? Theme.accentContrast : Theme.text2
     property color hoverTint: variant === "primary" ? Theme.accentContrast : Theme.text
     property color hoverFill: Theme.surfaceHover
-    property color checkedTint: Theme.text
+    property color checkedTint: Theme.customized ? Theme.accent : Theme.text
     property color primaryFill: Theme.accent
-    property color primaryDownFill: Theme.accentHover
+    property color primaryDownFill: Theme.customized ? Theme.actionShade(primaryFill, .16) : Theme.accentHover
     // Elevation renders on the content-free background face, like Plate:
     // layering the whole button would rasterize the glyph with the shadow.
     property int shadowLevel: 0

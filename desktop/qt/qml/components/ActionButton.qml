@@ -37,7 +37,7 @@ Button {
     property color restInk: variant === "primary" ? Theme.accentContrast : variant === "ghost" ? Theme.text2 : Theme.text
     property color hoverInk: variant === "primary" ? Theme.accentContrast : Theme.text
     readonly property color ink: active || lit ? hoverInk : restInk
-    readonly property color fill: variant === "primary" ? (down ? Theme.accentHover : Theme.accent)
+    readonly property color fill: variant === "primary" ? (down ? Theme.accentPressed : lit && Theme.customized ? Theme.accentHover : Theme.accent)
         : down || active ? downFill
         : lit ? hoverFill
         : restFill.a > 0 ? restFill : Theme.clear(hoverFill)

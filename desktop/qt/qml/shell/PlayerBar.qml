@@ -253,7 +253,7 @@ Rectangle {
                     radius: Theme.rFull; color: Theme.progressTrack
                     Rectangle {
                         width: volume.visualPosition * parent.width; height: parent.height; radius: Theme.rFull
-                        color: volumeHover.hovered ? Theme.accent : Theme.text2
+                        color: Theme.customized || volumeHover.hovered ? Theme.accent : Theme.text2
                     }
                 }
                 handle: Rectangle {

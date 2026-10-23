@@ -42,7 +42,7 @@ AbstractButton {
         Rectangle {
             x: Theme.hairline * 2 + Theme.s1 + (root.checked ? 16 : 0)
             y: Theme.hairline + (20 - height) / 2
-            width: 12; height: 12; radius: Theme.rFull; color: Theme.bgElevated
+            width: 12; height: 12; radius: Theme.rFull; color: root.checked && Theme.customized ? Theme.accentContrast : Theme.bgElevated
             Behavior on x { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
         }
     }

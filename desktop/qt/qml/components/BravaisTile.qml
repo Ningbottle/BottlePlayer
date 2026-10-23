@@ -127,9 +127,10 @@ Item {
                 id: playControl; objectName: root.expanded ? "bravaisFocusPlay" : ""
                 anchors.verticalCenter: parent.verticalCenter
                 media: root.current && music.playing ? "pause" : "play"; mediaBox: 44; mediaGlyph: 22; worldScale: root.pixelScale
-                variant: "primary"; radius: width/2; primaryFill: "white"
-                primaryHoverFill: Theme.wallHoverOn(primaryFill); primaryDownFill: Theme.wallDownOn(primaryFill)
-                tint: Theme.wallChromeSurface; hoverTint: tint; focusInk: Theme.wallFocus
+                variant: "primary"; radius: width/2; primaryFill: Theme.customized ? Theme.wallAccent : "white"
+                primaryHoverFill: Theme.customized ? Theme.actionShade(primaryFill, .08) : Theme.wallHoverOn(primaryFill)
+                primaryDownFill: Theme.customized ? Theme.actionShade(primaryFill, .16) : Theme.wallDownOn(primaryFill)
+                tint: Theme.customized ? Theme.inkOn(primaryFill) : Theme.wallChromeSurface; hoverTint: tint; focusInk: Theme.wallFocus
                 enabled: !music.loading; Accessible.name: root.current && music.playing ? "暂停" : "播放"; onClicked: root.play()
             }
             ActionButton {

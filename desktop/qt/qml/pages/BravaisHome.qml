@@ -239,18 +239,18 @@ Item {
     Rectangle {
         id: edgePanel; objectName: "homeSidebar"
         x: root.sidebarOpen ? 66 : -width; y: Math.max(50,(root.height-height)/2)
-        width: 164; height: navigation.height+28; radius: 10; color: "#ed182326"
+        width: 164; height: navigation.height+28; radius: 10; color: Theme.customized ? Theme.alpha(Theme.wallSurface, .93) : "#ed182326"
         visible: x > -width
         Behavior on x { NumberAnimation { duration: music.reducedMotion ? 0 : 280; easing.type: Easing.OutCubic } }
         Column {
             id: navigation; x: 10; y: 14; width: parent.width-20; spacing: 5
-            Text { x: 10; text: "BottleMusic"; color: "#b8c5c4"; font.family: Theme.fontDisplay; font.pixelSize: 17; bottomPadding: 7 }
+            Text { x: 10; text: "BottleMusic"; color: Theme.customized ? Theme.wallChromeInk : "#b8c5c4"; font.family: Theme.fontDisplay; font.pixelSize: 17; bottomPadding: 7 }
             Repeater {
                 model: [{key:"recommend",label:"今日推荐"},{key:"playlists",label:"发现歌单"},{key:"albums",label:"推荐曲的专辑"},{key:"mine",label:"我的歌单"},{key:"favorites",label:"本地收藏"}]
                 WallAction {
                     required property var modelData
                     objectName: "bravaisTab_"+modelData.key; width: navigation.width; text: modelData.label
-                    restFill: root.selectedTab===modelData.key ? "#25ffffff" : "transparent"
+                    restFill: root.selectedTab===modelData.key ? (Theme.customized ? Theme.wallChromePressed : "#25ffffff") : "transparent"
                     onClicked: root.chooseTab(modelData.key)
                 }
             }
@@ -296,14 +296,14 @@ Item {
     }
     Rectangle {
         id: nowPlaying; objectName: "homeNowPlaying"; x: 18; y: root.height-height-16; z: 9
-        width: 280; height: 88; radius: 12; color: "#ef1b282c"
-        border.width: 1; border.color: "#38b7c9c4"
+        width: 280; height: 88; radius: 12; color: Theme.customized ? Theme.alpha(Theme.wallSurface, .94) : "#ef1b282c"
+        border.width: 1; border.color: Theme.customized ? Theme.alpha(Theme.wallChromeInk, .22) : "#38b7c9c4"
         MouseArea {
             anchors.fill: parent; acceptedButtons: Qt.AllButtons; preventStealing: true
             onPressed: mouse => mouse.accepted=true
             onWheel: wheel => wheel.accepted=true
         }
-        Rectangle { x: 4; y: -3; z: -1; width: parent.width-8; height: parent.height; radius: 12; color: "#40536364"; rotation: -1 }
+        Rectangle { x: 4; y: -3; z: -1; width: parent.width-8; height: parent.height; radius: 12; color: Theme.customized ? Theme.wallChromeHover : "#40536364"; rotation: -1 }
         AbstractButton {
             x: 12; y: 12; width: parent.width-90; height: 49
             Accessible.name: "正在播放："+(music.current.title || "还没有歌曲"); onClicked: if (music.current.hash) root.player()
@@ -311,9 +311,9 @@ Item {
                 Cover { width: 48; height: 48; radius: 6; url: music.current.image || ""; pixels: 120 }
                 Column {
                     x: 60; width: parent.width-x; spacing: 3
-                    Text { text: music.playing ? "正在播放" : "此刻"; color: "#a9bab9"; font.family: Theme.fontUi; font.pixelSize: 9; font.letterSpacing: 1 }
-                    Text { width: parent.width; text: music.current.title || "还没有播放的歌"; color: "#f2f5f3"; font.family: Theme.fontUi; font.pixelSize: 13; elide: Text.ElideRight; textFormat: Text.PlainText }
-                    Text { width: parent.width; text: music.current.artist || "选一张封面，听听看"; color: "#c2cecc"; font.family: Theme.fontUi; font.pixelSize: 10; elide: Text.ElideRight; textFormat: Text.PlainText }
+                    Text { text: music.playing ? "正在播放" : "此刻"; color: Theme.customized ? Theme.wallChromeMuted : "#a9bab9"; font.family: Theme.fontUi; font.pixelSize: 9; font.letterSpacing: 1 }
+                    Text { width: parent.width; text: music.current.title || "还没有播放的歌"; color: Theme.customized ? Theme.wallChromeInk : "#f2f5f3"; font.family: Theme.fontUi; font.pixelSize: 13; elide: Text.ElideRight; textFormat: Text.PlainText }
+                    Text { width: parent.width; text: music.current.artist || "选一张封面，听听看"; color: Theme.customized ? Theme.wallChromeMuted : "#c2cecc"; font.family: Theme.fontUi; font.pixelSize: 10; elide: Text.ElideRight; textFormat: Text.PlainText }
                 }
             }
         }
@@ -321,12 +321,12 @@ Item {
         WallIcon { objectName: "bravaisTools"; x: parent.width-42; y: 21; glyph: "more-horizontal"; Accessible.name: "播放选项"; onClicked: tools.opened ? tools.close() : tools.open() }
         Rectangle {
             objectName: "homeCardProgress"; x: 13; y: parent.height-15; width: parent.width-26; height: 2; radius: 1; color: "#48616361"
-            Rectangle { width: parent.width*Math.max(0,Math.min(1,music.duration>0 ? music.position/music.duration : 0)); height: parent.height; radius: 1; color: "#c1d2c8" }
+            Rectangle { width: parent.width*Math.max(0,Math.min(1,music.duration>0 ? music.position/music.duration : 0)); height: parent.height; radius: 1; color: Theme.customized ? Theme.wallAccent : "#c1d2c8" }
         }
     }
     component WallIcon: IconButton {
         boxSize: 30; radius: width/2; glyphSize: 15
-        tint: Theme.wallChromeMuted; hoverTint: Theme.wallChromeInk; checkedTint: Theme.wallChromeInk
+        tint: Theme.wallChromeMuted; hoverTint: Theme.wallChromeInk; checkedTint: Theme.customized ? Theme.wallAccent : Theme.wallChromeInk
         hoverFill: Theme.wallChromeHover; downFill: Theme.wallChromePressed; focusInk: Theme.wallFocus
     }
     component WallAction: ActionButton {
@@ -383,8 +383,10 @@ Item {
                 IconButton {
                     objectName: "bravaisTransportPlay"; anchors.verticalCenter: parent.verticalCenter
                     media: music.playing ? "pause" : "play"; mediaBox: 48; mediaGlyph: 24; radius: width/2; variant: "primary"
-                    primaryFill: "white"; primaryHoverFill: Theme.wallHoverOn(primaryFill); primaryDownFill: Theme.wallDownOn(primaryFill)
-                    tint: Theme.wallChromeSurface; hoverTint: tint; focusInk: Theme.wallFocus
+                    primaryFill: Theme.customized ? Theme.wallAccent : "white"
+                    primaryHoverFill: Theme.customized ? Theme.actionShade(primaryFill, .08) : Theme.wallHoverOn(primaryFill)
+                    primaryDownFill: Theme.customized ? Theme.actionShade(primaryFill, .16) : Theme.wallDownOn(primaryFill)
+                    tint: Theme.customized ? Theme.inkOn(primaryFill) : Theme.wallChromeSurface; hoverTint: tint; focusInk: Theme.wallFocus
                     enabled: !!music.current.hash && !music.loading; Accessible.name: music.playing ? "暂停" : "播放"; onClicked: music.toggle()
                 }
                 WallIcon { objectName: "bravaisTransportNext"; anchors.verticalCenter: parent.verticalCenter; media: "next"; mediaBox: 40; mediaGlyph: 18; enabled: !!music.current.hash; Accessible.name: "下一首"; onClicked: music.next() }

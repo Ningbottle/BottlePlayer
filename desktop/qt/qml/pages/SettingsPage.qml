@@ -43,7 +43,7 @@ Flickable {
             if (Math.abs(lyricSizes[i].value - px) < Math.abs(best - px)) best = lyricSizes[i].value
         return best
     }
-    ColorDialog { id: accentPicker; title: "强调色"; selectedColor: Theme.accent; onAccepted: appearanceState.accent = String(selectedColor) }
+    ColorDialog { id: accentPicker; title: "主题色调"; selectedColor: Theme.customized ? Theme.accentSeed : Theme.accent; onAccepted: appearanceState.accent = String(selectedColor) }
 
     Item {
         id: page
@@ -208,7 +208,7 @@ Flickable {
                 Segmented { objectName: "appearanceMode"; value: appearanceState.mode; options: [{value:"light",label:"浅色",objectName:"appearanceLight"},{value:"dark",label:"深色",objectName:"appearanceDark"},{value:"system",label:"跟随系统",objectName:"appearanceSystem"}]; onSelected: value => appearanceState.mode = value }
             }
             SettingItem {
-                label: "强调色"; hint: "按钮、进度与当前播放的颜色"
+                label: "主题色调"; hint: "页面底色、卡片、按钮与选中状态随色调联动"
                 Row { spacing: 8; ActionButton { text: "选择颜色"; onClicked: accentPicker.open() } ActionButton { text: "恢复默认"; quiet: true; onClicked: appearanceState.accent = "" } }
             }
             SettingItem {
