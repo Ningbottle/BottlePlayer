@@ -51,7 +51,6 @@ endif()
 qt_add_executable(BottleMusicQt WIN32 src/main.cpp)
 target_link_libraries(BottleMusicQt PRIVATE bottle_qt_core Qt6::QuickControls2)
 set_source_files_properties(qml/Theme.qml qml/RadixColors.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
-set_source_files_properties(qml/components/BravaisLayout.qml PROPERTIES QT_QML_SINGLETON_TYPE TRUE)
 set(QT_QML_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/qml)
 # Lucide and project-owned geometry (see licenses/THIRD_PARTY.md); served through the
 # image://icon provider from :/qt/qml/BottleMusic/assets/icons/.
@@ -66,8 +65,7 @@ qt_add_qml_module(bottle_qt_ui URI BottleMusic VERSION 1.0
     qml/components/SeekBar.qml qml/components/Segmented.qml qml/components/SettingItem.qml
     qml/components/ShadowEffect.qml qml/components/SmoothWheel.qml qml/components/SongCard.qml
     qml/components/ThinScrollBar.qml qml/components/Toast.qml qml/components/Toggle.qml qml/components/Transport.qml
-    qml/components/WallPrint.qml qml/components/LyricView.qml
-    qml/components/BravaisLayout.qml qml/components/BravaisTile.qml qml/components/BravaisBar.qml
+    qml/components/LyricView.qml
     qml/components/PlayerArtwork.qml qml/components/PlayerLayoutEditor.qml qml/components/PlayerCoverShelf.qml
     qml/components/AccountPanel.qml qml/components/ConfirmDialog.qml
     qml/components/TrackRows.qml
@@ -81,12 +79,12 @@ qt_add_qml_module(bottle_qt_ui URI BottleMusic VERSION 1.0
     qml/components/DoubleRule.qml qml/components/SnapSettle.qml
     qml/components/PlateFrame.qml qml/components/DotRule.qml qml/components/Halftone.qml qml/components/VinylMark.qml
     qml/shell/TitleBar.qml qml/shell/Sidebar.qml qml/shell/TopBar.qml qml/shell/PlayerBar.qml
-    qml/pages/PaperPage.qml qml/pages/CurtainPage.qml qml/pages/BravaisHome.qml qml/pages/HomeSearchPage.qml qml/pages/PosterWallPage.qml
+    qml/pages/PaperPage.qml
     qml/pages/PlayerPage.qml qml/pages/SettingsPage.qml qml/pages/ImmersivePlayerPage.qml
     qml/pages/LibraryPage.qml
     qml/pages/HistoryPage.qml qml/pages/StatsPage.qml qml/pages/LocalFavoritesPage.qml
     qml/pages/EqualizerPage.qml
-    qml/panels/ListeningPanel.qml qml/panels/QueuePanel.qml
+     qml/panels/QueuePanel.qml
     RESOURCES ${bottle_icons})
 # The generated type registrations include PixelSnap.h by bare name.
 target_include_directories(bottle_qt_ui PRIVATE src/ui src/visuals)
@@ -210,6 +208,8 @@ if(BUILD_TESTING)
     add_test(NAME qt_diagnostics COMMAND bottle_diagnostics_tests -o "${CMAKE_CURRENT_BINARY_DIR}/Testing/qt_diagnostics.txt,txt")
     qt_add_executable(bottle_qt_smoke tests/smoke.cpp)
     target_link_libraries(bottle_qt_smoke PRIVATE bottle_qt_core bottle_qt_uiplugin Qt6::QuickControls2 Qt6::Test)
+    add_test(NAME qt_shell_interactions COMMAND bottle_qt_smoke $<TARGET_FILE:bottle_native_fixture>
+        "${CMAKE_CURRENT_BINARY_DIR}/Testing/shell-interactions" shell-interactions)
     add_test(NAME qt_navigation_interactions COMMAND bottle_qt_smoke $<TARGET_FILE:bottle_native_fixture>
         "${CMAKE_CURRENT_BINARY_DIR}/Testing/navigation-interactions" navigation-interactions)
     add_test(NAME qt_quality_interactions COMMAND bottle_qt_smoke $<TARGET_FILE:bottle_native_fixture>

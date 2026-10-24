@@ -9,7 +9,7 @@ rasterConfigure("{\"feed_count\":30}");
 music.setVolume(0); music.setReducedMotion(true); music.initialize();
 check("text_raster_ready", waitFor([&] { return music.ready() && !home.loading(); }, 10000));
 window->resize(1280, 850);
-QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("paper")));
+QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home")));
 QTest::qWait(400);
 auto* rasterTitle = quick("heroTitle");
 if (!rasterTitle) return 2;

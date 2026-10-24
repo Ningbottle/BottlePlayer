@@ -10,78 +10,13 @@ const auto walkItems = [](QQuickItem* parent, const std::function<void(QQuickIte
     const auto walk = [&](const auto& self,QQuickItem* item) -> void { if (!item) return; visit(item); for (auto* child:item->childItems()) self(self,child); };
     walk(walk,parent);
 };
-const auto barGeometryOk = [&] {
-    auto* bar=quick("bravaisBar"); auto* leading=quick("bravaisBarLeading"); auto* trailing=quick("bravaisBarTrailing");
-    if (!bar || !leading || !trailing) return false;
-    const QRectF bounds=sceneRect(bar); QList<QRectF> controls; bool ok=bar->height()<=48;
-    walkItems(bar,[&](QQuickItem* item) {
-        if (!item->isVisible() || item->width()<=0 || !(item->inherits("QQuickAbstractButton") || item->inherits("QQuickTextInput") || item->objectName()=="bravaisStatus")) return;
-        const auto rect=sceneRect(item); ok=ok&&bounds.adjusted(-0.5,-0.5,0.5,0.5).contains(rect);
-        for (const auto& previous:controls) { const auto overlap=rect.intersected(previous); if (overlap.width()>0.5 && overlap.height()>0.5) ok=false; }
-        controls.append(rect);
-    });
-    return ok && sceneRect(trailing).left()-sceneRect(leading).right()>=47.99;
-};
-const auto navigationOk = [&] {
-    auto* bar=quick("bravaisBar"); auto* field=quick("bravaisField"); auto* homeItem=find("bravaisHome");
-    bool ok=bar&&field&&homeItem&&homeItem->property("seamWidth").toDouble()==0&&barGeometryOk();
-    for (const char* name:{"bravaisTab_recommend","bravaisTab_playlists","bravaisTab_albums","bravaisTab_mine","bravaisTab_favorites","bravaisGlobalSearch","bravaisQueue","bravaisTools","bravaisAccount","bravaisSettings","bravaisMore"}) {
-        auto* item=quick(name); ok=ok&&item&&item->isVisible()&&item->height()>=32&&sceneRect(bar).contains(sceneRect(item));
-    }
-    return ok&&std::abs(sceneRect(field).top()-sceneRect(bar).bottom())<0.5;
-};
-const auto noFloatingControls = [&] {
-    bool ok=true; auto* field=quick("bravaisField");
-    walkItems(quick("bravaisHome"),[&](QQuickItem* item) {
-        if (!item->isVisible() || !(item->inherits("QQuickAbstractButton") || item->inherits("QQuickTextInput"))) return;
-        for (auto* parent=item;parent;parent=parent->parentItem()) {
-            const auto name=parent->objectName();
-            if (name=="bravaisBar" || name.startsWith("bravaisTile_") || name=="bravaisFocusedTile" || name=="bravaisCentreState" || parent->inherits("QQuickPopupItem")) return;
-        }
-        const auto overlap=sceneRect(item).intersected(sceneRect(field)); if (overlap.width()*overlap.height()>1) ok=false;
-    }); return ok;
-};
-const auto tileTypographyOk = [&] {
-    bool ok=true;int count=0;const auto viewport=sceneRect(quick("bravaisField"));
-    walkItems(quick("bravaisHome"),[&](QQuickItem* tile) {
-        if(!(tile->objectName().startsWith("bravaisTile_")||tile->objectName()=="bravaisFocusedTile")||!sceneRect(tile).intersects(viewport))return;
-        auto* block=qobject_cast<QQuickItem*>(findItem(tile,"bravaisTileText"));auto* scrim=findItem(tile,"bravaisScrim");if(!block||!scrim){ok=false;return;}
-        const auto alphaAt=[](QObject* rectangle,double t) {
-            const auto value=rectangle->property("gradient");auto* gradient=value.value<QJSValue>().toQObject();if(!gradient)gradient=value.value<QObject*>();
-            QQmlListReference stops(gradient,"stops");QList<QPair<double,double>> points;
-            for(qsizetype i=0;i<stops.count();i++)points.append({stops.at(i)->property("position").toDouble(),stops.at(i)->property("color").value<QColor>().alphaF()});
-            if(points.isEmpty())return -1.0;
-            std::stable_sort(points.begin(),points.end(),[](auto a,auto b){return a.first<b.first;});
-            if(t<=points.first().first)return points.first().second;
-            for(qsizetype i=1;i<points.size();i++)if(t<=points[i].first){const auto a=points[i-1],b=points[i];return a.second+(b.second-a.second)*(t-a.first)/std::max(0.0001,b.first-a.first);}
-            return points.last().second;
-        };
-        const auto rect=sceneRect(tile),text=sceneRect(block);const bool expanded=tile->property("expanded").toBool();
-        double alpha=alphaAt(scrim,(text.top()-rect.top())/rect.height());
-        if(expanded)if(auto* side=findItem(tile,"bravaisScrimSide"))alpha=1-(1-alpha)*(1-alphaAt(side,(text.right()-rect.left())/rect.width()));
-        ok=ok&&alpha>=(expanded?0.22:0.24)-0.001;
-        const auto zoom=tile->property("pixelScale").toDouble();int texts=0;
-        for(auto* child:block->childItems())if(child->inherits("QQuickText")){
-            const auto size=child->property("font").value<QFont>().pixelSize()*zoom;
-            if(texts++==0)ok=ok&&std::abs(size-themeCall(expanded?"focusTitlePx":"tileTitlePx",{window->width(),zoom}).toNumber())<=1;
-            else if(child->isVisible())ok=ok&&size>=(expanded?13:12)-0.01;
-            ok=ok&&child->property("textFormat").toInt()==0; // Text.PlainText
-        }
-        count++;
-    });return ok&&count>0;
-};
-const auto wallInkOk = [&](QQuickItem* parent,QColor bg) {
-    bool ok=true;
-    walkItems(parent,[&](QQuickItem* item) {
-        if (!item->isVisible()) return;
-        for (const char* property:{"tint","hoverTint"}) if (item->property(property).isValid()) ok=ok&&contrast(item->property(property).value<QColor>(),bg)>=4.5;
-    }); return ok;
-};
 const auto queueMaterialOk = [&] {
     auto* panel=quick("queuePanelCard"); auto* search=find("queueSearch");
     if (!panel || !search) return false;
     const auto bg=themeObject->property("wallChromeSurface").value<QColor>();
-    const auto pressed=themeCall("wallDownOn",{engine.toScriptValue(bg)}).toVariant().value<QColor>();
+    // Queue rows and their actions use the dark surface state, rather than
+    // the solid accent state used by the retired wall controls.
+    const auto pressed=themeObject->property("wallChromePressed").value<QColor>();
     bool ok=panel->property("color").value<QColor>()==bg && panel->property("borderColor").value<QColor>().alpha()==0 && panel->property("radius").toDouble()==16
         && search->property("color")==themeObject->property("wallChromeInk");
     walkItems(panel,[&](QQuickItem* item) {

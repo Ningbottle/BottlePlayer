@@ -17,7 +17,7 @@ const auto navigate = [&](const char* route) {
     QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, QString::fromLatin1(route)));
     QCoreApplication::processEvents();
 };
-QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("paper")));
+QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home")));
 QCoreApplication::processEvents();
 click(window, find("libraryEntry"));
 auto* directory = quick("sidebarPlaylistsAll");

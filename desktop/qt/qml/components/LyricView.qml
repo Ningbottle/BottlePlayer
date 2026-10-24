@@ -153,7 +153,7 @@ Item {
                     font.family: root.immersive && Theme.lyricFontSetting === "skin" ? Theme.fontUi : Theme.fontLyric
                     font.pixelSize: root.textSize
                     font.weight: root.immersive ? Font.DemiBold : Theme.fwRegular
-                    font.letterSpacing: root.immersive ? 0 : root.textSize * (Theme.mint ? 0.01 : 0.02)
+                    font.letterSpacing: root.immersive ? 0 : root.textSize * 0.01
                     font.preferTypoLineMetrics: root.immersive || Theme.lyricTypoMetrics
                     lineHeightMode: root.immersive ? Text.ProportionalHeight : Text.FixedHeight
                     lineHeight: root.immersive ? 1.22 : root.textSize * 1.5

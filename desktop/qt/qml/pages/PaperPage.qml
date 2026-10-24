@@ -102,7 +102,7 @@ Item {
     }
     ScrollFade {
         anchors.fill: parent
-        flickable: !root.results && viewLoader.item ? viewLoader.item : null
+        flickable: !root.results && viewLoader.item instanceof Flickable ? viewLoader.item : null
     }
 
     Component {
@@ -173,7 +173,7 @@ Item {
                 return out
             }
             // --home-tile-min: 160px Mint / 168px Aurora, 136px below 1280px.
-            readonly property real tileMin: root.vw < 1280 ? 136 : Theme.mint ? 160 : 168
+            readonly property real tileMin: root.vw < 1280 ? 136 : 160
             readonly property int columns: Math.max(1, Math.floor((contentW + Theme.s5) / (tileMin + Theme.s5)))
             // Daily pool size: the daily list keeps 30
             // tracks; the grid collapses to two rows and offers 展开全部.

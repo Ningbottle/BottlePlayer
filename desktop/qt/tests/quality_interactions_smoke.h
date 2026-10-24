@@ -46,7 +46,7 @@ const auto options = QJsonDocument(QJsonObject{{"feed_count", 2}, {"audio_url", 
 configure(options.constData()); music.setVolume(0); music.setReducedMotion(true); music.initialize();
 check("quality_core_ready", waitFor([&] { return music.ready() && music.feed().size() == 2; }, 5000));
 window->resize(1280, 850); window->requestActivate();
-QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("paper")));
+QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home")));
 QTest::qWait(200);
 const auto menuItem = [&](QObject* menu, const QString& quality) {
     return menu ? qobject_cast<QQuickItem*>(findItem(menu->property("contentItem").value<QQuickItem*>(), "quality_" + quality)) : nullptr;
@@ -78,17 +78,14 @@ check("empty_queue_has_all_preferences", music.queueIndex() < 0 && barMenu && ba
 for (const auto* key : {"320", "flac", "high", "master", "128"}) {
     choose("qualityButton", "qualityMenu", QString::fromLatin1(key));
     check(QString("idle_label_") + key, quick("qualityButton")->property("text").toString() == music.qualityText(QString::fromLatin1(key)));
+    check(QString("idle_quality_flushed_") + key, music.flushStorage());
     QSettings saved(QDir(profile).filePath("preferences.ini"), QSettings::IniFormat);
     check(QString("idle_quality_persisted_") + key, saved.value("quality").toString() == QLatin1String(key));
 }
 
-// The side panel can also set the preference before selecting a track.
-QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("curtain")));
-window->setProperty("listeningOpen", true); QTest::qWait(300);
-choose("listeningQuality", "listeningQualityMenu", "flac");
-window->setProperty("listeningOpen", false);
-QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("paper")));
-QTest::qWait(200);
+// One quality picker remains available before selecting a track.
+check("duplicate_listening_picker_removed", !find("listeningQuality") && !find("listeningQualityMenu"));
+choose("qualityButton", "qualityMenu", "flac");
 
 music.playFrom("feed", 0);
 check("selected_preference_used_for_playback", waitFor([&] { return !music.loading() && music.playing() && music.actualQuality() == "flac"; }, 5000));

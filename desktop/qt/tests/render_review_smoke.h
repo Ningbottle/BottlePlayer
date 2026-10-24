@@ -32,7 +32,7 @@ const auto selectCover = [&](int id, const QString& path) {
     music.setPlaying(false);
 };
 const auto fly = [&] { QMetaObject::invokeMethod(window,"flyCoverToPlayer"); };
-QMetaObject::invokeMethod(window,"changeMode",Q_ARG(QVariant,QStringLiteral("paper")));
+QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home")));
 check("sidebar_single_library_entry", !find("playerEntry") && !find("sidebarPlaylists") && find("libraryEntry"));
 selectCover(801,"fast.png"); QTest::qWait(300); fly();
 auto* flight = find("coverFlight");

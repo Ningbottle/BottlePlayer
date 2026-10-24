@@ -9,6 +9,7 @@ Item {
     property bool canGoBack: false
     property bool canGoForward: false
     property alias query: field.text
+    function focusSearch() { field.forceActiveFocus(); field.selectAll() }
     signal back()
     signal forward()
     signal search(string query)

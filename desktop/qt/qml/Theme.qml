@@ -6,10 +6,6 @@ import QtQuick
 QtObject {
     id: theme
 
-    // ── Presentation ─────────────────────────────────────────────
-    // `curtain` is the presentation (chrome hidden); `skin` is route-owned.
-    property bool curtain: false
-    property string skin: "mint"
     property bool dark: false
     property string customAccent: ""
     readonly property bool customized: customAccent.length > 0
@@ -17,11 +13,6 @@ QtObject {
     property bool compactList: false
     property string lyricFontSetting: "skin"
     property string lyricFocus: "readable"
-    readonly property bool mint: skin !== "aurora"
-    readonly property bool aurora: !mint
-    // The curtain home paints the --stage-home-* ladder over the Aurora skin.
-    readonly property bool stageHome: aurora && curtain
-
     // Text and artwork origins still snap to device pixels. Rules use the
     // requested half-logical-pixel weight, independently of screen scaling.
     property real dpr: 1
@@ -87,17 +78,17 @@ QtObject {
     readonly property int fwMedium: 500
     readonly property int fwSemiBold: 600
     readonly property int fwBold: 700
-    readonly property int fwDisplay: mint ? 400 : 600
+    readonly property int fwDisplay: 400
     // --display-tracking as an em factor (multiply by the font size).
-    readonly property real displayTracking: mint ? -0.01 : -0.02
-    readonly property int wordmarkSize: mint ? fsSm : fsXs
-    readonly property int wordmarkWeight: mint ? fwRegular : fwMedium
-    readonly property real wordmarkTracking: (mint ? -0.01 : 0.06) * wordmarkSize
+    readonly property real displayTracking: -0.01
+    readonly property int wordmarkSize: fsSm
+    readonly property int wordmarkWeight: fwRegular
+    readonly property real wordmarkTracking: -0.01 * wordmarkSize
     // --meta-*: Mint sets small meta in tracked caps like a newspaper eyebrow
     // (italic survives only on explicit latin accents); Aurora keeps its caps.
     readonly property bool metaItalic: false
     readonly property int metaCase: Font.MixedCase
-    readonly property real metaTracking: (mint ? 0.01 : 0.08) * fsXs
+    readonly property real metaTracking: 0.01 * fsXs
     readonly property real lhTight: 1.25
     readonly property real lhNormal: 1.5
 
@@ -108,7 +99,7 @@ QtObject {
     readonly property real sidebarW: appearanceState.sidebarWidth
     readonly property real titlebarH: 36
     readonly property real topbarH: s10 + s4
-    readonly property real playerbarH: mint ? 76 : 84
+    readonly property real playerbarH: 76
     readonly property real coverInBar: playerbarH - s6
     readonly property real scrollBarW: 4
     // Chrome uses an 18px outline grid. Solid transport geometry is separate
@@ -120,8 +111,8 @@ QtObject {
 
     // ── Font roles ──
     readonly property string fontUi: "Inter"
-    readonly property string fontDisplay: mint ? "Libre Caslon Display" : fontUi
-    readonly property string fontTitle: mint ? "EB Garamond" : fontUi
+    readonly property string fontDisplay: "Libre Caslon Display"
+    readonly property string fontTitle: "EB Garamond"
     // Reading-size labels use the UI face: the display serifs' thin strokes
     // and low Latin x-height do not hold up at 12–14 logical pixels.
     readonly property string fontMeta: fontUi
@@ -130,7 +121,7 @@ QtObject {
     // Static wght=600 outlines in a separate family; asking the regular
     // family for 600 makes DirectWrite synthesize bold from its 500 face.
     readonly property string fontSerifDisplay: "Noto Serif SC Display"
-    readonly property string fontLyric: lyricFontSetting === "kai" ? "LXGW WenKai Lite" : lyricFontSetting === "song" ? "Noto Serif SC" : lyricFontSetting === "hei" ? fontUi : mint ? "EB Garamond" : "LXGW WenKai Lite"
+    readonly property string fontLyric: lyricFontSetting === "kai" ? "LXGW WenKai Lite" : lyricFontSetting === "song" ? "Noto Serif SC" : lyricFontSetting === "hei" ? fontUi : "EB Garamond"
     // UiAssets.cpp turns on typo line metrics app-wide so CJK fallbacks stop
     // inflating line boxes. WenKai lacks USE_TYPO_METRICS, so as a primary
     // face it keeps the DirectWrite (win) metrics that Chromium uses.
@@ -189,7 +180,7 @@ QtObject {
     readonly property color borderStrong: neutralScale[6]
     readonly property color borderSoft: neutralScale[5]
     readonly property color ruleInk: neutralScale[6]
-    readonly property bool rules: mint
+    readonly property bool rules: true
     readonly property color paperVeil: neutralScale[1]
     readonly property color text: neutralScale[11]
     readonly property color text2: contrast(neutralInk, surfaceActive) >= 4.5 ? neutralInk : text
@@ -305,13 +296,6 @@ QtObject {
         return Math.max(0,g)/r
     }
     function mediaOffset(kind, glyph) { return snap((mediaStyle[kind] || mediaStyle.play).dx * glyph / 24) }
-    function bravaisZoom(w,h) { return Math.max(0.45,Math.min(w<640?0.52:w<1100?0.64:0.76,Math.max(0,h-wallBarH-48)/808)) }
-    function worldPx(screen, zoom) { return Math.ceil(Math.max(0,screen)/Math.max(0.01,zoom)-0.001) }
-    function tileTitlePx(w,zoom) { return fsXl }
-    function tileSubtitlePx(w,zoom) { return fsXs }
-    function tileInsetPx(zoom) { return Math.max(12,18*zoom) }
-    function focusTitlePx(w,zoom) { return fs2xl }
-    function focusInfoPx(zoom) { return fsMd }
     function coverLyricGap(s) { return clamp(64,Math.round(0.21*s),112) }
     function lyricGapInset(s,gridGap) { return Math.max(0,coverLyricGap(s)-10-gridGap-12) }
     function lyricFreeInset(w) { return clamp(24,0.08*w,64) }

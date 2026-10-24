@@ -98,12 +98,16 @@ int main(int argc, char** argv) {
     if (args.size() != 4) return 2;
     QDir().mkpath(args[2]);
     std::unique_ptr<QTemporaryDir> interactionProfile;
-    if (args[3] == "navigation-interactions" || args[3] == "text-raster" || args[3] == "quality-interactions" || args[3] == "theme-interactions") {
+    if (args[3] == "navigation-interactions" || args[3] == "text-raster" || args[3] == "quality-interactions" || args[3] == "theme-interactions" || args[3] == "shell-interactions") {
         interactionProfile = std::make_unique<QTemporaryDir>(QDir(args[2]).filePath("profile-XXXXXX"));
         if (!interactionProfile->isValid()) return 2;
     }
     const QString profile = interactionProfile ? interactionProfile->path()
         : qEnvironmentVariable("BOTTLE_SMOKE_PROFILE", QDir(args[2]).filePath("profile"));
+    if (args[3] == "shell-interactions") {
+        QSettings legacy(QDir(profile).filePath("appearance.ini"),QSettings::IniFormat);
+        legacy.setValue("presentation","curtain"); legacy.sync();
+    }
     MusicController music(args[1], profile);
     AccountController account(music.nativeGateway()); LibraryController library(music.nativeGateway());
     VipController vip(music.nativeGateway());
@@ -199,6 +203,9 @@ int main(int argc, char** argv) {
         if (file.open(QIODevice::WriteOnly)) file.write(json);
     };
     #include "visual_assertions.h"
+    if (args[3] == "shell-interactions") {
+        #include "shell_interactions_smoke.h"
+    }
     if (args[3] == "user-fixes") {
         #include "user_report_smoke.h"
     }
@@ -242,7 +249,7 @@ int main(int argc, char** argv) {
         probeConfigure("{\"feed_count\":30}");
         music.setVolume(0); music.setReducedMotion(true); music.initialize();
         check("probe_core_ready", waitFor([&]{return music.ready() && music.feed().size()>=20 && !home.loading();},10000));
-        QMetaObject::invokeMethod(window,"changeMode",Q_ARG(QVariant,QStringLiteral("paper"))); QTest::qWait(600);
+        QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home"))); QTest::qWait(600);
         auto* scroller = qobject_cast<QQuickItem*>(find("homeScroller"));
         check("probe_scroller", scroller != nullptr);
         const double dpr = window->devicePixelRatio();
@@ -269,7 +276,7 @@ int main(int argc, char** argv) {
         music.setVolume(0); music.setReducedMotion(true); music.initialize();
         check("font_layout_ready", waitFor([&] { return music.ready() && !home.loading(); }, 10000));
         window->resize(1280, 850);
-        QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("paper")));
+        QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home")));
         QTest::qWait(500);
         auto* scroller=quick("homeScroller"); auto* carousel=quick("homeCarousel");
         check("font_layout_carousel_present", scroller && carousel && carousel->isVisible());
@@ -303,301 +310,6 @@ int main(int argc, char** argv) {
     }
     if (args[3] == "text-raster") {
         #include "text_raster_smoke.h"
-    }
-    if (args[3] == "search-home" || args[3] == "search-home-live" || args[3] == "hanging-home" || args[3] == "hanging-home-live" || args[3] == "bravais" || args[3] == "live-bravais") {
-        #include "visual_search_home.h"
-    }
-    if (args[3] == "live-curtain" || args[3] == "live-bravais") {
-        const bool bravaisMode = args[3] == "live-bravais";
-        check("real_native_dll_selected", !QFileInfo(args[1]).fileName().contains("fixture", Qt::CaseInsensitive));
-        music.initialize();
-        check("real_native_ready", waitFor([&] { return music.ready(); }, 15000));
-        check("real_recommendations_loaded", waitFor([&] { return music.feed().size() >= 6 && !home.loading(); }, 60000));
-        report.insert("feed_count", music.feed().size()); report.insert("playlist_count", home.playlists().size());
-        report.insert("discovery_count", home.albums().size()); report.insert("album_count", home.recommendedAlbums().size());
-        report.insert("native_fingerprint", music.nativeGateway().fingerprint());
-        report.insert("home_error", home.error());
-        QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("curtain")));
-        QTest::qWait(1500);
-        if (bravaisMode) {
-            const auto loadedArtwork = [&] {
-                int ready = 0;
-                const auto scan = [&](const auto& self, QQuickItem* item) -> void {
-                    if (item->objectName() == "bravaisArtwork" && item->property("ready").toBool()) ++ready;
-                    for (auto* child : item->childItems()) self(self, child);
-                };
-                scan(scan,window->contentItem()); return ready;
-            };
-            check("real_cover_images_loaded",waitFor([&]{ return loadedArtwork() >= 8; },15000));
-            report.insert("loaded_cover_count",loadedArtwork());
-        }
-        screenshot(bravaisMode ? "real-bravais-home" : "real-curtain-home");
-        window->resize(900, 620); QTest::qWait(400);
-        auto* liveHero = qobject_cast<QQuickItem*>(find(bravaisMode ? "bravaisBar" : "curtainHeroCopy")); auto* liveStage = qobject_cast<QQuickItem*>(find(bravaisMode ? "bravaisHome" : "curtainStage"));
-        check("real_home_fits_minimum", bravaisMode ? navigationOk()&&noFloatingControls() : liveHero && liveStage && liveHero->y() >= 0 && liveHero->y() + liveHero->height() <= liveStage->height());
-        screenshot(bravaisMode ? "real-bravais-minimum" : "real-curtain-minimum"); window->resize(1280, 850);
-        if (bravaisMode) {
-            auto* wallHome=find("bravaisHome");QMetaObject::invokeMethod(wallHome,"chooseTab",Q_ARG(QVariant,QStringLiteral("recommend")));QTest::qWait(600);
-            const auto captureRecommendations=[&](QString suffix) {
-                QSet<int> addresses;QSet<QString> covers;int visible=0;bool unique=true;const auto bounds=sceneRect(quick("bravaisField"));
-                walkItems(quick("bravaisHome"),[&](QQuickItem* item){
-                    if(!item->objectName().startsWith("bravaisTile_")||!sceneRect(item).intersects(bounds))return;
-                    auto* placement=item->property("placement").value<QQuickItem*>();if(!placement)return;
-                    const int address=placement->property("original").value<QJSValue>().property("address").toInt();unique=unique&&!addresses.contains(address);addresses.insert(address);visible++;
-                    const auto image=item->property("item").value<QJSValue>().property("image").toString();if(!image.isEmpty())covers.insert(image);
-                });
-                check("real_recommendation_wall_no_repeated_addresses_"+suffix,unique&&visible>=8);
-                report.insert("recommendations_"+suffix,QJsonObject{{"visible_records",visible},{"unique_addresses",addresses.size()},{"distinct_cover_urls",covers.size()}});
-                screenshot("real-bravais-recommend-"+suffix);
-            };
-            captureRecommendations("1280x850");window->resize(900,620);QTest::qWait(400);captureRecommendations("900x620");window->resize(1280,850);
-            QMetaObject::invokeMethod(wallHome,"chooseTab",Q_ARG(QVariant,QStringLiteral("playlists")));QTest::qWait(400);
-        }
-        music.setVolume(0);
-        QAudioBufferOutput fallbackBuffers;
-        auto* buffers = music.mediaPlayer()->audioBufferOutput();
-        if (!buffers) { buffers = &fallbackBuffers; music.mediaPlayer()->setAudioBufferOutput(buffers); }
-        qint64 decodedFrames = 0;
-        QObject::connect(buffers, &QAudioBufferOutput::audioBufferReceived, &app, [&decodedFrames](const QAudioBuffer& buffer) { decodedFrames += buffer.frameCount(); });
-        bool plays = false;
-        for (int index = 0; index < std::min(3, int(music.feed().size())) && !plays; ++index) {
-            decodedFrames = 0;
-            music.playFrom("feed", index);
-            plays = waitFor([&] { return music.playing() && music.mediaPlayer()->error() == QMediaPlayer::NoError && decodedFrames > 20000 && music.position() > 3500; }, 20000);
-        }
-        check("real_stream_decodes", plays); report.insert("decoded_frames", decodedFrames);
-        report.insert("playback_position_ms",music.position()); report.insert("audio_error",music.mediaPlayer()->errorString());
-        report.insert("stream_host", music.mediaPlayer()->source().host());
-        check("stream_is_remote", !music.mediaPlayer()->source().isLocalFile() && !music.mediaPlayer()->source().host().isEmpty()
-            && music.mediaPlayer()->source().host() != "127.0.0.1" && music.mediaPlayer()->source().host() != "localhost");
-        if (plays) { check("real_lyrics_loaded", waitFor([&] { return !music.lyrics().isEmpty(); }, 15000)); music.setPlaying(false); }
-        report.insert("lyric_count", music.lyrics().size());
-        screenshot(bravaisMode ? "real-bravais-playing" : "real-curtain-playing");
-        if (bravaisMode) {
-            const auto chooseTab = [&](const char* tab) {
-                click(window,find(tab));
-            };
-            chooseTab("bravaisTab_playlists"); screenshot("real-bravais-playlists");
-            if (!home.playlists().isEmpty()) {
-                QMetaObject::invokeMethod(window,"openPublicPlaylist",Q_ARG(QVariant,home.playlists().first()));
-                check("real_public_playlist_tracks_loaded",waitFor([&]{ return !library.loading() && !library.tracks().isEmpty(); },20000));
-                report.insert("public_playlist_track_count",library.tracks().size()); screenshot("real-public-playlist");
-                QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home"))); QTest::qWait(600);
-            }
-            chooseTab("bravaisTab_albums"); QTest::qWait(1000); screenshot("real-bravais-albums");
-            report.insert("album_count",home.recommendedAlbums().size());
-            chooseTab("bravaisTab_recommend");
-            click(window,find("bravaisGlobalSearch")); QTest::qWait(350);
-            if (auto* search = qobject_cast<QQuickItem*>(find("bravaisSearchInput"))) {
-                search->setProperty("text",QStringLiteral("周杰伦")); search->forceActiveFocus(); QTest::keyClick(window,Qt::Key_Return);
-            }
-            check("real_search_results_loaded",waitFor([&]{return music.searchTerm()==QStringLiteral("周杰伦") && !music.searching() && !music.searchResults().isEmpty();},20000));
-            report.insert("search_result_count",music.searchResults().size()); screenshot("real-bravais-search");
-            click(window,find("bravaisSearchClose")); click(window,find("bravaisAccount"));
-            check("real_account_page_reachable",waitFor([&]{return find("accountPanel") && window->property("route").toString()=="settings";},2500));
-            account.beginLogin();
-            check("real_login_qr_loaded",waitFor([&]{return account.state()=="waiting" && !account.qrImage().isEmpty();},20000));
-            // The real QR payload is ephemeral authentication material.
-            // Validate it in memory; only fixture QR images enter evidence.
-            account.cancelLogin();
-            click(window,find("settingsClose")); QTest::qWait(500);
-        }
-        const bool invoked = QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, QStringLiteral("player")));
-        report.insert("player_navigation_invoked", invoked);
-        check("real_player_page_visible", waitFor([&] {
-            auto* page = qobject_cast<QQuickItem*>(find("playerPage")); auto* loader = qobject_cast<QQuickItem*>(find("mainPageLoader"));
-            return window->property("route").toString() == "player" && page && loader && page->width() > 100 && page->height() > 100 && loader->opacity() > .99;
-        }, 3500));
-        QJsonObject playerState{{"route", window->property("route").toString()}, {"active", window->isActive()}, {"exposed", window->isExposed()}, {"visibility", int(window->visibility())}, {"window_color", window->color().name()}};
-        for (const auto* name : {"mainPageLoader", "playerPage", "playerCardGrid"}) {
-            auto* item = qobject_cast<QQuickItem*>(find(name)); if (!item) continue;
-            playerState.insert(QLatin1String(name), QJsonObject{{"width", item->width()}, {"height", item->height()}, {"opacity", item->opacity()}, {"visible", item->isVisible()}});
-        }
-        if (auto* animation = find("pageEnterAnimation")) playerState.insert("animation_running", animation->property("running").toBool());
-        report.insert("real_player_state", playerState);
-        screenshot("real-player");
-        report.insert("checks", checks); report.insert("qml_warnings", QJsonArray::fromStringList(warnings));
-        bool passed = warnings.isEmpty(); for (const auto& item : checks) passed = passed && item.toObject().value("ok").toBool();
-        report.insert("ok", passed); music.mediaPlayer()->setAudioBufferOutput(nullptr); writeReport(); window->close(); return passed ? 0 : 1;
-    }
-    if (args[3].startsWith("curtain")) {
-        const auto audio = qEnvironmentVariable("BOTTLE_SMOKE_AUDIO");
-        music.openLocal(QUrl::fromLocalFile(audio));
-        check("local_audio_ready", waitFor([&] { return music.playing() && music.position() > 200; }, 10000));
-        music.setPlaying(false); music.seek(12000); QTest::qWait(200);
-        const QStringList titles{QStringLiteral("播放页对照"), QStringLiteral("窗边的旋律"), QStringLiteral("晚风轻轻吹"),
-            QStringLiteral("把这一刻留在纸页里"), QStringLiteral("漫长旅途"), QStringLiteral("明亮的天空"), QStringLiteral("时间的回音")};
-        QVariantList tracks;
-        for (int i = 0; i < 18; ++i) {
-            auto track = music.current();
-            if (i) track["hash"] = QStringLiteral("curtain-fixture-%1").arg(i);
-            track["title"] = titles[i % titles.size()]; track["artist"] = QStringLiteral("本地音乐");
-            track["album"] = QStringLiteral("窗口与旋律"); tracks.append(track);
-        }
-        music.setFeed(tracks);
-        QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("curtain")));
-        QTest::qWait(400); const auto hash = music.current().value("hash");
-        const bool acceptance = args[3] == "curtain";
-        QJsonArray geometry;
-        for (const auto& size : {QSize(1280, 850), QSize(900, 620), QSize(1600, 1000), QSize(1400, 620)}) {
-            window->resize(size); QTest::qWait(450);
-            QJsonObject row{{"width", size.width()}, {"height", size.height()}};
-            for (const auto* name : {"curtainPage", "curtainStage", "curtainHeroCopy", "curtainCoverField", "curtainFocusedPrint", "curtainDiscovery", "curtainPlay"}) {
-                auto* item = qobject_cast<QQuickItem*>(find(name)); if (!item) continue;
-                const auto point = item->mapToScene(QPointF());
-                row.insert(QLatin1String(name), QJsonObject{{"x", point.x()}, {"y", point.y()}, {"width", item->width()}, {"height", item->height()}});
-            }
-            if (acceptance) {
-                const auto rect = [&row](const char* name) {
-                    const auto object = row.value(QLatin1String(name)).toObject();
-                    return QRectF(object["x"].toDouble(), object["y"].toDouble(), object["width"].toDouble(), object["height"].toDouble());
-                };
-                const auto stageRect = rect("curtainStage"), heroRect = rect("curtainHeroCopy"), coverRect = rect("curtainCoverField");
-                check(QStringLiteral("hero_fits_%1x%2").arg(size.width()).arg(size.height()), stageRect.contains(heroRect));
-                check(QStringLiteral("columns_separated_%1x%2").arg(size.width()).arg(size.height()), coverRect.left() - heroRect.right() >= 31);
-                check(QStringLiteral("focused_cover_fits_%1x%2").arg(size.width()).arg(size.height()), coverRect.adjusted(-1, -1, 1, 1).contains(rect("curtainFocusedPrint")));
-                check(QStringLiteral("folia_stage_fills_viewport_%1x%2").arg(size.width()).arg(size.height()), std::abs(stageRect.bottom() - size.height()) < 1);
-                check(QStringLiteral("discovery_below_stage_%1x%2").arg(size.width()).arg(size.height()), rect("curtainDiscovery").top() >= size.height() - 1);
-                auto* paperFrame = qobject_cast<QQuickItem*>(find("curtainFocusedPaper"));
-                auto* focusedArt = qobject_cast<QQuickItem*>(find("curtainFocusedArt"));
-                auto* focusedPrint = qobject_cast<QQuickItem*>(find("curtainFocusedPrint"));
-                check(QStringLiteral("polaroid_paper_frame_%1x%2").arg(size.width()).arg(size.height()), paperFrame && focusedArt && focusedPrint
-                    && focusedArt->x() >= 12 && focusedArt->y() >= 12 && focusedArt->width() < focusedPrint->width() - 20
-                    && focusedPrint->height() - focusedArt->height() > 90);
-                const auto* play = qobject_cast<QQuickItem*>(find("curtainPlay"));
-                const auto* glyph = qobject_cast<QQuickItem*>(find("curtainPlay_glyph"));
-                check(QStringLiteral("play_glyph_centred_%1x%2").arg(size.width()).arg(size.height()), play && glyph
-                    && std::abs(glyph->mapToScene(QPointF(glyph->width()/2, glyph->height()/2)).y() - play->mapToScene(QPointF(play->width()/2, play->height()/2)).y()) <= 1.0 / window->devicePixelRatio()
-                    && play->width() >= 44 && play->height() >= 44);
-                auto* curtainPage = find("curtainPage");
-                curtainPage->setProperty("contentY", stageRect.height()); QTest::qWait(150);
-                bool recommendationsFit = true; int visibleRecommendations = 0;
-                for (int index = 0; index < 18; ++index) {
-                    const auto name = QStringLiteral("curtainRecommendation_%1").arg(index).toUtf8();
-                    auto* item = qobject_cast<QQuickItem*>(find(name.constData())); if (!item) continue;
-                    ++visibleRecommendations;
-                    recommendationsFit = recommendationsFit && item->mapToScene(QPointF(0, item->height())).y() <= size.height();
-                }
-                check(QStringLiteral("recommendations_fit_%1x%2").arg(size.width()).arg(size.height()), recommendationsFit && visibleRecommendations >= 4);
-                if (size == QSize(1280, 850)) screenshot("curtain-discovery");
-                curtainPage->setProperty("contentY", 0); QTest::qWait(150);
-                bool navigationFits = true;
-                for (const auto* name : {"wallEntry", "listenEntry", "curtainDiscoverLink"}) {
-                    auto* item = qobject_cast<QQuickItem*>(find(name));
-                    navigationFits = navigationFits && item && item->height() >= 40 && item->mapToScene(QPointF()).x() >= 0
-                        && item->mapToScene(QPointF(item->width(), item->height())).x() <= size.width();
-                }
-                check(QStringLiteral("navigation_fits_%1x%2").arg(size.width()).arg(size.height()), navigationFits);
-                check(QStringLiteral("folia_chrome_hidden_%1x%2").arg(size.width()).arg(size.height()), !find("curtainNavigation")
-                    && !find("paperSidebar")->property("visible").toBool() && !find("paperPlayerDock")->property("visible").toBool());
-            }
-            geometry.append(row); screenshot(QStringLiteral("curtain-%1x%2").arg(size.width()).arg(size.height()));
-        }
-        check("resizing_preserves_playback", !music.playing() && music.current().value("hash") == hash && std::abs(music.position() - 12000) < 100);
-        if (acceptance) {
-            window->resize(1280, 850); QTest::qWait(200);
-            auto* stableHero = qobject_cast<QQuickItem*>(find("curtainHeroCopy"));
-            const auto heroTop = stableHero ? stableHero->y() : -1;
-            bool lyricsStable = stableHero;
-            for (const qint64 position : {4000, 8000, 12000, 16000, 20000}) {
-                music.seek(position); QTest::qWait(120);
-                lyricsStable = lyricsStable && std::abs(stableHero->y() - heroTop) < 0.5;
-            }
-            check("cue_changes_do_not_shift_hero", lyricsStable);
-            click(window, find("curtainPlay")); check("curtain_play_control", waitFor([&] { return music.playing(); }, 3000));
-            check("pause_glyph_matches_state", find("curtainPlay_glyph") && find("curtainPlay_glyph")->property("name").toString() == "pause");
-            screenshot("curtain-playing"); click(window, find("curtainPlay"));
-            check("curtain_pause_control", !music.playing());
-            // The source-led curtain keeps its stage clear. Navigate through
-            // the floating listening panel and scroll links into view first.
-            const auto clickPanel = [&](const char* name) {
-                auto* scroller = qobject_cast<QQuickItem*>(find("listeningScroller"));
-                auto* item = qobject_cast<QQuickItem*>(find(name));
-                if (scroller && item) {
-                    const auto absoluteY = item->mapToItem(scroller, QPointF()).y() + scroller->property("contentY").toDouble();
-                    const auto limit = std::max(0.0, scroller->property("contentHeight").toDouble() - scroller->height());
-                    scroller->setProperty("contentY", std::clamp(absoluteY - scroller->height()/2, 0.0, limit)); QTest::qWait(150);
-                }
-                click(window, item);
-            };
-            click(window, find("listenEntry")); clickPanel("listeningFavorite"); check("curtain_favorite_control", music.favorite());
-            clickPanel("listeningFavorite"); click(window, find("listeningClose"));
-            for (const auto& entry : {std::pair{"listeningLibrary", "library"}, {"listeningFavorites", "favorites"}, {"listeningHistory", "history"}, {"listeningStats", "stats"}}) {
-                click(window, find("listenEntry")); clickPanel(entry.first);
-                check(QStringLiteral("curtain_route_%1").arg(QLatin1String(entry.second)), window->property("route").toString() == QLatin1String(entry.second)
-                    && window->property("presentation").toString() == "curtain" && find("paperSidebar")->property("visible").toBool());
-                if (QLatin1String(entry.second) == QLatin1String("library")) screenshot("curtain-library");
-                click(window, find("homeEntry"));
-            }
-            click(window, find("listenEntry")); clickPanel("listeningAccount");
-            check("account_accessible_in_curtain", window->property("route").toString() == "settings" && window->property("settingsSection").toString() == "account"
-                && window->property("presentation").toString() == "curtain" && find("accountPanel"));
-            screenshot("curtain-account");
-            click(window, find("settingsSection_playback"));
-            check("curtain_settings_sections", window->property("settingsSection").toString() == "playback");
-            click(window, find("settingsClose"));
-            click(window, find("listenEntry")); check("curtain_listening_accessible", window->property("listeningOpen").toBool());
-            QJsonObject panelGeometry;
-            for (const auto* name : {"listeningCard", "listeningScroller", "listeningBody", "listeningHeader", "listeningClose", "listeningQueue"}) {
-                auto* item = qobject_cast<QQuickItem*>(find(name)); if (!item) continue;
-                const auto point = item->mapToScene(QPointF());
-                panelGeometry.insert(QLatin1String(name), QJsonObject{{"x", point.x()}, {"y", point.y()}, {"width", item->width()}, {"height", item->height()}});
-            }
-            report.insert("panel_geometry", panelGeometry);
-            auto* listeningBody = qobject_cast<QQuickItem*>(find("listeningBody"));
-            auto* listeningHeader = qobject_cast<QQuickItem*>(find("listeningHeader"));
-            auto* listeningScroller = qobject_cast<QQuickItem*>(find("listeningScroller"));
-            check("listening_layout_bounded", listeningBody && listeningHeader && listeningScroller
-                && listeningHeader->width() <= listeningScroller->width() + 1 && listeningBody->height() < 2000);
-            clickPanel("listeningQueue"); check("curtain_complete_queue_accessible", find("queuePanel") && find("queueSearch"));
-            screenshot("curtain-queue"); click(window, find("queueClose")); click(window, find("wallEntry"));
-            check("curtain_wall_accessible", window->property("route").toString() == "wall");
-            QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, QStringLiteral("home")));
-            QTest::qWait(300); click(window, find("listenEntry"));
-            auto* search = qobject_cast<QQuickItem*>(find("listeningSearchInput"));
-            if (search) { search->setProperty("text", QStringLiteral("窗口")); search->forceActiveFocus(); QTest::keyClick(window, Qt::Key_Return); }
-            check("curtain_search_accessible", window->property("route").toString() == "search" && find("paperPage") && find("paperPage")->property("results").toBool());
-            screenshot("curtain-search");
-            QMetaObject::invokeMethod(window, "navigate", Q_ARG(QVariant, QStringLiteral("player"))); QTest::qWait(300);
-            check("curtain_player_retains_controls", find("playerPage") && find("paperPlayerDock") && find("paperPlayerDock")->property("visible").toBool());
-            screenshot("curtain-player");
-            click(window, find("homeEntry")); appearance.setMode("dark"); screenshot("curtain-dark"); appearance.setMode("light");
-            IconProvider icons;
-            bool completeIconSet = true;
-            const auto assets = QDir(QStringLiteral(":/qt/qml/BottleMusic/assets/icons")).entryList({QStringLiteral("*.svg")}, QDir::Files);
-            for (const auto& asset : assets) {
-                QSize actual; const auto iconImage = icons.requestImage(asset.chopped(4) + "/ffffff/1.75", &actual, QSize(24, 24));
-                bool visible = false;
-                for (int y = 0; y < iconImage.height(); ++y) for (int x = 0; x < iconImage.width(); ++x) visible = visible || qAlpha(iconImage.pixel(x, y)) > 0;
-                completeIconSet = completeIconSet && visible;
-            }
-            report.insert("icon_count", assets.size()); check("complete_bundled_icon_set", completeIconSet && assets.size() >= 68
-                && assets.contains("transport-play.svg") && assets.contains("transport-pause.svg") && assets.contains("transport-prev.svg") && assets.contains("transport-next.svg") && assets.contains("lyrics.svg"));
-            for (const auto* name : {"play", "pause", "media-play", "media-pause"}) for (const int extent : {22, 28, 44}) {
-                QSize actual; const auto iconImage = icons.requestImage(QStringLiteral("%1/ffffff/1.75").arg(QLatin1String(name)), &actual, QSize(extent, extent));
-                double mass = 0, momentY = 0;
-                for (int y = 0; y < extent; ++y) for (int x = 0; x < extent; ++x) { const auto alpha = qAlpha(iconImage.pixel(x, y)); mass += alpha; momentY += alpha * y; }
-                check(QStringLiteral("media_pixels_centred_%1_%2").arg(QLatin1String(name)).arg(extent), mass > 0 && std::abs(momentY / mass - (extent - 1) / 2.0) < 0.2);
-            }
-            const auto longAudio = qEnvironmentVariable("BOTTLE_SMOKE_LONG_AUDIO");
-            if (!longAudio.isEmpty()) {
-                music.openLocal(QUrl::fromLocalFile(longAudio)); waitFor([&] { return music.playing(); }, 5000); music.setPlaying(false);
-                window->resize(900, 620); screenshot("curtain-long-minimum");
-                auto* stageItem = qobject_cast<QQuickItem*>(find("curtainStage")); auto* heroItem = qobject_cast<QQuickItem*>(find("curtainHeroCopy"));
-                check("long_title_fits_minimum", stageItem && heroItem && heroItem->y() >= 0 && heroItem->y() + heroItem->height() <= stageItem->height());
-            }
-            if (auto* idleTarget = qobject_cast<QQuickItem*>(find("curtainPlay"))) idleTarget->forceActiveFocus();
-            QTest::mouseMove(window, QPoint(window->width()/2, 50));
-            QTest::qWait(800);
-            report.insert("idle_focus", window->activeFocusItem() ? window->activeFocusItem()->objectName() : QString{});
-            int idleFrames = 0; const auto frameConnection = QObject::connect(window, &QQuickWindow::frameSwapped, &app, [&] { ++idleFrames; });
-            QTest::qWait(1000); QObject::disconnect(frameConnection);
-            report.insert("paused_idle_frames", idleFrames); check("paused_curtain_idle", idleFrames <= 2);
-        }
-        report.insert("geometry", geometry); report.insert("checks", checks);
-        report.insert("qml_warnings", QJsonArray::fromStringList(warnings));
-        bool passed = warnings.isEmpty(); for (const auto& item : checks) passed = passed && item.toObject().value("ok").toBool();
-        report.insert("ok", passed); writeReport(); window->close(); return passed ? 0 : 1;
     }
     if (args[3] == "qr-live") {
         music.initialize();
@@ -650,8 +362,8 @@ int main(int argc, char** argv) {
         check("fixture_core_ready", waitFor([&] { return music.ready(); }, 5000));
         if (music.fingerprint() != QLatin1String("qt-account-fixture")) return 2;
         // This suite exercises the full persistent navigation in paper mode;
-        // the collage's edge navigation is covered by the bravais suite.
-        QMetaObject::invokeMethod(window,"changeMode",Q_ARG(QVariant,QStringLiteral("paper"))); QTest::qWait(350);
+        // The main shell owns the account and personal-library routes.
+        QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home"))); QTest::qWait(350);
         window->setProperty("settingsSection", "account"); window->setProperty("route", "settings");
         check("qr_login_page", waitFor([&] { return find("loginQrImage") && !account.qrImage().isEmpty(); }, 5000));
         screenshot("qt-account-qr");
@@ -744,17 +456,10 @@ int main(int argc, char** argv) {
         check("short_button_labels_are_not_elided", find("eqPreset_Flat_label") && !find("eqPreset_Flat_label")->property("truncated").toBool());
         equalizer.setEnabled(false); music.setPlaying(false); appearance.setLabMode(false);
         check("equalizer_bypass_restores_raw_output", !equalizer.active() && !music.audioOutput()->isMuted());
-        QMetaObject::invokeMethod(window,"changeMode",Q_ARG(QVariant,QStringLiteral("curtain"))); QTest::qWait(450);
-        click(window,find("homeSidebarToggle")); QTest::qWait(350);
-        click(window,find("bravaisTab_mine")); waitFor([&]{auto* item=find("bravaisHome");return item&&item->property("selectedTab").toString()=="mine";},1500);
-        auto* personalWall=qobject_cast<QQuickItem*>(find("bravaisHome"));
-        check("collage_personal_playlists_loaded",personalWall && personalWall->property("selectedTab").toString()=="mine"
-            && library.playlists().size()==2);
-        if (personalWall) { QMetaObject::invokeMethod(personalWall,"locate",Q_ARG(QVariant,0)); QTest::qWait(650); }
-        click(window,find("bravaisFocusEnqueue"));
-        check("collage_opens_native_personal_playlist",waitFor([&]{return window->property("route").toString()=="playlist"
+        QMetaObject::invokeMethod(window,"openPlaylist",Q_ARG(QVariant,library.playlists().first().toMap().value("id")));
+        check("sidebar_opens_native_personal_playlist",waitFor([&]{return window->property("route").toString()=="playlist"
             && !library.publicPlaylist() && library.complete() && library.tracks().size()>2;},5000));
-        QMetaObject::invokeMethod(window,"changeMode",Q_ARG(QVariant,QStringLiteral("paper"))); QTest::qWait(350);
+        QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home"))); QTest::qWait(350);
         click(window, find("sidebarUser")); QTest::qWait(100); click(window, find("accountLogout"));
         check("logout_clears_personal_library", waitFor([&] { return !account.loggedIn() && library.playlists().isEmpty() && library.tracks().isEmpty(); }, 5000));
         const auto publicPick = home.playlists().isEmpty() ? QVariantMap{{"id","18"},{"name",QStringLiteral("窗边发现")}} : home.playlists().last().toMap();
@@ -832,7 +537,7 @@ int main(int argc, char** argv) {
         music.setReducedMotion(true); music.seek(12000); QTest::qWait(400);
         check("media_box_integer_immersive_prev",mediaGeometry("immersivePreviousButton",false));
         music.setPlaying(true);QTest::qWait(200);window->setProperty("listeningOpen",true);QTest::qWait(250);
-        auto* transportGlyph=find("listeningPlay_glyph");
+        auto* transportGlyph=find("immersivePlayButton_glyph");
         check("transport_button_pause_glyph",transportGlyph&&transportGlyph->property("name")=="transport-pause"&&!transportGlyph->property("stroked").toBool());
         window->setProperty("listeningOpen",false);music.setPlaying(false);music.seek(12000);QTest::qWait(200);
         for(const auto& extra:captureSizes()) {
@@ -1081,9 +786,9 @@ int main(int argc, char** argv) {
     check("native_initialization", waitFor([&] { return music.ready(); }));
     check("real_public_feed", waitFor([&] { return music.feed().size() >= 20; }, 40000));
     report.insert("native_fingerprint", music.fingerprint());
-    check("paper_home_default", window->property("presentation").toString() == "paper" && find("paperPage")
+    check("paper_home_default", find("paperPage")
         && find("paperSidebar")->property("visible").toBool());
-    QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("paper"))); QTest::qWait(500);
+    QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home"))); QTest::qWait(500);
     check("paper_render", screenshot("paper"));
     auto* searchInput = find("searchInput");
     if (searchInput) { searchInput->setProperty("text", QStringLiteral("隔岸")); QMetaObject::invokeMethod(searchInput, "accepted"); }
@@ -1106,33 +811,23 @@ int main(int argc, char** argv) {
     const auto pausedAt = music.position(); QTest::qWait(450);
     check("pause_keeps_audio_clock", !music.playing() && std::abs(music.position() - pausedAt) < 100);
     music.seek(20000); check("seek_uses_audio_clock", waitFor([&] { return music.position() >= 19500; }, 5000));
-    check("top_mode_switch_removed", !find("curtainMode") && !find("paperMode"));
-    click(window, find("settingsButton"));
-    click(window, find("settingsOpenCurtain"));
-    check("settings_enters_curtain", window->property("presentation").toString() == "curtain");
-    check("mode_preserves_song_and_position", music.queueIndex() == 0 && music.position() >= 19500 && !music.playing());
-    check("curtain_hides_sidebar_and_dock", !find("paperSidebar")->property("visible").toBool() && !find("paperPlayerDock")->property("visible").toBool());
-    check("curtain_render", screenshot("curtain"));
-    click(window, find("listenEntry")); check("listening_panel", window->property("listeningOpen").toBool()); screenshot("listening");
-    window->setProperty("listeningOpen", false); click(window, find("wallEntry"));
-    auto* wall = find("posterWallPage");
-    const auto queueBefore = music.queueIndex(); const auto positionBefore = music.position();
-    if (wall) QMetaObject::invokeMethod(wall, "focusPoster", Q_ARG(QVariant, 1));
-    check("wall_browsing_does_not_play", wall && music.queueIndex() == queueBefore && !music.playing() && std::abs(music.position() - positionBefore) < 100);
-    check("wall_render", screenshot("wall"));
+    check("retired_presentation_entries_absent", !find("stageEntry") && !find("settingsOpenCurtain"));
+    window->setProperty("listeningOpen",true); QTest::qWait(200);
+    check("one_queue_panel",find("queuePanel") && find("queueSearch") && !find("listeningPanel"));
+    screenshot("queue"); window->setProperty("listeningOpen",false);
     window->resize(900, 620); QTest::qWait(400); check("minimum_window_size", window->size() == QSize(900, 620)); check("minimum_window_render", screenshot("minimum"));
     window->resize(1600, 1000); QTest::qWait(400); check("wide_window_size", window->size() == QSize(1600, 1000)); check("wide_window_render", screenshot("wide"));
     window->setWidth(1280); window->setHeight(850);
-    for (int i=0;i<20;i++) { window->setProperty("route", "home"); QTest::qWait(30); window->setProperty("route", "wall"); QTest::qWait(30); }
-    check("wall_exit_unmounts", (window->setProperty("route", "home"), QTest::qWait(100), find("posterWallPage") == nullptr));
+    for (int i=0;i<20;i++) { window->setProperty("route", "home"); QTest::qWait(30); window->setProperty("route", "player"); QTest::qWait(30); }
+    check("player_exit_unmounts", (window->setProperty("route", "home"), QTest::qWait(100), find("playerPage") == nullptr));
     window->setProperty("route", "player"); music.setLyricSize(38);
     check("player_render", screenshot("player"));
     music.setVinyl(true); check("vinyl_render", screenshot("vinyl"));
     music.setLyricSize(32); music.setVinyl(false);
     QMetaObject::invokeMethod(window, "openSettings", Q_ARG(QVariant, QStringLiteral("appearance")));
     QTest::qWait(400);
-    click(window, find("settingsOpenPaper"));
-    check("paper_mode_returns", window->property("presentation").toString() == "paper" && find("paperSidebar")->property("visible").toBool());
+    window->setProperty("route","home");
+    check("paper_mode_returns", find("paperSidebar")->property("visible").toBool());
     click(window, find("playerCoverButton")); check("paper_player_render", screenshot("paper-player"));
     click(window, find("settingsButton"));
     check("settings_route", window->property("route").toString() == "settings" && find("settingsPage") != nullptr);
@@ -1285,7 +980,7 @@ int main(int argc, char** argv) {
     check("no_lyrics_render", screenshot("immersive-empty"));
     QTest::keyClick(window, Qt::Key_Escape); QTest::qWait(250);
     if (args[3] == "hold") {
-        window->setProperty("route", "home"); window->setProperty("presentation", "paper");
+        window->setProperty("route", "home");
         QTimer::singleShot(90000, &app, &QCoreApplication::quit); app.exec();
     }
     report.insert("qml_warnings", QJsonArray::fromStringList(warnings)); report.insert("checks", checks);

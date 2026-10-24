@@ -67,15 +67,14 @@ the source, build instructions and Qt 6.8.3 private-header dependency are retain
 
 # Bravais reference provenance
 
-The four existing coordinate tables in `qml/components/BravaisLayout.qml`
-were measured from Folia's `blockTemplates.ts` (reference revisions
+The retired Bravais interface used coordinate tables measured from
+Folia's `blockTemplates.ts` (reference revisions
 `7701347` / `fb510b9`, [upstream](https://github.com/chthollyphile/folia-major),
 `src/components/wall/blockTemplates.ts`). Folia is
 licensed under AGPL-3.0; the upstream license is retained as `Folia-LICENSE`.
-This records the table's provenance rather than attributing it to BottleMusic.
-The 2026-10-16 focus reflow table and nearest-centre assignment are independently
-derived in BottleMusic. No Folia React components or application runtime are
-incorporated. Visual comparisons use the reference's local test harness.
+The Bravais, curtain and poster-wall QML pages and their exclusive components
+have been removed. The upstream notice and license remain for provenance.
+No Folia React components or application runtime are incorporated.
 
 ## Radix Colors
 

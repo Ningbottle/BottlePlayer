@@ -62,7 +62,7 @@ Item {
                 }
                 CssText {
                     anchors.baseline: queueTitle.baseline; anchors.left: queueTitle.right; anchors.leftMargin: Theme.s2
-                    text: music.queue.length + " 首"; color: Theme.text3
+                    text: music.queue.length + " 首"; color: root.muted
                     font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 }
                 QueueIcon { id: close; objectName: "queueClose"; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; glyph: "x"; size: "sm"; onClicked: root.close() }

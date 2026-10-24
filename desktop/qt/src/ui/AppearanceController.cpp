@@ -9,8 +9,7 @@ AppearanceController::AppearanceController(const QString& profile, QObject* pare
     : QObject(parent), settings_(QDir(profile).filePath("appearance.ini"), QSettings::IniFormat) {
     const auto mode = settings_.value("mode", mode_).toString();
     if (mode == "light" || mode == "dark" || mode == "system") mode_ = mode;
-    // Launch always opens the paper home; curtain is an in-session mode and must
-    // not survive restarts as an implicit home choice.
+    // Legacy presentation preferences are ignored; the shell has one home.
     const auto accent = settings_.value("accent").toString();
     if (QRegularExpression("^#[0-9a-fA-F]{6}$").match(accent).hasMatch()) accent_ = accent;
     const auto font = settings_.value("lyricFont", font_).toString();
@@ -51,10 +50,6 @@ bool AppearanceController::flushStorage() {
 void AppearanceController::setMode(const QString& value) {
     if ((value != "light" && value != "dark" && value != "system") || mode_ == value) return;
     mode_ = value; save("mode", value);
-}
-void AppearanceController::setPresentation(const QString& value) {
-    if ((value != "paper" && value != "curtain") || value == presentation_) return;
-    presentation_ = value; save("presentation", value);
 }
 void AppearanceController::setAccent(const QString& value) {
     if ((!value.isEmpty() && !QRegularExpression("^#[0-9a-fA-F]{6}$").match(value).hasMatch()) || accent_ == value) return;

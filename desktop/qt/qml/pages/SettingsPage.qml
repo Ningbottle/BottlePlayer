@@ -12,8 +12,6 @@ Flickable {
     objectName: "settingsPage"
     property var meta: ({ id: "appearance", label: "外观" })
     property real viewportWidth: width
-    signal enterPaper()
-    signal enterCurtain()
     signal openEqualizer()
     FileDialog { id: exportFile; title: "导出偏好与播放数据"; fileMode: FileDialog.SaveFile; nameFilters: ["BottleMusic 数据 (*.json)"]; defaultSuffix: "json"; onAccepted: migrationState.exportData(selectedFile) }
     FileDialog { id: importFile; title: "选择播放器设置导出文件"; nameFilters: ["BottleMusic 数据 (*.json)"]; onAccepted: importConfirmation.open() }
@@ -104,58 +102,6 @@ Flickable {
         AccountPanel { }
     }
 
-    // .settings-interface-options: two columns, 20px gap; each choice is a
-    // --surface grid (8px gap, 20px padding) between 1px --border-strong
-    // rules: mono number, 1.4rem/1.4 title, fs-sm caption, and a 1rem arrow
-    // pinned 20px inside the top-right corner.
-    component InterfaceOption: AbstractButton {
-        id: choice
-        property string number: ""
-        property string title: ""
-        property string caption: ""
-        hoverEnabled: true
-        focusPolicy: Qt.TabFocus
-        leftPadding: Theme.s5; rightPadding: Theme.s5
-        topPadding: Theme.s5 + Theme.hairline; bottomPadding: Theme.s5 + Theme.hairline
-        Accessible.name: title
-        background: Rectangle {
-            color: choice.hovered ? Theme.surfaceHover : Theme.surface
-
-            Hairline { width: parent.width; color: Theme.borderStrong }
-            Hairline { anchors.bottom: parent.bottom; width: parent.width; color: Theme.borderStrong }
-            Icon {
-                anchors.right: parent.right; anchors.rightMargin: Theme.s5
-                y: Theme.hairline + Theme.s5
-                size: Theme.rem(1); name: "arrow-up-right"; color: Theme.text3
-            }
-            // outline: 2px --focus, offset 4px.
-            Rectangle {
-                anchors.fill: parent; anchors.margins: -6
-                color: "transparent"; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.focus
-                visible: choice.visualFocus
-            }
-        }
-        contentItem: Column {
-            spacing: Theme.s2
-            // font: fs-xs mono resets line-height to normal: Blink rounds
-            // the ascent and descent to device pixels (14.4px at 125%).
-            Text {
-                height: (Math.round(mono.ascent * Theme.dpr) + Math.round(mono.descent * Theme.dpr)) / Theme.dpr + mono.leading
-                verticalAlignment: Text.AlignVCenter
-                text: choice.number; color: Theme.text3; font: mono.font
-                FontMetrics { id: mono; font.family: Theme.fontMono; font.pixelSize: Theme.fsXs }
-            }
-            Text {
-                height: Theme.rem(1.4) * 1.4; verticalAlignment: Text.AlignVCenter
-                text: choice.title; color: Theme.text
-                font.family: Theme.fontTitle; font.pixelSize: Theme.fsXl; font.weight: Theme.fwMedium
-            }
-            CssText {
-                text: choice.caption; color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
-            }
-        }
-    }
-
     Component {
         id: appearanceSection
         Column {
@@ -163,26 +109,6 @@ Flickable {
                 visible: appearanceState.storageError.length > 0
                 label: appearanceState.storageError
                 ActionButton { text: "重试保存"; onClicked: appearanceState.retryStorage() }
-            }
-            Text { text: "界面"; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwSemiBold; topPadding: 20; bottomPadding: 8 }
-            SettingItem {
-                label: "主页样式"; stacked: true
-                // repeat(2, minmax(0, 1fr)) with a 20px gap.
-                Row {
-                    id: interfaces
-                    width: parent.width; spacing: Theme.s5
-                    readonly property real column: (width - spacing) / 2
-                    InterfaceOption {
-                        width: interfaces.column
-                        objectName: "settingsOpenPaper"; number: "01"; title: "报刊"; caption: "列表浏览"
-                        onClicked: root.enterPaper()
-                    }
-                    InterfaceOption {
-                        width: interfaces.column
-                        objectName: "settingsOpenCurtain"; number: "02"; title: "幕布"; caption: "封面浏览"
-                        onClicked: root.enterCurtain()
-                    }
-                }
             }
             SettingItem {
                 label: "显示模式"

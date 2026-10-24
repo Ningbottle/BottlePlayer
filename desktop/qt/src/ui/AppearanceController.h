@@ -7,7 +7,6 @@
 class AppearanceController final : public QObject {
     Q_OBJECT
     Q_PROPERTY(QString mode READ mode WRITE setMode NOTIFY changed)
-    Q_PROPERTY(QString presentation READ presentation WRITE setPresentation NOTIFY changed)
     Q_PROPERTY(bool dark READ dark NOTIFY changed)
     Q_PROPERTY(QString accent READ accent WRITE setAccent NOTIFY changed)
     Q_PROPERTY(bool compact READ compact WRITE setCompact NOTIFY changed)
@@ -20,8 +19,6 @@ public:
     explicit AppearanceController(const QString& profile, QObject* parent = nullptr);
     ~AppearanceController() override;
     QString mode() const { return mode_; }
-    QString presentation() const { return presentation_; }
-    void setPresentation(const QString& value);
     bool dark() const;
     QString accent() const { return accent_; }
     bool compact() const { return compact_; }
@@ -50,7 +47,7 @@ private:
     QTimer saveTimer_;
     QVariantMap pending_;
     QSettings::Status storageStatus_ = QSettings::NoError;
-    QString mode_ = "light", presentation_ = "paper", accent_, font_ = "skin", focus_ = "readable";
+    QString mode_ = "light", accent_, font_ = "skin", focus_ = "readable";
     bool compact_ = false, lab_ = false;
     int sidebarWidth_ = 232;
 };

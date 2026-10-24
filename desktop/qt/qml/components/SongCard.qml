@@ -2,7 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import BottleMusic
 
-// Recommendation tile for the curtain: --card-radius surface + --shadow-1,
+// Recommendation tile: --card-radius surface + --shadow-1,
 // hand-set (WenKai) 1rem title for album recommendations, .75rem meta.
 AbstractButton {
     id: root

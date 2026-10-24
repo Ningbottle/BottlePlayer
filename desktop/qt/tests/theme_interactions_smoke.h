@@ -7,7 +7,7 @@ configure("{\"feed_count\":2}");
 music.setVolume(0); music.setReducedMotion(true); music.initialize();
 check("theme_core_ready", waitFor([&] { return music.ready() && music.feed().size() == 2 && !home.loading(); }, 10000));
 window->resize(1280, 850); window->requestActivate();
-QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("paper")));
+QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home")));
 
 // Test shared actions as well as the home and transport controls.
 QQmlComponent controls(&engine);
@@ -140,19 +140,13 @@ for (const auto& mode : {QStringLiteral("light"), QStringLiteral("dark")}) {
 }
 controlHost->setVisible(false);
 
-// Dark artwork scenes own their luminance, but their furniture follows the hue.
-QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("curtain")));
-QTest::qWait(250);
+// The shared search remains readable under every tone; no alternate home mounts.
 for (const auto& seed : presets) {
     appearance.setAccent(seed); QTest::qWait(220);
-    check("wall_"+seed+"_background_hue", color(window,"color") == QColor(expected.value(themeObject->property("accentFamily").toString()).value(3)));
-    auto* wall = find("bravaisHome");
-    if (wall) QMetaObject::invokeMethod(wall,"openSearch");
-    QTest::qWait(100);
-    auto* input = quick("bravaisSearchInput");
-    check("wall_"+seed+"_search_hue", color(quick("homeSearchBackground"),"color") == color(window,"color"));
-    check("wall_"+seed+"_selection_contrast", input && ratio(color(input,"selectedTextColor"),color(input,"selectionColor")) >= 4.5);
-    if (wall) QMetaObject::invokeMethod(wall,"closeSearch");
+    auto* input = quick("searchInput");
+    check("search_"+seed+"_page_hue", color(window,"color") == color(themeObject,"bg"));
+    check("search_"+seed+"_surface_hue", input && color(input->property("background").value<QQuickItem*>(),"color") == color(themeObject,"surface"));
+    check("search_"+seed+"_selection_contrast", input && ratio(color(input,"selectedTextColor"),color(input,"selectionColor")) >= 4.5);
 }
 QMetaObject::invokeMethod(window,"enterImmersive", Q_ARG(QVariant, false)); QTest::qWait(300);
 for (const auto& seed : presets) {
@@ -167,7 +161,7 @@ appearance.setAccent("#3d5a99");
 check("theme_preference_flushed", appearance.flushStorage());
 AppearanceController reloaded(profile);
 check("theme_preference_survives_reload", reloaded.accent() == "#3d5a99" && reloaded.mode() == "dark");
-QMetaObject::invokeMethod(window,"changeMode",Q_ARG(QVariant,QStringLiteral("paper")));
+QMetaObject::invokeMethod(window,"navigate",Q_ARG(QVariant,QStringLiteral("home")));
 const auto typeLadder = [&](const QString& route) {
     bool valid = true, readableSmall = true; int textCount = 0;
     walkItems(window->contentItem(),[&](QQuickItem* item) {

@@ -24,7 +24,6 @@ Rectangle {
     readonly property var playlistRows: libraryState.playlists.slice(0, playlistRowLimit)
     readonly property bool playlistsTruncated: libraryState.playlists.length > playlistRows.length || libraryState.playlistsMore
     signal navigate(string page)
-    signal enterCurtain()
     signal openSettings(string section)
     signal leaveSettings()
     signal openPlaylist(string id)
@@ -269,17 +268,6 @@ Rectangle {
                     }
                     NavRow { objectName: "localFavoritesEntry"; glyph: "heart"; text: "本地收藏"; current: root.route === "favorites"; onClicked: root.navigate("favorites") }
                 }
-                Eyebrow {
-                    visible: !root.settingsMode
-                    Layout.fillWidth: true; Layout.topMargin: root.compactHeight ? 8 : Theme.s5; Layout.bottomMargin: Theme.s1
-                    text: "外观"
-                }
-                ColumnLayout {
-                    visible: !root.settingsMode
-                    Layout.fillWidth: true; spacing: 2
-                    NavRow { objectName: "stageEntry"; glyph: "gallery-horizontal-end"; text: "幕布"; onClicked: root.enterCurtain() }
-                }
-
                 ColumnLayout {
                     objectName: "settingsNav"
                     visible: root.settingsMode

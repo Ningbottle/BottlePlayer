@@ -150,10 +150,10 @@ int main(int argc, char** argv) {
         QByteArray bytes; QBuffer buffer(&bytes); buffer.open(QIODevice::WriteOnly);
         if (capture.save(&buffer, "PNG")) capturedImages.insert(name, QString::fromLatin1(bytes.toBase64()));
     };
-    for (const QString mode : {QStringLiteral("paper"), QStringLiteral("curtain"), QStringLiteral("immersive")}) {
+    for (const QString mode : {QStringLiteral("paper"), QStringLiteral("immersive")}) {
         if (mode == "immersive")
             QMetaObject::invokeMethod(window, "enterImmersive", Q_ARG(QVariant, false));
-        else window->setProperty("presentation", mode);
+        else window->setProperty("route", "home");
         window->resize(900, 620);
         QTest::qWait(800);
         { std::lock_guard lock(framesMutex); frames.clear(); lastFrame = Clock::now(); }
