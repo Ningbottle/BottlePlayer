@@ -11,6 +11,7 @@
 
 #include "echo/core/CompatApi.h"
 #include "echo/core/Crypto.h"
+#include "echo/core/UpstreamFields.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 
 namespace echo::core {
@@ -127,16 +128,16 @@ inline std::optional<int> ReadKuGouErrorCodeValue(const nlohmann::json& value) {
 }
 
 // Top-level only. Prefer error_code when both exist and conflict.
+// Dialect note: this compat/signed-endpoint rule deliberately differs from
+// SongUrlService's errcode-first reading and from the mobilecdn dialect
+// where both fields must independently be zero; the per-dialect
+// classifications are pinned by upstream_semantics_test.cpp.
 inline std::optional<int> ReadKuGouErrorCode(const nlohmann::json& body) {
-  if (!body.is_object()) return std::nullopt;
+  const auto fields = upstream::Read(body);
   std::optional<int> errorCode;
   std::optional<int> errcode;
-  if (body.contains("error_code")) {
-    errorCode = ReadKuGouErrorCodeValue(body.at("error_code"));
-  }
-  if (body.contains("errcode")) {
-    errcode = ReadKuGouErrorCodeValue(body.at("errcode"));
-  }
+  if (fields.errorCode) errorCode = ReadKuGouErrorCodeValue(*fields.errorCode);
+  if (fields.errcode) errcode = ReadKuGouErrorCodeValue(*fields.errcode);
   if (errorCode && errcode && *errorCode != *errcode) {
     ECHO_LOG("CompatApi", "error_code/errcode conflict, preferring error_code");
     return errorCode;

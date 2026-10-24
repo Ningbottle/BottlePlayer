@@ -1,6 +1,7 @@
 #include "echo/core/LyricService.h"
 
 #include "echo/core/StringUtils.h"
+#include "echo/core/UpstreamFields.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 #include "echo/diagnostics/Redaction.h"
 
@@ -130,13 +131,16 @@ bool HasTimedLyrics(const std::string& text) {
   return false;
 }
 
-std::string ReadString(const nlohmann::json& value, std::string_view key) {
-  if (!value.contains(key)) return "";
-  const auto& item = value.at(key);
+std::string ReadStringValue(const nlohmann::json& item) {
   if (item.is_string()) return item.get<std::string>();
   if (item.is_number_integer()) return std::to_string(item.get<std::int64_t>());
   if (item.is_number_unsigned()) return std::to_string(item.get<std::uint64_t>());
   return "";
+}
+
+std::string ReadString(const nlohmann::json& value, std::string_view key) {
+  if (!value.contains(key)) return "";
+  return ReadStringValue(value.at(key));
 }
 
 nlohmann::json LyricDiagnostics(
@@ -173,10 +177,11 @@ bool ZeroBusinessCode(const nlohmann::json& code) {
 }
 
 nlohmann::json UpstreamErrorCode(const nlohmann::json& json) {
+  const auto fields = upstream::Read(json);
   nlohmann::json zero = nullptr;
-  for (const char* key : {"error_code", "errcode"}) {
-    if (!json.contains(key) || json[key].is_null()) continue;
-    const auto& code = json[key];
+  for (const auto* field : {&fields.errorCode, &fields.errcode}) {
+    if (!*field || field->raw->is_null()) continue;
+    const auto& code = **field;
     if (!ZeroBusinessCode(code)) {
       return code.is_number() || code.is_string() ? code : nlohmann::json("invalid_upstream_error_code");
     }
@@ -186,16 +191,18 @@ nlohmann::json UpstreamErrorCode(const nlohmann::json& json) {
 }
 
 bool BusinessSuccess(const nlohmann::json& upstream, bool search = false) {
-  if (!upstream.is_object()) return false;
-  const auto status = Trim(ReadString(upstream, "status"));
-  if (!upstream.contains("status") || (status != "1" && status != "200")) return false;
-  for (const char* key : {"error_code", "errcode"}) {
-    if (!upstream.contains(key) || upstream[key].is_null()) continue;
+  const auto fields = upstream::Read(upstream);
+  if (!fields.status) return false;
+  const auto status = Trim(ReadStringValue(*fields.status));
+  if (status != "1" && status != "200") return false;
+  for (const auto* field : {&fields.errorCode, &fields.errcode}) {
+    if (!*field || field->raw->is_null()) continue;
+    const auto& code = **field;
     // The legacy search endpoint uses errcode=200 for successful searches.
     // Downloads use zero; do not widen their success contract with this code.
-    const bool searchOk = search && status == "200" && std::string_view(key) == "errcode" &&
-        Trim(ReadString(upstream, key)) == "200";
-    if (!ZeroBusinessCode(upstream[key]) && !searchOk) return false;
+    const bool searchOk = search && status == "200" && field == &fields.errcode &&
+        Trim(ReadStringValue(code)) == "200";
+    if (!ZeroBusinessCode(code) && !searchOk) return false;
   }
   return true;
 }

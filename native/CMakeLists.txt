@@ -213,6 +213,12 @@ add_executable(EchoBpPaginationProbe EXCLUDE_FROM_ALL tools/bp_pagination_probe.
 target_include_directories(EchoBpPaginationProbe PRIVATE include)
 target_link_libraries(EchoBpPaginationProbe PRIVATE EchoCAPI)
 
+# Read-only live spot check of upstream response dialects (status/error_code/
+# errcode shapes). Manual run only — performs real anonymous GETs.
+add_executable(EchoUpstreamDialectProbe EXCLUDE_FROM_ALL tools/upstream_dialect_probe.cpp)
+target_include_directories(EchoUpstreamDialectProbe PRIVATE include)
+target_link_libraries(EchoUpstreamDialectProbe PRIVATE EchoCore ws2_32)
+
 # R-external probe (agent B 2026-09-28): read-only real-CDN If-Range probe.
 # Manual run only — makes one song-url resolution plus three <=100-byte
 # range requests against the production CDN.

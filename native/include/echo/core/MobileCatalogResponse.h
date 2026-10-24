@@ -8,6 +8,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "echo/core/UpstreamFields.h"
+
 // Only the mobilecdn catalog/rank/discovery endpoints use this status=1
 // contract. Lyrics and signed Android endpoints have separate success codes.
 namespace echo::core::mobile_catalog {
@@ -51,10 +53,14 @@ inline int ReadInt(const nlohmann::json& object, std::string_view key, int fallb
 }
 
 inline bool Success(const nlohmann::json& response) {
-  if (!response.is_object() || ReadInt(response, "status", -1) != 1) return false;
-  for (const auto* field : {"error_code", "errcode"}) {
-    const auto it = response.find(field);
-    if (it != response.end() && Integer(*it) != std::optional<int>{0}) return false;
+  // mobilecdn dialect: status must parse to exactly 1 (strict from_chars,
+  // numeric strings accepted), and BOTH error fields — when present — must
+  // parse to 0. "Present but unparseable" fails; "absent" does not
+  // participate. Pinned by upstream_semantics_test.cpp.
+  const auto fields = upstream::Read(response);
+  if (!fields.status || Integer(*fields.status) != std::optional<int>{1}) return false;
+  for (const auto* field : {&fields.errorCode, &fields.errcode}) {
+    if (*field && Integer(**field) != std::optional<int>{0}) return false;
   }
   return true;
 }
