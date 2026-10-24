@@ -73,7 +73,7 @@ int main(int argc, char** argv) {
     SettingsController settings(music.nativeGateway(), QDir(parser.value("profile")).absolutePath());
     DataMigration migration(QDir(parser.value("profile")).absolutePath());
     migration.setNativeGateway(&music.nativeGateway());
-    migration.setPrepareSnapshot([&appearance] { return appearance.flushStorage(); });
+    migration.setPrepareSnapshot([&music, &appearance] { return music.flushStorage() && appearance.flushStorage(); });
     QObject::connect(&migration, &DataMigration::statisticsImported, &stats, &StatsController::refresh);
     UpdateController updates(QDir(parser.value("profile")).absolutePath());
     EqualizerController equalizer(*music.mediaPlayer(), *music.audioOutput(), QDir(parser.value("profile")).absolutePath());

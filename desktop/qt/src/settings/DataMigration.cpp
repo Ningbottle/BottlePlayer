@@ -1,5 +1,6 @@
 #include "DataMigration.h"
 #include "music/Track.h"
+#include "music/PlaybackQuality.h"
 #include "core/NativeGateway.h"
 #include <QFile>
 #include <QSaveFile>
@@ -145,7 +146,8 @@ void DataMigration::importData(const QUrl& source) {
     } else snapshot = QJsonDocument::fromJson(importedPreferences.value("queueSnapshot").toString().toUtf8()).object();
     emit importing();
     if (importedPreferences.value("volume").isDouble()) preferences.setValue("volume", std::clamp(importedPreferences.value("volume").toDouble(), 0.0, 1.0));
-    if (QStringList{"128", "320", "flac", "hires"}.contains(importedPreferences.value("quality").toString())) preferences.setValue("quality", importedPreferences.value("quality").toString());
+    const auto quality = PlaybackQuality::canonical(importedPreferences.value("quality").toString());
+    if (!quality.isEmpty()) preferences.setValue("quality", quality);
     if (QStringList{"list", "single", "random"}.contains(importedPreferences.value("loopMode").toString())) preferences.setValue("loopMode", importedPreferences.value("loopMode").toString());
     if (QStringList{"light", "dark", "system"}.contains(importedAppearance.value("mode").toString())) appearance.setValue("mode", importedAppearance.value("mode").toString());
     if (QStringList{"paper", "curtain"}.contains(importedAppearance.value("presentation").toString())) appearance.setValue("presentation", importedAppearance.value("presentation").toString());

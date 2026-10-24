@@ -122,7 +122,7 @@ int main(int argc, char** argv) {
     SettingsController settings(music.nativeGateway(), profile);
     DataMigration migration(profile);
     migration.setNativeGateway(&music.nativeGateway());
-    migration.setPrepareSnapshot([&appearance] { return appearance.flushStorage(); });
+    migration.setPrepareSnapshot([&music, &appearance] { return music.flushStorage() && appearance.flushStorage(); });
     UpdateController updates(profile);
     EqualizerController equalizer(*music.mediaPlayer(), *music.audioOutput(), profile);
     QObject::connect(&migration, &DataMigration::importing, &music, &MusicController::holdPersistenceForImport);
@@ -620,6 +620,15 @@ int main(int argc, char** argv) {
         music.seek(12000); music.setQuality("320");
         check("paused_quality_switch_preserves_clock", waitFor([&] { return !music.loading() && music.actualQuality() == "320"; }, 5000)
             && !music.playing() && std::abs(music.position() - 12000) < 150);
+        // The menu used to render whatever single quality the last /song/url
+        // answer carried, which is why only 标准 stayed selectable after login.
+        click(window, find("qualityButton"));
+        check("quality_menu_offers_every_available_quality", waitFor([&] {
+            return find("quality_128") && find("quality_320") && find("quality_flac") && find("quality_high"); }, 3000));
+        // Re-clicking the selected entry closes the menu without re-resolving.
+        click(window, find("quality_320")); QTest::qWait(200);
+        check("quality_menu_selection_keeps_the_clock", music.quality() == QLatin1String("320")
+            && std::abs(music.position() - 12000) < 150);
         check("cloud_favorite_loaded", waitFor([&] { return !favorite.loading() && music.favorite(); }, 5000));
         click(window, find("favoriteButton")); check("cloud_favorite_remove_confirmed", waitFor([&] { return favorite.pendingCount() == 0 && !music.favorite(); }, 5000));
         click(window, find("favoriteButton")); check("cloud_favorite_add_confirmed", waitFor([&] { return !favorite.loading() && favorite.pendingCount() == 0 && music.favorite(); }, 5000));

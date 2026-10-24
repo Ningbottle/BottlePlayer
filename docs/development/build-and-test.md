@@ -41,7 +41,10 @@ git diff --check
 默认运行原生 CTest 和 Qt 契约测试，排除依赖现场音频设备的 `qt_audio_runtime`。契约测试使用临时目录，不访问日常 profile。
 已经验证后端时可用 `-QtOnly` 单独运行 Qt 契约。`qt_lyric_bindings` 直接加载真实歌词组件，检查进度更新不再读取整首歌词，并覆盖逐字时间、末行回退、点击定位和时钟启停。`qt_music_flows` 检查队列投影、索引/模式/等待通知、歌词及元数据更新，并包含 2000 首队列 getter 微基准；它不代表实际窗口帧率。
 
-`qt_render_bindings` 检查实际封面请求尺寸与列表非零原点下的渐隐；`qt_diagnostics` 用阻塞 sink 验证入队与 I/O 分离、队列上限、错误预留、轮转及故障恢复。`qt_settings_migration` 覆盖连续侧栏修改合并、退出保存、保存失败重试和导入/导出屏障。相关 QtTest 报告均位于构建目录 `Testing/`，失败时由测试脚本打印本次报告。
+`qt_visual_contracts` 检查封面取色的迟到下载、缓存与回退；`qt_render_bindings` 检查实际封面请求尺寸与列表非零原点下的渐隐；`qt_diagnostics` 用阻塞 sink 验证入队与 I/O 分离、队列上限、错误预留、轮转及故障恢复。`qt_settings_migration` 覆盖连续侧栏修改合并、退出保存、保存失败重试和导入/导出屏障。相关 QtTest 报告均位于构建目录 `Testing/`，失败时由测试脚本打印本次报告。
+
+`qt_playback_storage` 用阻塞和失败 sink 检查播放存储的最新快照合并、失败保留、停止后拒绝写入和无需 GUI 事件循环的销毁屏障；真实文件夹具覆盖保存失败阻止迁移、导出与导入备份取最新状态，以及导入后旧 writer 不再覆盖结果。2000 首队列连续 80 次选曲会报告 GUI 调用耗时与最后保存屏障耗时，属于隔离存储负载，不代表在线取链、解码、音频输出或实际窗口帧率。报告位于 `Testing/qt_playback_storage.txt`。
+`qt_music_flows` 还使用忽略取消的迟到夹具，验证退出会话与导入暂停后不会重新设置媒体源或音质候选；同曲切换保留进行中的候选查询，换曲丢弃旧答案。`qt_playback_storage` 覆盖旧 profile、Qt 档案和旧版档案的 `hires` 偏好兼容；原生 `EchoSongUrlContractTest` 检查 v6 高码率 kbps 分档，防止误用 v5 单位换算。
 
 `bottle_qt_smoke` 的 `render-review` 模式使用本机图片服务验证封面动画的尺寸稳定、导航取消、切歌取消、迟到图片及减少动画选项；可通过 `QT_SCALE_FACTOR=1.25` 验证分数缩放。字体视觉比较仍应在 Windows 图形平台下观察，offscreen 通过不代表实际 DirectWrite 和多屏环境已验收。
 

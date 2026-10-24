@@ -10,7 +10,7 @@ Menu {
     palette.window: Theme.surface; palette.text: Theme.text
     palette.highlight: Theme.accentSoft; palette.highlightedText: Theme.text
     Repeater {
-        model: music.availableQualities.length ? music.availableQualities : [{quality:"128"},{quality:"320"},{quality:"flac"}]
+        model: music.availableQualities.length ? music.availableQualities : music.qualityCatalog
         MenuItem {
             required property var modelData
             objectName: "quality_" + modelData.quality
