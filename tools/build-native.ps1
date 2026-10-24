@@ -1,4 +1,7 @@
-param([string]$BuildDirectory = 'output/native-build')
+param(
+    [string]$BuildDirectory = 'output/native-build',
+    [ValidateSet('Debug', 'Release', 'RelWithDebInfo', 'MinSizeRel')][string]$BuildType = 'Release'
+)
 $ErrorActionPreference = 'Stop'
 $repoRoot = Split-Path $PSScriptRoot -Parent
 $nativeBuild = [IO.Path]::GetFullPath((Join-Path $repoRoot $BuildDirectory))
@@ -18,7 +21,8 @@ function BatchQuote([string]$value) {
     if ($value.Contains('"') -or $value.Contains("`n") -or $value.Contains("`r")) { throw 'Invalid command argument' }
     return '"' + $value.Replace('%', '%%') + '"'
 }
-$arguments = @('-S', (Join-Path $repoRoot 'native'), '-B', $nativeBuild, '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', '-DCMAKE_TRY_COMPILE_CONFIGURATION=Release', '-DECHO_NATIVE_BUILD_TESTS=ON', '-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON', '-DCMAKE_DISABLE_FIND_PACKAGE_Qt5=ON', '-DCMAKE_CXX_FLAGS_RELEASE=/O2 /DNDEBUG /Z7')
+$arguments = @('-S', (Join-Path $repoRoot 'native'), '-B', $nativeBuild, '-G', 'Ninja', "-DCMAKE_BUILD_TYPE=$BuildType", "-DCMAKE_TRY_COMPILE_CONFIGURATION=$BuildType", '-DECHO_NATIVE_BUILD_TESTS=ON', '-DCMAKE_DISABLE_FIND_PACKAGE_Qt6=ON', '-DCMAKE_DISABLE_FIND_PACKAGE_Qt5=ON')
+if ($BuildType -eq 'Release') { $arguments += '-DCMAKE_CXX_FLAGS_RELEASE=/O2 /DNDEBUG /Z7' }
 $batch = @('@echo off', 'setlocal DisableDelayedExpansion', ('call ' + (BatchQuote $devcmd) + ' -arch=x64 -host_arch=x64'), 'if errorlevel 1 exit /b 1', 'chcp 65001 > nul', 'set "_CL_=/Z7"', ('cmake ' + (($arguments | ForEach-Object { BatchQuote $_ }) -join ' ')), 'if errorlevel 1 exit /b 1', ('cmake --build ' + (BatchQuote $nativeBuild) + ' --parallel 6'), 'exit /b %errorlevel%')
 $batchFile = Join-Path $nativeBuild 'build-native.cmd'
 [IO.File]::WriteAllText($batchFile, ($batch -join "`r`n"), [Text.UTF8Encoding]::new($false))

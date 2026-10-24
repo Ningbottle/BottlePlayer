@@ -1059,6 +1059,89 @@ int main() {
     }
   }
 
+  // ── Transport-verb guards: a host injecting only one verb ────────────
+  // ResolveV6PrivUrl needs POST (SongUrlService.cpp:667) and the v5/preview
+  // legs need GET (SongUrlService.cpp:1173). A missing verb must produce a
+  // JSON answer, never std::bad_function_call.
+  std::cout << "[SongUrlContract] Testing transport-verb guards..." << std::endl;
+  {
+    // GET-only host: v6 is skipped, the v5 GET flow still delivers.
+    int getCalls = 0;
+    echo::core::SongUrlService svc(
+        [&](const std::string&,
+            const std::unordered_map<std::string, std::string>&,
+            long) {
+          ++getCalls;
+          return echo::core::HttpResult{200,
+              R"({"status":1,"hash":"GETONLY","url":"http://cdn.example/v5-full.mp3","bitRate":320,"extName":"mp3"})", ""};
+        },
+        echo::core::SongUrlHttpPostWithTimeout{},
+        [] { return std::chrono::steady_clock::time_point{}; });
+    const auto result = svc.Resolve("GETONLYHASH", "1", "1", "128", "", "42",
+        "token", {}, "", 3);
+    assert(result.value("status", 0) == 1);
+    assert(result.value("url", "") == "http://cdn.example/v5-full.mp3");
+    assert(getCalls >= 1);
+    std::cout << "  [ok] GET-only host skips v6 and completes via v5" << std::endl;
+  }
+  {
+    // POST-only host with a hard v6 failure: the GET guard answers JSON.
+    echo::core::SongUrlService svc(
+        echo::core::SongUrlHttpGetWithTimeout{},
+        [](const std::string&,
+           const std::string&,
+           const std::unordered_map<std::string, std::string>&,
+           long) {
+          return echo::core::HttpResult{200, R"({"status":0,"errcode":20018})", ""};
+        },
+        [] { return std::chrono::steady_clock::time_point{}; });
+    const auto result = svc.Resolve("POSTONLYHASH", "1", "1", "128", "", "42",
+        "token", {}, "", 3);
+    assert(result.value("status", 0) == 0);
+    assert(result.value("error", "") == "No HTTP GET handler available");
+    std::cout << "  [ok] POST-only hard failure names the missing GET handler" << std::endl;
+  }
+  {
+    // POST-only host whose v6 answer is a preview-only package: the guarded
+    // preview fallback is returned instead of the GET-handler error.
+    echo::core::SongUrlService svc(
+        echo::core::SongUrlHttpGetWithTimeout{},
+        [](const std::string&,
+           const std::string&,
+           const std::unordered_map<std::string, std::string>&,
+           long) {
+          return echo::core::HttpResult{200,
+              R"({"status":1,"data":[{"url":"https://cdn.example/yp/p_0_60000/preview.mp3","info":{"bitrate":128,"extname":"mp3"}}]})", ""};
+        },
+        [] { return std::chrono::steady_clock::time_point{}; });
+    const auto result = svc.Resolve("POSTPREVIEW", "1", "1", "128", "", "42",
+        "token", {}, "", 3);
+    assert(result.value("status", 0) == 1);
+    assert(result.value("is_preview", false) == true);
+    assert(result.value("url", "").find("/yp/p_") != std::string::npos);
+    std::cout << "  [ok] POST-only preview fallback is preserved" << std::endl;
+  }
+  {
+    // POST-only host with a FULL v6 answer: success returns before the GET
+    // guard, so no GET handler is needed at all.
+    echo::core::SongUrlService svc(
+        echo::core::SongUrlHttpGetWithTimeout{},
+        [](const std::string&,
+           const std::string&,
+           const std::unordered_map<std::string, std::string>&,
+           long) {
+          return echo::core::HttpResult{200,
+              R"({"status":1,"data":[{"url":"https://cdn.example/full/track.flac","info":{"bitrate":900,"extname":"flac"}}]})", ""};
+        },
+        [] { return std::chrono::steady_clock::time_point{}; });
+    const auto result = svc.Resolve("POSTFULL1", "1", "1", "128", "", "42",
+        "token", {}, "", 3);
+    assert(result.value("status", 0) == 1);
+    assert(result.value("url", "") == "https://cdn.example/full/track.flac");
+    assert(result.value("is_preview", true) == false);
+    std::cout << "  [ok] POST-only full v6 success needs no GET handler" << std::endl;
+  }
+
   if (deliveryFailures != 0 || qualityFailures != 0) {
     std::cout << "[SongUrlContract] failed" << std::endl;
     return 1;
