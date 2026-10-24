@@ -46,23 +46,8 @@ ApplicationWindow {
     }
     property bool immersive: false
     onImmersiveChanged: if (immersive) cancelCoverFlight()
-    property int playbackWindowState: Window.Windowed
-    property int immersiveWindowState: Window.Windowed
-    property rect playbackWindowRect: Qt.rect(0, 0, 1280, 850)
-    property rect immersiveWindowRect: Qt.rect(0, 0, 1280, 850)
-    property rect pendingWindowRect: Qt.rect(0, 0, 1280, 850)
-    property rect windowedRect: Qt.rect(0, 0, 1280, 850)
-    property int pendingWindowState: Window.Windowed
-    onWidthChanged: { rememberGeometry.restart(); cancelCoverFlight() }
-    onHeightChanged: { rememberGeometry.restart(); cancelCoverFlight() }
-    onXChanged: rememberGeometry.restart()
-    onYChanged: rememberGeometry.restart()
-    onVisibilityChanged: rememberGeometry.restart()
-    Timer {
-        id: rememberGeometry; interval: 120
-        onTriggered: if (!window.immersive && window.visibility === Window.Windowed)
-            window.windowedRect = Qt.rect(window.x, window.y, window.width, window.height)
-    }
+    onWidthChanged: cancelCoverFlight()
+    onHeightChanged: cancelCoverFlight()
     property var backStack: []
     property var forwardStack: []
     readonly property bool playbackBarVisible: !immersive
@@ -118,11 +103,6 @@ ApplicationWindow {
     }
     function enterImmersive(fullscreen) {
         if (!immersive) {
-            playbackWindowState = visibility === Window.Maximized ? Window.Maximized : Window.Windowed
-            immersiveWindowState = playbackWindowState
-            playbackWindowRect = Qt.rect(x, y, width, height)
-            if (playbackWindowState === Window.Windowed) windowedRect = playbackWindowRect
-            immersiveWindowRect = playbackWindowRect
             listeningOpen = false
             immersive = true
         }
@@ -135,26 +115,6 @@ ApplicationWindow {
     function togglePlaybackFullscreen() {
         if (immersive) leaveImmersive()
         else enterImmersive(false)
-    }
-    function restorePlaybackWindow(state, rect) {
-        // Seed the native normal geometry before restoring maximization.
-        // Otherwise Windows can retain the full-screen rect as its normal rect.
-        pendingWindowState = state
-        pendingWindowRect = state === Window.Maximized ? windowedRect : rect
-        visibility = Window.Windowed
-        x = pendingWindowRect.x; y = pendingWindowRect.y
-        width = pendingWindowRect.width; height = pendingWindowRect.height
-        restoreGeometry.restart()
-    }
-    Timer {
-        id: restoreGeometry; interval: 80
-        onTriggered: {
-            if (window.visibility === Window.Windowed) {
-                window.x = window.pendingWindowRect.x; window.y = window.pendingWindowRect.y
-                window.width = window.pendingWindowRect.width; window.height = window.pendingWindowRect.height
-                if (window.pendingWindowState === Window.Maximized) window.visibility = Window.Maximized
-            }
-        }
     }
     function go(page, section) {
         var place = { route: page, section: section || settingsSection }

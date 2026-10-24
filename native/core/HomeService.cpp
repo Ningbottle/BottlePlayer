@@ -236,11 +236,7 @@ nlohmann::json HomeService::GetImagesAudio(const std::string& hash,
     std::string s;
     size_t index = 0;
     while (std::getline(ss, s, ',') && index < data.size()) {
-      try {
-        data[index]["audio_id"] = SafeStoll(s);
-      } catch (...) {
-        data[index]["audio_id"] = 0;
-      }
+      data[index]["audio_id"] = SafeStoll(s);
       index++;
     }
   }
@@ -250,11 +246,7 @@ nlohmann::json HomeService::GetImagesAudio(const std::string& hash,
     std::string s;
     size_t index = 0;
     while (std::getline(ss, s, ',') && index < data.size()) {
-      try {
-        data[index]["album_audio_id"] = SafeStoll(s);
-      } catch (...) {
-        data[index]["album_audio_id"] = 0;
-      }
+      data[index]["album_audio_id"] = SafeStoll(s);
       index++;
     }
   }

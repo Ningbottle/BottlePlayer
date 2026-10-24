@@ -42,7 +42,6 @@ QtObject {
     function clear(c) { return Qt.rgba(c.r, c.g, c.b, 0) }
     // Preserve stored lyric preferences while rendering on the shared ladder.
     function lyricPixels(size) { return size <= 26 ? fsXl : fs2xl }
-    function pageLyricScale(size) { return lyricPixels(size) / playerLyricSize }
 
     // Flat content panels; only controls and overlays have rounded corners.
     readonly property real rXs: 2
@@ -70,8 +69,6 @@ QtObject {
     readonly property int fsLg: 14
     readonly property int fsXl: 20
     readonly property int fs2xl: 28
-    readonly property int fs3xl: 28
-    readonly property real playerLyricSize: 20
     readonly property real playerTitleSize: 20
     readonly property real playerTitleCompactSize: 14
     readonly property int fwRegular: 400
@@ -279,9 +276,6 @@ QtObject {
         return (Math.max(x,y)+0.05)/(Math.min(x,y)+0.05)
     }
     function inkOn(c) { return contrast(black,c) >= contrast(white,c) ? black : white }
-    function wallFocusFor(c) { return wallFocus }
-    function wallHoverOn(c) { return wallAccentScale[9] }
-    function wallDownOn(c) { return wallAccentScale[9] }
     function actionShade(c, amount) { return dark || c.toString() === wallAccent.toString() ? wallAccentScale[9] : accentScale[9] }
     readonly property var mediaStyle: ({
         play: {glyph:"transport-play",dx:0.5,stroke:1.6,stroked:false},
@@ -320,13 +314,8 @@ QtObject {
         if (!(s > 0)) return "0:00"
         return Math.floor(s / 60) + ":" + (s % 60 < 10 ? "0" : "") + s % 60
     }
-    // CSS sizes that land between integer pixels (rem, vw clamps) need a point
-    // size; Qt Quick maps 1pt to 4/3 logical px.
-    function pt(px) { return px * 0.75 }
     function artwork(url, pixels) {
         return (url || "").replace(/\/stdmusic\/\d+\//, "/stdmusic/" + pixels + "/")
     }
     function displayLg(vw) { return fs2xl }
-    function displayXl(vw) { return fs2xl }
-    function greetSize(vw) { return fs2xl }
 }

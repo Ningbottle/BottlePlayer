@@ -63,7 +63,7 @@ qt_add_qml_module(bottle_qt_ui URI BottleMusic VERSION 1.0
     qml/components/ActionButton.qml qml/components/Cover.qml qml/components/CssText.qml qml/components/Hairline.qml
     qml/components/Icon.qml qml/components/IconButton.qml qml/components/Plate.qml
     qml/components/SeekBar.qml qml/components/Segmented.qml qml/components/SettingItem.qml
-    qml/components/ShadowEffect.qml qml/components/SmoothWheel.qml qml/components/SongCard.qml
+    qml/components/ShadowEffect.qml qml/components/SmoothWheel.qml
     qml/components/ThinScrollBar.qml qml/components/Toast.qml qml/components/Toggle.qml qml/components/Transport.qml
     qml/components/LyricView.qml
     qml/components/PlayerArtwork.qml qml/components/PlayerLayoutEditor.qml qml/components/PlayerCoverShelf.qml
@@ -77,7 +77,7 @@ qt_add_qml_module(bottle_qt_ui URI BottleMusic VERSION 1.0
     qml/components/PlaylistCarousel.qml
     qml/components/ImmersiveBackground.qml qml/components/ImmersiveControls.qml
     qml/components/DoubleRule.qml qml/components/SnapSettle.qml
-    qml/components/PlateFrame.qml qml/components/DotRule.qml qml/components/Halftone.qml qml/components/VinylMark.qml
+    qml/components/PlateFrame.qml qml/components/DotRule.qml qml/components/Halftone.qml
     qml/shell/TitleBar.qml qml/shell/Sidebar.qml qml/shell/TopBar.qml qml/shell/PlayerBar.qml
     qml/pages/PaperPage.qml
     qml/pages/PlayerPage.qml qml/pages/SettingsPage.qml qml/pages/ImmersivePlayerPage.qml
