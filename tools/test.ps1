@@ -2,6 +2,7 @@ param(
     [string]$QtRoot = '',
     [string]$NativeBuildDirectory = 'output/native-build',
     [string]$QtBuildDirectory = 'output/qt-build',
+    [int]$TimeoutSeconds = 120,
     [switch]$IncludeAudio,
     [switch]$NativeOnly,
     [switch]$QtOnly
@@ -29,11 +30,11 @@ try {
     $env:ECHO_NATIVE_DATA_DIR = Join-Path $env:BOTTLE_TEST_TEMP_ROOT 'native-default'
     New-Item -ItemType Directory -Force -Path $env:TEMP, $env:ECHO_NATIVE_DATA_DIR | Out-Null
     if (!$QtOnly) {
-        & ctest --test-dir $nativeBuild --output-on-failure --timeout 120 --no-tests=error
+        & ctest --test-dir $nativeBuild --output-on-failure --timeout $TimeoutSeconds --no-tests=error
         if ($LASTEXITCODE -ne 0) { throw 'Native contract tests failed' }
     }
     if (!$NativeOnly) {
-        $arguments = @('--test-dir', $qtBuild, '--output-on-failure', '--timeout', '120', '--no-tests=error')
+        $arguments = @('--test-dir', $qtBuild, '--output-on-failure', '--timeout', "$TimeoutSeconds", '--no-tests=error')
         if (!$IncludeAudio) { $arguments += @('-E', '^qt_audio_runtime$') }
         $qtTestStarted = [DateTime]::UtcNow
         & ctest @arguments

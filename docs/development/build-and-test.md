@@ -27,6 +27,17 @@
 
 CI 先运行仓库检查和 Native 构建/测试，再安装 Qt 并构建界面。这使后端无 Qt 依赖成为可执行约束。
 
+### Debug 构建与探针路由
+
+探针路由的 handler 以 `#ifndef NDEBUG` 编译，Release 构建不注册 debug 路由；要求"Debug 构建必须注册探针路由"的契约（`EchoSignatureFamilyProbeTest`、`operation_policy` 与 `route_contract` 的 Debug 分支）只在非 Release 构建执行：
+
+```powershell
+./tools/build-native.ps1 -BuildType Debug -BuildDirectory output/native-debug
+./tools/test.ps1 -NativeOnly -NativeBuildDirectory output/native-debug -TimeoutSeconds 300
+```
+
+CI 的 `windows-native-debug` job 运行这两条命令。两类构建互不替代：Release 测试目标已用 `/UNDEBUG` 保留 `assert`（断言失败不会因 `NDEBUG` 被跳过），Debug 构建的价值在于启用探针路由及其契约。本地也可以用 `native/CMakePresets.json` 的 `bottlemusic-check` preset 达到同样效果（二进制目录为 `native/out/bottlemusic-check`）。Debug 构建更慢，`-TimeoutSeconds` 需相应放宽。
+
 脚本自动加载 MSVC 环境，并在 CMake 和 Ninja 启动前设置 UTF-8 控制台，防止本地化 `/showIncludes` 前缀损坏导致头文件依赖漏跟踪。遇到旧缓存前缀损坏时使用新的构建目录。`tools/build-qt.ps1` 是已具备原生运行库时的高级入口，可单独指定 `-ShaderToolsRoot` 和 `-NativeDirectory`。
 
 ## 自动测试

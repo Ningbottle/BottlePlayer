@@ -340,6 +340,11 @@ if(ECHO_NATIVE_BUILD_TESTS)
   target_link_libraries(EchoSongUrlContractTest PRIVATE EchoCore)
   add_test(NAME EchoSongUrlContractTest COMMAND EchoSongUrlContractTest)
 
+  add_executable(EchoUpstreamSemanticsTest tests/upstream_semantics_test.cpp)
+  target_include_directories(EchoUpstreamSemanticsTest PRIVATE include)
+  target_link_libraries(EchoUpstreamSemanticsTest PRIVATE EchoCore)
+  add_test(NAME EchoUpstreamSemanticsTest COMMAND EchoUpstreamSemanticsTest)
+
   add_executable(EchoPlaylistContractTest tests/playlist_contract_test.cpp)
   target_include_directories(EchoPlaylistContractTest PRIVATE include)
   target_link_libraries(EchoPlaylistContractTest PRIVATE EchoCore)
