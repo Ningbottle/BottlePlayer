@@ -10,7 +10,7 @@ Item {
     property bool immersive: false
     property real viewportHeight: height
     property bool centered: false
-    property real textSize: immersive ? music.lyricSize : Theme.playerLyricSize * Theme.pageLyricScale(music.lyricSize) * (width <= 380 ? 0.82 : 1)
+    property real textSize: Theme.lyricPixels(music.lyricSize)
     property real leadingInset: -1
     property real trailingInset: -1
     property bool alignTrailing: false
@@ -73,7 +73,7 @@ Item {
         } else { followMotion.stop(); lines.contentY=bounded }
         positioning = false
     }
-    NumberAnimation { id: followMotion; target: lines; property: "contentY"; duration: 420; easing.type: Easing.OutCubic }
+    NumberAnimation { id: followMotion; target: lines; property: "contentY"; duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic }
     Timer { id: resumeTimer; interval: root.immersive ? 5000 : 900; onTriggered: root.resumeFollow() }
     // Reflow after delegate geometry is committed, never from inside the
     // ListView's own content-height notification (which can leave stale rows).
@@ -132,8 +132,8 @@ Item {
             x: !root.immersive && root.centered ? (lines.width-width)/2 : root.alignTrailing ? lines.width-width : 0
             height: words.height + (root.immersive ? 6 : Theme.s1 * 2)
             onHeightChanged: reflow.restart()
-            opacity: edgeOpacity * (activeLine ? 1 : root.immersive ? (distance === 1 ? 0.53 : 0.32) : distance <= 1 ? 1 : distance <= 3 ? 0.8 : 0.5)
-            Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : 280 } }
+            opacity: edgeOpacity
+            Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
             Item {
                 id: words
                 objectName: "lyricFill_" + line.index
@@ -142,7 +142,7 @@ Item {
                 readonly property real gap: root.immersive ? 10 : 6
                 height: lyricText.height + (translation.visible ? gap + translation.height : 0)
                 // The active line is never rendered into a scaled/blurred layer.
-                layer.enabled: root.immersive && !line.activeLine && !music.reducedMotion && line.distance > 1
+                layer.enabled: false
                 layer.effect: MultiEffect { blurEnabled: true; blurMax: 8; blur: 0.32 }
                 Text {
                     id: lyricText
@@ -151,7 +151,7 @@ Item {
                     // Bind the qreal property directly. Qt.font(map) rounds
                     // pointSize instead of preserving the requested fractional size.
                     font.family: root.immersive && Theme.lyricFontSetting === "skin" ? Theme.fontUi : Theme.fontLyric
-                    font.pointSize: root.textSize * 72 / Math.max(1, root.Screen.logicalPixelDensity * 25.4)
+                    font.pixelSize: root.textSize
                     font.weight: root.immersive ? Font.DemiBold : Theme.fwRegular
                     font.letterSpacing: root.immersive ? 0 : root.textSize * (Theme.mint ? 0.01 : 0.02)
                     font.preferTypoLineMetrics: root.immersive || Theme.lyricTypoMetrics
@@ -160,7 +160,7 @@ Item {
                     horizontalAlignment: !root.immersive && root.centered ? Text.AlignHCenter : Text.AlignLeft
                     topPadding: root.immersive ? 0 : Theme.lineBaseline(metrics.ascent, metrics.descent, root.textSize * 1.5) - metrics.ascent
                     bottomPadding: -topPadding
-                    color: root.immersive ? "white" : line.activeLine ? Theme.text : line.distance === 1 ? Theme.text2 : Theme.text3
+                    color: root.immersive ? (line.activeLine ? Theme.wallInk : Theme.wallInkSecondary) : line.activeLine ? Theme.text : Theme.text2
                     renderType: Text.NativeRendering
                     Accessible.name: text
                     FontMetrics { id: metrics; font: lyricText.font }
@@ -207,7 +207,7 @@ Item {
                             text: lyricText.text; textFormat: Text.PlainText; wrapMode: lyricText.wrapMode; font: lyricText.font
                             lineHeightMode: lyricText.lineHeightMode; lineHeight: lyricText.lineHeight
                             horizontalAlignment: lyricText.horizontalAlignment; topPadding: lyricText.topPadding; bottomPadding: lyricText.bottomPadding
-                            color: Theme.accent; renderType: Text.NativeRendering
+                            color: Theme.accentText; renderType: Text.NativeRendering
                             Accessible.ignored: true
                         }
                     }
@@ -217,9 +217,9 @@ Item {
                     objectName: line.activeLine ? "activeLyricTranslation" : ""
                     width: parent.width; visible: text.length > 0
                     text: line.translated; textFormat: Text.PlainText; wrapMode: Text.Wrap
-                    font.family: Theme.fontUi; font.pixelSize: root.textSize * 0.58
+                    font.family: Theme.fontUi; font.pixelSize: Theme.fsMd
                     font.weight: Font.Normal; lineHeight: 1.35
-                    color: root.immersive ? "#d9ffffff" : Theme.text2
+                    color: root.immersive ? Theme.wallInkSecondary : Theme.text2
                     renderType: Text.NativeRendering
                 }
             }
@@ -232,10 +232,10 @@ Item {
     Text {
         anchors.centerIn: parent; visible: !root.hasLyrics
         width: parent.width * 0.9; wrapMode: Text.Wrap
-        text: music.loading ? "正在寻找歌词…" : root.immersive ? "让旋律，自由流淌。\n\n这首歌暂无同步歌词" : "暂无歌词，继续享受音乐"
+        text: music.loading ? "正在加载歌词…" : "暂无歌词"
         horizontalAlignment: root.immersive ? Text.AlignLeft : Text.AlignHCenter
-        font.family: Theme.fontUi; font.pixelSize: root.immersive ? 24 : Theme.fsMd
-        color: root.immersive ? "#bdffffff" : Theme.text2; lineHeight: 1.5
+        font.family: Theme.fontUi; font.pixelSize: Theme.fsMd
+        color: root.immersive ? Theme.wallInkSecondary : Theme.text2; lineHeight: 1.5
     }
     IconButton {
         objectName: "lyricResumeButton"
@@ -243,8 +243,8 @@ Item {
         y: parent.height - height - 4
         visible: !root.followPlayback && root.hasLyrics
         glyph: "locate-fixed"; Accessible.name: "回到当前歌词"
-        tint: root.immersive ? "white" : Theme.text2
-        hoverTint: tint; hoverFill: root.immersive ? "#25ffffff" : Theme.surfaceHover
+        tint: root.immersive ? Theme.white : Theme.text2
+        hoverTint: tint; hoverFill: root.immersive ? Theme.wallChromeHover : Theme.surfaceHover
         onClicked: { resumeTimer.stop(); root.resumeFollow() }
         ToolTip.visible: hovered; ToolTip.text: "回到当前歌词"
     }

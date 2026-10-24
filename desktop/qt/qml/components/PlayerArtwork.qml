@@ -14,7 +14,7 @@ Item {
         Rectangle {
             anchors.centerIn: parent; visible: music.vinyl
             width: parent.width * 0.3; height: width; radius: width / 2
-            color: "#171c18"; border.color: "#e5eee6"; border.width: Theme.hairline
+            color: Theme.wallBg; border.color: Theme.wallBorder; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
             Rectangle { anchors.centerIn: parent; width: parent.width * 0.16; height: width; radius: width / 2; color: Theme.bg }
         }
     }

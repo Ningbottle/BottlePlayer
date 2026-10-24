@@ -43,17 +43,18 @@ Item {
         width: Theme.snap(root.width); height: Theme.snap(root.height)
 
         Rectangle {
-            anchors.fill: parent; radius: root.radius; color: "black"
+            anchors.fill: parent; radius: root.radius; color: Theme.black
             visible: root.elevation > 0 && Theme.hasShadow(root.elevation)
             layer.enabled: visible
             layer.effect: ShadowEffect { level: root.elevation }
         }
         Rectangle { anchors.fill: parent; radius: root.radius; color: root.color; visible: !root.ready }
         Text {
-            anchors.centerIn: parent; visible: !root.ready && root.title !== ""
+            anchors.centerIn: parent; visible: !root.ready && root.title !== "" && frame.width >= Theme.fsMd && frame.height >= Theme.fsMd
             text: root.title.slice(0, 1)
-            font.family: Theme.fontTitle; font.pixelSize: Math.min(frame.width, frame.height) * 0.28
+            font.family: Theme.fontUi; font.pixelSize: Theme.fsMd
             font.weight: Theme.fwMedium; color: Theme.text3
+            renderType: Text.NativeRendering
         }
         Icon {
             anchors.centerIn: parent; visible: !root.ready && root.title === ""
@@ -69,7 +70,7 @@ Item {
         }
         Item {
             id: mask; anchors.fill: parent; visible: false; layer.enabled: root.radius > 0
-            Rectangle { anchors.fill: parent; radius: root.radius; color: "black" }
+            Rectangle { anchors.fill: parent; radius: root.radius; color: Theme.black }
         }
         MultiEffect {
             anchors.fill: parent; visible: root.radius > 0 && root.ready

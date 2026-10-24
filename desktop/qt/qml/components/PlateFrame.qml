@@ -15,7 +15,7 @@ Item {
     Rectangle {
         anchors.fill: parent
         color: root.fill
-        border.width: Theme.hairline; border.color: Theme.border
+        border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.border
         PixelSnap.fit: true
     }
     Shape {
@@ -24,7 +24,7 @@ Item {
         visible: root.innerRule
         ShapePath {
             strokeWidth: Theme.hairline
-            strokeColor: Qt.rgba(Theme.text.r, Theme.text.g, Theme.text.b, 0.12)
+            strokeColor: Theme.border
             strokeStyle: ShapePath.DashLine
             dashPattern: [5, 4]
             capStyle: ShapePath.FlatCap

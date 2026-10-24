@@ -42,10 +42,10 @@ ListView {
                 Text {
                     width: parent.width; text: row.modelData.title || "未知歌曲"; textFormat: Text.PlainText; elide: Text.ElideRight
                     color: String(row.modelData.hash) === String(music.current.hash) ? Theme.seal : Theme.text
-                    font.family: Theme.fontTitle; font.pixelSize: Theme.fsMd
+                    font.family: Theme.fontUi; font.pixelSize: Theme.fsMd
                 }
                 Text {
-                    width: parent.width; text: (row.modelData.artist || "未知歌手") + (row.modelData.album ? " · " + row.modelData.album : "")
+                    width: parent.width; text: (row.modelData.artist || "未知歌手") + (row.modelData.album ? " / " + row.modelData.album : "")
                     textFormat: Text.PlainText; elide: Text.ElideRight; color: Theme.text3
                     font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 }

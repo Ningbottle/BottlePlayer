@@ -983,6 +983,24 @@ int main() {
     }
   }
 
+  // v6's kbps field must not be divided again: 2500 kbps is a valid master
+  // stream, whereas v5's 128000 field needs normalization from bps.
+  {
+    echo::core::SongUrlService svc(
+        [](const std::string&,const std::unordered_map<std::string,std::string>&) {
+          return echo::core::HttpResult{500,"{}","unexpected GET"};
+        },
+        [](const std::string&,const std::string&,const std::unordered_map<std::string,std::string>&) {
+          return echo::core::HttpResult{200,
+              R"({"status":1,"data":[{"info":{"tracker_url":["http://cdn.example/master.flac"],"bitrate":2500,"extname":"flac"}}]})",""};
+        });
+    const auto v6=svc.ResolveV6PrivUrl("MASTERHASH","123","42","tok","vipTok",3,{});
+    if (v6.value("status",0)!=1 || v6.value("quality",std::string{})!="master") {
+      std::fprintf(stderr,"[SongUrlContract] v6 kbps normalization FAILED\n");
+      ++qualityFailures;
+    }
+  }
+
   // ── v6 with no usable URL must name a reason ─────────────────────────
   // status is derived from playUrl alone, so this used to fail with an empty
   // error and left the fallback undiagnosable in the field.

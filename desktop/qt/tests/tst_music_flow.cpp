@@ -326,6 +326,39 @@ private slots:
         music.clearQueue(); QVERIFY(observedClear); QVERIFY(emptyLyricsOnQueueNotification);
         QVERIFY(music.lyrics().isEmpty()); music.finishSession();
     }
+    void legacyHiResPreferenceUsesTheCanonicalToken() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid()); configure({});
+        { QSettings saved(profile.filePath("preferences.ini"),QSettings::IniFormat);
+          saved.setValue("quality","hires"); saved.sync(); }
+        MusicController music(fixture_.fileName(),profile.path());
+        QCOMPARE(music.quality(),QString("high"));
+        music.finishSession();
+    }
+    void earlyQualitySelectionSharesPendingAvailability() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({{"delay_path","/privilege/lite"},{"delay_ms",200},
+            {"privilege_goods",QJsonArray{QJsonObject{{"quality","128"}}}}});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()},0);
+        QTRY_COMPARE_WITH_TIMEOUT(requests("/privilege/lite").size(),1,3000);
+        QVERIFY(music.availableQualities().isEmpty()); music.setQuality("flac");
+        QTRY_COMPARE_WITH_TIMEOUT(music.availableQualities().size(),1,3000);
+        QCOMPARE(music.availableQualities().first().toMap().value("quality").toString(),QString("128"));
+        // A same-song quality change shares the song-owned availability request.
+        QCOMPARE(requests("/privilege/lite").size(),1);
+        music.finishSession();
+    }
+    void staleLoadedSignalDoesNotCommitNewQualityRequest() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid()); configure({{"song_delay", 250}});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()},0); music.setQuality("flac");
+        QVERIFY(music.loading());
+        // Stopping an older source may emit LoadedMedia before the new URL is ready.
+        QVERIFY(QMetaObject::invokeMethod(music.mediaPlayer(),"mediaStatusChanged",
+            Q_ARG(QMediaPlayer::MediaStatus,QMediaPlayer::LoadedMedia)));
+        QVERIFY(music.loading()); QCOMPARE(music.actualQuality(),QString("unknown"));
+        music.finishSession();
+    }
     void singleDeliveredQualityDoesNotCollapseThePicker() {
         QTemporaryDir profile(root()); QVERIFY(profile.isValid());
         configure({});

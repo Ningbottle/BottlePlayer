@@ -130,12 +130,8 @@ Item {
         property bool lit: false
         radius: Theme.rMd
         color: lit ? Theme.wallHover : Theme.wallGlassBg
+        border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
         border.color: Theme.wallBorder
-        layer.enabled: true
-        layer.effect: MultiEffect {
-            shadowEnabled: true; shadowBlur: 1.0; blurMax: Theme.wallGlassBlur
-            shadowColor: Theme.wallGlassShadow; shadowVerticalOffset: 6
-        }
     }
     component GlassButton: AbstractButton {
         id: glassButton
@@ -170,8 +166,8 @@ Item {
     Rectangle { anchors.fill: parent; color: Theme.wallBg }
     ParallelAnimation {
         id: camera
-        NumberAnimation { id: panX; target: field; property: "contentX"; duration: 260; easing.type: Easing.OutCubic }
-        NumberAnimation { id: panY; target: field; property: "contentY"; duration: 260; easing.type: Easing.OutCubic }
+        NumberAnimation { id: panX; target: field; property: "contentX"; duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic }
+        NumberAnimation { id: panY; target: field; property: "contentY"; duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic }
     }
     Flickable {
         id: field; objectName: "wallField"; anchors.fill: parent; clip: true
@@ -246,7 +242,7 @@ Item {
                     readonly property var track: root.tracks[queueAddress] || ({})
                     readonly property bool expanded: inSelectedBlock && root.selected.slot === slot
                     readonly property bool activeSong: queueAddress === root.currentIndex
-                    readonly property real titleSize: expanded ? 54 : Math.min(30, Math.max(21, Math.min(width * 0.10, height * 0.12)))
+                    readonly property real titleSize: expanded ? Theme.fs2xl : Theme.fsXl
                     x: field.originX + rect.x; y: field.originY + rect.y; width: rect.w; height: rect.h
                     z: expanded ? 5 : 0
                     visible: rect.x < field.viewRight + field.margin && rect.x + rect.w > field.viewLeft - field.margin
@@ -263,13 +259,13 @@ Item {
                                     readonly property real h: root.hue(tile.track.hash) / 360
                                     gradient: Gradient {
                                         orientation: Gradient.Vertical
-                                        GradientStop { position: 0; color: Qt.hsla(wash.h, 0.30, 0.36, 1) }
-                                        GradientStop { position: 1; color: Qt.hsla((wash.h + 30 / 360) % 1, 0.24, 0.12, 1) }
+                                        GradientStop { position: 0; color: Theme.radix(Theme.accentFamily,4,true) }
+                                        GradientStop { position: 1; color: Theme.wallBg }
                                     }
                                 }
                                 Cover {
                                     anchors.fill: parent; radius: 0; color: "transparent"
-                                    glyphScale: 0.25; glyphColor: Qt.rgba(1, 1, 1, 0.18)
+                                    glyphScale: 0.25; glyphColor: Theme.wallMuted
                                     opacity: root.lights ? 1 : 0.45
                                     url: tile.track.image || ""; pixels: tile.expanded ? 800 : 400
                                 }
@@ -277,9 +273,9 @@ Item {
                                 Rectangle {
                                     anchors.fill: parent
                                     gradient: Gradient {
-                                        GradientStop { position: 0.1; color: Qt.rgba(0, 0, 0, 0.08) }
-                                        GradientStop { position: 0.4; color: Qt.rgba(0, 0, 0, 0.12) }
-                                        GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.78) }
+                                        GradientStop { position: 0.1; color: Theme.blackA(2) }
+                                        GradientStop { position: 0.4; color: Theme.blackA(3) }
+                                        GradientStop { position: 1; color: Theme.blackA(10) }
                                     }
                                 }
                                 MouseArea {
@@ -295,9 +291,9 @@ Item {
                                     Text {
                                         id: badge; anchors.centerIn: parent
                                         renderType: Text.QtRendering
-                                        text: (tile.activeSong ? "正在播放 · " : "") + String(tile.queueAddress + 1).padStart(2, "0")
+                                        text: (tile.activeSong ? "正在播放，" : "") + String(tile.queueAddress + 1).padStart(2, "0")
                                         color: tile.activeSong ? Theme.wallInk : Theme.wallCurrentBorder
-                                        font.family: Theme.fontUi; font.pixelSize: 10; font.weight: Theme.fwMedium
+                                        font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwMedium
                                         font.letterSpacing: 0.2; lineHeightMode: Text.FixedHeight; lineHeight: 12
                                     }
                                 }
@@ -320,7 +316,7 @@ Item {
                                     Text {
                                         width: parent.width; text: tile.track.artist || ""; color: Theme.wallInkSecondary
                                         renderType: Text.QtRendering
-                                        font.family: Theme.fontUi; font.pixelSize: tile.expanded ? 14 : 11
+                                        font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                                         lineHeight: 1.4; elide: Text.ElideRight
                                         style: Text.Sunken; styleColor: Theme.wallCaptionShadow
                                     }
@@ -333,7 +329,7 @@ Item {
                                     text: music.cue; color: Theme.wallInk
                                     renderType: Text.QtRendering
                                     font.family: Theme.fontUi; font.weight: Theme.fwSemiBold
-                                    font.pixelSize: Math.min(40, Math.max(24, Window.width * 0.03))
+                                    font.pixelSize: Theme.fs2xl
                                     lineHeight: 1.45; wrapMode: Text.WrapAtWordBoundaryOrAnywhere
                                     style: Text.Sunken; styleColor: Theme.wallLyricShadow
                                 }
@@ -364,7 +360,7 @@ Item {
                                             text: (tile.activeSong ? Theme.duration(music.position / 1000) : "0:00") + " / "
                                                 + Theme.duration(tile.activeSong ? music.duration / 1000 : tile.track.duration)
                                             color: Theme.wallInkSecondary
-                                            font.family: Theme.fontUi; font.pixelSize: 11; font.features: { "tnum": 1 }
+                                            font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.features: { "tnum": 1 }
                                             renderType: Text.QtRendering
                                         }
                                         WallControl {
@@ -383,7 +379,7 @@ Item {
                                         background: Item {
                                             Rectangle {
                                                 anchors.verticalCenter: parent.verticalCenter
-                                                width: parent.width; height: 4; radius: 2; color: Qt.rgba(1, 1, 1, 0.3)
+                                                width: parent.width; height: 4; radius: 2; color: Theme.wallBorderStrong
                                                 Rectangle { width: wallSeek.visualPosition * parent.width; height: parent.height; radius: 2; color: Theme.wallInk }
                                             }
                                         }
@@ -397,14 +393,14 @@ Item {
                                     Text {
                                         visible: !root.canPlay(tile.queueAddress)
                                         text: "红心模式会继续补充推荐"; color: Theme.wallInkSecondary
-                                        font.family: Theme.fontUi; font.pixelSize: 11
+                                        font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                                     }
                                 }
                                 // .is-current: inset 2px ring in --wall-current-border.
                                 Rectangle {
                                     anchors.fill: parent; visible: tile.activeSong
                                     color: "transparent"
-                                    border.color: Theme.wallCurrentBorder; border.width: 2
+                                    border.color: Theme.wallCurrentBorder; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
                                 }
                             }
                         }
@@ -425,7 +421,7 @@ Item {
                 centerX: root.width / 2; centerY: root.width / 2; focalX: centerX; focalY: centerY
                 centerRadius: root.width / 2 * Math.SQRT2; focalRadius: 0
                 GradientStop { position: 0.68; color: "transparent" }
-                GradientStop { position: 1; color: Qt.rgba(0, 0, 0, 0.30) }
+                GradientStop { position: 1; color: Theme.blackA(5) }
             }
             PathRectangle { width: root.width; height: root.width }
         }
@@ -442,11 +438,11 @@ Item {
             anchors.verticalCenter: parent.verticalCenter; spacing: 3
             Text {
                 text: music.radio ? "红心推荐" : root.source === "recommended" ? "推荐预览" : "播放队列"
-                color: Theme.wallInk; font.family: Theme.fontUi; font.pixelSize: 12
+                color: Theme.wallInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 style: Text.Sunken; styleColor: Theme.wallHeaderShadow
             }
             Text {
-                text: "海报墙"; color: Theme.wallInkMuted; font.family: Theme.fontUi; font.pixelSize: 10
+                text: "海报墙"; color: Theme.wallInkMuted; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
                 style: Text.Sunken; styleColor: Theme.wallHeaderShadow
             }
         }
@@ -475,15 +471,15 @@ Item {
                 anchors.verticalCenter: parent.verticalCenter; spacing: 3
                 Text {
                     width: parent.width; text: music.radio ? "红心推荐" : "正在聆听"
-                    color: Theme.wallInkMuted; font.family: Theme.fontUi; font.pixelSize: 10; elide: Text.ElideRight
+                    color: Theme.wallInkMuted; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; elide: Text.ElideRight
                 }
                 Text {
                     width: parent.width; text: music.current.title || ""
-                    color: Theme.wallInk; font.family: Theme.fontUi; font.pixelSize: 12; font.weight: Theme.fwSemiBold; elide: Text.ElideRight
+                    color: Theme.wallInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.weight: Theme.fwSemiBold; elide: Text.ElideRight
                 }
                 Text {
                     width: parent.width; text: music.current.artist || ""
-                    color: Theme.wallInkMuted; font.family: Theme.fontUi; font.pixelSize: 10; elide: Text.ElideRight
+                    color: Theme.wallInkMuted; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; elide: Text.ElideRight
                 }
             }
         }
@@ -498,8 +494,8 @@ Item {
         Glass { anchors.fill: parent }
         Column {
             id: previewColumn; anchors.centerIn: parent; spacing: 5
-            Text { text: "推荐预览 · " + root.tracks.length + " 首"; color: Theme.wallInk; font.family: Theme.fontUi; font.pixelSize: 12 }
-            Text { text: "点击海报展开，再点播放"; color: Theme.wallInkMuted; font.family: Theme.fontUi; font.pixelSize: 10 }
+            Text { text: "推荐预览，" + root.tracks.length + " 首"; color: Theme.wallInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs }
+            Text { text: "点击海报展开，再点播放"; color: Theme.wallInkMuted; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs }
         }
     }
 

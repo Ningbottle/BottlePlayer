@@ -38,6 +38,8 @@
 #include <QDir>
 #include <QElapsedTimer>
 #include <QTimer>
+#include <QTemporaryDir>
+#include <QWheelEvent>
 #include <QtEndian>
 #include <QtTest>
 #include <QTextLayout>
@@ -95,7 +97,13 @@ int main(int argc, char** argv) {
     const QStringList args = app.arguments();
     if (args.size() != 4) return 2;
     QDir().mkpath(args[2]);
-    const QString profile = qEnvironmentVariable("BOTTLE_SMOKE_PROFILE", QDir(args[2]).filePath("profile"));
+    std::unique_ptr<QTemporaryDir> interactionProfile;
+    if (args[3] == "navigation-interactions" || args[3] == "text-raster" || args[3] == "quality-interactions" || args[3] == "theme-interactions") {
+        interactionProfile = std::make_unique<QTemporaryDir>(QDir(args[2]).filePath("profile-XXXXXX"));
+        if (!interactionProfile->isValid()) return 2;
+    }
+    const QString profile = interactionProfile ? interactionProfile->path()
+        : qEnvironmentVariable("BOTTLE_SMOKE_PROFILE", QDir(args[2]).filePath("profile"));
     MusicController music(args[1], profile);
     AccountController account(music.nativeGateway()); LibraryController library(music.nativeGateway());
     VipController vip(music.nativeGateway());
@@ -143,6 +151,22 @@ int main(int argc, char** argv) {
     engine.rootContext()->setContextProperty("migrationState", &migration);
     engine.rootContext()->setContextProperty("updateState", &updates);
     engine.rootContext()->setContextProperty("equalizerState", &equalizer);
+    // Record Qt's native small-glyph coverage before the window creates our
+    // scene graph backend. Rendering the UI must not silently weaken it.
+    struct NativeMask { QRawFont font; quint32 glyph; QImage image; };
+    QList<NativeMask> nativeSmallMasks;
+    if (args[3] == "text-raster") {
+        for (int size : {12,14}) {
+            QFont font=QGuiApplication::font(); font.setPixelSize(size);
+            QTextLayout shaped(QStringLiteral("山日曲音 e08"),font);
+            shaped.beginLayout(); auto line=shaped.createLine(); line.setLineWidth(1000); shaped.endLayout();
+            for (const auto& run:shaped.glyphRuns()) {
+                QRawFont raw=run.rawFont(); raw.setPixelSize(size*app.devicePixelRatio());
+                for (quint32 glyph:run.glyphIndexes())
+                    nativeSmallMasks.append({raw,glyph,raw.alphaMapForGlyph(glyph,QRawFont::PixelAntialiasing)});
+            }
+        }
+    }
     engine.loadFromModule("BottleMusic", "Main");
     if (engine.rootObjects().isEmpty()) {
         for (const QString& w : warnings) fprintf(stderr, "%s\n", qPrintable(w));
@@ -180,6 +204,15 @@ int main(int argc, char** argv) {
     }
     if (args[3] == "render-review") {
         #include "render_review_smoke.h"
+    }
+    if (args[3] == "navigation-interactions") {
+        #include "navigation_interactions_smoke.h"
+    }
+    if (args[3] == "quality-interactions") {
+        #include "quality_interactions_smoke.h"
+    }
+    if (args[3] == "theme-interactions") {
+        #include "theme_interactions_smoke.h"
     }
     if (args[3] == "settings-probe") {
         // Font-weight probe: the settings page is the heaviest bold CJK sans
@@ -226,6 +259,50 @@ int main(int argc, char** argv) {
         report.insert("checks", checks); report.insert("qml_warnings", QJsonArray::fromStringList(warnings));
         bool probeOk = warnings.isEmpty(); for (const auto& item : checks) probeOk = probeOk && item.toObject().value("ok").toBool();
         report.insert("ok", probeOk); writeReport(); window->close(); return probeOk ? 0 : 1;
+    }
+    if (args[3] == "font-layout") {
+        QLibrary fixture(args[1]); fixture.setLoadHints(QLibrary::PreventUnloadHint);
+        if (!fixture.load()) return 2;
+        auto configure = reinterpret_cast<void(*)(const char*)>(fixture.resolve("EchoTestConfigure"));
+        if (!configure) return 2;
+        configure("{\"feed_count\":30}");
+        music.setVolume(0); music.setReducedMotion(true); music.initialize();
+        check("font_layout_ready", waitFor([&] { return music.ready() && !home.loading(); }, 10000));
+        window->resize(1280, 850);
+        QMetaObject::invokeMethod(window, "changeMode", Q_ARG(QVariant, QStringLiteral("paper")));
+        QTest::qWait(500);
+        auto* scroller=quick("homeScroller"); auto* carousel=quick("homeCarousel");
+        check("font_layout_carousel_present", scroller && carousel && carousel->isVisible());
+        const qreal cardSize=carousel?carousel->property("cardSize").toDouble():0;
+        check("font_layout_carousel_space",carousel && cardSize>=280 && carousel->height()-cardSize<=185);
+        screenshot("font-layout-home");
+        if (scroller && carousel) {
+            const qreal top=carousel->mapToItem(scroller,QPointF()).y()+scroller->property("contentY").toDouble();
+            scroller->setProperty("contentY",std::max(0.0,double(top-24)));
+            QTest::qWait(300);
+            screenshot("font-layout-carousel");
+            report.insert("carousel_height",carousel->height());
+            report.insert("carousel_card_size",cardSize);
+            report.insert("carousel_top",top);
+        }
+        window->resize(1600, 900); QTest::qWait(300);
+        const qreal wideCardSize=carousel?carousel->property("cardSize").toDouble():0;
+        check("font_layout_wide_card",carousel && wideCardSize>=339 && wideCardSize<=340.5
+            && carousel->height()-wideCardSize<=185);
+        if (scroller && carousel) {
+            const qreal top=carousel->mapToItem(scroller,QPointF()).y()+scroller->property("contentY").toDouble();
+            scroller->setProperty("contentY",std::max(0.0,double(top-24)));
+            QTest::qWait(300); screenshot("font-layout-wide-carousel");
+            report.insert("wide_carousel_height",carousel->height());
+            report.insert("wide_carousel_card_size",wideCardSize);
+        }
+        check("font_layout_qml_warnings_absent",warnings.isEmpty());
+        report.insert("dpr",window->devicePixelRatio()); report.insert("checks",checks);
+        bool passed=true; for (const auto& item:checks) passed=passed&&item.toObject().value("ok").toBool();
+        report.insert("ok",passed); writeReport(); music.finishSession(); return passed?0:1;
+    }
+    if (args[3] == "text-raster") {
+        #include "text_raster_smoke.h"
     }
     if (args[3] == "search-home" || args[3] == "search-home-live" || args[3] == "hanging-home" || args[3] == "hanging-home-live" || args[3] == "bravais" || args[3] == "live-bravais") {
         #include "visual_search_home.h"
@@ -494,7 +571,8 @@ int main(int argc, char** argv) {
                 for (int y = 0; y < iconImage.height(); ++y) for (int x = 0; x < iconImage.width(); ++x) visible = visible || qAlpha(iconImage.pixel(x, y)) > 0;
                 completeIconSet = completeIconSet && visible;
             }
-            report.insert("icon_count", assets.size()); check("complete_open_source_icon_set", completeIconSet && assets.size() == 68);
+            report.insert("icon_count", assets.size()); check("complete_bundled_icon_set", completeIconSet && assets.size() >= 68
+                && assets.contains("transport-play.svg") && assets.contains("transport-pause.svg") && assets.contains("transport-prev.svg") && assets.contains("transport-next.svg") && assets.contains("lyrics.svg"));
             for (const auto* name : {"play", "pause", "media-play", "media-pause"}) for (const int extent : {22, 28, 44}) {
                 QSize actual; const auto iconImage = icons.requestImage(QStringLiteral("%1/ffffff/1.75").arg(QLatin1String(name)), &actual, QSize(extent, extent));
                 double mass = 0, momentY = 0;
@@ -587,7 +665,11 @@ int main(int argc, char** argv) {
         check("membership_initial_query", waitFor([&] { return !vip.loading() && vip.tier() == "none"; }, 5000));
         vip.claim(); check("membership_claim_confirmed", waitFor([&] { return !vip.busy() && vip.tier() == "premium"; }, 5000));
         screenshot("qt-account-signed-in");
-        click(window, find("settingsClose")); click(window, find("libraryEntry"));
+        click(window, find("settingsClose"));
+        const auto routeBeforeLibrary = window->property("route").toString();
+        click(window, find("libraryEntry"));
+        check("library_entry_expands_in_place", window->property("route").toString() == routeBeforeLibrary);
+        window->setProperty("route", QStringLiteral("library")); QTest::qWait(200);
         check("personal_library_route", window->property("route").toString() == "library" && find("libraryPage"));
         screenshot("qt-personal-library");
         click(window, find("userPlaylist_0"));
@@ -645,8 +727,10 @@ int main(int argc, char** argv) {
         check("recent_playback_and_remote_history", waitFor([&] { return find("historyPage") && !history.loading() && !history.tracks().isEmpty(); }, 5000));
         screenshot("qt-history");
         window->setProperty("settingsSection", "appearance"); window->setProperty("route", "settings"); QTest::qWait(200);
+        const auto lightBackground=window->color();
         appearance.setMode("dark");
-        check("dark_mode_updates_window", waitFor([&] { return window->color() == QColor("#1A1714"); }, 2000)); screenshot("qt-appearance-dark");
+        check("dark_mode_updates_window", waitFor([&] { return themeObject->property("dark").toBool()
+            && window->color()!=lightBackground && window->color()==themeObject->property("bg").value<QColor>(); }, 2000)); screenshot("qt-appearance-dark");
         appearance.setLyricFont("kai"); window->setProperty("route", "player"); QTest::qWait(250);
         check("lyric_font_preference_applies", find("activeLyricText") && find("activeLyricText")->property("font").value<QFont>().family() == "LXGW WenKai Lite");
         appearance.setLyricFont("skin"); appearance.setMode("light");
@@ -749,7 +833,7 @@ int main(int argc, char** argv) {
         check("media_box_integer_immersive_prev",mediaGeometry("immersivePreviousButton",false));
         music.setPlaying(true);QTest::qWait(200);window->setProperty("listeningOpen",true);QTest::qWait(250);
         auto* transportGlyph=find("listeningPlay_glyph");
-        check("transport_button_pause_glyph",transportGlyph&&transportGlyph->property("name")=="media-pause"&&!transportGlyph->property("stroked").toBool());
+        check("transport_button_pause_glyph",transportGlyph&&transportGlyph->property("name")=="transport-pause"&&!transportGlyph->property("stroked").toBool());
         window->setProperty("listeningOpen",false);music.setPlaying(false);music.seek(12000);QTest::qWait(200);
         for(const auto& extra:captureSizes()) {
             window->resize(extra); QTest::qWait(400); const auto suffix=QStringLiteral("%1x%2").arg(extra.width()).arg(extra.height()); immersiveCompositionOk(suffix);
@@ -884,7 +968,7 @@ int main(int argc, char** argv) {
         music.seek(12000);
         QJsonArray fontSteps;
         double previousSize = 0;
-        for (const auto* name : {"lyricSizeS", "lyricSizeM", "lyricSizeL", "lyricSizeXL"}) {
+        for (const auto* name : {"lyricSizeM", "lyricSizeL"}) {
             click(window, find("settingsButton"));
             auto* settingsPage = qobject_cast<QQuickItem*>(find("settingsPage"));
             auto* option = qobject_cast<QQuickItem*>(find(name));
@@ -902,7 +986,7 @@ int main(int argc, char** argv) {
             const QFont font = active ? active->property("font").value<QFont>() : QFont{};
             fontSteps.append(QJsonObject{{"control", QLatin1String(name)}, {"setting", setting}, {"size", size}, {"point_size", font.pointSizeF()}});
             check(QStringLiteral("font_control_") + QLatin1String(name), option && size > previousSize
-                && std::abs(font.pointSizeF() * window->screen()->logicalDotsPerInch() / 72 - size) < 0.02);
+                && font.pixelSize() == size);
             previousSize = size;
         }
         report.insert("font_steps", fontSteps);

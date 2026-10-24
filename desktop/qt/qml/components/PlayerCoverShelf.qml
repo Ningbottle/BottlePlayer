@@ -45,7 +45,7 @@ FocusScope {
         gradient: Gradient { GradientStop { position: 0; color: Theme.clear(Theme.bg) } GradientStop { position: 0.28; color: Theme.bg } GradientStop { position: 1; color: Theme.bg } }
     }
     Text {
-        x: Theme.s8; y: Theme.s8; text: "播放队列 · " + (root.focusIndex + 1) + " / " + music.queue.length
+        x: Theme.s8; y: Theme.s8; text: "播放队列，" + (root.focusIndex + 1) + " / " + music.queue.length
         color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic
     }
     IconButton { objectName: "playerShelfClose"; anchors.right: parent.right; anchors.top: parent.top; anchors.margins: Theme.s8; size: "sm"; glyph: "x"; Accessible.name: "关闭封面架"; onClicked: root.close() }
@@ -63,11 +63,11 @@ FocusScope {
                 y: stage.height / 2 - height / 2; z: 100 - distance
                 scale: Math.max(0.7, 1 - distance * 0.11); opacity: Math.max(0, 1 - distance * 0.12)
                 transform: Rotation { origin.x: root.coverSize / 2; origin.y: root.coverSize / 2; axis.y: 1; axis.x: 0; axis.z: 0; angle: Math.max(-55, Math.min(55, modelData.offset * -34)) }
-                Behavior on x { NumberAnimation { duration: music.reducedMotion ? 0 : 320 } }
+                Behavior on x { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
                 Accessible.name: "播放 " + modelData.track.title
                 onClicked: root.activate(modelData.index); onDoubleClicked: music.playQueue(modelData.index)
                 contentItem: Cover { url: modelData.track.image || ""; title: ""; radius: Theme.rCard; glyphScale: 0.36 }
-                background: Rectangle { color: Theme.surface; radius: Theme.rCard; border.width: Theme.hairline; border.color: parent.modelData.offset === 0 ? Theme.accent : Theme.border }
+                background: Rectangle { color: Theme.surface; radius: Theme.rCard; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: parent.modelData.offset === 0 ? Theme.accent : Theme.border }
                 Rectangle { visible: parent.modelData.index === music.queueIndex; anchors.right: parent.right; anchors.bottom: parent.bottom; anchors.margins: Theme.s2; width: Theme.s2; height: width; radius: width / 2; color: Theme.accent }
             }
         }
@@ -75,7 +75,7 @@ FocusScope {
     Column {
         anchors.bottom: parent.bottom; anchors.bottomMargin: Theme.s3; anchors.horizontalCenter: parent.horizontalCenter
         width: parent.width - Theme.s8 * 2; spacing: Theme.s1
-        Text { width: parent.width; text: root.focused ? root.focused.title : "队列为空"; color: Theme.text; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; font.family: Theme.fontTitle; font.pixelSize: Theme.fsLg }
+        Text { width: parent.width; text: root.focused ? root.focused.title : "队列为空"; color: Theme.text; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsLg }
         Text { width: parent.width; text: root.focused ? root.focused.artist : ""; color: Theme.text2; horizontalAlignment: Text.AlignHCenter; elide: Text.ElideRight; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
     }
 }

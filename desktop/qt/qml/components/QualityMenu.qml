@@ -7,13 +7,24 @@ import BottleMusic
 // checked state stay identical to the player-bar behavior.
 Menu {
     id: menu
-    // Playing tracks check what the server actually delivered; an empty queue
-    // checks the preference that the next play will request.
     readonly property string selectedQuality: music.queueIndex < 0 ? music.quality : music.actualQuality
+    padding: Theme.s1
+    font.family: Theme.fontUi
+    font.pixelSize: Theme.fsMd
     palette.window: Theme.surface; palette.text: Theme.text
+    palette.windowText: Theme.text; palette.buttonText: Theme.text
     palette.highlight: Theme.accentSoft; palette.highlightedText: Theme.text
+    background: Rectangle {
+        implicitWidth: 160
+        color: Theme.bgElevated; radius: Theme.rMd
+        border.color: Theme.borderStrong
+        border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
+    }
     Repeater {
-        model: music.queueIndex >= 0 && music.availableQualities.length ? music.availableQualities : music.qualityCatalog
+        // With no track, choose a preference for the next play. A cleared
+        // queue must not keep the previous track's available-only choices.
+        model: music.queueIndex >= 0 && music.availableQualities.length ? music.availableQualities
+            : music.qualityCatalog
         MenuItem {
             id: choice
             required property var modelData
@@ -21,6 +32,10 @@ Menu {
             text: music.qualityText(modelData.quality); checkable: true; autoExclusive: false
             enabled: music.queueIndex < 0 || (music.ready && !music.loading)
             checked: menu.selectedQuality === modelData.quality
+            background: Rectangle {
+                radius: Theme.innerRadius(Theme.rMd, menu.padding)
+                color: choice.highlighted ? Theme.surfaceActive : "transparent"
+            }
             onTriggered: {
                 music.quality = modelData.quality
                 // MenuItem toggles itself before triggering, even if the

@@ -69,6 +69,10 @@ long MsSince(Clock::time_point since) {
 constexpr std::size_t kMaxRequestHeadBytes = 1024;
 constexpr long kRequestHeadTimeoutMs = 5000;
 constexpr long kSocketPollMs = 20;
+// A cancelled WinHTTP request can leave a partially accepted connection in
+// ReadRequestHead after its native function exits. Observe through the local
+// fixture's own header deadline before treating that handler as leaked.
+constexpr long kHandlerExitObservationMs = kRequestHeadTimeoutMs + 1000;
 
 const char kHttpResponse[] =
     "HTTP/1.1 200 OK\r\nContent-Length: 2\r\nConnection: close\r\n\r\nok";
@@ -631,7 +635,7 @@ int main() {
 
     // Give socket handlers their own bounded observation and then stop/join
     // them explicitly. The two lifecycle measurements remain separate.
-    (void)slowServer.WaitForHandlersToExit(2000);
+    (void)slowServer.WaitForHandlersToExit(kHandlerExitObservationMs);
     const auto serverAfterFnObservation = slowServer.ReadSnapshot();
     metrics.serverHandlersAfterNativeFnObservation =
         serverAfterFnObservation.activeHandlers;

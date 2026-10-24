@@ -10,6 +10,10 @@ Item {
     property real viewportWidth: width
     property real viewportHeight: height
     property bool queueOpen: false
+    // Width the docked queue card takes from the right edge; the card grid
+    // gives it up so cover and lyrics slide left together.
+    property real queueReserve: 0
+    Behavior on queueReserve { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durQueueIn; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeExpand } }
     property bool editing: false
     property bool shelfOpen: false
     property bool toolsAwake: true
@@ -95,7 +99,7 @@ Item {
     Item {
         id: grid; objectName: "playerCardGrid"; visible: root.hasTrack
         x: root.narrow ? Theme.s4 : Theme.s8; y: Theme.s4
-        width: parent.width - x * 2
+        width: parent.width - x * 2 - Math.max(0, root.queueReserve + Theme.s4 - x)
         height: Math.max(0, parent.height - y - Theme.controlSm - Theme.s3 * 2)
         readonly property real cellWidth: Math.max(0, (width - root.gridGap * 11) / 12)
         readonly property real cellHeight: Math.max(0, (height - root.gridGap * 5) / 6)
@@ -107,7 +111,7 @@ Item {
             width: Math.max(0, rect.w * grid.cellWidth + (rect.w - 1) * root.gridGap)
             height: Math.max(0, rect.h * grid.cellHeight + (rect.h - 1) * root.gridGap)
             visible: !!root.cards[cardId]; opacity: root.editing ? 0.62 : 1
-            Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase } }
+            Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
         }
         Card {
             id: artCard; cardId: "cover"; objectName: "playerCoverCard"
@@ -141,7 +145,7 @@ Item {
                         y: infoCard.height <= 64 ? 0 : Theme.s1; width: parent.width
                         text: music.current.title || ""; color: Theme.text; wrapMode: Text.WrapAnywhere
                         maximumLineCount: infoCard.compact ? 1 : 2; elide: Text.ElideRight
-                        font.family: Theme.fontDisplay; font.pixelSize: infoCard.titleSize; font.weight: Theme.fwDisplay
+                        font.family: Theme.displayFont(infoCard.titleSize); font.pixelSize: infoCard.titleSize; font.weight: Theme.fwDisplay
                         font.letterSpacing: Theme.displayTracking * infoCard.titleSize; lineBox: infoCard.titleSize * Theme.lhTight
                     }
                 }
@@ -159,7 +163,6 @@ Item {
                         text: music.current.artist || ""; color: Theme.text2; elide: Text.ElideRight
                         font.family: Theme.fontUi; font.pixelSize: infoCard.height <= 64 ? Theme.fsXs : Theme.fsMd
                     }
-                    Text { text: "·"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; Layout.alignment: Qt.AlignVCenter }
                     CssText {
                         objectName: "playerCompactAlbum"; Layout.fillWidth: true; Layout.alignment: Qt.AlignVCenter
                         text: music.current.album || "未知专辑"; color: Theme.text3; elide: Text.ElideRight
@@ -174,7 +177,7 @@ Item {
                     RowLayout {
                         y: Theme.s4 + Theme.s3; width: parent.width; spacing: Theme.s2
                         Text { text: "下一首"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic }
-                        Text { Layout.fillWidth: true; text: root.nextTrack ? root.nextTrack.title : ""; elide: Text.ElideRight; color: Theme.text; font.family: Theme.fontTitle; font.pixelSize: Theme.fsSm; font.weight: Theme.fwMedium }
+                        Text { Layout.fillWidth: true; text: root.nextTrack ? root.nextTrack.title : ""; elide: Text.ElideRight; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; font.weight: Theme.fwMedium }
                         Text { Layout.maximumWidth: infoCard.width * 0.3; text: root.nextTrack ? root.nextTrack.artist : ""; elide: Text.ElideRight; color: Theme.text3; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
                     }
                 }
@@ -208,10 +211,11 @@ Item {
             readonly property bool switchable: music.ready && music.queueIndex >= 0 && !String(music.current.hash).startsWith("file:")
             Column {
                 width: parent.width; anchors.verticalCenter: parent.verticalCenter; spacing: Theme.s1
-                CssText { visible: qualityCard.height > 110; text: qualityCard.switchable ? "音质 · 点击切换" : "音质"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic }
+                CssText { visible: qualityCard.height > 110; text: "音质"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic }
                 CssText {
+                    readonly property int labelSize: qualityCard.height <= 64 || qualityCard.width <= 160 ? Theme.fsLg : qualityCard.height <= 110 ? Theme.fsXl : Theme.fs2xl
                     width: parent.width; text: music.qualityText(music.queueIndex < 0 ? music.quality : music.actualQuality); color: Theme.text; elide: Text.ElideRight
-                    font.family: Theme.fontDisplay; font.pixelSize: qualityCard.height <= 64 || qualityCard.width <= 160 ? Theme.fsLg : qualityCard.height <= 110 ? Theme.fsXl : Theme.fs2xl
+                    font.family: Theme.displayFont(labelSize); font.pixelSize: labelSize
                     lineBox: font.pixelSize * Theme.lhTight
                 }
                 CssText { text: music.preview ? "当前为试听音源" : music.actualQuality === "local" ? "本地音源" : music.actualQuality === "128" || music.actualQuality === "320" ? music.actualQuality + " kbps" : music.actualQuality === "unknown" ? "等待音源信息" : "由当前音源确认"; color: Theme.text2; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic }
@@ -242,7 +246,7 @@ Item {
         x: grid.x; y: parent.height - Theme.s2 - height
         width: grid.width; height: Theme.controlSm
         opacity: !root.shelfOpen && (root.editing || root.toolsAwake || activeFocus) ? 1 : 0; enabled: opacity > 0
-        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase } }
+        Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
         Row {
             anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: Theme.s2; visible: !root.editing
             ActionButton { objectName: "playerFullscreenButton"; size: "sm"; text: "页面全屏"; glyph: "maximize-2"; onClicked: root.openImmersive() }
@@ -252,7 +256,7 @@ Item {
         ActionButton { objectName: "playerEditLayout"; size: "sm"; anchors.right: parent.right; anchors.verticalCenter: parent.verticalCenter; visible: !root.editing; text: "编辑布局"; glyph: "layout-dashboard"; restFill: Theme.surfaceHover; onClicked: root.startEditing() }
         Row {
             id: additions; anchors.left: parent.left; anchors.verticalCenter: parent.verticalCenter; spacing: Theme.s2; visible: root.editing
-            Text { text: "编辑布局"; height: Theme.controlSm; verticalAlignment: Text.AlignVCenter; color: Theme.text; font.family: Theme.fontTitle; font.pixelSize: Theme.fsSm; font.weight: Font.DemiBold }
+            Text { text: "编辑布局"; height: Theme.controlSm; verticalAlignment: Text.AlignVCenter; color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; font.weight: Font.DemiBold }
             Repeater {
                 model: root.cardIds.filter(id => !root.cards[id])
                 ActionButton {
@@ -269,7 +273,7 @@ Item {
         }
         Text {
             x: additions.width + Theme.s2; width: Math.max(0, toolbar.width - additions.width - doneActions.width - Theme.s2 * 2); height: toolbar.height; visible: root.editing
-            text: root.notice || "拖动移动 · 拖右下角缩放 · Esc 完成"
+            text: root.notice || "拖动调整位置，拖动右下角调整大小，Esc 完成"
             horizontalAlignment: Text.AlignHCenter; verticalAlignment: Text.AlignVCenter; elide: Text.ElideRight
             color: root.notice ? Theme.danger : Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic
         }

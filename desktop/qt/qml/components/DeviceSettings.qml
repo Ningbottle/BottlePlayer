@@ -22,11 +22,11 @@ Column {
         ActionButton { objectName: "deviceRefresh"; text: "刷新"; size: "sm"; enabled: !settingsState.busy; onClicked: settingsState.loadDevice() }
     }
     Text { text: "DFID"; color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
-    TextField { id: dfid; objectName: "deviceDfid"; width: parent.width; placeholderText: "24 位设备标识"; selectByMouse: true; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; color: Theme.text; background: Rectangle { color: Theme.surface; border.color: Theme.border; border.width: Theme.hairline; radius: Theme.rSm } }
+    TextField { id: dfid; objectName: "deviceDfid"; width: parent.width; placeholderText: "24 位设备标识"; selectByMouse: true; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; color: Theme.text; background: Rectangle { color: Theme.surface; border.color: Theme.border; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; radius: Theme.rSm } }
     Text { text: "MID"; color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
-    TextField { id: mid; objectName: "deviceMid"; width: parent.width; placeholderText: "32–40 位十六进制标识"; selectByMouse: true; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; color: Theme.text; background: Rectangle { color: Theme.surface; border.color: Theme.border; border.width: Theme.hairline; radius: Theme.rSm } }
+    TextField { id: mid; objectName: "deviceMid"; width: parent.width; placeholderText: "32–40 位十六进制标识"; selectByMouse: true; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; color: Theme.text; background: Rectangle { color: Theme.surface; border.color: Theme.border; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; radius: Theme.rSm } }
     Text { text: "UUID"; color: Theme.text2; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm }
-    TextField { id: uuid; objectName: "deviceUuid"; width: parent.width; placeholderText: "十六进制标识或 GUID"; selectByMouse: true; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; color: Theme.text; background: Rectangle { color: Theme.surface; border.color: Theme.border; border.width: Theme.hairline; radius: Theme.rSm } }
+    TextField { id: uuid; objectName: "deviceUuid"; width: parent.width; placeholderText: "十六进制标识或 GUID"; selectByMouse: true; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm; color: Theme.text; background: Rectangle { color: Theme.surface; border.color: Theme.border; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; radius: Theme.rSm } }
     Row {
         spacing: 8
         ActionButton { objectName: "deviceSave"; text: "保存参数"; filled: true; enabled: !settingsState.busy; onClicked: settingsState.saveDevice(dfid.text, mid.text, uuid.text) }

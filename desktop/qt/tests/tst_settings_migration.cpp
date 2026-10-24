@@ -79,6 +79,19 @@ private slots:
         migration.exportData(QUrl::fromLocalFile(profile.filePath("recovered.json")));
         QVERIFY(QFileInfo::exists(profile.filePath("recovered.json")));
     }
+    void legacyHiResImportPreservesThePreference() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        DataMigration migration(profile.path());
+        migration.exportData(QUrl::fromLocalFile(profile.filePath("export.json")));
+        QFile exported(profile.filePath("export.json")); QVERIFY(exported.open(QIODevice::ReadOnly));
+        auto payload=QJsonDocument::fromJson(exported.readAll()).object(); exported.close();
+        payload.insert("preferences",QJsonObject{{"quality","hires"}});
+        QFile source(profile.filePath("legacy-quality.json")); QVERIFY(source.open(QIODevice::WriteOnly));
+        source.write(QJsonDocument(payload).toJson()); source.close();
+        migration.importData(QUrl::fromLocalFile(source.fileName())); QVERIFY(migration.restartNeeded());
+        QSettings saved(profile.filePath("preferences.ini"),QSettings::IniFormat);
+        QCOMPARE(saved.value("quality").toString(),QString("high"));
+    }
     void snapshotPreservesSelectedSurvivorAndRejectsBadOffset() {
         const auto restored = DataMigration::sanitizeSnapshot({{"queue", QJsonArray{QJsonObject{{"FileHash", "a"}, {"SongName", "First"}}, QJsonObject{}, QJsonObject{{"FileHash", "b"}, {"SongName", "Second"}}}}, {"currentIndex", 2}, {"position", 12}}, true);
         QCOMPARE(restored.value("queue").toArray().size(), 2); QCOMPARE(restored.value("index").toInt(), 1); QCOMPARE(restored.value("position").toInt(), 12000);

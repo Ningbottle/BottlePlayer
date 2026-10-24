@@ -14,5 +14,5 @@ Dialog {
         color: Theme.text; font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
         renderType: Text.NativeRendering
     }
-    background: Rectangle { color: Theme.bgElevated; radius: Theme.rMd; border.width: Theme.hairline; border.color: Theme.borderStrong }
+    background: Rectangle { color: Theme.bgElevated; radius: Theme.rMd; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.borderStrong }
 }

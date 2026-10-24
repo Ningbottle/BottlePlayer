@@ -125,8 +125,8 @@ Item {
     Rectangle { anchors.fill: parent; color: Theme.wallBg }
     ParallelAnimation {
         id: camera
-        NumberAnimation { id: cameraX; target: field; property: "centerX"; duration: music.reducedMotion ? 0 : 420; easing.type: Easing.OutCubic }
-        NumberAnimation { id: cameraY; target: field; property: "centerY"; duration: music.reducedMotion ? 0 : 420; easing.type: Easing.OutCubic }
+        NumberAnimation { id: cameraX; target: field; property: "centerX"; duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic }
+        NumberAnimation { id: cameraY; target: field; property: "centerY"; duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic }
     }
     // A Loader in a recycled delegate must create its face in the page's
     // context. The delegate context can disappear while an animation retires.
@@ -204,10 +204,10 @@ Item {
                         && rect.y < field.viewBottom + 420 && rect.y + rect.h > field.viewTop - 420
                     x: field.originX + rect.x + (original.x < 0 ? -root.seamWidth/2 : root.seamWidth/2) / root.zoom
                     y: field.originY + rect.y; width: rect.w; height: rect.h; z: expanded ? 20 : 0
-                    Behavior on x { enabled: !field.dragging && !field.flicking; NumberAnimation { duration: music.reducedMotion ? 0 : 360; easing.type: Easing.OutCubic } }
-                    Behavior on y { enabled: tile.expandedBlock; NumberAnimation { duration: music.reducedMotion ? 0 : 360; easing.type: Easing.OutCubic } }
-                    Behavior on width { NumberAnimation { duration: music.reducedMotion ? 0 : 360; easing.type: Easing.OutCubic } }
-                    Behavior on height { NumberAnimation { duration: music.reducedMotion ? 0 : 360; easing.type: Easing.OutCubic } }
+                    Behavior on x { enabled: !field.dragging && !field.flicking; NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
+                    Behavior on y { enabled: tile.expandedBlock; NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
+                    Behavior on width { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
+                    Behavior on height { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
                     Loader {
                         anchors.fill: parent; active: tile.inView
                         sourceComponent: tileContent
@@ -219,11 +219,11 @@ Item {
     // Edge shades belong to the controls, leaving the middle of the artwork clear.
     Rectangle {
         width: 104; height: parent.height
-        gradient: Gradient { orientation: Gradient.Horizontal; GradientStop { position: 0; color: "#850b1115" } GradientStop { position: 1; color: "transparent" } }
+        gradient: Gradient { orientation: Gradient.Horizontal; GradientStop { position: 0; color: Theme.blackA(7) } GradientStop { position: 1; color: "transparent" } }
     }
     Rectangle {
         anchors.bottom: parent.bottom; width: parent.width; height: 126
-        gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 1; color: "#b00b1115" } }
+        gradient: Gradient { GradientStop { position: 0; color: "transparent" } GradientStop { position: 1; color: Theme.blackA(9) } }
     }
     MouseArea {
         objectName: "homeWindowDrag"; x: 8; y: 0; width: Math.max(0,root.width/2-96); height: 26
@@ -239,22 +239,22 @@ Item {
     Rectangle {
         id: edgePanel; objectName: "homeSidebar"
         x: root.sidebarOpen ? 66 : -width; y: Math.max(50,(root.height-height)/2)
-        width: 164; height: navigation.height+28; radius: 10; color: "#ed182326"
+        width: 164; height: navigation.height+28; radius: 10; color: Theme.wallSurface
         visible: x > -width
-        Behavior on x { NumberAnimation { duration: music.reducedMotion ? 0 : 280; easing.type: Easing.OutCubic } }
+        Behavior on x { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic } }
         Column {
             id: navigation; x: 10; y: 14; width: parent.width-20; spacing: 5
-            Text { x: 10; text: "BottleMusic"; color: "#b8c5c4"; font.family: Theme.fontDisplay; font.pixelSize: 17; bottomPadding: 7 }
+            Text { x: 10; text: "BottleMusic"; color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; bottomPadding: 7 }
             Repeater {
                 model: [{key:"recommend",label:"今日推荐"},{key:"playlists",label:"发现歌单"},{key:"albums",label:"推荐曲的专辑"},{key:"mine",label:"我的歌单"},{key:"favorites",label:"本地收藏"}]
                 WallAction {
                     required property var modelData
                     objectName: "bravaisTab_"+modelData.key; width: navigation.width; text: modelData.label
-                    restFill: root.selectedTab===modelData.key ? "#25ffffff" : "transparent"
+                    restFill: root.selectedTab===modelData.key ? (Theme.wallChromePressed) : "transparent"
                     onClicked: root.chooseTab(modelData.key)
                 }
             }
-            Rectangle { x: 12; width: parent.width-24; height: 1; color: "#26ffffff" }
+            Rectangle { x: 12; width: parent.width-24; height: Theme.hairline; color: Theme.wallBorder }
             WallAction { objectName: "bravaisAccount"; width: navigation.width; text: "账户"; glyph: "user-round"; restFill: "transparent"; onClicked: root.account() }
             WallAction { objectName: "bravaisSettings"; width: navigation.width; text: "设置"; glyph: "settings"; restFill: "transparent"; onClicked: root.settings() }
         }
@@ -267,10 +267,10 @@ Item {
         Accessible.role: Accessible.Button; Accessible.name: "下拉打开搜索"
         Keys.onReturnPressed: root.openSearch()
         Keys.onSpacePressed: root.openSearch()
-        Rectangle { x: (parent.width-width)/2; y: 10+pull.distance*0.28; width: 30; height: 3; radius: 1.5; color: pullMouse.containsMouse || pull.activeFocus ? "#ecebe6" : "#aab8b5" }
+        Rectangle { x: (parent.width-width)/2; y: 10+pull.distance*0.28; width: 30; height: 3; radius: 1.5; color: pullMouse.containsMouse || pull.activeFocus ? Theme.wallInk : Theme.wallMuted }
         Text {
             anchors.horizontalCenter: parent.horizontalCenter; y: 21+pull.distance*0.28
-            text: "下拉搜索"; color: "#e3e7e3"; font.family: Theme.fontUi; font.pixelSize: 10
+            text: "下拉搜索"; color: Theme.wallInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
             visible: pullMouse.containsMouse || pull.activeFocus || pullMouse.pressed
         }
         MouseArea {
@@ -296,37 +296,35 @@ Item {
     }
     Rectangle {
         id: nowPlaying; objectName: "homeNowPlaying"; x: 18; y: root.height-height-16; z: 9
-        width: 280; height: 88; radius: 12; color: "#ef1b282c"
-        border.width: 1; border.color: "#38b7c9c4"
+        width: 280; height: 88; radius: 12; color: Theme.wallSurface
+        border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.wallBorder
         MouseArea {
             anchors.fill: parent; acceptedButtons: Qt.AllButtons; preventStealing: true
             onPressed: mouse => mouse.accepted=true
             onWheel: wheel => wheel.accepted=true
         }
-        Rectangle { x: 4; y: -3; z: -1; width: parent.width-8; height: parent.height; radius: 12; color: "#40536364"; rotation: -1 }
         AbstractButton {
             x: 12; y: 12; width: parent.width-90; height: 49
             Accessible.name: "正在播放："+(music.current.title || "还没有歌曲"); onClicked: if (music.current.hash) root.player()
             contentItem: Item {
                 Cover { width: 48; height: 48; radius: 6; url: music.current.image || ""; pixels: 120 }
                 Column {
-                    x: 60; width: parent.width-x; spacing: 3
-                    Text { text: music.playing ? "正在播放" : "此刻"; color: "#a9bab9"; font.family: Theme.fontUi; font.pixelSize: 9; font.letterSpacing: 1 }
-                    Text { width: parent.width; text: music.current.title || "还没有播放的歌"; color: "#f2f5f3"; font.family: Theme.fontUi; font.pixelSize: 13; elide: Text.ElideRight; textFormat: Text.PlainText }
-                    Text { width: parent.width; text: music.current.artist || "选一张封面，听听看"; color: "#c2cecc"; font.family: Theme.fontUi; font.pixelSize: 10; elide: Text.ElideRight; textFormat: Text.PlainText }
+                    x: 60; anchors.verticalCenter: parent.verticalCenter; width: parent.width-x; spacing: 4
+                    Text { width: parent.width; text: music.current.title || "未播放歌曲"; color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; elide: Text.ElideRight; textFormat: Text.PlainText }
+                    Text { width: parent.width; text: music.current.artist || ""; color: Theme.wallChromeMuted; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; elide: Text.ElideRight; textFormat: Text.PlainText }
                 }
             }
         }
         WallIcon { objectName: "homeCardPlay"; x: parent.width-76; y: 21; media: music.playing ? "pause" : "play"; mediaBox: 30; mediaGlyph: 15; enabled: !!music.current.hash; Accessible.name: music.playing ? "暂停" : "播放"; onClicked: music.toggle() }
         WallIcon { objectName: "bravaisTools"; x: parent.width-42; y: 21; glyph: "more-horizontal"; Accessible.name: "播放选项"; onClicked: tools.opened ? tools.close() : tools.open() }
         Rectangle {
-            objectName: "homeCardProgress"; x: 13; y: parent.height-15; width: parent.width-26; height: 2; radius: 1; color: "#48616361"
-            Rectangle { width: parent.width*Math.max(0,Math.min(1,music.duration>0 ? music.position/music.duration : 0)); height: parent.height; radius: 1; color: "#c1d2c8" }
+            objectName: "homeCardProgress"; x: 13; y: parent.height-15; width: parent.width-26; height: 2; radius: 1; color: Theme.wallBorderStrong
+            Rectangle { width: parent.width*Math.max(0,Math.min(1,music.duration>0 ? music.position/music.duration : 0)); height: parent.height; radius: 1; color: Theme.wallAccent }
         }
     }
     component WallIcon: IconButton {
         boxSize: 30; radius: width/2; glyphSize: 15
-        tint: Theme.wallChromeMuted; hoverTint: Theme.wallChromeInk; checkedTint: Theme.wallChromeInk
+        tint: Theme.wallChromeMuted; hoverTint: Theme.wallChromeInk; checkedTint: Theme.customized ? Theme.wallAccent : Theme.wallChromeInk
         hoverFill: Theme.wallChromeHover; downFill: Theme.wallChromePressed; focusInk: Theme.wallFocus
     }
     component WallAction: ActionButton {
@@ -343,7 +341,7 @@ Item {
             text: root.loading ? "正在加载…"
                 : root.selectedTab === "mine" ? accountState.loggedIn ? "还没有个人歌单" : "登录，打开你的歌单"
                 : root.selectedTab === "favorites" ? "还没有本地收藏" : "这里还没有内容"
-            color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: 22; font.weight: Theme.fwSemiBold
+            color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsXl; font.weight: Theme.fwSemiBold
         }
         WallAction {
             anchors.horizontalCenter: parent.horizontalCenter
@@ -371,8 +369,8 @@ Item {
                     Cover { width: 48; height: 48; radius: 8; url: music.current.image || ""; pixels: 120 }
                     Column {
                         x: 60; width: parent.width-x; anchors.verticalCenter: parent.verticalCenter; spacing: 5
-                        Text { width: parent.width; text: music.current.title || "此刻的声音"; textFormat: Text.PlainText; color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: 14; font.weight: Theme.fwSemiBold; elide: Text.ElideRight }
-                        Text { width: parent.width; text: music.current.artist || "选一首歌开始"; textFormat: Text.PlainText; color: Theme.wallChromeMuted; font.family: Theme.fontUi; font.pixelSize: 13; elide: Text.ElideRight }
+                        Text { width: parent.width; text: music.current.title || "此刻的声音"; textFormat: Text.PlainText; color: Theme.wallChromeInk; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; font.weight: Theme.fwSemiBold; elide: Text.ElideRight }
+                        Text { width: parent.width; text: music.current.artist || "选一首歌开始"; textFormat: Text.PlainText; color: Theme.wallChromeMuted; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd; elide: Text.ElideRight }
                     }
                 }
             }
@@ -383,8 +381,10 @@ Item {
                 IconButton {
                     objectName: "bravaisTransportPlay"; anchors.verticalCenter: parent.verticalCenter
                     media: music.playing ? "pause" : "play"; mediaBox: 48; mediaGlyph: 24; radius: width/2; variant: "primary"
-                    primaryFill: "white"; primaryHoverFill: Theme.wallHoverOn(primaryFill); primaryDownFill: Theme.wallDownOn(primaryFill)
-                    tint: Theme.wallChromeSurface; hoverTint: tint; focusInk: Theme.wallFocus
+                    primaryFill: Theme.customized ? Theme.wallAccent : Theme.white
+                    primaryHoverFill: Theme.customized ? Theme.actionShade(primaryFill, .08) : Theme.wallHoverOn(primaryFill)
+                    primaryDownFill: Theme.customized ? Theme.actionShade(primaryFill, .16) : Theme.wallDownOn(primaryFill)
+                    tint: Theme.customized ? Theme.inkOn(primaryFill) : Theme.wallChromeSurface; hoverTint: tint; focusInk: Theme.wallFocus
                     enabled: !!music.current.hash && !music.loading; Accessible.name: music.playing ? "暂停" : "播放"; onClicked: music.toggle()
                 }
                 WallIcon { objectName: "bravaisTransportNext"; anchors.verticalCenter: parent.verticalCenter; media: "next"; mediaBox: 40; mediaGlyph: 18; enabled: !!music.current.hash; Accessible.name: "下一首"; onClicked: music.next() }
@@ -396,10 +396,10 @@ Item {
                 Slider {
                     id: volume; objectName: "bravaisVolume"; width: parent.width-78; height: 24; padding: 0
                     from: 0; to: 1; value: music.volume; onMoved: music.volume=value; Accessible.name: "音量"
-                    background: Rectangle { y: (volume.height-height)/2; width: volume.width; height: 4; radius: 2; color: "#2effffff"; Rectangle { width: volume.visualPosition*parent.width; height: parent.height; radius: 2; color: Theme.wallChromeInk } }
-                    handle: Rectangle { x: volume.visualPosition*(volume.width-width); y: (volume.height-height)/2; width: 12; height: 12; radius: 6; color: Theme.wallChromeInk; border.width: volume.visualFocus ? 2 : 0; border.color: Theme.wallFocus }
+                    background: Rectangle { y: (volume.height-height)/2; width: volume.width; height: 4; radius: 2; color: Theme.wallBorderStrong; Rectangle { width: volume.visualPosition*parent.width; height: parent.height; radius: 2; color: Theme.wallChromeInk } }
+                    handle: Rectangle { x: volume.visualPosition*(volume.width-width); y: (volume.height-height)/2; width: 12; height: 12; radius: 6; color: Theme.wallChromeInk; border.pixelAligned: false; antialiasing: true; border.width: volume.visualFocus ? Theme.hairline : 0; border.color: Theme.wallFocus }
                 }
-                Text { anchors.verticalCenter: parent.verticalCenter; text: Math.round(music.volume*100)+"%"; color: Theme.wallChromeMuted; font.family: Theme.fontUi; font.pixelSize: 12; font.features: {"tnum":1} }
+                Text { anchors.verticalCenter: parent.verticalCenter; text: Math.round(music.volume*100)+"%"; color: Theme.wallChromeMuted; font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; font.features: {"tnum":1} }
             }
             Row {
                 width: parent.width; spacing: 8
@@ -410,10 +410,10 @@ Item {
     }
     component WallMenuItem: MenuItem {
         id: menuItem
-        implicitHeight: visible ? 36 : 0; font.family: Theme.fontUi; font.pixelSize: 13
+        implicitHeight: visible ? 36 : 0; font.family: Theme.fontUi; font.pixelSize: Theme.fsMd
         leftPadding: 12; rightPadding: 12
         contentItem: Text { text: menuItem.text; textFormat: Text.PlainText; font: menuItem.font; color: Theme.wallChromeInk; verticalAlignment: Text.AlignVCenter; opacity: menuItem.enabled ? 1 : 0.56 }
-        background: Rectangle { radius: 8; color: menuItem.down ? Theme.wallChromePressed : menuItem.highlighted ? Theme.wallChromeHover : "transparent"; border.width: menuItem.visualFocus ? 2 : 0; border.color: Theme.wallFocus }
+        background: Rectangle { radius: 8; color: menuItem.down ? Theme.wallChromePressed : menuItem.highlighted ? Theme.wallChromeHover : "transparent"; border.pixelAligned: false; antialiasing: true; border.width: menuItem.visualFocus ? Theme.hairline : 0; border.color: Theme.wallFocus }
         indicator: null; arrow: null
     }
     Menu {

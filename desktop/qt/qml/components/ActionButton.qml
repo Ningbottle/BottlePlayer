@@ -2,11 +2,7 @@ import QtQuick
 import QtQuick.Controls
 import BottleMusic
 
-// Action button variants: filled→primary, outlined→secondary, quiet→ghost.
-// Heights ride the --control-* ladder (sm 28 / md 34 / lg 40), radius --r-sm,
-// optional 16px leading/trailing Lucide glyphs with an 8px gap. Background,
-// border, ink and opacity ease over --dur-fast like the CSS transitions; the
-// press dims to .86 and secondary/ghost presses fill --surface-active.
+// Shared primary, secondary and quiet actions. State changes do not scale text.
 Button {
     id: root
     property bool filled: false
@@ -34,17 +30,18 @@ Button {
     property int typeRendering: Text.NativeRendering
     readonly property string variant: filled ? "primary" : quiet ? "ghost" : "secondary"
     readonly property bool lit: enabled && (hovered || visualFocus)
-    property color restInk: variant === "primary" ? Theme.accentContrast : variant === "ghost" ? Theme.text2 : Theme.text
-    property color hoverInk: variant === "primary" ? Theme.accentContrast : Theme.text
+    property color restInk: variant === "primary" ? Theme.inkOn(fill) : variant === "ghost" ? Theme.text2 : Theme.text
+    property color hoverInk: variant === "primary" ? Theme.inkOn(fill) : Theme.text
     readonly property color ink: active || lit ? hoverInk : restInk
-    readonly property color fill: variant === "primary" ? (down ? Theme.accentHover : Theme.accent)
+    readonly property color fill: variant === "primary" ? (down ? Theme.accentPressed : lit ? Theme.accentHover : Theme.accent)
         : down || active ? downFill
         : lit ? hoverFill
         : restFill.a > 0 ? restFill : Theme.clear(hoverFill)
     hoverEnabled: true
     focusPolicy: Qt.TabFocus
-    scale: pressed ? Theme.pressScale : 1
-    Behavior on scale { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durPop; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeBounce } }
+    Keys.onShortcutOverride: event => { if (enabled && event.key === Qt.Key_Space) event.accepted = true }
+    scale: 1
+
     padding: 0
     // padding-inline plus the 1px border every variant carries (transparent
     // on ghost), which Chromium lays out as one device pixel.
@@ -54,20 +51,19 @@ Button {
     font.family: Theme.fontUi
     font.pixelSize: typeSize
     font.weight: weight
-    opacity: !enabled ? Theme.disabledOpacity : down ? Theme.pressedOpacity : 1
+    opacity: enabled ? 1 : Theme.disabledOpacity
     Behavior on opacity { NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
     background: Rectangle {
         radius: root.bgRadius
         color: root.fill
-        border.width: Theme.hairline
+        border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
         border.color: root.edgeColor
         // Frame edges on whole device pixels, like Blink's snapped paint rect.
         PixelSnap.fit: true
-        Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
-        Behavior on border.color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSoft } }
+
         Rectangle {
             anchors.fill: parent; anchors.margins: -4 / root.worldScale; radius: parent.radius + 4 / root.worldScale
-            color: "transparent"; border.width: 2 / root.worldScale; border.color: root.focusInk
+            color: "transparent"; border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline / root.worldScale; border.color: root.focusInk
             visible: root.visualFocus
         }
     }
@@ -90,7 +86,7 @@ Button {
                 anchors.verticalCenter: parent.verticalCenter
                 width: Math.max(0, content.width - content.extras)
                 elide: Text.ElideRight
-                Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.durHover } }
+
             }
             Icon {
                 visible: root.trailingGlyph !== ""; name: root.trailingGlyph; color: root.ink

@@ -29,7 +29,7 @@ executable. Login QR images are encoded locally from the native login payload.
 
 # Fonts and icons
 
-All 68 Qt interface SVG resources are unmodified official Lucide files (ISC),
+The original 68 Qt interface SVG resources are unmodified official Lucide files (ISC),
 at commit `6bc1373b3f3075fbcfea542ea5530fdbd6cb99b2`:
 https://github.com/lucide-icons/lucide/tree/6bc1373b3f3075fbcfea542ea5530fdbd6cb99b2/icons
 `Lucide-mapping.json` records canonical names, including media aliases and the
@@ -38,12 +38,19 @@ renamed history/trash icons. `Lucide-provenance.json` records the exact version;
 viewBoxes are unchanged. Tint, media fill, stroke width and the pause glyph's
 stroke suppression are applied by IconProvider at render time; SVG files are
 not rewritten.
+The four `transport-*.svg` controls and `lyrics.svg` are original BottleMusic
+geometry, using simple triangles, bars and text lines. They are separate from
+the preserved Lucide source files and provenance mapping.
 The retained Phosphor notice documents the previous preview; no Phosphor SVGs
 remain in the current interface.
 The Inter, EB Garamond, Libre Caslon Display, Noto Serif SC and LXGW WenKai
 Lite TTF files use the SIL Open Font License. Their notices are included as `Inter-LICENSE`,
 `EBGaramond-LICENSE`, `LibreCaslonDisplay-LICENSE`, `NotoSerifSC-LICENSE`, and
 `LXGWWenKaiLite-LICENSE`.
+`NotoSerifSC-500.ttf` and `NotoSerifSC-Display.ttf` are static wght 500 and
+600 instances of the OFL Noto Serif SC variable font, subset to the same
+character set as `NotoSerifSC-400.ttf`; the Display file is renamed to the
+family "Noto Serif SC Display" (OFL permits renaming modified versions).
 
 BottleMusic uses MiSans for interface font fallback. The four bundled
 weights identify themselves as Version 2.000 and retain their embedded
@@ -69,3 +76,7 @@ This records the table's provenance rather than attributing it to BottleMusic.
 The 2026-10-16 focus reflow table and nearest-centre assignment are independently
 derived in BottleMusic. No Folia React components or application runtime are
 incorporated. Visual comparisons use the reference's local test harness.
+
+## Radix Colors
+
+The sRGB light and dark scales in `qml/RadixColors.qml` are from `@radix-ui/colors` 3.0.0, published by WorkOS and Modulz under the MIT license. Source: https://www.radix-ui.com/colors. The full license is in `RadixColors-LICENSE`.

@@ -17,7 +17,7 @@ AbstractButton {
     onClicked: if (playEnabled) play()
     background: Rectangle {
         radius: Theme.rSm; color: root.hovered || root.visualFocus ? Theme.surfaceHover : "transparent"
-        border.width: root.visualFocus ? 2 : 0; border.color: Theme.focus
+        border.pixelAligned: false; antialiasing: true; border.width: root.visualFocus ? Theme.hairline : 0; border.color: Theme.focus
     }
 
     Plate {
@@ -46,7 +46,7 @@ AbstractButton {
         x: root.compact ? 64 : image.x; y: root.compact ? 36 : image.y + image.height + Theme.rem(0.85) + 22
         width: root.width - x - (root.compact ? 48 : Theme.controlSm + Theme.s1)
         text: root.track.artist || ""; color: Theme.text2
-        font.family: Theme.fontUi; font.pointSize: Theme.pt(Theme.rem(0.75)); elide: Text.ElideRight
+        font.family: Theme.fontUi; font.pixelSize: Theme.fsXs; elide: Text.ElideRight
     }
     IconButton {
         anchors.right: parent.right; anchors.rightMargin: root.card ? Theme.s3 : 0

@@ -10,6 +10,9 @@ WheelHandler {
     required property Flickable flickable
     property real step: 100
     property real goal: 0
+    // Page-level settle animations must stop before either kind of delta
+    // updates contentY, including the touchpad path that never starts glide.
+    signal scrollInput()
     target: null
     acceptedDevices: PointerDevice.Mouse | PointerDevice.TouchPad
     enabled: flickable.contentHeight > flickable.height + 0.5
@@ -21,6 +24,7 @@ WheelHandler {
     // the same way) — a fractional contentY leaves every glyph half a device
     // pixel off at 125% scaling, which is what made columns read soft.
     onWheel: event => {
+        if (event.pixelDelta.y !== 0 || event.angleDelta.y !== 0) scrollInput()
         if (event.pixelDelta.y !== 0) {
             glide.stop()
             flickable.contentY = Theme.snap(clampY(flickable.contentY - event.pixelDelta.y))
@@ -36,7 +40,7 @@ WheelHandler {
 
     property NumberAnimation glide: NumberAnimation {
         target: wheel.flickable; property: "contentY"
-        duration: 220; easing.type: Easing.OutCubic
+        duration: music.reducedMotion ? 0 : Theme.durBase; easing.type: Easing.OutCubic
     }
     property Connections watcher: Connections {
         target: wheel.flickable

@@ -43,7 +43,7 @@ RowLayout {
             width: Theme.s3; height: Theme.s3; radius: Theme.rFull; color: Theme.accent
             visible: !root.disabledLook
             scale: hover.hovered || seek.pressed || seek.visualFocus ? 1 : 0
-            Behavior on scale { NumberAnimation { duration: Theme.durFast; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
+
             layer.enabled: Theme.hasShadow(1)
             layer.effect: ShadowEffect { level: 1 }
             PixelSnap.fit: true

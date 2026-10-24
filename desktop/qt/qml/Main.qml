@@ -11,7 +11,7 @@ ApplicationWindow {
     id: window
     objectName: "mainWindow"
     visible: true; width: 1280; height: 850; minimumWidth: 900; minimumHeight: 620
-    title: "BottleMusic · Qt Preview"
+    title: "BottleMusic"
     color: window.curtainScene ? Theme.wallBg : Theme.bg
     palette.window: Theme.bgElevated
     palette.windowText: Theme.text
@@ -19,6 +19,18 @@ ApplicationWindow {
     palette.buttonText: Theme.text
     palette.button: Theme.surface
     palette.base: Theme.bg
+    palette.alternateBase: Theme.surface
+    palette.light: Theme.surfaceHover
+    palette.midlight: Theme.surfaceActive
+    palette.mid: Theme.border
+    palette.dark: Theme.borderStrong
+    palette.shadow: Theme.shadowPopColor
+    palette.toolTipBase: Theme.bgElevated
+    palette.toolTipText: Theme.text
+    palette.placeholderText: Theme.text3
+    palette.accent: Theme.accent
+    font.family: Theme.fontUi
+    font.pixelSize: Theme.fsMd
     palette.highlight: Theme.accent
     palette.highlightedText: Theme.accentContrast
     flags: Qt.Window | Qt.FramelessWindowHint
@@ -29,7 +41,14 @@ ApplicationWindow {
     property bool listeningOpen: false
     property bool queueExpanded: false
     property string bravaisTab: "playlists"
-    onListeningOpenChanged: if (!listeningOpen) queueExpanded = false
+    // Keep the queue card alive for its exit animation after it closes.
+    property bool queueLingering: false
+    readonly property real queueCardWidth: Math.round(Theme.clamp(320, main.width * 0.28, 390))
+    onListeningOpenChanged: {
+        if (listeningOpen) { queueLinger.stop(); queueLingering = false; return }
+        if (queueLoader.item && queueLoader.item.objectName === "queuePanel") { queueLingering = true; queueLinger.restart() }
+        queueExpanded = false
+    }
     readonly property bool bravaisHomeScene: curtainScene && route === "home" && !immersive
     property bool immersive: false
     onImmersiveChanged: if (immersive) cancelCoverFlight()
@@ -57,13 +76,13 @@ ApplicationWindow {
     readonly property bool browseChrome: !curtainScene
     readonly property bool playbackBarVisible: !immersive && browseChrome
     readonly property var settingsSections: [
-        { id: "account", label: "账户与会员", lede: "扫码登录 · 账号资料 · 个人歌单", icon: "user-round" },
-        { id: "appearance", label: "外观", lede: "报刊主界面 · 幕布舞台 · 阅读习惯", icon: "palette" },
-        { id: "playback", label: "播放", lede: "音源连接与设备状态", icon: "sliders-vertical" },
-        { id: "storage", label: "存储与缓存", lede: "本地缓存的去处", icon: "hard-drive" },
-        { id: "experimental", label: "实验室", lede: "默认关闭，按需开启", icon: "flask-conical" },
-        { id: "diagnostics", label: "诊断", lede: "内核状态与资源使用", icon: "bug" },
-        { id: "about", label: "关于与更新", lede: "版本信息与自动更新", icon: "info" }
+        { id: "account", label: "账户与会员", icon: "user-round" },
+        { id: "appearance", label: "外观", icon: "palette" },
+        { id: "playback", label: "播放", icon: "sliders-vertical" },
+        { id: "storage", label: "存储与缓存", icon: "hard-drive" },
+        { id: "experimental", label: "实验室", icon: "flask-conical" },
+        { id: "diagnostics", label: "诊断", icon: "bug" },
+        { id: "about", label: "关于与更新", icon: "info" }
     ]
     readonly property var settingsMeta: settingsSections.find(section => section.id === settingsSection) || settingsSections[1]
 
@@ -82,8 +101,6 @@ ApplicationWindow {
     // Device-pixel ratio for the hairline rules (survives monitor moves).
     Binding { target: Theme; property: "dpr"; value: window.Screen.devicePixelRatio }
 
-    // Skin changes tint the window over one beat, like the CSS transition.
-    Behavior on color { ColorAnimation { duration: music.reducedMotion ? 0 : Theme.pageEnterMs; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeStandard } }
 
     function changeMode(mode) {
         if (immersive) leaveImmersive()
@@ -201,7 +218,7 @@ ApplicationWindow {
     property bool launched: false
     Timer { interval: 1; running: true; onTriggered: window.launched = true }
 
-    Shortcut { sequence: "Space"; enabled: !window.searchInputFocused() && !(window.activeFocusItem && window.activeFocusItem.objectName === "homeSearchPull"); onActivated: music.toggle() }
+    Shortcut { sequence: "Space"; enabled: !window.searchInputFocused() && !(window.activeFocusItem instanceof AbstractButton) && !(window.activeFocusItem && window.activeFocusItem.objectName === "homeSearchPull"); onActivated: music.toggle() }
     Shortcut {
         sequence: "Escape"
         onActivated: {
@@ -223,7 +240,7 @@ ApplicationWindow {
         id: sidebar
         visible: window.browseChrome && !window.immersive
         opacity: window.launched ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.durBase } }
+        Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Easing.OutCubic } }
         width: Theme.sidebarW; height: parent.height - Theme.playerbarH
         route: window.route
         settingsMode: window.route === "settings"
@@ -280,7 +297,7 @@ ApplicationWindow {
         id: main
         visible: !window.immersive
         opacity: window.launched ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.durBase } }
+        Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Easing.OutCubic } }
         x: window.browseChrome ? Theme.sidebarW : 0; y: window.bravaisHomeScene ? 0 : Theme.titlebarH
         width: parent.width - x
         height: parent.height - y - (window.playbackBarVisible ? Theme.playerbarH : 0)
@@ -288,6 +305,7 @@ ApplicationWindow {
             id: topbar
             visible: window.browseChrome
             width: parent.width; viewportWidth: window.width
+            onOpenSettings: section => window.go("settings", section)
             canGoBack: window.backStack.length > 0
             canGoForward: window.forwardStack.length > 0
             onBack: window.goBack()
@@ -380,6 +398,7 @@ ApplicationWindow {
         id: playerPage
         PlayerPage {
             viewportWidth: window.width; viewportHeight: window.height; queueOpen: window.listeningOpen
+            queueReserve: window.listeningOpen && queueLoader.item && queueLoader.item.objectName === "queuePanel" ? queueLoader.item.cardWidth + 12 : 0
             onBack: window.goBack(); onOpenHome: window.go("home"); onOpenSearch: window.go("search")
             onOpenImmersive: window.enterImmersive(true); onToggleQueue: window.listeningOpen = !window.listeningOpen
         }
@@ -412,7 +431,7 @@ ApplicationWindow {
         visible: window.playbackBarVisible
         onAddToPlaylist: track => window.addToPlaylist(track)
         opacity: window.launched ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.durBase } }
+        Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Easing.OutCubic } }
         y: parent.height - height; width: parent.width
         queueOpen: window.listeningOpen
         lyricView: window.route === "player"
@@ -429,7 +448,7 @@ ApplicationWindow {
         z: 10
         visible: !window.immersive
         opacity: window.launched ? 1 : 0
-        Behavior on opacity { NumberAnimation { duration: Theme.durBase } }
+        Behavior on opacity { NumberAnimation { duration: Theme.durBase; easing.type: Easing.OutCubic } }
         width: parent.width
         win: window
     }
@@ -461,7 +480,7 @@ ApplicationWindow {
     Item {
         objectName: "playerNotices"; z: 30
         readonly property bool noticesAtTop: window.bravaisHomeScene
-        readonly property real noticeInset: noticesAtTop && window.listeningOpen && queueLoader.item && queueLoader.item.objectName === "queuePanel" ? queueLoader.item.cardWidth + 12 : 0
+        readonly property real noticeInset: window.listeningOpen && queueLoader.item && queueLoader.item.objectName === "queuePanel" ? queueLoader.item.cardWidth + 12 : 0
         readonly property real toastWidth: Math.min(window.width/2,Theme.rem(32),Math.max(0,window.width-32-noticeInset))
         anchors.right: parent.right; anchors.rightMargin: 16+noticeInset
         y: noticesAtTop ? 64 : window.height-(window.playbackBarVisible?Theme.playerbarH:0)-8-height
@@ -480,12 +499,13 @@ ApplicationWindow {
     }
     Loader {
         id: queueLoader
-        active: window.listeningOpen
+        active: window.listeningOpen || window.queueLingering
         x: window.immersive ? 0 : main.x; y: window.immersive ? 48 : window.bravaisHomeScene ? Theme.wallBarH : main.y
         width: window.immersive ? window.width : main.width
         height: window.immersive ? window.height - 124 : main.height-(window.bravaisHomeScene?Theme.wallBarH:0); z: 20
-        sourceComponent: window.queueExpanded || (window.browseChrome && !window.immersive) ? queuePanel : listeningPanel
+        sourceComponent: window.queueExpanded || window.queueLingering || (window.browseChrome && !window.immersive) ? queuePanel : listeningPanel
     }
+    Timer { id: queueLinger; interval: music.reducedMotion ? 1 : Theme.durQueueOut + 20; onTriggered: window.queueLingering = false }
     // Shared-element cover flight (open-claude-ui): the player bar artwork
     // grows into the player page's cover slot while the destination stays
     // hidden, then hands over in one frame.
@@ -565,7 +585,10 @@ ApplicationWindow {
     }
     Component {
         id: queuePanel
-        QueuePanel { wall: window.curtainScene && !window.immersive; onClose: window.listeningOpen = false; onAddToPlaylist: track => window.addToPlaylist(track) }
+        QueuePanel {
+            wall: window.curtainScene && !window.immersive
+            cardShown: window.listeningOpen; preferredWidth: window.queueCardWidth
+            onClose: window.listeningOpen = false; onAddToPlaylist: track => window.addToPlaylist(track) }
     }
     Component {
         id: listeningPanel

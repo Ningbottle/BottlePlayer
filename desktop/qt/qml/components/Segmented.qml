@@ -24,10 +24,10 @@ Rectangle {
     readonly property real inset: Theme.s1 + Theme.hairline
     implicitWidth: Theme.snapUp(row.implicitWidth + inset * 2)
     implicitHeight: Theme.controlSm + inset * 2
-    radius: Theme.rSm
+    radius: Theme.rMd
     color: Theme.surface
     border.color: Theme.border
-    border.width: Theme.hairline
+    border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline
     // Whole device pixels, so the hairline frame is one crisp row/column.
     PixelSnap.enabled: true
 
@@ -41,7 +41,7 @@ Rectangle {
         y: row.y
         width: Theme.snap(endX) - x
         height: row.height
-        radius: Theme.rXs
+        radius: Theme.innerRadius(root.radius, root.inset)
         color: Theme.surfaceActive
         Behavior on x { enabled: root.sliding; NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durTab; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSnap } }
         Behavior on width { enabled: root.sliding; NumberAnimation { duration: music.reducedMotion ? 0 : Theme.durTab; easing.type: Easing.BezierSpline; easing.bezierCurve: Theme.easeSnap } }
@@ -75,7 +75,7 @@ Rectangle {
                         anchors.fill: parent; anchors.margins: -4
                         radius: Theme.rXs + 4
                         color: "transparent"
-                        border.width: 2; border.color: Theme.focus
+                        border.pixelAligned: false; antialiasing: true; border.width: Theme.hairline; border.color: Theme.focus
                         visible: option.visualFocus
                     }
                 }
@@ -85,7 +85,7 @@ Rectangle {
                         anchors.verticalCenter: parent.verticalCenter
                         text: option.modelData.label; color: option.ink
                         font.family: Theme.fontUi; font.pixelSize: Theme.fsSm
-                        Behavior on color { ColorAnimation { duration: Theme.durFast } }
+
                     }
                     Text {
                         visible: !!option.modelData.secondary
@@ -93,7 +93,7 @@ Rectangle {
                         text: option.modelData.secondary || ""; color: option.ink
                         opacity: option.current ? 0.8 : 1
                         font.family: Theme.fontUi; font.pixelSize: Theme.fsXs
-                        Behavior on color { ColorAnimation { duration: Theme.durFast } }
+
                     }
                 }
             }
