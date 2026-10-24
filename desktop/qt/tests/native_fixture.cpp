@@ -180,9 +180,23 @@ Q_DECL_EXPORT void EchoHandleRequest(const char* methodRaw, const char* pathRaw,
         } else if (path == "/song/url") {
             auto data = options.value("song_metadata").toObject();
             data.insert("backup_url", options.value("backup_url"));
-            data.insert("available_qualities", QJsonArray{QJsonObject{{"quality", "128"}}, QJsonObject{{"quality", "320"}}, QJsonObject{{"quality", "flac"}}});
-            response = {{"status", 1}, {"url", options.value("audio_url").toString("http://127.0.0.1:1/fixture.wav")},
-                {"quality", query.value("quality").toString("128")}, {"data", data}};
+            // Real native v5 answers with exactly one quality: the delivered
+            // one. A fixed three-entry list here hid the picker collapse that
+            // shape causes in the UI.
+            const auto audioUrl = options.value("audio_url").toString("http://127.0.0.1:1/fixture.wav");
+            const auto requested = query.value("quality").toString("128");
+            const auto delivered = options.value("delivered_quality").toString(requested);
+            const bool preview = options.value("song_preview").toBool();
+            data.insert("quality", delivered);
+            data.insert("available_qualities", QJsonArray{QJsonObject{{"quality", delivered}, {"url", audioUrl}, {"is_preview", preview}}});
+            response = {{"status", 1}, {"url", audioUrl}, {"quality", delivered}, {"is_preview", preview}, {"data", data}};
+            if (options.value("song_fail").toBool()) response = {{"status", 0}, {"vip_required", options.value("song_vip_required").toBool()}};
+        } else if (path == "/privilege/lite") {
+            QJsonArray goods;
+            if (options.contains("privilege_goods")) goods = options.value("privilege_goods").toArray();
+            else for (const auto& quality : {QStringLiteral("128"), QStringLiteral("320"), QStringLiteral("flac"), QStringLiteral("high")})
+                goods.append(QJsonObject{{"quality", quality}});
+            response = {{"status", 1}, {"data", QJsonArray{QJsonObject{{"hash", query.value("hash")}, {"relate_goods", goods}}}}};
         } else if (path == "/search/lyric") response = {{"status", 1}, {"candidates", QJsonArray{QJsonObject{{"id", "fixture-cue"}, {"accesskey", "fixture-key"}}}}};
         else if (path == "/lyric") response = {{"status", 1}, {"lyric", QStringLiteral("[00:00.00]<00:00.00>窗边<00:02.00>传来轻轻的旋律\n[00:04.00]把这一刻留在纸页里\n[00:08.00]风吹过安静的街道\n[00:12.00]我们听见时间的回音\n[00:16.00]一首歌陪伴漫长旅途\n[00:20.00]让心事慢慢舒展开来\n[00:24.00]故事还在继续")}};
         else if (path == "/search" && query.value("keywords").toString() == "__bottle_search_error__")

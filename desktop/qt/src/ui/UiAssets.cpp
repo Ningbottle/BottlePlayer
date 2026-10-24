@@ -62,12 +62,14 @@ QImage IconProvider::requestImage(const QString& id, QSize* size, const QSize& r
 
 void installUiAssets(QQmlEngine& engine) {
     QQuickWindow::setTextRenderType(QQuickWindow::NativeTextRendering);
-    // ClearType composites correctly on the DirectComposition alpha surface —
-    // probe runs rendered pixel-identical to an opaque swapchain — so the
-    // stock backend (subpixel when the system enables ClearType, gray when
-    // not, gray inside item layers) is the default. BOTTLE_TEXT_AA=gray
-    // selects the custom grayscale backend for diagnostics.
+    // Native glyphs otherwise use ClearType on the Windows surface, while
+    // layered text is grayscale. Use grayscale consistently to avoid coloured
+    // fringes. Preserve a ClearType A/B switch.
+#ifdef Q_OS_WIN
+    if (qgetenv("BOTTLE_TEXT_AA") != "cleartype")
+#else
     if (qgetenv("BOTTLE_TEXT_AA") == "gray")
+#endif
         QQuickWindow::setSceneGraphBackend(QStringLiteral("bottle-graytext"));
     const QDir fonts(QDir(QCoreApplication::applicationDirPath()).filePath(QStringLiteral("fonts")));
     for (const QString& name : fonts.entryList({QStringLiteral("*.ttf"), QStringLiteral("*.otf")}, QDir::Files))

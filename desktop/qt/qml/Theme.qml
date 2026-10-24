@@ -136,7 +136,9 @@ QtObject {
     readonly property string fontUi: "Inter"
     readonly property string fontDisplay: mint ? "Libre Caslon Display" : fontUi
     readonly property string fontTitle: mint ? "EB Garamond" : fontUi
-    readonly property string fontMeta: mint ? "EB Garamond" : fontUi
+    // Reading-size labels use the UI face: the display serifs' thin strokes
+    // and low Latin x-height do not hold up at 12–14 logical pixels.
+    readonly property string fontMeta: fontUi
     readonly property string fontSerif: "Noto Serif SC"
     readonly property string fontLyric: lyricFontSetting === "kai" ? "LXGW WenKai Lite" : lyricFontSetting === "song" ? "Noto Serif SC" : lyricFontSetting === "hei" ? fontUi : mint ? "EB Garamond" : "LXGW WenKai Lite"
     // UiAssets.cpp turns on typo line metrics app-wide so CJK fallbacks stop

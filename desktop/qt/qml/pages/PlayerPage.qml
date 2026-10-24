@@ -205,12 +205,12 @@ Item {
         }
         Card {
             id: qualityCard; cardId: "quality"; objectName: "playerQualityCard"; clip: true
-            readonly property bool switchable: music.queueIndex >= 0 && !String(music.current.hash).startsWith("file:")
+            readonly property bool switchable: music.ready && music.queueIndex >= 0 && !String(music.current.hash).startsWith("file:")
             Column {
                 width: parent.width; anchors.verticalCenter: parent.verticalCenter; spacing: Theme.s1
                 CssText { visible: qualityCard.height > 110; text: qualityCard.switchable ? "音质 · 点击切换" : "音质"; color: Theme.text3; font.family: Theme.fontMeta; font.pixelSize: Theme.fsXs; font.italic: Theme.metaItalic }
                 CssText {
-                    width: parent.width; text: music.qualityText(music.actualQuality); color: Theme.text; elide: Text.ElideRight
+                    width: parent.width; text: music.qualityText(music.queueIndex < 0 ? music.quality : music.actualQuality); color: Theme.text; elide: Text.ElideRight
                     font.family: Theme.fontDisplay; font.pixelSize: qualityCard.height <= 64 || qualityCard.width <= 160 ? Theme.fsLg : qualityCard.height <= 110 ? Theme.fsXl : Theme.fs2xl
                     lineBox: font.pixelSize * Theme.lhTight
                 }

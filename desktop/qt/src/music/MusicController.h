@@ -3,12 +3,14 @@
 #include "core/NativeGateway.h"
 #include "lyrics/LyricTimeline.h"
 #include "playback/PlaySession.h"
+#include "settings/PlaybackStore.h"
 #include <QMediaPlayer>
 #include <QAudioOutput>
 #include <QSettings>
 #include <QElapsedTimer>
 #include <QTimer>
 #include <functional>
+#include <optional>
 
 class MusicController final : public QObject {
     Q_OBJECT
@@ -31,6 +33,9 @@ class MusicController final : public QObject {
     Q_PROPERTY(QString quality READ quality WRITE setQuality NOTIFY playbackChanged)
     Q_PROPERTY(QString actualQuality READ actualQuality NOTIFY playbackChanged)
     Q_PROPERTY(QVariantList availableQualities READ availableQualities NOTIFY playbackChanged)
+    // Full quality vocabulary; the picker falls back to it when a track's own
+    // availability is unknown, so the menu can never collapse to one entry.
+    Q_PROPERTY(QVariantList qualityCatalog READ qualityCatalog CONSTANT)
     // playerStore.loopMode: "list" | "single" | "random".
     Q_PROPERTY(QString loopMode READ loopMode NOTIFY loopModeChanged)
     Q_PROPERTY(bool favorite READ favorite NOTIFY favoriteChanged)
@@ -47,6 +52,7 @@ class MusicController final : public QObject {
     Q_PROPERTY(QString message READ message NOTIFY statusChanged)
 public:
     MusicController(QString nativeDll, QString profile, QObject* parent = nullptr);
+    ~MusicController() override;
     void initialize();
     QVariantList feed() const;
     QVariantList searchResults() const;
@@ -71,6 +77,7 @@ public:
     QString quality() const { return quality_; }
     QString actualQuality() const { return actualQuality_; }
     QVariantList availableQualities() const { return availableQualities_; }
+    QVariantList qualityCatalog() const;
     double volume() const { return output_.volume(); }
     int lyricSize() const { return lyricSize_; }
     bool vinyl() const { return vinyl_; }
@@ -111,7 +118,8 @@ public:
     Q_INVOKABLE void clearQueue();
     void setQuality(const QString& quality);
     void setFavoritePolicy(std::function<bool(const QVariantMap&)> read, std::function<void(const QVariantMap&)> toggle);
-    void holdPersistenceForImport() { saveQueue(); shuttingDown_ = true; persistTimer_.stop(); player_.pause(); }
+    bool flushStorage();
+    void holdPersistenceForImport();
     void setFeed(const QVariantList& tracks);
     void setFeedRefresh(std::function<void()> refresh) { feedRefresh_ = std::move(refresh); }
     void setVolume(double value);
@@ -131,9 +139,12 @@ signals:
 private:
     void resolveCurrent(qint64 position = 0, bool autoplay = true, bool preserveSession = false, bool coldResume = false);
     void applyResume();
+    bool recoverQualitySwitch(const QString& reason);
     void saveQueue();
+    void stopPlaybackWork();
     void step(int delta);
     void loadLyrics(const Track& track, quint64 generation);
+    void loadQualities(const Track& track, quint64 generation);
     void radioNext();
     void fetchRadio(bool starting, bool advance = false);
     void cancelRadioRequest();
@@ -149,6 +160,7 @@ private:
     void setRadioPending(bool pending);
     NativeGateway gateway_;
     QSettings settings_;
+    PlaybackStore storage_;
     QAudioOutput output_;
     QMediaPlayer player_;
     QVector<Track> feed_, search_, queue_;
@@ -158,7 +170,7 @@ private:
     int queueIndex_ = -1, searchTotal_ = 0, searchPage_ = 0, lyricIndex_ = -1, lyricSize_ = 32;
     bool ready_ = false, loading_ = false, searching_ = false, radio_ = false, preview_ = false;
     bool vinyl_ = false, reducedMotion_ = false;
-    QString searchTerm_, searchError_, message_, resolveId_, searchId_, lyricId_, feedId_, radioId_;
+    QString searchTerm_, searchError_, message_, resolveId_, searchId_, lyricId_, feedId_, radioId_, privilegeId_;
     QString loopMode_ = QStringLiteral("list");
     QStringList favorites_;
     QStringList backupUrls_;
@@ -166,12 +178,19 @@ private:
     std::function<void(const QVariantMap&)> favoriteToggle_;
     std::function<void()> feedRefresh_;
     quint64 generation_ = 0, searchGeneration_ = 0, feedGeneration_ = 0;
-    quint64 radioGeneration_ = 0;
+    quint64 radioGeneration_ = 0, privilegeGeneration_ = 0;
     QString account_;
     bool radioPending_ = false, radioAdvancePending_ = false;
     PlaySession session_;
     QTimer persistTimer_, resumeDeadline_, loadDeadline_;
-    QString quality_ = "128", committedQuality_ = "128", actualQuality_ = "128";
+    QString quality_ = "128", committedQuality_ = "128", actualQuality_ = "unknown";
+    // A quality change is committed only after the replacement media loads.
+    // Keep the last usable source until that point so a failed decode can recover.
+    struct QualitySource { QUrl url; QStringList backups; qint64 position; };
+    std::optional<QualitySource> qualitySource_;
+    QUrl pendingSource_;
+    QString pendingActualQuality_ = "unknown", qualityRecoveryReason_;
+    bool pendingPreview_ = false, pendingLoadObserved_ = false, recoveringQuality_ = false;
     QVariantList availableQualities_;
     qint64 resumePosition_ = 0;
     bool resumePending_ = false, coldResume_ = false, desiredPlay_ = true, shuttingDown_ = false;

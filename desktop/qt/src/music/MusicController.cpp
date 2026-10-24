@@ -1,4 +1,5 @@
 #include "MusicController.h"
+#include "PlaybackQuality.h"
 #include "core/Diagnostics.h"
 #include <QDir>
 #include <QFileInfo>
@@ -19,10 +20,21 @@ QVariantList variants(const QVector<Track>& tracks) {
     for (const auto& track : tracks) values.append(track.toVariant());
     return values;
 }
+QVariantList qualityOptions(const QStringList& present) {
+    QVariantList options;
+    for (const auto& key : PlaybackQuality::catalog()) if (present.contains(key)) options.append(QVariantMap{{QStringLiteral("quality"), key}});
+    return options;
+}
+bool hasLoadedSource(const QMediaPlayer& player) {
+    const auto status = player.mediaStatus();
+    return !player.source().isEmpty() && player.error() == QMediaPlayer::NoError
+        && (status == QMediaPlayer::LoadedMedia || status == QMediaPlayer::BufferedMedia
+            || status == QMediaPlayer::BufferingMedia || status == QMediaPlayer::StalledMedia);
+}
 }
 MusicController::MusicController(QString dll, QString profile, QObject* parent)
     : QObject(parent), gateway_(std::move(dll), QDir(profile).filePath("native")),
-      settings_(QDir(profile).filePath("preferences.ini"), QSettings::IniFormat) {
+      settings_(QDir(profile).filePath("preferences.ini"), QSettings::IniFormat), storage_(settings_.fileName()) {
     QDir().mkpath(QDir(profile).filePath("native"));
     output_.setVolume(static_cast<float>(std::clamp(settings_.value("volume", 0.5).toDouble(), 0.0, 1.0)));
     lyricSize_ = std::clamp(settings_.value("lyricSize", 32).toInt(), 20, 48);
@@ -31,8 +43,12 @@ MusicController::MusicController(QString dll, QString profile, QObject* parent)
     const auto loop = settings_.value("loopMode", loopMode_).toString();
     if (loop == QLatin1String("single") || loop == QLatin1String("random")) loopMode_ = loop;
     favorites_ = settings_.value("favorites").toStringList();
-    const auto quality = settings_.value("quality", "128").toString();
-    if (quality == "128" || quality == "320" || quality == "flac" || quality == "hires") quality_ = quality;
+    const auto storedQuality = settings_.value("quality", "128").toString();
+    const auto quality = PlaybackQuality::canonical(storedQuality);
+    if (!quality.isEmpty()) {
+        quality_ = quality;
+        if (quality != storedQuality) storage_.setValue("quality", quality);
+    }
     committedQuality_ = quality_;
     const auto snapshot = QJsonDocument::fromJson(settings_.value("queueSnapshot").toByteArray()).object();
     if (snapshot.value("version").toInt() == 1) {
@@ -63,9 +79,11 @@ MusicController::MusicController(QString dll, QString profile, QObject* parent)
     loadDeadline_.setSingleShot(true); loadDeadline_.setInterval(20000);
     connect(&loadDeadline_, &QTimer::timeout, this, [this] {
         if (!loading_) return;
+        if (recoverQualitySwitch(QStringLiteral("音质切换超时"))) return;
         tracePlayback("load_timeout"); ++generation_; gateway_.cancel(resolveId_);
         sourceNeedsReload_ = true; loading_ = resumePending_ = false; resumeDeadline_.stop(); player_.stop();
         if (qualitySwitchPending_) { quality_ = committedQuality_; qualitySwitchPending_ = false; }
+        qualitySource_.reset(); pendingSource_.clear(); recoveringQuality_ = false;
         setMessage(QStringLiteral("音频加载超时，点击播放可重新获取音源")); emit playbackChanged();
     });
     // Content replacement and selection changes can both change the heart.
@@ -95,10 +113,12 @@ MusicController::MusicController(QString dll, QString profile, QObject* parent)
         emit playbackChanged();
     });
     connect(&player_, &QMediaPlayer::mediaStatusChanged, this, [this](QMediaPlayer::MediaStatus status) {
+        if (shuttingDown_) return;
         tracePlayback("media_status");
+        if (status == QMediaPlayer::LoadingMedia && !pendingSource_.isEmpty() && player_.source() == pendingSource_)
+            pendingLoadObserved_ = true;
         if (status == QMediaPlayer::LoadedMedia || status == QMediaPlayer::BufferedMedia) {
             applyResume();
-            if (!resumePending_) loading_ = false;
             emit playbackChanged();
         }
         if (status != QMediaPlayer::EndOfMedia) return;
@@ -111,6 +131,9 @@ MusicController::MusicController(QString dll, QString profile, QObject* parent)
     connect(&player_, &QMediaPlayer::errorOccurred, this, [this] {
         tracePlayback("media_error");
         if (shuttingDown_ || queueIndex_ < 0 || queueIndex_ >= queue_.size() || player_.source().isEmpty()) return;
+        // An older source may finish/fail while a newer URL request is pending.
+        // Only the source owned by that request may settle its loading state.
+        if (loading_ && (pendingSource_.isEmpty() || (recoveringQuality_ && player_.source() != pendingSource_))) return;
         if (!backupUrls_.isEmpty()) {
             const auto retryUrl = QUrl(backupUrls_.takeFirst());
             const auto owner = generation_; const auto failed = player_.source();
@@ -118,20 +141,28 @@ MusicController::MusicController(QString dll, QString profile, QObject* parent)
             QTimer::singleShot(0, this, [this, owner, failed, retryUrl, offset] {
                 if (owner != generation_ || player_.source() != failed || shuttingDown_) return;
                 resumePosition_ = offset; resumePending_ = true; loading_ = true; session_.seek();
+                pendingSource_ = retryUrl;
+                pendingLoadObserved_ = false;
+                if (pendingActualQuality_ == "unknown") { pendingActualQuality_ = actualQuality_; pendingPreview_ = preview_; }
                 player_.setSource(retryUrl); applyResume(); if (resumePending_) resumeDeadline_.start();
                 emit playbackChanged();
             });
             return;
         }
+        if (recoverQualitySwitch(QStringLiteral("所选音质加载失败"))) return;
         resumePending_ = false; resumeDeadline_.stop(); loadDeadline_.stop();
         sourceNeedsReload_ = true;
         if (qualitySwitchPending_) { quality_ = committedQuality_; qualitySwitchPending_ = false; }
+        const bool recoveryFailed = recoveringQuality_;
+        qualitySource_.reset(); pendingSource_.clear(); recoveringQuality_ = false;
         loading_ = false; emit playbackChanged();
-        setMessage(QStringLiteral("音频加载失败，请重试或选择其他歌曲"));
+        setMessage(recoveryFailed ? QStringLiteral("原音源暂时无法恢复，请重试") : QStringLiteral("音频加载失败，请重试或选择其他歌曲"));
     });
 }
+MusicController::~MusicController() { finishSession(); }
 void MusicController::initialize() {
     gateway_.initialize([this](const QJsonObject& response) {
+        if (shuttingDown_) return;
         ready_ = response.value("status").toInt() == 1;
         tracePlayback("initialized");
         setMessage(ready_ ? QString{} : response.value("error").toString());
@@ -253,14 +284,24 @@ void MusicController::playQueue(int index) {
 void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preserveSession, bool coldResume) {
     if (queueIndex_ < 0 || queueIndex_ >= queue_.size()) return;
     if (!preserveSession) finalizeSession(false);
+    if (!preserveSession) qualitySource_.reset();
+    else if (!qualitySource_ && actualQuality_ != "unknown" && hasLoadedSource(player_)) {
+        qualitySource_ = QualitySource{player_.source(), backupUrls_, player_.position()};
+    }
+    pendingSource_.clear(); pendingActualQuality_ = "unknown"; pendingPreview_ = pendingLoadObserved_ = false;
+    recoveringQuality_ = false; qualityRecoveryReason_.clear();
     const auto generation = ++generation_;
-    gateway_.cancel(resolveId_); gateway_.cancel(lyricId_); resolveId_.clear(); lyricId_.clear();
+    gateway_.cancel(resolveId_); gateway_.cancel(lyricId_);
+    resolveId_.clear(); lyricId_.clear();
     loading_ = true; desiredPlay_ = autoplay; coldResume_ = coldResume;
     sourceNeedsReload_ = false; qualitySwitchPending_ = preserveSession;
     loadDeadline_.start(); tracePlayback("resolve_start");
     if (!preserveSession) {
+        ++privilegeGeneration_; gateway_.cancel(privilegeId_); privilegeId_.clear();
         backupUrls_.clear();
-        player_.stop(); player_.setSource({}); listenedMs_ = 0; cues_.clear(); lyricIndex_ = -1; preview_ = false;
+        // A new track must not inherit the previous track's quality options.
+        availableQualities_.clear();
+        player_.stop(); player_.setSource({}); listenedMs_ = 0; cues_.clear(); lyricIndex_ = -1; preview_ = false; actualQuality_ = "unknown";
         updateLyricProjection(); emit lyricIndexChanged();
     }
     resumePending_ = !preserveSession; resumePosition_ = std::max<qint64>(0, position);
@@ -272,9 +313,10 @@ void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preser
         if (!QFileInfo(local.toLocalFile()).isFile()) { loading_ = false; resumePending_ = false; setMessage(QStringLiteral("本地音频文件已不存在")); emit playbackChanged(); return; }
         QFile lyricFile(QFileInfo(local.toLocalFile()).dir().filePath(QFileInfo(local.toLocalFile()).completeBaseName() + ".lrc"));
         if (lyricFile.open(QIODevice::ReadOnly)) cues_ = LyricTimeline::parseBilingual(QString::fromUtf8(lyricFile.readAll()));
-        actualQuality_ = "local"; availableQualities_.clear(); updateLyricProjection(); emit lyricIndexChanged();
+        pendingActualQuality_ = "local"; pendingSource_ = local; updateLyricProjection(); emit lyricIndexChanged();
         player_.setSource(local); applyResume(); if (resumePending_) resumeDeadline_.start(); saveQueue(); return;
     }
+    if (!preserveSession) loadQualities(track, privilegeGeneration_);
     resolveId_ = gateway_.get("/song/url", {{"hash", track.hash}, {"album_id", track.albumId},
         {"album_audio_id", track.audioId}, {"quality", quality_}}, this, [this, generation, preserveSession](const QJsonObject& response) {
         if (generation != generation_) return;
@@ -286,15 +328,26 @@ void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preser
             if (option.value("quality").toString() == quality_ && candidate.isValid() && (candidate.scheme() == "https" || candidate.scheme() == "http")) { url = candidate; delivered = option; break; }
         }
         if (response.value("status").toInt() != 1 || !url.isValid() || (url.scheme() != "http" && url.scheme() != "https")) {
+            if (recoverQualitySwitch(response.value("vip_required").toBool()
+                ? QStringLiteral("当前账号无法播放所选音质") : QStringLiteral("所选音质暂不可用"))) return;
             loading_ = false; resumePending_ = false;
             if (preserveSession) quality_ = committedQuality_;
+            qualitySwitchPending_ = false; qualitySource_.reset(); loadDeadline_.stop(); resumeDeadline_.stop();
             emit playbackChanged();
             setMessage(response.value("vip_required").toBool() ? QStringLiteral("这首歌需要对应的账号权限，请检查账户登录状态")
                 : QStringLiteral("这首歌暂时无法播放，请选择其他歌曲")); return;
         }
-        preview_ = response.value("is_preview").toBool() || response.value("delivery").toString() == "preview";
-        if (!delivered.isEmpty()) preview_ = delivered.value("isPreview").toBool(delivered.value("is_preview").toBool()) || delivered.value("delivery").toString() == "preview";
-        actualQuality_ = delivered.isEmpty() ? response.value("quality").toString(data.value("quality").toString("unknown")) : delivered.value("quality").toString("unknown");
+        const bool candidatePreview = delivered.isEmpty()
+            ? response.value("is_preview").toBool() || response.value("delivery").toString() == "preview"
+            : delivered.value("isPreview").toBool(delivered.value("is_preview").toBool()) || delivered.value("delivery").toString() == "preview";
+        const auto candidateQuality = delivered.isEmpty() ? response.value("quality").toString(data.value("quality").toString("unknown")) : delivered.value("quality").toString("unknown");
+        // Do not interrupt a usable stream for a quality the server did not
+        // deliver, or replace a full stream with a preview during a switch.
+        if (preserveSession && qualitySource_ && (candidateQuality != quality_ || (candidatePreview && !preview_))) {
+            recoverQualitySwitch(candidateQuality != quality_
+                ? qualityText(quality_) + QStringLiteral("音源暂不可用") : QStringLiteral("所选音质仅提供试听")); return;
+        }
+        pendingActualQuality_ = candidateQuality; pendingPreview_ = candidatePreview;
         backupUrls_.clear();
         if (url == QUrl(response.value("url").toString())) for (const auto& value : data.value("backup_url").toArray()) {
             const QUrl candidate(value.toString());
@@ -307,16 +360,43 @@ void MusicController::resolveCurrent(qint64 position, bool autoplay, bool preser
         if (current.image.isEmpty() && !metadata.image.isEmpty()) { current.image = metadata.image; metadataChanged = true; }
         if (current.album.isEmpty() && !metadata.album.isEmpty()) { current.album = metadata.album; metadataChanged = true; }
         if (metadataChanged) { updateQueueProjection(queueIndex_, radio_); emit heroChanged(); }
-        availableQualities_.clear();
-        for (const auto& value : data.value("available_qualities").toArray()) {
-            const auto option = value.toObject(); const auto key = option.value("quality").toString();
-            if (!key.isEmpty()) availableQualities_.append(QVariantMap{{"quality", key}, {"bitRate", option.value("bitRate").toInt()}});
+        if (preserveSession) {
+            if (qualitySource_ && player_.source() == qualitySource_->url) qualitySource_->position = player_.position();
+            resumePosition_ = qualitySource_ ? qualitySource_->position : player_.position(); player_.pause(); session_.seek();
         }
-        if (preserveSession) { resumePosition_ = player_.position(); player_.pause(); session_.seek(); }
         resumePending_ = true;
+        pendingSource_ = url;
+        // setSource() can emit LoadedMedia while stopping the old stream.
+        // A different URL must pass through LoadingMedia before it can commit.
+        const bool sameSource = player_.source() == url;
+        pendingLoadObserved_ = sameSource && ((qualitySource_ && qualitySource_->url == url)
+            || player_.mediaStatus() == QMediaPlayer::LoadingMedia);
+        if (sameSource && !pendingLoadObserved_) player_.setSource({});
         player_.setSource(url); applyResume(); if (resumePending_) resumeDeadline_.start(); emit playbackChanged();
     });
     tracePlayback("source_request"); loadLyrics(track, generation);
+}
+// The picker lists what the song actually has, never what one /song/url answer
+// happened to return: production resolves end on v5, which reports a single
+// quality and used to collapse the menu to that one entry.
+void MusicController::loadQualities(const Track& track, quint64 generation) {
+    privilegeId_ = gateway_.get("/privilege/lite", {{"hash", track.hash}, {"album_id", track.albumId}}, this,
+        [this, generation](const QJsonObject& response) {
+        // Availability belongs to the selected song, and survives same-song
+        // media reloads. Selection changes and shutdown invalidate it separately.
+        if (generation != privilegeGeneration_) return;
+        privilegeId_.clear();
+        QStringList present;
+        for (const auto& value : response.value("data").toArray().first().toObject().value("relate_goods").toArray())
+            present.append(value.toObject().value("quality").toString());
+        auto options = qualityOptions(present);
+        // An answer that names nothing must not leave the menu empty; the full
+        // catalog stays selectable and actualQuality reports what was delivered.
+        if (options.isEmpty()) options = qualityOptions(PlaybackQuality::catalog());
+        if (options == availableQualities_) return;
+        availableQualities_ = std::move(options);
+        emit playbackChanged();
+    });
 }
 void MusicController::loadLyrics(const Track& track, quint64 generation) {
     lyricId_ = gateway_.get("/search/lyric", {{"hash", track.hash}}, this, [this, generation](const QJsonObject& response) {
@@ -367,7 +447,7 @@ void MusicController::cycleLoopMode() {
     if (radio_) return;
     loopMode_ = loopMode_ == QLatin1String("list") ? QStringLiteral("single")
         : loopMode_ == QLatin1String("single") ? QStringLiteral("random") : QStringLiteral("list");
-    settings_.setValue("loopMode", loopMode_);
+    storage_.setValue("loopMode", loopMode_);
     emit loopModeChanged();
     emit notice(loopMode_ == QLatin1String("list") ? QStringLiteral("已切换为 列表顺序播放")
         : loopMode_ == QLatin1String("single") ? QStringLiteral("已切换为 单曲循环") : QStringLiteral("已切换为 随机播放"));
@@ -384,7 +464,7 @@ void MusicController::toggleFavorite() {
     const auto& hash = queue_[queueIndex_].hash;
     const bool on = !favorites_.contains(hash);
     if (on) favorites_.append(hash); else favorites_.removeAll(hash);
-    settings_.setValue("favorites", favorites_);
+    storage_.setValue("favorites", favorites_);
     emit favoriteChanged();
     emit notice(on ? QStringLiteral("已收藏到本地") : QStringLiteral("已取消本地收藏"));
 }
@@ -495,15 +575,32 @@ void MusicController::finalizeSession(bool completed) {
     if (!record.isEmpty()) emit listenRecorded(record);
 }
 void MusicController::finishSession() {
-    saveQueue(); shuttingDown_ = true; persistTimer_.stop(); resumeDeadline_.stop(); loadDeadline_.stop(); cancelRadioRequest();
-    finalizeSession(false); player_.pause();
+    saveQueue(); shuttingDown_ = true; stopPlaybackWork();
+    finalizeSession(false); storage_.stop();
+}
+void MusicController::stopPlaybackWork() {
+    ++generation_; ++privilegeGeneration_;
+    gateway_.cancel(resolveId_); gateway_.cancel(lyricId_); gateway_.cancel(privilegeId_);
+    resolveId_.clear(); lyricId_.clear(); privilegeId_.clear(); cancelRadioRequest();
+    persistTimer_.stop(); resumeDeadline_.stop(); loadDeadline_.stop();
+    desiredPlay_ = resumePending_ = loading_ = false;
+    player_.pause(); emit playbackChanged();
+}
+bool MusicController::flushStorage() {
+    saveQueue();
+    return storage_.flush();
+}
+void MusicController::holdPersistenceForImport() {
+    // DataMigration's prepare callback saved the latest clock before its backup.
+    // Join the writer before imported values can replace this file.
+    shuttingDown_ = true; stopPlaybackWork(); storage_.stop();
 }
 qint64 MusicController::duration() const {
     if (player_.duration() > 0) return player_.duration();
     return queueIndex_ >= 0 && queueIndex_ < queue_.size() ? qint64(queue_[queueIndex_].duration) * 1000 : 0;
 }
 void MusicController::applyResume() {
-    if (!resumePending_ || player_.source().isEmpty()) return;
+    if (!resumePending_ || !pendingLoadObserved_ || pendingSource_.isEmpty() || player_.source() != pendingSource_) return;
     const auto status = player_.mediaStatus();
     if (status != QMediaPlayer::LoadedMedia && status != QMediaPlayer::BufferedMedia) return;
     const auto decoded = player_.duration();
@@ -519,24 +616,64 @@ void MusicController::applyResume() {
     if (player_.isSeekable() && player_.position() != position) player_.setPosition(position);
     loading_ = false;
     loadDeadline_.stop();
+    actualQuality_ = pendingActualQuality_; preview_ = pendingPreview_;
+    pendingSource_.clear(); pendingActualQuality_ = "unknown";
+    const bool recovered = std::exchange(recoveringQuality_, false);
+    qualitySource_.reset();
     sourceNeedsReload_ = qualitySwitchPending_ = false;
-    committedQuality_ = quality_; settings_.setValue("quality", quality_);
+    committedQuality_ = quality_; storage_.setValue("quality", quality_);
     if (desiredPlay_) player_.play(); else player_.pause();
     emit positionChanged(); emit playbackChanged(); saveQueue();
+    if (recovered) emit notice(qualityRecoveryReason_ + QStringLiteral("，已恢复%1音质").arg(qualityText(actualQuality_)));
+}
+bool MusicController::recoverQualitySwitch(const QString& reason) {
+    if (!qualitySwitchPending_ || !qualitySource_) return false;
+    tracePlayback("quality_recovery");
+    ++generation_; gateway_.cancel(resolveId_); gateway_.cancel(lyricId_); gateway_.cancel(privilegeId_);
+    resolveId_.clear(); lyricId_.clear(); privilegeId_.clear();
+    quality_ = committedQuality_; qualitySwitchPending_ = false;
+    resumePending_ = false; resumeDeadline_.stop(); loadDeadline_.stop();
+    pendingSource_.clear(); sourceNeedsReload_ = false;
+    const auto previous = *qualitySource_;
+    if (player_.source() == previous.url && hasLoadedSource(player_)) {
+        qualitySource_.reset(); loading_ = false;
+        emit playbackChanged();
+        emit notice(reason + QStringLiteral("，继续播放%1音质").arg(qualityText(actualQuality_)));
+    } else {
+        recoveringQuality_ = true; qualityRecoveryReason_ = reason;
+        pendingSource_ = previous.url; pendingActualQuality_ = actualQuality_; pendingPreview_ = preview_;
+        pendingLoadObserved_ = false;
+        backupUrls_ = previous.backups; resumePosition_ = previous.position;
+        resumePending_ = loading_ = true; session_.seek(); loadDeadline_.start();
+        // The backend still updates its failed media after errorOccurred.
+        // Let that callback unwind before replacing the source, just as for
+        // backup URLs; otherwise it can invalidate the recovered stream.
+        const auto owner = generation_;
+        QTimer::singleShot(0, this, [this, owner, url = previous.url] {
+            if (owner != generation_ || !recoveringQuality_ || shuttingDown_) return;
+            if (player_.source() == url) player_.setSource({});
+            player_.setSource(url); applyResume(); if (resumePending_) resumeDeadline_.start();
+            emit playbackChanged();
+        });
+        emit playbackChanged();
+    }
+    ++privilegeGeneration_;
+    const auto track = queue_[queueIndex_];
+    if (availableQualities_.isEmpty()) loadQualities(track, privilegeGeneration_);
+    loadLyrics(track, generation_);
+    return true;
 }
 void MusicController::saveQueue() {
     if (shuttingDown_) return;
-    const QJsonObject snapshot{{"version", 1}, {"queue", QJsonArray::fromVariantList(queue())},
-        {"index", queueIndex_}, {"position", position()}, {"radio", radio_}};
-    settings_.setValue("queueSnapshot", QJsonDocument(snapshot).toJson(QJsonDocument::Compact));
-    settings_.sync();
+    storage_.saveQueue(queueProjection_, queueIndex_, position(), radio_);
 }
-void MusicController::setQuality(const QString& value) {
-    if (value != "128" && value != "320" && value != "flac" && value != "hires") return;
-    if (quality_ == value) return;
+void MusicController::setQuality(const QString& requested) {
+    const auto value = PlaybackQuality::canonical(requested);
+    if (value.isEmpty()) return;
+    if (quality_ == value && (queueIndex_ < 0 || actualQuality_ == value || loading_)) return;
     quality_ = value;
     if (queueIndex_ < 0 || QUrl(queue_[queueIndex_].hash).isLocalFile()) {
-        committedQuality_ = value; settings_.setValue("quality", value); emit playbackChanged(); return;
+        committedQuality_ = value; storage_.setValue("quality", value); emit playbackChanged(); return;
     }
     if (!ready_) { quality_ = committedQuality_; emit playbackChanged(); return; }
     resolveCurrent(position(), playing() || (loading_ && desiredPlay_), true, false);
@@ -565,11 +702,13 @@ void MusicController::moveQueue(int from, int to) {
     updateQueueProjection(previousIndex, radio_); saveQueue();
 }
 void MusicController::clearQueue() {
-    finalizeSession(false); ++generation_; gateway_.cancel(resolveId_); gateway_.cancel(lyricId_); cancelRadioRequest();
+    finalizeSession(false); ++generation_; gateway_.cancel(resolveId_); gateway_.cancel(lyricId_);
+    ++privilegeGeneration_; gateway_.cancel(privilegeId_); privilegeId_.clear(); availableQualities_.clear(); cancelRadioRequest();
+    quality_ = committedQuality_; qualitySwitchPending_ = recoveringQuality_ = false; qualitySource_.reset(); pendingSource_.clear();
     loading_ = true; player_.stop(); player_.setSource({}); resumeDeadline_.stop(); loadDeadline_.stop();
     const int previousIndex = queueIndex_;
     const bool previousRadio = radio_;
-    queue_.clear(); queueIndex_ = -1; radio_ = false; preview_ = false; resumePending_ = false; resumePosition_ = 0;
+    queue_.clear(); queueIndex_ = -1; radio_ = false; preview_ = false; actualQuality_ = "unknown"; resumePending_ = false; resumePosition_ = 0;
     cues_.clear(); lyricProjection_.clear(); lyricIndex_ = -1; loading_ = false;
     updateQueueProjection(previousIndex, previousRadio); emit lyricsChanged(); emit lyricIndexChanged(); emit playbackChanged(); emit positionChanged(); saveQueue();
 }
@@ -586,10 +725,12 @@ QString MusicController::qualityText(const QString& quality) const {
     if (quality == "128") return QStringLiteral("标准");
     if (quality == "320") return QStringLiteral("高品质");
     if (quality == "flac") return QStringLiteral("无损");
-    if (quality == "hires") return QStringLiteral("Hi-Res");
+    if (quality == "high") return QStringLiteral("Hi-Res");
+    if (quality == "master") return QStringLiteral("臻品母带");
     if (quality == "local") return QStringLiteral("本地");
     return QStringLiteral("音质待确认");
 }
+QVariantList MusicController::qualityCatalog() const { return qualityOptions(PlaybackQuality::catalog()); }
 void MusicController::setMessage(QString text) { message_ = std::move(text); emit statusChanged(); }
 void MusicController::tracePlayback(const QString& event) const {
     const auto track = current();
@@ -599,18 +740,21 @@ void MusicController::tracePlayback(const QString& event) const {
         {"radio", radio_}, {"index", queueIndex_}, {"position", player_.position()}, {"state", int(player_.playbackState())},
         {"mediaStatus", int(player_.mediaStatus())}, {"error", int(player_.error())}};
     auto fields = row; fields.insert("requestId", resolveId_); fields.insert("generation", qint64(generation_));
+    fields.insert("quality", quality_); fields.insert("actualQuality", actualQuality_);
+    fields.insert("pendingQuality", pendingActualQuality_); fields.insert("loading", loading_);
+    fields.insert("pendingLoadObserved", pendingLoadObserved_); fields.insert("recoveringQuality", recoveringQuality_);
     fields.insert("application", QCoreApplication::applicationFilePath());
     fields.insert("version", QCoreApplication::applicationVersion());
     writeDiagnostic(QFileInfo(settings_.fileName()).absolutePath(), "playback", fields);
 }
 void MusicController::setVolume(double value) {
     value = std::clamp(value, 0.0, 1.0); output_.setVolume(static_cast<float>(value));
-    settings_.setValue("volume", value); emit appearanceChanged();
+    storage_.setValue("volume", value); emit appearanceChanged();
 }
 void MusicController::setLyricSize(int value) {
-    lyricSize_ = std::clamp(value, 20, 48); settings_.setValue("lyricSize", lyricSize_); emit appearanceChanged();
+    lyricSize_ = std::clamp(value, 20, 48); storage_.setValue("lyricSize", lyricSize_); emit appearanceChanged();
 }
-void MusicController::setVinyl(bool value) { vinyl_ = value; settings_.setValue("vinyl", value); emit appearanceChanged(); }
+void MusicController::setVinyl(bool value) { vinyl_ = value; storage_.setValue("vinyl", value); emit appearanceChanged(); }
 void MusicController::setReducedMotion(bool value) {
-    reducedMotion_ = value; settings_.setValue("reducedMotion", value); emit appearanceChanged();
+    reducedMotion_ = value; storage_.setValue("reducedMotion", value); emit appearanceChanged();
 }

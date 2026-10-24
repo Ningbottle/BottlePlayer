@@ -11,7 +11,7 @@ add_library(bottle_qt_core STATIC
     src/core/Diagnostics.cpp src/core/Diagnostics.h
     src/core/DiagnosticWriter.cpp src/core/DiagnosticWriter.h
     src/music/Track.cpp src/music/Track.h
-    src/music/MusicController.cpp src/music/MusicController.h
+    src/music/MusicController.cpp src/music/MusicController.h src/music/PlaybackQuality.h
     src/account/AccountController.cpp src/account/AccountController.h src/account/QrImage.cpp src/account/QrImage.h
     src/account/VipController.cpp src/account/VipController.h
     src/library/LibraryController.cpp src/library/LibraryController.h
@@ -25,6 +25,7 @@ add_library(bottle_qt_core STATIC
     src/stats/StatsController.cpp src/stats/StatsController.h
     src/stats/AiAnalyzer.cpp src/stats/AiAnalyzer.h
     src/settings/SettingsController.cpp src/settings/SettingsController.h
+    src/settings/PlaybackStore.cpp src/settings/PlaybackStore.h
     src/settings/DataMigration.cpp src/settings/DataMigration.h
     src/settings/StatsArchive.cpp src/settings/StatsArchive.h
     src/platform/MediaIntegration.cpp src/platform/MediaIntegration.h
@@ -163,6 +164,9 @@ if(BUILD_TESTING)
     target_link_libraries(bottle_music_flow_tests PRIVATE bottle_qt_core Qt6::Test)
     add_test(NAME qt_music_flows COMMAND bottle_music_flow_tests -o "${CMAKE_CURRENT_BINARY_DIR}/Testing/qt_music_flows.txt,txt")
     set_tests_properties(qt_music_flows PROPERTIES ENVIRONMENT "BOTTLE_ACCOUNT_TEST_DLL=$<TARGET_FILE:bottle_native_fixture>")
+    qt_add_executable(bottle_playback_storage_tests tests/tst_playback_storage.cpp)
+    target_link_libraries(bottle_playback_storage_tests PRIVATE bottle_qt_core Qt6::Test)
+    add_test(NAME qt_playback_storage COMMAND bottle_playback_storage_tests -o "${CMAKE_CURRENT_BINARY_DIR}/Testing/qt_playback_storage.txt,txt")
     qt_add_executable(bottle_library_migration_tests tests/tst_library_migration.cpp)
     target_link_libraries(bottle_library_migration_tests PRIVATE bottle_qt_core Qt6::Test)
     add_test(NAME qt_library_migration COMMAND bottle_library_migration_tests)
@@ -182,7 +186,7 @@ if(BUILD_TESTING)
     if(MSVC)
         target_compile_options(bottle_visual_tests PRIVATE /utf-8 /W4)
     endif()
-    add_test(NAME qt_visual_contracts COMMAND bottle_visual_tests)
+    add_test(NAME qt_visual_contracts COMMAND bottle_visual_tests -o "${CMAKE_CURRENT_BINARY_DIR}/Testing/qt_visual_contracts.txt,txt")
     qt_add_executable(bottle_lyric_binding_tests tests/tst_lyric_bindings.cpp)
     target_link_libraries(bottle_lyric_binding_tests PRIVATE bottle_qt_uiplugin Qt6::QuickControls2 Qt6::Test)
     if(MSVC)

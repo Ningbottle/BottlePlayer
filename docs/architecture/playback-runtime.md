@@ -2,6 +2,14 @@
 
 `MusicController` 拥有队列、当前曲目、循环方式、音质和播放意图。取链由 `NativeGateway` 调用 `/song/url`，结果通过当前播放代次校验后交给 `QMediaPlayer`。媒体加载有超时，失败后再次播放应重新取链；已选音质在媒体加载成功后才提交。
 
+退出会话和导入暂停都会使当前播放代次失效，取消取链、歌词与音质候选请求，停止加载及恢复计时器；关闭后的媒体状态不再触发自动推进。即使上游忽略取消，迟到结果也不能重新设置媒体源。播放存储的提交与停止屏障见 [存储与数据](storage-and-data.md)。
+
+音质候选由 `/privilege/lite` 的 `relate_goods` 逐曲给出。`/song/url` 的 `available_qualities` 描述本次响应中的可交付流，v5 可只返回一项，因此不用于裁剪选择菜单。候选查询按歌曲选择维护独立代次；同曲切换音质复用已完成或进行中的查询，换曲、清空队列和关闭使旧查询失效。没有可识别的候选时回落到完整音质表。
+
+Qt 的菜单、偏好读取和导入共用 `PlaybackQuality` 词表：`128`/`320`/`flac`/`high`/`master`。旧 profile 与导出档中的 `hires` 在输入边界归一为 `high`，保存及请求使用规范值。v5 的音质标签依据容器和归一化码率，缺少证据时回落到请求值；v6 数组的 `info.bitrate` 按 kbps 分档，不能套用 v5 的 bps 换算。`delivery`/`is_preview` 根据试听证据独立分类，音质降级本身不代表试听。
+
+音质切换保留上一条可用音源、播放位置和备用地址，只有新媒体真正加载成功后才提交新音质。取链失败、权限拒绝、返回音质与选择不符，或完整音源被降为试听时，继续使用原音源并提示原因；替换音源解码失败或超时时尝试恢复原音源，恢复失败提示重试。只有属于当前请求的音源才能提交加载结果，旧音源的迟到状态不会改写新音质。实际音质与试听状态同样在加载成功后更新，菜单勾选与播放器标签取同一来源；未选歌时表示预选偏好。
+
 音频由 `EqualizerController` 与 `PcmOutput` 处理输出及均衡器。选择设备后要核对实际 PCM 路由；设备暂时消失时保留用户选择，恢复后再绑定。测试既要观察媒体时钟，也要确认目标设备收到音频且其他设备没有错误输出。
 
 红心推荐先消费已有队列，接近尾部才拉取并追加去重。准备阶段可退出；手动选曲、换列表和账户变化会使旧推荐结果失效。请求失败保留已有播放。幕布和封面墙是外观选择，不能改变队列所有权。
@@ -15,7 +23,7 @@
 3. 对照 `playback-diagnostics.jsonl` 的取链、加载、播放及错误事件。
 4. 对照 `audio-diagnostics.jsonl` 的设备与 PCM 状态，在耳机连接、拔出和重连场景实测。
 
-每类诊断保留两份、每份约 512 KiB。分享前按 [数据边界](../security/data-boundaries.md) 脱敏。回归入口包括 `qt_music_flows`、`qt_audio_runtime` 及 `bottle_qt_smoke` 的 `user-fixes` 模式。
+每类诊断保留两份、每份约 512 KiB。分享前按 [数据边界](../security/data-boundaries.md) 脱敏。回归入口包括 `qt_music_flows`、`qt_audio_runtime` 及 `bottle_qt_smoke` 的 `user-fixes` 模式；音质菜单与切换由 `bottle_qt_smoke` 的 `account` 模式覆盖，需要 `BOTTLE_SMOKE_AUDIO` 指向可播放 wav。
 
 Qt 诊断由单一后台 writer 串行写入。调用线程只生成记录并进入有界队列，不等待目录创建、轮转或写盘；最多排队 512 条，其中 64 条为错误/失败/超时等事件预留。单条记录上限 16KiB（含内部统计字段），超量丢弃和写失败通过统计及下一条成功记录中的 `diagnosticDropped`、`diagnosticCriticalDropped`、`diagnosticWriteFailures` 可见。文件短写会尝试回滚，下一次写入会清理未完成的末行。
 

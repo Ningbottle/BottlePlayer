@@ -7,8 +7,62 @@
 #include <QJsonDocument>
 #include <QSignalSpy>
 #include <QFile>
+#include <QFutureWatcher>
 #include <QtEndian>
+#include <QTcpServer>
+#include <QTcpSocket>
+#include <QHostAddress>
+#include <QRegularExpression>
 #include <cstring>
+
+namespace {
+// Serves a decodable WAV so a quality switch can be distinguished from an
+// unreachable fixture URL, and so a failed reload has a source to recover.
+class WavServer {
+public:
+    WavServer() {
+        constexpr int rate = 8000, seconds = 20;
+        wav_.resize(44 + rate * seconds * 2);
+        std::memcpy(wav_.data(), "RIFF", 4); std::memcpy(wav_.data() + 8, "WAVEfmt ", 8);
+        qToLittleEndian<quint32>(quint32(wav_.size() - 8), wav_.data() + 4);
+        qToLittleEndian<quint32>(16, wav_.data() + 16); qToLittleEndian<quint16>(1, wav_.data() + 20);
+        qToLittleEndian<quint16>(1, wav_.data() + 22); qToLittleEndian<quint32>(rate, wav_.data() + 24);
+        qToLittleEndian<quint32>(rate * 2, wav_.data() + 28); qToLittleEndian<quint16>(2, wav_.data() + 32);
+        qToLittleEndian<quint16>(16, wav_.data() + 34); std::memcpy(wav_.data() + 36, "data", 4);
+        qToLittleEndian<quint32>(quint32(wav_.size() - 44), wav_.data() + 40);
+        QObject::connect(&server_, &QTcpServer::newConnection, &server_, [this] {
+            while (auto* socket = server_.nextPendingConnection()) {
+                QObject::connect(socket, &QTcpSocket::disconnected, socket, &QObject::deleteLater);
+                QObject::connect(socket, &QTcpSocket::readyRead, socket, [this, socket] {
+                    if (socket->property("sent").toBool()) return;
+                    const auto request = socket->property("request").toByteArray() + socket->readAll();
+                    socket->setProperty("request", request);
+                    if (!request.contains("\r\n\r\n")) return;
+                    socket->setProperty("sent", true);
+                    const auto range = QRegularExpression("Range: bytes=(\\d+)-(\\d*)", QRegularExpression::CaseInsensitiveOption)
+                        .match(QString::fromLatin1(request));
+                    const qint64 start = range.hasMatch() ? range.captured(1).toLongLong() : 0;
+                    const qint64 end = range.hasMatch() && !range.captured(2).isEmpty()
+                        ? qMin(range.captured(2).toLongLong(), qint64(wav_.size() - 1)) : wav_.size() - 1;
+                    const auto body = wav_.mid(start, qMax<qint64>(0, end - start + 1));
+                    QByteArray header = range.hasMatch() ? "HTTP/1.1 206 Partial Content\r\n" : "HTTP/1.1 200 OK\r\n";
+                    if (range.hasMatch()) header += "Content-Range: bytes " + QByteArray::number(start) + "-"
+                        + QByteArray::number(end) + "/" + QByteArray::number(wav_.size()) + "\r\n";
+                    header += "Content-Type: audio/wav\r\nAccept-Ranges: bytes\r\nContent-Length: "
+                        + QByteArray::number(body.size()) + "\r\nConnection: close\r\n\r\n";
+                    socket->write(header + body); socket->disconnectFromHost();
+                });
+            }
+        });
+        server_.listen(QHostAddress::LocalHost);
+    }
+    bool ok() const { return server_.isListening(); }
+    QString url() const { return QStringLiteral("http://127.0.0.1:%1/fixture.wav").arg(server_.serverPort()); }
+private:
+    QTcpServer server_;
+    QByteArray wav_;
+};
+}
 
 class MusicFlowTests final : public QObject {
     Q_OBJECT
@@ -76,6 +130,39 @@ private slots:
         QTemporaryDir profile(root());configure({});MusicController music(fixture_.fileName(),profile.path());initialize(music);music.playTracks({track(1).toVariantMap()},0);
         QTRY_VERIFY_WITH_TIMEOUT(!music.loading()&&music.mediaPlayer()->error()!=QMediaPlayer::NoError,10000);
         const int before=requests("/song/url").size();music.toggle();QTRY_COMPARE(requests("/song/url").size(),before+1);music.finishSession();
+    }
+    void closingDiscardsLatePlaybackResolution_data() {
+        QTest::addColumn<bool>("importing");
+        QTest::addColumn<bool>("repeat");
+        QTest::newRow("finish") << false << false;
+        QTest::newRow("import") << true << false;
+        QTest::newRow("finish-again") << false << true;
+        QTest::newRow("import-again") << true << true;
+    }
+    void closingDiscardsLatePlaybackResolution() {
+        QFETCH(bool, importing);
+        QFETCH(bool, repeat);
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({{"song_delay", 150}, {"delay_path", "/privilege/lite"}, {"delay_ms", 250}, {"ignore_cancel", true}});
+        MusicController music(fixture_.fileName(), profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap(), track(2).toVariantMap()}, 0); QVERIFY(music.loading());
+        if (importing) { QVERIFY(music.flushStorage()); music.holdPersistenceForImport(); }
+        else music.finishSession();
+        if (repeat) {
+            // Explicit actions after an import can create more work. A later
+            // close must still stop it while keeping persistence sealed.
+            music.playQueue(1);
+            if (importing) music.holdPersistenceForImport(); else music.finishSession();
+        }
+        // Watcher deletion follows callback delivery, so this is a completion
+        // barrier even when the fixture deliberately ignores cancellation.
+        QTRY_VERIFY_WITH_TIMEOUT(music.nativeGateway().findChildren<QFutureWatcherBase*>().isEmpty(), 5000);
+        QVERIFY(music.mediaPlayer()->source().isEmpty());
+        QVERIFY(music.availableQualities().isEmpty());
+        QVERIFY(!music.loading()); QVERIFY(!music.playing());
+        const auto index = music.queueIndex();
+        music.mediaPlayer()->mediaStatusChanged(QMediaPlayer::EndOfMedia);
+        QCOMPARE(music.queueIndex(), index); QVERIFY(!music.loading());
     }
     void accountChangeDiscardsPendingRadio() {
         QTemporaryDir profile(root());configure({{"fm_delay",150},{"ignore_cancel",true}});MusicController music(fixture_.fileName(),profile.path());initialize(music);
@@ -238,6 +325,172 @@ private slots:
         });
         music.clearQueue(); QVERIFY(observedClear); QVERIFY(emptyLyricsOnQueueNotification);
         QVERIFY(music.lyrics().isEmpty()); music.finishSession();
+    }
+    void singleDeliveredQualityDoesNotCollapseThePicker() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        QStringList catalog; for (const auto& option : music.qualityCatalog()) catalog.append(option.toMap().value("quality").toString());
+        QCOMPARE(catalog, QStringList({"128","320","flac","high","master"}));
+        QCOMPARE(music.qualityText("high"), QString("Hi-Res"));
+        QCOMPARE(music.qualityText("master"), QString("臻品母带"));
+        QVERIFY(music.availableQualities().isEmpty());
+        music.playTracks({track(1).toVariantMap()},0);
+        // Native v5 answers with exactly one quality. The picker must keep the
+        // song's own availability instead of inheriting that single entry.
+        QTRY_VERIFY_WITH_TIMEOUT(music.availableQualities().size()>1,5000);
+        QStringList offered; for (const auto& option : music.availableQualities()) offered.append(option.toMap().value("quality").toString());
+        QCOMPARE(offered, QStringList({"128","320","flac","high"}));
+        QCOMPARE(requests("/privilege/lite").size(),1);
+        QCOMPARE(requests("/privilege/lite")[0].toObject().value("query").toObject().value("hash"),track(1).value("hash"));
+        const int before=requests("/song/url").size();
+        music.setQuality("flac");
+        QCOMPARE(music.quality(),QString("flac"));
+        QTRY_COMPARE_WITH_TIMEOUT(requests("/song/url").size(),before+1,5000);
+        QCOMPARE(requests("/song/url").last().toObject().value("query").toObject().value("quality").toString(),QString("flac"));
+        // Switching quality keeps the same song, so its availability is reused.
+        QCOMPARE(requests("/privilege/lite").size(),1);
+        music.finishSession();
+    }
+    void privilegeAnswerTrimsThePickerPerSong() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({{"privilege_goods",QJsonArray{QJsonObject{{"quality","128"}}}}});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()},0);
+        QTRY_COMPARE_WITH_TIMEOUT(music.availableQualities().size(),1,5000);
+        QCOMPARE(music.availableQualities()[0].toMap().value("quality").toString(),QString("128"));
+        music.finishSession();
+    }
+    void qualitySwitchKeepsPendingSongAvailability() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({{"delay_path", "/privilege/lite"}, {"delay_ms", 250}, {"ignore_cancel", true},
+            {"privilege_goods", QJsonArray{QJsonObject{{"quality", "128"}}, QJsonObject{{"quality", "320"}}}}});
+        MusicController music(fixture_.fileName(), profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()}, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(requests("/privilege/lite").size(), 1, 5000);
+        QVERIFY(music.availableQualities().isEmpty());
+        music.setQuality("320");
+        QTRY_VERIFY_WITH_TIMEOUT(music.nativeGateway().findChildren<QFutureWatcherBase*>().isEmpty(), 5000);
+        QStringList offered;
+        for (const auto& option : music.availableQualities()) offered.append(option.toMap().value("quality").toString());
+        QCOMPARE(offered, QStringList({"128", "320"}));
+        // Availability belongs to the song, so a same-song switch shares its request.
+        QCOMPARE(requests("/privilege/lite").size(), 1);
+        music.finishSession();
+    }
+    void failedQualitySwitchKeepsPreviousAudio() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        WavServer audio; QVERIFY(audio.ok());
+        configure({{"audio_url", audio.url()}});
+        MusicController music(fixture_.fileName(), profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()}, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(music.actualQuality(), QString("128"), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(!music.loading(), 10000);
+        const auto sourceBefore = music.mediaPlayer()->source();
+        QSignalSpy notices(&music, &MusicController::notice);
+        // The server rejects the 320 request; the usable 128 stream must stay.
+        configure({{"audio_url", audio.url()}, {"song_fail", true}});
+        music.setQuality("320");
+        QTRY_COMPARE_WITH_TIMEOUT(music.quality(), QString("128"), 5000);
+        QCOMPARE(music.actualQuality(), QString("128"));
+        QCOMPARE(music.mediaPlayer()->source(), sourceBefore);
+        QVERIFY(!music.loading());
+        QTRY_VERIFY_WITH_TIMEOUT(!notices.isEmpty(), 2000);
+        QVERIFY(notices.last().first().toString().contains("继续播放"));
+        music.finishSession();
+    }
+    void downgradedQualityKeepsCurrentStream() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        WavServer audio; QVERIFY(audio.ok());
+        configure({{"audio_url", audio.url()}});
+        MusicController music(fixture_.fileName(), profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()}, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(music.actualQuality(), QString("128"), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(!music.loading(), 10000);
+        const auto sourceBefore = music.mediaPlayer()->source();
+        QSignalSpy notices(&music, &MusicController::notice);
+        // Asking for 320 while the server only delivers 128 must not silently
+        // replace a stream the user can already hear.
+        configure({{"audio_url", audio.url()}, {"delivered_quality", "128"}});
+        music.setQuality("320");
+        QTRY_COMPARE_WITH_TIMEOUT(music.quality(), QString("128"), 5000);
+        QCOMPARE(music.actualQuality(), QString("128"));
+        QCOMPARE(music.mediaPlayer()->source(), sourceBefore);
+        QTRY_VERIFY_WITH_TIMEOUT(!notices.isEmpty(), 2000);
+        QVERIFY(notices.last().first().toString().contains("暂不可用"));
+        music.finishSession();
+    }
+    void previewCannotReplaceFullStream() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        WavServer audio; QVERIFY(audio.ok());
+        configure({{"audio_url", audio.url()}});
+        MusicController music(fixture_.fileName(), profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()}, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(music.actualQuality(), QString("128"), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(!music.loading(), 10000);
+        const auto sourceBefore = music.mediaPlayer()->source();
+        QSignalSpy notices(&music, &MusicController::notice);
+        configure({{"audio_url", audio.url()}, {"song_preview", true}});
+        music.setQuality("320");
+        QTRY_COMPARE_WITH_TIMEOUT(music.quality(), QString("128"), 5000);
+        QVERIFY(!music.preview());
+        QCOMPARE(music.mediaPlayer()->source(), sourceBefore);
+        QTRY_VERIFY_WITH_TIMEOUT(!notices.isEmpty(), 2000);
+        QVERIFY(notices.last().first().toString().contains("仅提供试听"));
+        music.finishSession();
+    }
+    void failedSwitchReloadsPreviousSource() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        WavServer audio; QVERIFY(audio.ok());
+        configure({{"audio_url", audio.url()}});
+        MusicController music(fixture_.fileName(), profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()}, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(music.actualQuality(), QString("128"), 10000);
+        QTRY_VERIFY_WITH_TIMEOUT(!music.loading(), 10000);
+        const auto sourceBefore = music.mediaPlayer()->source();
+        QSignalSpy notices(&music, &MusicController::notice);
+        // A switch that resolves to an undecodable URL must reload the last
+        // usable source instead of leaving the queue stuck on a dead stream.
+        configure({{"audio_url", QStringLiteral("http://127.0.0.1:1/missing.wav")}, {"delivered_quality", "320"}});
+        music.setQuality("320");
+        QTRY_COMPARE_WITH_TIMEOUT(music.quality(), QString("128"), 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(music.actualQuality(), QString("128"), 15000);
+        QTRY_COMPARE_WITH_TIMEOUT(music.mediaPlayer()->source(), sourceBefore, 15000);
+        QTRY_VERIFY_WITH_TIMEOUT(!music.loading(), 15000);
+        QTRY_VERIFY_WITH_TIMEOUT(!notices.isEmpty(), 5000);
+        QVERIFY(notices.last().first().toString().contains("已恢复"));
+        music.finishSession();
+    }
+    void lateSongAvailabilityCannotReplaceNewSelection() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({{"delay_path", "/privilege/lite"}, {"delay_ms", 250}, {"ignore_cancel", true},
+            {"privilege_goods", QJsonArray{QJsonObject{{"quality", "128"}}}}});
+        MusicController music(fixture_.fileName(), profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap(), track(2).toVariantMap()}, 0);
+        QTRY_COMPARE_WITH_TIMEOUT(requests("/privilege/lite").size(), 1, 5000);
+        // The first worker owns a copied fixture configuration before it sleeps.
+        configure({{"privilege_goods", QJsonArray{QJsonObject{{"quality", "320"}}}}});
+        music.playQueue(1);
+        QTRY_VERIFY_WITH_TIMEOUT(music.nativeGateway().findChildren<QFutureWatcherBase*>().isEmpty(), 5000);
+        QCOMPARE(music.availableQualities().size(), 1);
+        QCOMPARE(music.availableQualities()[0].toMap().value("quality").toString(), QString("320"));
+        music.finishSession();
+    }
+    void emptyPrivilegeAnswerFallsBackToTheCatalog() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({{"privilege_goods",QJsonArray{}}});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()},0);
+        QTRY_COMPARE_WITH_TIMEOUT(music.availableQualities().size(),music.qualityCatalog().size(),5000);
+        music.finishSession();
+    }
+    void clearedQueueDropsTheResolvedQualities() {
+        QTemporaryDir profile(root()); QVERIFY(profile.isValid());
+        configure({});
+        MusicController music(fixture_.fileName(),profile.path()); initialize(music);
+        music.playTracks({track(1).toVariantMap()},0);
+        QTRY_VERIFY_WITH_TIMEOUT(music.availableQualities().size()>1,5000);
+        music.clearQueue(); QVERIFY(music.availableQualities().isEmpty()); music.finishSession();
     }
     void queueAndFeedGetterBenchmark2000Tracks() {
         QTemporaryDir profile(root()); QVERIFY(profile.isValid());
