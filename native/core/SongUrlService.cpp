@@ -4,6 +4,7 @@
 #include "echo/core/KuGouAndroidRequest.h"
 #include "echo/core/KuGouProfile.h"
 #include "echo/core/RequestDeadlines.h"
+#include "echo/core/UpstreamFields.h"
 #include "echo/diagnostics/EchoDiagnostics.h"
 #include "echo/diagnostics/Redaction.h"
 
@@ -125,19 +126,37 @@ std::string ReadString(const nlohmann::json& value, std::string_view key) {
   return "";
 }
 
-int ReadInt(const nlohmann::json& value, std::string_view key, int fallback = 0) {
-  if (!value.contains(key)) return fallback;
-  const auto& item = value.at(key);
+std::optional<int> ReadIntValue(const nlohmann::json& item) {
   if (item.is_number_integer()) return item.get<int>();
   if (item.is_number_unsigned()) return static_cast<int>(item.get<unsigned int>());
   if (item.is_string()) {
     try {
       return std::stoi(item.get<std::string>());
     } catch (...) {
-      return fallback;
+      return std::nullopt;
     }
   }
-  return fallback;
+  return std::nullopt;
+}
+
+int ReadInt(const nlohmann::json& value, std::string_view key, int fallback = 0) {
+  if (!value.contains(key)) return fallback;
+  return ReadIntValue(value.at(key)).value_or(fallback);
+}
+
+// errcode-first reading with error_code fallback (prefix stoi) — the
+// tracker/v5 dialect. Deliberately differs from CompatApiUtils'
+// error_code-first conflict rule and from the mobilecdn dialect where both
+// fields must independently be zero; pinned by upstream_semantics_test.cpp.
+int UpstreamErrcode(const nlohmann::json& response) {
+  const auto fields = upstream::Read(response);
+  if (fields.errcode) {
+    if (const auto parsed = ReadIntValue(*fields.errcode)) return *parsed;
+  }
+  if (fields.errorCode) {
+    if (const auto parsed = ReadIntValue(*fields.errorCode)) return *parsed;
+  }
+  return 0;
 }
 
 std::string ReadStringOrFirstArrayElement(const nlohmann::json& value, std::string_view key) {
@@ -426,7 +445,7 @@ nlohmann::json MakeAttempt(const char* endpoint, const HttpResult& result,
     if (reasons.size() == 1) failure = reasons[0];
     else if (!reasons.empty()) failure = std::move(reasons);
   }
-  const int errcode = ReadInt(response, "errcode", ReadInt(response, "error_code", 0));
+  const int errcode = UpstreamErrcode(response);
   // Sanitized upstream message for diagnostics only (no URLs / tokens).
   std::string message;
   if (response.is_object()) {
@@ -806,7 +825,7 @@ nlohmann::json SongUrlService::ResolveV6PrivUrlWithTimeout(
   // ── 6. Parse response ────────────────────────────────────────────────────
   // v6 returns: { status, data: { url: [{ quality, url, ... }, ...] }, ... }
   const int status = ReadInt(upstream, "status", 0);
-  const int errcode = ReadInt(upstream, "errcode", ReadInt(upstream, "error_code", 0));
+  const int errcode = UpstreamErrcode(upstream);
   if (status == 0 && errcode != 0) {
     return finish(EmptySongUrl(hash, "", "v6 errcode " + std::to_string(errcode)));
   }
@@ -1410,7 +1429,7 @@ nlohmann::json SongUrlService::Resolve(
   if (!ok && error.empty()) {
     const bool needsVip = HasFailProcess(upstream, {"pkg", "buy", "vip"});
     const int upstreamStatus = ReadInt(upstream, "status", 0);
-    const int errcode = ReadInt(upstream, "errcode", ReadInt(upstream, "error_code", 0));
+    const int errcode = UpstreamErrcode(upstream);
     // Only an authenticated attempt can establish a missing entitlement. An
     // anonymous fallback can return pkg/buy simply because it has no token; that
     // must not override the authenticated leg's explicit token rejection.
